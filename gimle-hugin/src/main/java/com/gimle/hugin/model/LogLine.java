@@ -1,5 +1,6 @@
 package com.gimle.hugin.model;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -17,6 +18,14 @@ public record LogLine(String timestamp, Optional<String> level, Optional<String>
     if (level == null || message == null) {
       throw new IllegalArgumentException("optional fields must not be null; use Optional.empty()");
     }
+  }
+
+  /**
+   * What a filter is matched against: the level and the message, not the timestamp. Typing digits
+   * to narrow a log by its content should not also match every line logged in that minute.
+   */
+  public String searchText() {
+    return (level().orElse("") + " " + message().orElse("")).toLowerCase(Locale.ROOT);
   }
 
   /**

@@ -810,7 +810,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-793 | `gimle top` renders a live, read-only cluster view of nodes and instances | New | Covered | `terminal-view.feature` — "A running deployment appears in the rendered frame with its real state" |
 | GIMLE-794 | A failed poll keeps the last good rows and ages them rather than clearing the screen | New | Not Covered | — |
 | GIMLE-795 | Instance drill-down with lifecycle timeline and a live log tail | New | Not Covered | — |
-| GIMLE-796 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | New | Not Covered | — |
+| GIMLE-796 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Modified | Not Covered | — |
 | GIMLE-797 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | New | Not Covered | — |
 | GIMLE-798 | The terminal view ships in the CLI archives and is removable in one directory delete | New | Not Covered | — |
 | GIMLE-799 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | New | Covered | `terminal-view.feature` — "A workload the scheduler cannot place is reported rather than silently short"; `terminal-view.feature` — "A healthy cluster reports nothing unsettled" |
@@ -8363,10 +8363,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-796 — Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal
 
 - **Category**: CLI UX
-- **Status**: New  _(New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance.)_
+- **Status**: Modified  _(New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang cannot send keystrokes to a raw-mode terminal; there is no headless path to drive this end to end.
-- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. Plus UiStateTest's positional-sort cases and InstanceScreenTest's log-filter cases.
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`, `gimle-hugin/src/main/java/com/gimle/hugin/term/JLineTerminalSession.java`
 
 #### GIMLE-797 — Terminal colour is the console's own tokens, degrading to 256-colour and to none
@@ -8441,7 +8441,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-804 — The terminal view browses every collection the control plane lists, including registered custom kinds
 
 - **Category**: CLI UX
-- **Status**: New  _(New requirement: a `:` prompt opens any kind the control plane lists as objects -- tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes, kinddefinitions -- plus whatever custom kinds the cluster registered, whose columns come from their own printColumns. ConfigMaps, secrets and the artifact catalog are absent because the API lists none of them as objects.)_
+- **Status**: New  _(New requirement: a `:` prompt opens any kind the control plane lists as objects -- the six workload kinds (deployments, daemonsets, statefulsets, jobs, services, alertrules), tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes, kinddefinitions -- plus whatever custom kinds the cluster registered, whose columns come from their own printColumns. ConfigMaps, secrets and the artifact catalog are absent because the API lists none of them as objects.)_
 - **Coverage**: Not Covered
 - **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered table. The collection routes themselves are reachable from a scenario; the browser that draws them is not.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ResourceCatalogTest (resolution, custom-kind discovery, collision, degraded discovery, suggestions), ResourceReaderTest (column resolution, the wrapped collection, permission and failure paths), ResourceScreenTest (header, label, filter, permission message, width) and JsonPathTest (the dotted path walk).
@@ -8450,7 +8450,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-805 — The terminal view describes a selected resource as YAML without re-reading it
 
 - **Category**: CLI UX
-- **Status**: New  _(New requirement: enter on a browser row renders that resource's own object as scrollable YAML, from the object the row already carries rather than a fresh read, so the table and the detail can never disagree about which read is current.)_
+- **Status**: New  _(New requirement: enter on a browser row, or d on an instance row in the cluster view, renders that resource's own object as scrollable YAML, from the object the row already carries rather than a fresh read, so the table and the detail can never disagree about which read is current.)_
 - **Coverage**: Not Covered
 - **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour).
@@ -8569,7 +8569,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-637 | gimle-cli | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | `GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell) |
 | GIMLE-794 | gimle-hugin | A failed poll keeps the last good rows and ages them rather than clearing the screen | CLI UX | gimle-hugin's ClusterPollerTest (failure keeps rows and age, recovery clears the marking, the pre-first-poll state, pause/resume) and ClusterScreenTest's stale status-line assertion. |
 | GIMLE-795 | gimle-hugin | Instance drill-down with lifecycle timeline and a live log tail | CLI UX | gimle-hugin's InstanceWatcherTest (backlog-then-follow ordering, the resume cursor, tenant scoping on every route, a failing route, a stream ending on its own) and InstanceScreenTest, plus SnapshotReaderTest's tier/limit parsing cases and InstanceScreenTest's per-tier rendering cases. |
-| GIMLE-796 | gimle-hugin | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. |
+| GIMLE-796 | gimle-hugin | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. Plus UiStateTest's positional-sort cases and InstanceScreenTest's log-filter cases. |
 | GIMLE-797 | gimle-hugin | Terminal colour is the console's own tokens, degrading to 256-colour and to none | CLI UX | gimle-hugin's StatusVariantTest (pins every lifecycle state against the console's mapping and fails when the platform adds one the mapping misses) and PainterTest (exact truecolor output, the 256-colour approximation, and NO_COLOR emitting nothing). |
 | GIMLE-800 | gimle-hugin | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet's shortfall read from its computed desired count, and a workload carrying neither figure) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal). |
 | GIMLE-802 | gimle-hugin | An activity view of what has been done to the cluster, over the audit trail | CLI UX | gimle-hugin's ActivityReaderTest and ActivityScreenTest. |

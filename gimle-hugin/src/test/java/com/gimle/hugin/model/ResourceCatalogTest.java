@@ -26,6 +26,34 @@ class ResourceCatalogTest {
   }
 
   @Test
+  void the_workload_kinds_browse_too_because_a_table_of_instances_is_not_the_workload() {
+    // A Deployment's declared replica count and module coordinate are not readable from a table
+    // of the instances it happens to be running, which is what `:deployments` is asked for.
+    ResourceCatalog catalog = ResourceCatalog.builtInOnly();
+
+    for (String key :
+        List.of("deployments", "daemonsets", "statefulsets", "jobs", "services", "alertrules")) {
+      assertTrue(catalog.resolve(key).isPresent(), key);
+    }
+  }
+
+  @Test
+  void the_cluster_views_own_workload_kinds_each_reach_a_browsable_kind_by_their_route() {
+    // `d` finds the kind to describe by the route a WorkloadKind already names, so the two cannot
+    // drift apart over what /deployments is called.
+    ResourceCatalog catalog = ResourceCatalog.builtInOnly();
+
+    for (WorkloadKind kind : WorkloadKind.values()) {
+      assertTrue(catalog.forRoute(kind.route()).isPresent(), kind.name());
+    }
+  }
+
+  @Test
+  void a_route_nothing_browses_resolves_to_nothing_rather_than_to_the_wrong_kind() {
+    assertTrue(ResourceCatalog.builtInOnly().forRoute("/cronjobs/firings").isEmpty());
+  }
+
+  @Test
   void a_registered_kind_joins_the_catalog_with_the_columns_its_definition_declares() {
     ResourceCatalog catalog = ResourceCatalog.discover(readerWithGreeting());
 

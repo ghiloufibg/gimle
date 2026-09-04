@@ -140,6 +140,33 @@ class ResourceReaderTest {
     assertEquals(List.of("hello", "acme", "góðan dag"), row.cells());
   }
 
+  @Test
+  void a_workload_kind_reads_the_spec_wrapper_its_list_route_actually_answers_with() {
+    // These routes answer {spec:{...}, instances:[...], unplacedCount}, not a flat object, so
+    // every column path here has to go through the wrapper.
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withList(
+                "/deployments",
+                List.of(
+                    Map.of(
+                        "spec",
+                            Map.of(
+                                "name", "checkout-api",
+                                "tenantId", "acme",
+                                "replicas", 3,
+                                "moduleId", "com.example:checkout:1.2.0"),
+                        "unplacedCount", 1,
+                        "instances", List.of(Map.of("instanceIndex", 0)))));
+
+    ResourceRow row = new ResourceReader(reader, kind("deployments")).read().rows().getFirst();
+
+    assertEquals(
+        List.of("checkout-api", "acme", "3", "1", "com.example:checkout:1.2.0"), row.cells());
+    assertEquals("checkout-api", row.name());
+    assertEquals(Optional.of("acme"), row.tenantId());
+  }
+
   private static ResourceKind kind(final String key) {
     return ResourceKind.builtIns().stream()
         .filter(candidate -> candidate.key().equals(key))

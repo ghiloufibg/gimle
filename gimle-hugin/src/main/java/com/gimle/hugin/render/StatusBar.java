@@ -257,15 +257,16 @@ final class StatusBar {
         painter,
         viewport,
         // Trimmed to what fits an 80-column terminal without the tail being cut: a key bar whose
-        // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set,
-        // r included, is one "?" away.
+        // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set
+        // is one "?" away. Two omissions are deliberate: the arrow keys, which nobody needs told
+        // move a cursor, and "o", whose orderings the instance table's own label now names along
+        // with the digits that pick one -- which is where an operator is already looking.
         List.of(
-            "↑↓ move",
             "⏎ open",
+            "d describe",
             "s svc",
             "a activity",
             ": kind",
-            "o sort",
             "/ filter",
             "p pause",
             "q quit"));
@@ -292,11 +293,14 @@ final class StatusBar {
         painter, viewport, List.of("esc back", "p pause", "r refresh", "? help", "q quit"));
   }
 
-  static String instanceKeys(final Painter painter, final Viewport viewport) {
+  static String instanceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
     return keyBar(
         painter,
         viewport,
-        List.of("esc back", "c category", "p pause", "g/G top/bottom", "? help", "q quit"));
+        List.of("esc back", "c category", "/ filter", "p pause", "? help", "q quit"));
   }
 
   static String serviceKeys(final Painter painter, final UiState ui, final Viewport viewport) {

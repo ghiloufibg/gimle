@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.NodeSortKey;
 import com.gimle.hugin.model.ResourceRow;
+import com.gimle.hugin.model.SortKey;
 import com.gimle.hugin.model.WorkloadKind;
 import java.util.List;
 import java.util.Map;
@@ -109,6 +111,42 @@ class UiStateTest {
 
   private static List<InstanceRow> rows(final String... keys) {
     return List.of(keys).stream().map(UiStateTest::row).toList();
+  }
+
+  // ---- picking an ordering outright ----
+
+  @Test
+  void a_digit_picks_the_ordering_at_that_position_rather_than_cycling_to_it() {
+    // Reaching the last of seven orderings by repeating a key is six presses and a wrong guess.
+    ui.sortBy(1);
+    assertEquals(SortKey.NAME, ui.sortKey());
+
+    ui.sortBy(SortKey.count());
+    assertEquals(SortKey.values()[SortKey.count() - 1], ui.sortKey());
+
+    ui.sortNodesBy(2);
+    assertEquals(NodeSortKey.values()[1], ui.nodeSortKey());
+  }
+
+  @Test
+  void a_position_no_column_occupies_leaves_the_ordering_alone_rather_than_wrapping() {
+    ui.sortBy(3);
+    SortKey chosen = ui.sortKey();
+
+    ui.sortBy(0);
+    ui.sortBy(SortKey.count() + 1);
+    ui.sortBy(99);
+
+    assertEquals(chosen, ui.sortKey());
+  }
+
+  @Test
+  void describing_by_name_opens_the_pane_on_something_no_table_has_been_read_for_yet() {
+    // `d` in the cluster view knows the workload's name before the browser has read anything.
+    ui.showResources();
+    ui.describe("checkout-api");
+
+    assertEquals(Optional.of("checkout-api"), ui.describing());
   }
 
   // ---- the `:` command prompt ----

@@ -8,6 +8,7 @@ import com.gimle.cli.CliException;
 import com.gimle.cli.spi.ClusterReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
@@ -127,9 +128,9 @@ class InstanceScreenHistoryTest {
       InstanceWatcher watcher = watcherOver(crashed());
       try {
         InstanceRow row = row("FAILED", false);
-        screen.render(row, watcher, viewport, false, NOW);
+        screen.render(row, watcher, new UiState(), viewport, false, NOW);
         awaitTrue(() -> !watcher.crashDumps().isEmpty() && !watcher.metrics().isEmpty());
-        for (String rendered : screen.render(row, watcher, viewport, false, NOW)) {
+        for (String rendered : screen.render(row, watcher, new UiState(), viewport, false, NOW)) {
           assertTrue(
               Ansi.visibleWidth(rendered) <= viewport.columns(),
               "line wider than " + viewport.columns() + ": " + rendered);
@@ -147,9 +148,9 @@ class InstanceScreenHistoryTest {
   private List<String> renderSettled(final RecordingReader reader, final InstanceRow row) {
     InstanceWatcher watcher = watcherOver(reader);
     try {
-      screen.render(row, watcher, VIEWPORT, false, NOW);
+      screen.render(row, watcher, new UiState(), VIEWPORT, false, NOW);
       awaitTrue(() -> settled(reader, watcher));
-      return screen.render(row, watcher, VIEWPORT, false, NOW);
+      return screen.render(row, watcher, new UiState(), VIEWPORT, false, NOW);
     } finally {
       watcher.close();
     }

@@ -145,7 +145,7 @@ public final class Hugin {
     }
     Optional<InstanceRow> inspected = ui.inspecting().flatMap(snapshot::find);
     if (inspected.isPresent() && watcher != null) {
-      return instanceScreen.render(inspected.get(), watcher, viewport, paused, now);
+      return instanceScreen.render(inspected.get(), watcher, ui, viewport, paused, now);
     }
     // The instance was open and has since left the cluster -- deleted, rescheduled, or the whole
     // deployment removed. Falling back to the cluster view is the honest thing to show, rather
@@ -237,12 +237,22 @@ public final class Hugin {
       } else {
         ui.cycleSort();
       }
+    } else if (key instanceof Key.Character digit && digit.value() >= '1' && digit.value() <= '9') {
+      // A digit picks an ordering outright, on the same table `o` would have cycled.
+      int position = digit.value() - '0';
+      if (onNodes) {
+        ui.sortNodesBy(position);
+      } else {
+        ui.sortBy(position);
+      }
     } else if (key.isChar('a')) {
       openActivity();
     } else if (key.isChar('s')) {
       openServices();
     } else if (key.isChar(':')) {
       ui.beginCommand();
+    } else if (key.isChar('d') && !onNodes) {
+      describeSelectedWorkload(rows);
     } else if (key.isChar('/')) {
       ui.beginFilter();
     } else if (key.is(Key.Kind.ESCAPE)) {
@@ -278,7 +288,15 @@ public final class Hugin {
 
   private void handleInstanceKey(final Key key, final SnapshotPoller<ClusterSnapshot> poller) {
     if (key.is(Key.Kind.ESCAPE)) {
-      closeInspection();
+      // A filter narrowing the tail is what esc undoes first; only an unfiltered pane closes on
+      // it, so nobody loses the instance they were reading to clear a search.
+      if (ui.filter().isBlank()) {
+        closeInspection();
+      } else {
+        ui.clearFilter();
+      }
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
     } else if (key.isChar('c')) {
       cycleLogCategory();
     } else if (key.isChar('p')) {
@@ -369,7 +387,10 @@ public final class Hugin {
     if (described.isPresent()) {
       return describeScreen.render(snapshot.kind(), described.get(), ui, viewport);
     }
-    if (ui.describing().isPresent()) {
+    // Only a read that actually landed can say a resource is gone. Before the first one the
+    // collection is empty because nothing has been asked yet, which is not the same thing -- and
+    // `d` names its resource before any read at all.
+    if (ui.describing().isPresent() && snapshot.fetchedAt().isPresent()) {
       ui.closeDescribe();
     }
     return resourceScreen.render(snapshot, ui, viewport, resourcePoller.paused(), now);
@@ -389,9 +410,7 @@ public final class Hugin {
    * given certificate may not be permitted to read.
    */
   private void openResources(final String typed) {
-    if (catalog == null) {
-      catalog = ResourceCatalog.discover(reader);
-    }
+    ResourceCatalog catalog = catalog();
     Optional<ResourceKind> kind = catalog.resolve(typed);
     if (kind.isEmpty()) {
       ui.failCommand(
@@ -402,11 +421,45 @@ public final class Hugin {
       return;
     }
     ui.showResources();
+    startResourcePoller(kind.get());
+  }
+
+  /**
+   * Opens the describe pane on the workload behind the selected instance row: the same browser and
+   * the same pane {@code :} reaches, addressed by name rather than by cursor. Written this way
+   * rather than as a single-object fetch of its own so there is one path to a described resource,
+   * which is also what gives this one the browser's own behaviour when the workload disappears.
+   */
+  private void describeSelectedWorkload(final List<InstanceRow> rows) {
+    int index = ui.selectionIndex(rows);
+    if (index < 0) {
+      return;
+    }
+    InstanceRow row = rows.get(index);
+    Optional<ResourceKind> kind = catalog().forRoute(row.kind().route());
+    if (kind.isEmpty()) {
+      ui.failCommand("nothing browsable describes a " + row.kind().label());
+      return;
+    }
+    ui.showResources();
+    ui.describe(row.key().deploymentName());
+    startResourcePoller(kind.get());
+  }
+
+  /** Discovered once per session: a cluster's registered kinds do not change between two keys. */
+  private ResourceCatalog catalog() {
+    if (catalog == null) {
+      catalog = ResourceCatalog.discover(reader);
+    }
+    return catalog;
+  }
+
+  private void startResourcePoller(final ResourceKind kind) {
     closeResourcePoller();
     resourcePoller =
         new SnapshotPoller<>(
-            new ResourceReader(reader, kind.get())::read,
-            ResourceSnapshot.connecting(reader.serverAddress(), kind.get()),
+            new ResourceReader(reader, kind)::read,
+            ResourceSnapshot.connecting(reader.serverAddress(), kind),
             intervals.services(),
             "hugin-resources");
     resourcePoller.start();

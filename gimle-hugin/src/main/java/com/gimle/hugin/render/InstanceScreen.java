@@ -2,6 +2,7 @@ package com.gimle.hugin.render;
 
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.CrashDump;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
@@ -68,6 +69,7 @@ public final class InstanceScreen {
   public List<String> render(
       final InstanceRow row,
       final InstanceWatcher watcher,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -92,21 +94,24 @@ public final class InstanceScreen {
     }
     lines.add("");
 
-    lines.add(logsLabel(watcher, viewport));
+    List<LogLine> all = watcher.lines();
+    List<LogLine> logLines = matching(all, ui.filter());
+    lines.add(logsLabel(watcher, ui.filter(), logLines.size(), all.size(), viewport));
     int available = Math.max(1, viewport.rows() - lines.size() - 1);
-    List<LogLine> logLines = watcher.lines();
     List<LogLine> visible =
         logLines.size() > available
             ? logLines.subList(logLines.size() - available, logLines.size())
             : logLines;
     if (visible.isEmpty()) {
-      lines.add(muted("  waiting for output…"));
+      // A filter matching nothing is a different state from a quiet instance, and reading one as
+      // the other is how an operator concludes a module has stopped logging when it has not.
+      lines.add(muted(all.isEmpty() ? "  waiting for output…" : "  no line matches this filter"));
     }
     for (LogLine line : visible) {
       lines.add(logLine(line, viewport));
     }
 
-    return Frame.fitWithKeyBar(lines, StatusBar.instanceKeys(painter, viewport), viewport);
+    return Frame.fitWithKeyBar(lines, StatusBar.instanceKeys(painter, ui, viewport), viewport);
   }
 
   private String header(final InstanceRow row, final Viewport viewport, final boolean paused) {
@@ -354,7 +359,25 @@ public final class InstanceScreen {
         : StatusVariant.ofLifecycleState(kind);
   }
 
-  private String logsLabel(final InstanceWatcher watcher, final Viewport viewport) {
+  /**
+   * The same filter every table here shares, applied to the tail. Matched against the level and the
+   * message the line carries, never against the raw text of the drawn row -- what a line is padded
+   * and truncated to is a property of this terminal's width, not of the line.
+   */
+  private static List<LogLine> matching(final List<LogLine> lines, final String filter) {
+    if (filter == null || filter.isBlank()) {
+      return lines;
+    }
+    String needle = filter.toLowerCase(Locale.ROOT);
+    return lines.stream().filter(line -> line.searchText().contains(needle)).toList();
+  }
+
+  private String logsLabel(
+      final InstanceWatcher watcher,
+      final String filter,
+      final int shown,
+      final int total,
+      final Viewport viewport) {
     Line line =
         new Line(painter)
             .add("LOGS", Style.fg(Palette.HUD).asBold())
@@ -362,6 +385,11 @@ public final class InstanceScreen {
             .add(
                 watcher.category().name().toLowerCase(Locale.ROOT) + " · following",
                 Style.fg(Palette.MUTED_FOREGROUND));
+    if (filter != null && !filter.isBlank()) {
+      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
     watcher.logError().ifPresent(error -> line.add("  " + error, Style.fg(Palette.WARN)));
     return line.padTo(Math.max(line.width(), viewport.columns() - 18))
         .add("c: cycle category", Style.fg(Palette.MUTED))

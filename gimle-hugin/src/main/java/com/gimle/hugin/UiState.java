@@ -192,6 +192,17 @@ public final class UiState {
     }
   }
 
+  /**
+   * Opens the describe pane on a resource named rather than pointed at -- how {@code d} in the
+   * cluster view reaches the workload behind an instance row, which is a name it already knows and
+   * not a row in a table that has not been read yet.
+   */
+  public void describe(final String name) {
+    selectedResource = Optional.of(name);
+    describing = Optional.of(name);
+    describeScroll = 0;
+  }
+
   public void closeDescribe() {
     describing = Optional.empty();
     describeScroll = 0;
@@ -304,6 +315,11 @@ public final class UiState {
     sortKey = sortKey.next();
   }
 
+  /** Picks an ordering outright. Ignores a position no column occupies rather than wrapping. */
+  public void sortBy(final int position) {
+    SortKey.at(position).ifPresent(key -> sortKey = key);
+  }
+
   public NodeSortKey nodeSortKey() {
     return nodeSortKey;
   }
@@ -311,6 +327,10 @@ public final class UiState {
   /** Cycles the node ordering. Which table {@code o} acts on follows the cursor's own focus. */
   public void cycleNodeSort() {
     nodeSortKey = nodeSortKey.next();
+  }
+
+  public void sortNodesBy(final int position) {
+    NodeSortKey.at(position).ifPresent(key -> nodeSortKey = key);
   }
 
   public FeedMode feedMode() {

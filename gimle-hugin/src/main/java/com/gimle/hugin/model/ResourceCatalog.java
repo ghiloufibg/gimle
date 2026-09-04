@@ -142,6 +142,15 @@ public final class ResourceCatalog {
   }
 
   /**
+   * The kind that browses {@code route}. Looked up by route rather than by a second name mapping,
+   * so the cluster view's own {@link WorkloadKind} and the browser cannot drift apart over what
+   * {@code /deployments} is called.
+   */
+  public Optional<ResourceKind> forRoute(final String route) {
+    return kinds.stream().filter(kind -> kind.route().equals(route)).findFirst();
+  }
+
+  /**
    * What to offer when nothing matched. Kept to the keys that share the typed prefix, since a
    * misspelling is nearly always a near miss and listing all twenty is not a correction.
    */

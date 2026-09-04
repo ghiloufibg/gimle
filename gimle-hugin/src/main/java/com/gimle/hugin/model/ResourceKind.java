@@ -13,9 +13,14 @@ import java.util.Optional;
  * through exactly the same path as the built-in ones, printing the columns their own definition
  * declares.
  *
- * <p>The built-in list below is every collection route the control plane actually serves. Two
- * absences are deliberate rather than oversights, and both are properties of the API rather than
- * choices made here: ConfigMaps and secrets are addressable only one name at a time ({@code
+ * <p>The built-in list below is every collection route the control plane serves as objects,
+ * workload kinds included. Those six also appear in the cluster view, but as the instances they are
+ * running rather than as themselves -- a Deployment's declared replica count and module coordinate
+ * are not readable from a table of its instances, and are what someone typing {@code :deployments}
+ * is asking for.
+ *
+ * <p>Two absences are deliberate rather than oversights, and both are properties of the API rather
+ * than choices made here: ConfigMaps and secrets are addressable only one name at a time ({@code
  * /configmaps/{name}}, {@code /secrets/{tenant}/{key}}) with no collection route to list, and the
  * artifact catalog answers with bare module-id strings rather than objects, so it has no columns to
  * draw and its versions cost a request per module.
@@ -65,6 +70,72 @@ public record ResourceKind(
    */
   public static List<ResourceKind> builtIns() {
     return List.of(
+        builtIn(
+            "deployments",
+            "deployments",
+            "/deployments",
+            "spec.name",
+            "spec.tenantId",
+            ResourceColumn.wide("NAME", "spec.name"),
+            ResourceColumn.of("TENANT", "spec.tenantId"),
+            ResourceColumn.of("REPLICAS", "spec.replicas"),
+            ResourceColumn.of("UNPLACED", "unplacedCount"),
+            ResourceColumn.wide("MODULE", "spec.moduleId")),
+        builtIn(
+            "daemonsets",
+            "daemon sets",
+            "/daemonsets",
+            "spec.name",
+            "spec.tenantId",
+            ResourceColumn.wide("NAME", "spec.name"),
+            ResourceColumn.of("TENANT", "spec.tenantId"),
+            ResourceColumn.of("DESIRED", "desired"),
+            ResourceColumn.of("UNPLACED", "unplacedCount"),
+            ResourceColumn.wide("MODULE", "spec.moduleId")),
+        builtIn(
+            "statefulsets",
+            "stateful sets",
+            "/statefulsets",
+            "spec.name",
+            "spec.tenantId",
+            ResourceColumn.wide("NAME", "spec.name"),
+            ResourceColumn.of("TENANT", "spec.tenantId"),
+            ResourceColumn.of("REPLICAS", "spec.replicas"),
+            ResourceColumn.of("UNPLACED", "unplacedCount"),
+            ResourceColumn.wide("MODULE", "spec.moduleId")),
+        builtIn(
+            "jobs",
+            "jobs",
+            "/jobs",
+            "spec.name",
+            "spec.tenantId",
+            ResourceColumn.wide("NAME", "spec.name"),
+            ResourceColumn.of("TENANT", "spec.tenantId"),
+            ResourceColumn.of("ATTEMPT", "currentRun.attempt"),
+            ResourceColumn.of("BACKOFF", "spec.backoffLimit"),
+            ResourceColumn.wide("MODULE", "spec.moduleId")),
+        builtIn(
+            "services",
+            "services",
+            "/services",
+            "name",
+            "tenantId",
+            ResourceColumn.wide("NAME", "name"),
+            ResourceColumn.of("TENANT", "tenantId"),
+            ResourceColumn.of("PORT", "port"),
+            ResourceColumn.of("TARGET", "targetPort"),
+            ResourceColumn.wide("BACKING", "deploymentNames")),
+        builtIn(
+            "alertrules",
+            "alert rules",
+            "/alertrules",
+            "name",
+            "tenantId",
+            ResourceColumn.wide("NAME", "name"),
+            ResourceColumn.of("TENANT", "tenantId"),
+            ResourceColumn.of("DEPLOYMENT", "deploymentName"),
+            ResourceColumn.wide("METRIC", "metric"),
+            ResourceColumn.of("ENABLED", "enabled")),
         builtIn(
             "tenants",
             "tenants",

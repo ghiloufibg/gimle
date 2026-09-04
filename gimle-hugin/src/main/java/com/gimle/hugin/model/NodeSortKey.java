@@ -2,6 +2,7 @@ package com.gimle.hugin.model;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.Optional;
 
 /**
  * How the node table is ordered. The same rule the instance table follows: a utilization or an age
@@ -27,6 +28,23 @@ public enum NodeSortKey {
 
   public String label() {
     return label;
+  }
+
+  /**
+   * The key at {@code position}, counting from one, or empty when nothing is there. What lets a
+   * column be picked outright instead of cycled to: on a table of seven orderings, reaching the
+   * last one by repeating a key is six presses and a wrong guess away.
+   */
+  public static Optional<NodeSortKey> at(final int position) {
+    NodeSortKey[] keys = values();
+    return position >= 1 && position <= keys.length
+        ? Optional.of(keys[position - 1])
+        : Optional.empty();
+  }
+
+  /** How many orderings there are, so a caller can say which keys pick one. */
+  public static int count() {
+    return values().length;
   }
 
   public NodeSortKey next() {

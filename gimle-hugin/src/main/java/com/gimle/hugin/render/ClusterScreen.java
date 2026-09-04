@@ -155,6 +155,7 @@ public final class ClusterScreen {
       line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
           .add(sort.label(), Style.fg(Palette.PRIMARY));
     }
+    line.add("  1-" + NodeSortKey.count(), Style.fg(Palette.MUTED));
     return line.build();
   }
 
@@ -171,6 +172,9 @@ public final class ClusterScreen {
       line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
           .add(sort.label(), Style.fg(Palette.PRIMARY));
     }
+    // The default ordering still names no ranking -- it is the absence of one -- but the digits
+    // that would impose one are shown regardless: a key nothing on screen mentions is never found.
+    line.add("  1-" + SortKey.count(), Style.fg(Palette.MUTED));
     return line.build();
   }
 

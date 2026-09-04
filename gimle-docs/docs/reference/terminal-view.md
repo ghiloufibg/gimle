@@ -32,8 +32,9 @@ the terminal exactly as it found it.
   dropped below 100 columns so the workload name keeps the width instead. `o` cycles the ordering
   of whichever table the cursor is on — name/state/each metric for instances, id/cpu/memory/
   instances/heartbeat for nodes; every measure sorts worst-first, because the reason to sort by one
-  is to put the worst row first. Node utilization is compared as a fraction of each node's own
-  capacity, so a small node running hot outranks a large one that is merely busy.
+  is to put the worst row first. A digit picks an ordering outright instead of cycling to it, and
+  each table's own label names which digits do that. Node utilization is compared as a fraction of
+  each node's own capacity, so a small node running hot outranks a large one that is merely busy.
 - A `NOT SETTLED` block, drawn only when something is: any workload short of the replicas it asked
   for, over its tenant's quota, or rejected by a LimitRange, with the reason the control plane
   gives. A healthy cluster shows nothing here at all.
@@ -65,7 +66,11 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
   a module that answers only over the fabric has neither.
 - Its recent lifecycle transitions, from the same timeline `gimle events` prints.
 - A live tail of its own logs, seeded with recent backlog so a quiet instance still shows the lines
-  that explain how it got here. `c` switches between the `APPLICATION` and `PLATFORM` categories.
+  that explain how it got here. `c` switches between the `APPLICATION` and `PLATFORM` categories,
+  and `/` narrows the tail the same way it narrows a table — matched against each line's level and
+  message, never its clock, so typing digits to find a message does not also match every line
+  logged in that minute. A filter matching nothing says so rather than reading as a quiet instance,
+  and `esc` clears the filter before it closes the pane.
 
 **Activity view** — `a` from the cluster view, `c` to switch feed:
 
@@ -105,6 +110,8 @@ after the view was written appear here at all.
 
 | `:` | Shows |
 | --- | --- |
+| `deployments` `daemonsets` `statefulsets` `jobs` | the workload *as itself* — its declared replica count, module coordinate and how many replicas went unplaced, none of which is readable from a table of the instances it happens to be running |
+| `services` `alertrules` | the same declarations the `s` and activity screens show, browsable and describable |
 | `tenants` | id, isolation posture, live instance count against the quota's own maximum |
 | `cronjobs` | a CronJob *as itself* — its schedule, whether it is suspended, its concurrency policy |
 | `limitranges` | the per-tenant request/limit guardrails |
@@ -130,7 +137,7 @@ Two collections are absent, and both because of the API rather than a choice mad
 and secrets are addressable only one name at a time, with no route to list them; and the artifact
 catalog answers with bare module-id strings rather than objects, so it has no columns to draw.
 
-**Describe** — `⏎` on a row in the resource browser:
+**Describe** — `⏎` on a row in the resource browser, or `d` on an instance row in the cluster view:
 
 - The whole object the collection route answered with, as YAML, scrollable with `↑↓` and `g`/`G`.
   The fields no column had room for are the reason this pane exists.
@@ -138,6 +145,9 @@ catalog answers with bare module-id strings rather than objects, so it has no co
   detail can never disagree about which read is current.
 - It is a rendering, not a manifest: it carries the status the control plane computes alongside the
   spec that was submitted, and feeding it back to `gimle apply` is not something it promises.
+- `d` in the cluster view opens it on the workload behind the selected instance — the same browser
+  and the same pane, addressed by name rather than by cursor, so there is one path to a described
+  resource rather than two that could disagree.
 
 ## Keys
 
@@ -147,12 +157,14 @@ catalog answers with bare module-id strings rather than objects, so it has no co
 | `⏎` | inspect whatever the cursor is on; describe it in the resource browser |
 | `tab` | move the cursor between the node and instance tables |
 | `o` | cycle the sort: name, state, then each metric worst-first |
+| `1` … `9` | sort by that column outright, on whichever table has the cursor |
+| `d` | describe the workload behind the selected instance |
 | `s` | services and the endpoints they resolve to |
 | `a` | cluster activity; `c` switches audit / lifecycle / alerts |
 | `:` | open a kind: `tenants`, `roles`, `volumes`, a registered kind… |
 | `m` | load older entries (activity view, audit and lifecycle feeds) |
 | `esc` | back to the cluster view |
-| `/` | filter; `enter` applies, `esc` clears |
+| `/` | filter; `enter` applies, `esc` clears — tables and the log tail alike |
 | `p` | pause / resume refresh |
 | `r` | refresh now |
 | `c` | cycle the log category (instance view) |

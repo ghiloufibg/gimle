@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.cli.spi.ClusterReader;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
@@ -212,9 +213,71 @@ class InstanceScreenTest {
     }
   }
 
+  @Test
+  void the_log_tail_narrows_to_the_filter_and_says_how_much_of_it_is_showing() {
+    // The same filter the tables share: an operator hunting one line should not have to leave the
+    // pane that is following it.
+    InstanceWatcher watcher = twoLineWatcher();
+
+    List<String> lines = render(row(true), watcher, new Viewport(120, 34), "fabric");
+
+    assertTrue(lines.stream().anyMatch(line -> line.contains("Fabric call failed")));
+    assertFalse(lines.stream().anyMatch(line -> line.contains("Greeting served")));
+    assertTrue(lineContaining(lines, "LOGS").contains("1 of 2"), lineContaining(lines, "LOGS"));
+  }
+
+  @Test
+  void a_filter_matching_no_log_line_says_so_rather_than_reading_as_a_quiet_instance() {
+    // "waiting for output" on a module that is logging plenty is the one wrong answer here.
+    List<String> lines = render(row(true), twoLineWatcher(), new Viewport(120, 34), "zzz");
+
+    assertTrue(lines.stream().anyMatch(line -> line.contains("no line matches this filter")));
+    assertFalse(lines.stream().anyMatch(line -> line.contains("waiting for output")));
+  }
+
+  @Test
+  void the_filter_matches_a_lines_level_and_message_but_not_the_clock_beside_it() {
+    // Typing digits to find a message must not also match every line logged in that minute.
+    InstanceWatcher watcher = twoLineWatcher();
+
+    assertTrue(
+        render(row(true), watcher, new Viewport(120, 34), "error").stream()
+            .anyMatch(line -> line.contains("Fabric call failed")));
+    assertTrue(
+        render(row(true), watcher, new Viewport(120, 34), "14:02").stream()
+            .anyMatch(line -> line.contains("no line matches this filter")));
+  }
+
+  private static InstanceWatcher twoLineWatcher() {
+    InstanceWatcher watcher = watcherFor(new TwoLineReader());
+    awaitTrue(() -> watcher.lines().size() >= 2);
+    return watcher;
+  }
+
+  private static String lineContaining(final List<String> lines, final String needle) {
+    return lines.stream()
+        .filter(line -> line.contains(needle))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("no line containing '" + needle + "' in " + lines));
+  }
+
+  private List<String> render(
+      final InstanceRow row,
+      final InstanceWatcher watcher,
+      final Viewport viewport,
+      final String filter) {
+    UiState ui = new UiState();
+    ui.beginFilter();
+    for (char character : filter.toCharArray()) {
+      ui.appendToFilter(character);
+    }
+    ui.commitFilter();
+    return screen.render(row, watcher, ui, viewport, false, NOW);
+  }
+
   private List<String> render(
       final InstanceRow row, final InstanceWatcher watcher, final Viewport viewport) {
-    return screen.render(row, watcher, viewport, false, NOW);
+    return screen.render(row, watcher, new UiState(), viewport, false, NOW);
   }
 
   private static InstanceRow row(final boolean observed) {
@@ -334,6 +397,50 @@ class InstanceScreenTest {
                   "com.example.Greeter",
                   "message",
                   "Fabric call failed: no healthy endpoint")));
+    }
+
+    @Override
+    public InputStream openStream(final String path) {
+      return new ByteArrayInputStream(new byte[0]);
+    }
+
+    @Override
+    public String serverAddress() {
+      return "localhost:8080";
+    }
+  }
+
+  /** Two log lines that differ in level and in message, so a filter has something to choose. */
+  private static final class TwoLineReader implements ClusterReader {
+
+    @Override
+    public List<Map<String, Object>> getList(final String path) {
+      return List.of();
+    }
+
+    @Override
+    public Map<String, Object> getObject(final String path) {
+      return Map.of(
+          "lines",
+          List.of(
+              Map.of(
+                  "timestamp",
+                  "2026-09-01T14:02:41.702Z",
+                  "level",
+                  "ERROR",
+                  "logger",
+                  "com.example.Greeter",
+                  "message",
+                  "Fabric call failed: no healthy endpoint"),
+              Map.of(
+                  "timestamp",
+                  "2026-09-01T14:02:42.115Z",
+                  "level",
+                  "INFO",
+                  "logger",
+                  "com.example.Greeter",
+                  "message",
+                  "Greeting served in 3ms")));
     }
 
     @Override

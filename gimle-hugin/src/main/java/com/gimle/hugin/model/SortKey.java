@@ -1,6 +1,7 @@
 package com.gimle.hugin.model;
 
 import java.util.Comparator;
+import java.util.Optional;
 
 /**
  * How the instance table is ordered. Every metric key sorts descending, because the reason to sort
@@ -34,6 +35,23 @@ public enum SortKey {
 
   public Comparator<InstanceRow> comparator() {
     return comparator;
+  }
+
+  /**
+   * The key at {@code position}, counting from one, or empty when nothing is there. What lets a
+   * column be picked outright instead of cycled to: on a table of seven orderings, reaching the
+   * last one by repeating a key is six presses and a wrong guess away.
+   */
+  public static Optional<SortKey> at(final int position) {
+    SortKey[] keys = values();
+    return position >= 1 && position <= keys.length
+        ? Optional.of(keys[position - 1])
+        : Optional.empty();
+  }
+
+  /** How many orderings there are, so a caller can say which keys pick one. */
+  public static int count() {
+    return values().length;
   }
 
   /** The next key in declaration order, wrapping -- what one repeated keypress cycles through. */

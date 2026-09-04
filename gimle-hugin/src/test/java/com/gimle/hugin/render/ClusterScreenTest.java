@@ -291,6 +291,10 @@ class ClusterScreenTest {
     String bar = lines.getLast();
     assertTrue(bar.contains("q quit"), bar);
     assertTrue(Ansi.visibleWidth(bar) <= 80, bar);
+    // The three keys that reach a screen an operator cannot otherwise find have to be on it.
+    assertTrue(bar.contains(": kind"), bar);
+    assertTrue(bar.contains("d describe"), bar);
+    assertTrue(bar.contains("a activity"), bar);
   }
 
   @Test
