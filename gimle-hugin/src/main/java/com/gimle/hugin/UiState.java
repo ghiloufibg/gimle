@@ -45,6 +45,9 @@ public final class UiState {
   private String command = "";
   private Optional<String> commandError = Optional.empty();
   private boolean viewingResources;
+  private boolean viewingKinds;
+  private boolean logWrap;
+  private boolean logTimestamps = true;
   private Optional<String> selectedResource = Optional.empty();
   private Optional<String> describing = Optional.empty();
   private int describeScroll;
@@ -121,6 +124,65 @@ public final class UiState {
     commandError = Optional.empty();
   }
 
+  /**
+   * Whether a log line too long for the pane continues onto the next row instead of being cut. Off
+   * by default: one line per line is what makes a tail scannable, and a stack trace turned on would
+   * push everything above it off the top.
+   */
+  public boolean logWrap() {
+    return logWrap;
+  }
+
+  public void toggleLogWrap() {
+    logWrap = !logWrap;
+  }
+
+  /** Whether the clock column is drawn. Hiding it gives its width to the message. */
+  public boolean logTimestamps() {
+    return logTimestamps;
+  }
+
+  public void toggleLogTimestamps() {
+    logTimestamps = !logTimestamps;
+  }
+
+  /**
+   * Closes every view, leaving the cluster table showing. What {@code :ctx} needs: every screen
+   * here is about one cluster, so none of them survives being pointed at another. The filter goes
+   * with them -- it was narrowing rows that no longer exist.
+   */
+  public void leaveEveryView() {
+    viewingKinds = false;
+    viewingResources = false;
+    viewingServices = false;
+    viewingActivity = false;
+    selectedResource = Optional.empty();
+    describing = Optional.empty();
+    describeScroll = 0;
+    inspecting = Optional.empty();
+    inspectingNode = Optional.empty();
+    selected = Optional.empty();
+    selectedNode = Optional.empty();
+    commandEditing = false;
+    commandError = Optional.empty();
+    clearFilter();
+  }
+
+  /** Whether the list of what {@code :} can open is showing. */
+  public boolean viewingKinds() {
+    return viewingKinds;
+  }
+
+  public void showKinds() {
+    viewingKinds = true;
+    commandEditing = false;
+    commandError = Optional.empty();
+  }
+
+  public void closeKinds() {
+    viewingKinds = false;
+  }
+
   // ---- the resource browser and its describe pane ----
 
   public boolean viewingResources() {
@@ -130,6 +192,7 @@ public final class UiState {
   /** Opens the browser on a new kind, with the cursor and any previous error both reset. */
   public void showResources() {
     viewingResources = true;
+    viewingKinds = false;
     selectedResource = Optional.empty();
     describing = Optional.empty();
     describeScroll = 0;

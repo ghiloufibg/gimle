@@ -23,6 +23,7 @@ import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.DescribeScreen;
 import com.gimle.hugin.render.HelpOverlay;
 import com.gimle.hugin.render.InstanceScreen;
+import com.gimle.hugin.render.KindsScreen;
 import com.gimle.hugin.render.NodeScreen;
 import com.gimle.hugin.render.Painter;
 import com.gimle.hugin.render.ResourceScreen;
@@ -53,7 +54,7 @@ public final class Hugin {
    */
   private static final int FRAME_TIMEOUT_MILLIS = 200;
 
-  private final ClusterReader reader;
+  private ClusterReader reader;
   private final TerminalSession terminal;
   private final ClusterScreen clusterScreen;
   private final InstanceScreen instanceScreen;
@@ -70,8 +71,10 @@ public final class Hugin {
   private SnapshotPoller<ServiceSnapshot> servicePoller;
   private final ResourceScreen resourceScreen;
   private final DescribeScreen describeScreen;
+  private final KindsScreen kindsScreen;
   private ResourceCatalog catalog;
   private SnapshotPoller<ResourceSnapshot> resourcePoller;
+  private SnapshotPoller<ClusterSnapshot> clusterPoller;
   private boolean running = true;
 
   public Hugin(
@@ -89,19 +92,17 @@ public final class Hugin {
     this.activityScreen = new ActivityScreen(painter);
     this.resourceScreen = new ResourceScreen(painter);
     this.describeScreen = new DescribeScreen(painter);
+    this.kindsScreen = new KindsScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
   public void run() {
-    SnapshotReader snapshots = new SnapshotReader(reader);
-    try (SnapshotPoller<ClusterSnapshot> poller =
-        new SnapshotPoller<>(
-            snapshots::read,
-            ClusterSnapshot.connecting(reader.serverAddress()),
-            intervals.cluster(),
-            "hugin-cluster")) {
-      poller.start();
+    startClusterPoller();
+    try {
       while (running) {
+        // Re-read each frame rather than held once: `:ctx` replaces this poller mid-loop, and a
+        // loop holding the old one would keep painting the cluster it was pointed away from.
+        SnapshotPoller<ClusterSnapshot> poller = clusterPoller;
         ClusterSnapshot snapshot = poller.current();
         terminal.paint(frame(snapshot, poller.paused()));
         terminal.readKey(FRAME_TIMEOUT_MILLIS).ifPresent(key -> handle(key, snapshot, poller));
@@ -111,7 +112,49 @@ public final class Hugin {
       closeServicePoller();
       closeActivityPoller();
       closeResourcePoller();
+      closeClusterPoller();
     }
+  }
+
+  private void startClusterPoller() {
+    closeClusterPoller();
+    SnapshotReader snapshots = new SnapshotReader(reader);
+    clusterPoller =
+        new SnapshotPoller<>(
+            snapshots::read,
+            ClusterSnapshot.connecting(reader.serverAddress()),
+            intervals.cluster(),
+            "hugin-cluster");
+    clusterPoller.start();
+  }
+
+  private void closeClusterPoller() {
+    if (clusterPoller != null) {
+      clusterPoller.close();
+      clusterPoller = null;
+    }
+  }
+
+  /**
+   * Points the whole view at another control plane. Everything currently open is closed first --
+   * every screen here is about one cluster, and a drill-down, a service table or a browsed kind
+   * carried across would be describing the previous one under the new one's name. The catalog goes
+   * with them: which kinds exist is that cluster's own answer.
+   */
+  private void switchServer(final String address) {
+    String target = address.trim();
+    if (target.isBlank()) {
+      ui.failCommand("usage: :ctx <context-name or host:port>");
+      return;
+    }
+    closeWatcher();
+    closeServicePoller();
+    closeActivityPoller();
+    closeResourcePoller();
+    ui.leaveEveryView();
+    catalog = null;
+    reader = reader.forContext(target);
+    startClusterPoller();
   }
 
   private List<String> frame(final ClusterSnapshot snapshot, final boolean paused) {
@@ -119,6 +162,9 @@ public final class Hugin {
     Instant now = Instant.now();
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
+    }
+    if (ui.viewingKinds()) {
+      return kindsScreen.render(catalog(), reader.serverAddress(), viewport);
     }
     if (ui.viewingResources() && resourcePoller != null) {
       return resourceFrame(resourcePoller.current(), viewport, now);
@@ -176,6 +222,10 @@ public final class Hugin {
       // Any key closes the help: an operator who opened it by accident should not have to work out
       // which key gets them back.
       ui.hideHelp();
+      return;
+    }
+    if (ui.viewingKinds()) {
+      handleKindsKey(key);
       return;
     }
     if (ui.viewingResources()) {
@@ -299,6 +349,10 @@ public final class Hugin {
       ui.beginFilter();
     } else if (key.isChar('c')) {
       cycleLogCategory();
+    } else if (key.isChar('w')) {
+      ui.toggleLogWrap();
+    } else if (key.isChar('t')) {
+      ui.toggleLogTimestamps();
     } else if (key.isChar('p')) {
       poller.togglePaused();
     } else if (key.isChar('?')) {
@@ -314,13 +368,45 @@ public final class Hugin {
    */
   private void handleCommandKey(final Key key) {
     if (key.is(Key.Kind.ENTER)) {
-      openResources(ui.command());
+      // Enter on an empty prompt asks what there is rather than failing to name anything: it is
+      // the question someone who does not know the kinds is actually asking.
+      if (ui.command().isBlank()) {
+        ui.showKinds();
+      } else {
+        runCommand(ui.command());
+      }
     } else if (key.is(Key.Kind.ESCAPE)) {
       ui.cancelCommand();
     } else if (key.is(Key.Kind.BACKSPACE)) {
       ui.backspaceCommand();
     } else if (key instanceof Key.Character character && character.value() >= ' ') {
       ui.appendToCommand(character.value());
+    }
+  }
+
+  /**
+   * The prompt takes a kind name, or one verb that is not a kind. {@code ctx} is here rather than
+   * on a key of its own because pointing at another cluster needs an argument, and this is the only
+   * place in the view that takes one.
+   */
+  private void runCommand(final String typed) {
+    String command = typed.trim();
+    if (command.equals("ctx") || command.startsWith("ctx ")) {
+      switchServer(command.substring("ctx".length()));
+      return;
+    }
+    openResources(command);
+  }
+
+  private void handleKindsKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      ui.closeKinds();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
     }
   }
 

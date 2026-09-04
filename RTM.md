@@ -820,6 +820,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | New | Not Covered | — |
 | GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | New | Not Covered | — |
 | GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | New | Not Covered | — |
+| GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -8363,7 +8364,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-796 — Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal
 
 - **Category**: CLI UX
-- **Status**: Modified  _(New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables.)_
+- **Status**: Modified  _(New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables. The log tail also gained wrap and timestamp toggles.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang cannot send keystrokes to a raw-mode terminal; there is no headless path to drive this end to end.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. Plus UiStateTest's positional-sort cases and InstanceScreenTest's log-filter cases.
@@ -8456,11 +8457,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`
 
+#### GIMLE-806 — The terminal view lists what it can open, and can be pointed at another control plane
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: an empty `:` lists every browsable kind including the cluster's own registered ones, and `:ctx NAME` repoints the view at another control plane by stored context name or host:port, closing every open screen and the kind catalog first. Rides a single read-only addition to ClusterReader; the identity presented never changes, since a context holds an endpoint and never a credential.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The context resolution itself is reachable from a scenario; the view that uses it is not.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-cli's ClusterReaderContextTest (context resolution, bare addresses, precedence, refusal) and gimle-hugin's KindsScreenTest and UiStateTest.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**675 of 805 requirements are Not Covered.**
+**676 of 806 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8576,6 +8586,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-803 | gimle-hugin | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | gimle-hugin's ActivityReaderTest (all three feeds' parses and their degraded shapes) and ActivityScreenTest (per-feed labelling, headings, colour and width). |
 | GIMLE-804 | gimle-hugin | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | gimle-hugin's ResourceCatalogTest (resolution, custom-kind discovery, collision, degraded discovery, suggestions), ResourceReaderTest (column resolution, the wrapped collection, permission and failure paths), ResourceScreenTest (header, label, filter, permission message, width) and JsonPathTest (the dotted path walk). |
 | GIMLE-805 | gimle-hugin | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour). |
+| GIMLE-806 | gimle-hugin | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | gimle-cli's ClusterReaderContextTest (context resolution, bare addresses, precedence, refusal) and gimle-hugin's KindsScreenTest and UiStateTest. |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-639 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |

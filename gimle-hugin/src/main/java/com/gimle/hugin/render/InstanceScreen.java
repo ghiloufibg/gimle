@@ -107,9 +107,14 @@ public final class InstanceScreen {
       // the other is how an operator concludes a module has stopped logging when it has not.
       lines.add(muted(all.isEmpty() ? "  waiting for output…" : "  no line matches this filter"));
     }
+    List<String> tail = new ArrayList<>();
     for (LogLine line : visible) {
-      lines.add(logLine(line, viewport));
+      tail.addAll(logLine(line, ui, viewport));
     }
+    // Wrapping renders more rows than there are lines, so the surplus is cut here. It falls on the
+    // oldest rows: newest-last is what a tail owes its reader.
+    lines.addAll(
+        tail.size() > available ? tail.subList(tail.size() - available, tail.size()) : tail);
 
     return Frame.fitWithKeyBar(lines, StatusBar.instanceKeys(painter, ui, viewport), viewport);
   }
@@ -396,18 +401,33 @@ public final class InstanceScreen {
         .build();
   }
 
-  private String logLine(final LogLine line, final Viewport viewport) {
-    Line rendered =
-        new Line(painter)
-            .cell(line.clock(), 12, Style.fg(Palette.MUTED_FOREGROUND))
-            .pad(1)
-            .cell(
-                line.level().orElse(""),
-                5,
-                Style.fg(StatusVariant.ofLogLevel(line.level().orElse(""))))
-            .pad(1);
-    int messageCells = Math.max(10, viewport.columns() - rendered.width());
-    return rendered.cell(line.message().orElse(""), messageCells, Style.PLAIN).build();
+  /**
+   * One log line as the rows it occupies: one, or -- with wrapping on -- as many as its message
+   * needs, each continuation indented to the message column so the left edge still reads as one
+   * column of text rather than as more lines than were actually logged.
+   */
+  private List<String> logLine(final LogLine line, final UiState ui, final Viewport viewport) {
+    Line rendered = new Line(painter);
+    if (ui.logTimestamps()) {
+      rendered.cell(line.clock(), 12, Style.fg(Palette.MUTED_FOREGROUND)).pad(1);
+    }
+    rendered
+        .cell(
+            line.level().orElse(""), 5, Style.fg(StatusVariant.ofLogLevel(line.level().orElse(""))))
+        .pad(1);
+    int indent = rendered.width();
+    int messageCells = Math.max(10, viewport.columns() - indent);
+    String message = line.message().orElse("");
+    if (!ui.logWrap() || message.length() <= messageCells) {
+      return List.of(rendered.cell(message, messageCells, Style.PLAIN).build());
+    }
+    List<String> rows = new ArrayList<>();
+    rows.add(rendered.cell(message.substring(0, messageCells), messageCells, Style.PLAIN).build());
+    for (int start = messageCells; start < message.length(); start += messageCells) {
+      String chunk = message.substring(start, Math.min(message.length(), start + messageCells));
+      rows.add(new Line(painter).pad(indent).cell(chunk, messageCells, Style.PLAIN).build());
+    }
+    return rows;
   }
 
   private String sectionLabel(final String label) {

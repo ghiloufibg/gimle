@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 805,
+  "requirementCount": 806,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16212,7 +16212,7 @@
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
       "category": "CLI UX",
       "userStory": "As an operator, I want to move around the view with the keys I already use in k9s and top, so that nothing about the tool needs learning before it is useful.",
-      "statusDetail": "Complete. Arrow keys or j/k move the selection, g/G jump to the ends, Enter inspects, esc goes back or clears the filter, / filters across deployment name, index, node, lifecycle state, tenant and module coordinate, p pauses and resumes refresh, r refreshes now, ? opens the help overlay (which states in the view itself that nothing here can change cluster state), and q or ctrl-c quits. Selection is held as a tenant-scoped instance key rather than a row index, so a row appearing above the cursor between polls does not silently move it onto a different instance. Raw mode, the alternate screen and key decoding are confined to one thin JLine adapter which restores the terminal on the way out. A digit picks a table's ordering outright rather than cycling to it, on whichever of the two tables has the cursor, and each table's own label names the digits that do so -- a key nothing on screen mentions is never found. The filter reaches the instance drill-down's log tail as well as the tables, matched against each line's level and message but never its clock, so typing digits to find a message does not also match every line logged in that minute; a filter matching no line says so rather than reading as a quiet instance, and esc there clears the filter before it closes the pane.",
+      "statusDetail": "Complete. Arrow keys or j/k move the selection, g/G jump to the ends, Enter inspects, esc goes back or clears the filter, / filters across deployment name, index, node, lifecycle state, tenant and module coordinate, p pauses and resumes refresh, r refreshes now, ? opens the help overlay (which states in the view itself that nothing here can change cluster state), and q or ctrl-c quits. Selection is held as a tenant-scoped instance key rather than a row index, so a row appearing above the cursor between polls does not silently move it onto a different instance. Raw mode, the alternate screen and key decoding are confined to one thin JLine adapter which restores the terminal on the way out. A digit picks a table's ordering outright rather than cycling to it, on whichever of the two tables has the cursor, and each table's own label names the digits that do so -- a key nothing on screen mentions is never found. The filter reaches the instance drill-down's log tail as well as the tables, matched against each line's level and message but never its clock, so typing digits to find a message does not also match every line logged in that minute; a filter matching no line says so rather than reading as a quiet instance, and esc there clears the filter before it closes the pane. The instance drill-down's log tail additionally toggles wrapping (`w`) and the clock column (`t`): wrapping is off by default, because one row per line is what makes a tail scannable and a wrapped stack trace would push everything above it off the top; hiding the clock gives its width to the message.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`",
@@ -16220,7 +16220,7 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/term/JLineTerminalSession.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/HelpOverlay.java`"
       ],
-      "testCoverageDetail": "UiStateTest covers the cursor following its instance across list changes, falling back when that instance leaves, stopping at both ends, the empty list, filter editing, and inspect/close. The JLine adapter itself is deliberately untested and kept as thin as possible for that reason. UiStateTest additionally covers a digit picking an ordering and a position no column occupies leaving the ordering alone; InstanceScreenTest covers the log tail narrowing to the filter and reporting how much of it shows, a filter matching nothing saying so, and the filter matching a line's level and message but not its clock; ClusterScreenTest covers the key bar still fitting eighty columns while naming the three keys that reach an otherwise unfindable screen.",
+      "testCoverageDetail": "UiStateTest covers the cursor following its instance across list changes, falling back when that instance leaves, stopping at both ends, the empty list, filter editing, and inspect/close. The JLine adapter itself is deliberately untested and kept as thin as possible for that reason. UiStateTest additionally covers a digit picking an ordering and a position no column occupies leaving the ordering alone; InstanceScreenTest covers the log tail narrowing to the filter and reporting how much of it shows, a filter matching nothing saying so, and the filter matching a line's level and message but not its clock; ClusterScreenTest covers the key bar still fitting eighty columns while naming the three keys that reach an otherwise unfindable screen. InstanceScreenTest additionally covers wrapping continuing a long line rather than cutting it, hiding the clock widening the message, and a wrapped tail still fitting its window; UiStateTest covers the two toggles' defaults.",
       "gherkinSteps": [
         "Given `gimle top` running against a cluster",
         "When the operator moves the selection, filters, pauses and quits",
@@ -16433,6 +16433,29 @@
         "Given the terminal view's resource browser open on a kind",
         "When an operator presses enter on a row",
         "Then that resource's whole object is shown as YAML, scrollable"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit only"
+    },
+    {
+      "id": "GIMLE-806",
+      "module": "gimle-hugin",
+      "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
+      "category": "CLI UX",
+      "userStory": "As an operator, I want to see which kinds this cluster can show me and to follow my work between clusters, so that neither requires leaving the live view.",
+      "statusDetail": "Complete. Pressing `:` and then enter with nothing typed lists every kind the catalog holds -- key, route, and whether the cluster registered it -- rather than failing to name one: the prompt takes a name, which only helps someone who already knows the names, and a cluster's own registered kinds are the part no documentation could carry. `:ctx NAME` repoints the whole view at another control plane, named either by a context `gimle context set` stored or by a bare host:port; resolution lives in `gimle-cli` rather than in the view, because the config file and its format are the CLI's. A stored context wins over an address that happens to look like its name, and a name matching neither is refused on the spot rather than dialled, since a typo dialled as a hostname fails later and less clearly. Switching closes every open screen and drops the kind catalog first -- each is about one cluster, and carried across would describe the previous one under the new one's name. Transport material is not per-context (a stored context holds an endpoint and never a credential; the certificate and CA come from this process's own `gimle.tls.*`), so the identity presented does not change: right for another replica of the same cluster, and a cluster under a different PKI fails to connect rather than misleading anyone. The seam this rides on is a single read-only addition to `ClusterReader` -- what comes back is another reader, never the client behind it.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`"
+      ],
+      "testCoverageDetail": "ClusterReaderContextTest covers a stored context resolving to its endpoint, a bare address dialled as given (IPv6 included), a context winning over a same-looking address, and a name that is neither being refused with the message it is refused by. KindsScreenTest covers every kind getting a row with its route, the count being stated so a list cut by a short terminal is not read as all of it, a registered kind being marked as one, the frame fitting, and no escape sequences without colour. UiStateTest covers leaving every view carrying nothing over, and the kinds list and the browser never being open together.",
+      "gherkinSteps": [
+        "Given an operator in the terminal view",
+        "When they press `:` and then enter with nothing typed",
+        "Then every kind this cluster can show is listed, registered kinds included"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Unit only"

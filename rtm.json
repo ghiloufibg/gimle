@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 805,
+  "requirementCount": 806,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13820,7 +13820,7 @@
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
       "category": "CLI UX",
       "status": "Modified",
-      "statusNote": "New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables.",
+      "statusNote": "New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables. The log tail also gained wrap and timestamp toggles.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. Plus UiStateTest's positional-sort cases and InstanceScreenTest's log-filter cases.",
@@ -13991,6 +13991,22 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`"
       ],
       "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-806",
+      "module": "gimle-hugin",
+      "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: an empty `:` lists every browsable kind including the cluster's own registered ones, and `:ctx NAME` repoints the view at another control plane by stored context name or host:port, closing every open screen and the kind catalog first. Rides a single read-only addition to ClusterReader; the identity presented never changes, since a context holds an endpoint and never a credential.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-cli's ClusterReaderContextTest (context resolution, bare addresses, precedence, refusal) and gimle-hugin's KindsScreenTest and UiStateTest.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The context resolution itself is reachable from a scenario; the view that uses it is not."
     }
   ]
 }

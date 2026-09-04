@@ -133,5 +133,10 @@ class HuginExtensionTest {
     public String serverAddress() {
       return "localhost:8080";
     }
+
+    @Override
+    public ClusterReader forContext(final String nameOrAddress) {
+      throw new UnsupportedOperationException("this reader is not addressed by server");
+    }
   }
 }

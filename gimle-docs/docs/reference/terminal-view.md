@@ -67,6 +67,9 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 - Its recent lifecycle transitions, from the same timeline `gimle events` prints.
 - A live tail of its own logs, seeded with recent backlog so a quiet instance still shows the lines
   that explain how it got here. `c` switches between the `APPLICATION` and `PLATFORM` categories,
+  `w` wraps a line too long for the pane instead of cutting it (off by default — one row per line
+  is what makes a tail scannable, and a wrapped stack trace would push everything above it off the
+  top), `t` hides the clock column and gives its width to the message,
   and `/` narrows the tail the same way it narrows a table — matched against each line's level and
   message, never its clock, so typing digits to find a message does not also match every line
   logged in that minute. A filter matching nothing says so rather than reading as a quiet instance,
@@ -91,6 +94,18 @@ worth finding — refusals, or firing rules. Each feed is gated on a permission 
 whose certificate lacks one is told exactly that, because an empty feed would read as a quiet
 cluster. Like the services view this polls only while open — the alert feed additionally costs one
 request per declared rule, since the rule list carries no firing state of its own.
+
+**Another cluster** — `:ctx NAME` from any screen:
+
+- Points the whole view at another control plane, named either by a context `gimle context set`
+  stored or by a bare `host:port`. A name matching neither is refused on the spot rather than
+  dialled — a typo dialled as a hostname fails later, further away, and far less clearly.
+- Everything open is closed first. Every screen here is about one cluster, and a drill-down, a
+  service table or a browsed kind carried across would be describing the previous cluster under the
+  new one's name. The kind catalog goes with them: which kinds exist is that cluster's own answer.
+- A stored context holds an endpoint and never a credential, so the client certificate and CA stay
+  whatever `gimle.tls.*` points at. That is right for another replica of the same cluster; a
+  cluster under a different PKI simply fails to connect rather than misleading anyone.
 
 **Services view** — `s` from the cluster view:
 
@@ -137,6 +152,10 @@ Two collections are absent, and both because of the API rather than a choice mad
 and secrets are addressable only one name at a time, with no route to list them; and the artifact
 catalog answers with bare module-id strings rather than objects, so it has no columns to draw.
 
+Pressing `:` and then `enter` with nothing typed lists every kind instead of failing to name one —
+including the kinds this particular cluster registered, which is the part no documentation can
+carry, since they differ per cluster.
+
 **Describe** — `⏎` on a row in the resource browser, or `d` on an instance row in the cluster view:
 
 - The whole object the collection route answered with, as YAML, scrollable with `↑↓` and `g`/`G`.
@@ -162,6 +181,9 @@ catalog answers with bare module-id strings rather than objects, so it has no co
 | `s` | services and the endpoints they resolve to |
 | `a` | cluster activity; `c` switches audit / lifecycle / alerts |
 | `:` | open a kind: `tenants`, `roles`, `volumes`, a registered kind… |
+| `:` then `enter` | list every kind this cluster can show |
+| `:ctx NAME` | point at another control plane, by context name or `host:port` |
+| `w` / `t` | wrap long log lines / show the clock column (instance view) |
 | `m` | load older entries (activity view, audit and lifecycle feeds) |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears — tables and the log tail alike |
@@ -221,7 +243,9 @@ carries meaning on its own:
   instance shares one heap with every other instance on its worker, so the same figure is labelled
   an admission bound and gets no bar — a gauge there would claim headroom this instance does not
   individually have.
-- **One cluster.** No context switching; point `--server`/`GIMLE_SERVER` at the one you want.
+- **One cluster at a time.** `:ctx` repoints the view, but nothing is ever shown side by side, and
+  the identity presented is always this process's own — switching endpoint does not switch
+  credentials.
 - **Mouse: the wheel only.** A wheel notch moves the cursor, the same as an arrow key. There is no
   click-to-select: the screens hand back a list of strings with no record of which row landed on
   which line, and giving them one purely to serve a click is a worse trade than not having clicks.

@@ -248,6 +248,73 @@ class InstanceScreenTest {
             .anyMatch(line -> line.contains("no line matches this filter")));
   }
 
+  @Test
+  void wrapping_continues_a_long_line_onto_the_next_row_instead_of_cutting_it() {
+    // A stack trace or a long message is exactly the line worth reading in full.
+    InstanceWatcher watcher = longLineWatcher();
+    Viewport viewport = new Viewport(60, 34);
+
+    List<String> cut = render(row(true), watcher, viewport, "", ui -> {});
+    List<String> wrapped = render(row(true), watcher, viewport, "", UiState::toggleLogWrap);
+
+    assertTrue(cut.stream().anyMatch(line -> line.contains("…")), "cut ends in an ellipsis");
+    assertTrue(
+        wrapped.stream().anyMatch(line -> line.contains("tail-of-the-message")),
+        "the end of the message is on screen somewhere: " + wrapped);
+  }
+
+  @Test
+  void hiding_the_clock_gives_its_width_to_the_message() {
+    InstanceWatcher watcher = twoLineWatcher();
+    Viewport viewport = new Viewport(60, 34);
+
+    List<String> withClock = render(row(true), watcher, viewport, "", ui -> {});
+    List<String> withoutClock =
+        render(row(true), watcher, viewport, "", UiState::toggleLogTimestamps);
+
+    assertTrue(lineContaining(withClock, "Fabric call").contains("14:02"), "clock shown");
+    assertFalse(lineContaining(withoutClock, "Fabric call").contains("14:02"), "clock hidden");
+    // The message that did not fit beside a clock does once the clock is gone.
+    assertTrue(
+        lineContaining(withoutClock, "Fabric call").contains("healthy"),
+        lineContaining(withoutClock, "Fabric call"));
+  }
+
+  @Test
+  void a_wrapped_tail_still_fits_the_window_it_is_drawn_in() {
+    // Wrapping turns each line into several rows; the pane must cut the surplus, not overflow.
+    Viewport viewport = new Viewport(60, 20);
+
+    List<String> lines = render(row(true), longLineWatcher(), viewport, "", UiState::toggleLogWrap);
+
+    assertEquals(viewport.rows(), lines.size());
+    for (String line : lines) {
+      assertTrue(Ansi.visibleWidth(line) <= viewport.columns(), line);
+    }
+  }
+
+  private static InstanceWatcher longLineWatcher() {
+    InstanceWatcher watcher = watcherFor(new LongLineReader());
+    awaitTrue(() -> !watcher.lines().isEmpty());
+    return watcher;
+  }
+
+  private List<String> render(
+      final InstanceRow row,
+      final InstanceWatcher watcher,
+      final Viewport viewport,
+      final String filter,
+      final java.util.function.Consumer<UiState> configure) {
+    UiState ui = new UiState();
+    ui.beginFilter();
+    for (char character : filter.toCharArray()) {
+      ui.appendToFilter(character);
+    }
+    ui.commitFilter();
+    configure.accept(ui);
+    return screen.render(row, watcher, ui, viewport, false, NOW);
+  }
+
   private static InstanceWatcher twoLineWatcher() {
     InstanceWatcher watcher = watcherFor(new TwoLineReader());
     awaitTrue(() -> watcher.lines().size() >= 2);
@@ -408,6 +475,49 @@ class InstanceScreenTest {
     public String serverAddress() {
       return "localhost:8080";
     }
+
+    @Override
+    public ClusterReader forContext(final String nameOrAddress) {
+      throw new UnsupportedOperationException("this reader is not addressed by server");
+    }
+  }
+
+  /** One line far too long for a narrow pane, so wrapping has something to do. */
+  private static final class LongLineReader implements ClusterReader {
+
+    @Override
+    public List<Map<String, Object>> getList(final String path) {
+      return List.of();
+    }
+
+    @Override
+    public Map<String, Object> getObject(final String path) {
+      return Map.of(
+          "lines",
+          List.of(
+              Map.of(
+                  "timestamp",
+                  "2026-09-01T14:02:41.702Z",
+                  "level",
+                  "ERROR",
+                  "message",
+                  "head-of-the-message " + "padding ".repeat(20) + "tail-of-the-message")));
+    }
+
+    @Override
+    public InputStream openStream(final String path) {
+      return new ByteArrayInputStream(new byte[0]);
+    }
+
+    @Override
+    public String serverAddress() {
+      return "localhost:8080";
+    }
+
+    @Override
+    public ClusterReader forContext(final String nameOrAddress) {
+      throw new UnsupportedOperationException("this reader is not addressed by server");
+    }
   }
 
   /** Two log lines that differ in level and in message, so a filter has something to choose. */
@@ -452,6 +562,11 @@ class InstanceScreenTest {
     public String serverAddress() {
       return "localhost:8080";
     }
+
+    @Override
+    public ClusterReader forContext(final String nameOrAddress) {
+      throw new UnsupportedOperationException("this reader is not addressed by server");
+    }
   }
 
   /** An instance with nothing to say: no events, no lines, no failure either. */
@@ -475,6 +590,11 @@ class InstanceScreenTest {
     @Override
     public String serverAddress() {
       return "localhost:8080";
+    }
+
+    @Override
+    public ClusterReader forContext(final String nameOrAddress) {
+      throw new UnsupportedOperationException("this reader is not addressed by server");
     }
   }
 }

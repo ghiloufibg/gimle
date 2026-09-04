@@ -113,6 +113,62 @@ class UiStateTest {
     return List.of(keys).stream().map(UiStateTest::row).toList();
   }
 
+  // ---- pointing at another control plane ----
+
+  @Test
+  void leaving_every_view_puts_the_cluster_table_back_with_nothing_carried_over() {
+    // Every screen here is about one cluster; carried across, each would be describing the
+    // previous one under the new one's name.
+    ui.showServices();
+    ui.showActivity();
+    ui.showResources();
+    ui.describe("checkout-api");
+    ui.beginFilter();
+    ui.appendToFilter('a');
+    ui.commitFilter();
+    ui.inspectSelected(rows("checkout-api/0"));
+
+    ui.leaveEveryView();
+
+    assertFalse(ui.viewingServices());
+    assertFalse(ui.viewingActivity());
+    assertFalse(ui.viewingResources());
+    assertFalse(ui.viewingKinds());
+    assertFalse(ui.inspectingInstance());
+    assertTrue(ui.describing().isEmpty());
+    assertTrue(ui.inspectingNode().isEmpty());
+    assertEquals("", ui.filter());
+  }
+
+  // ---- the log view's own toggles ----
+
+  @Test
+  void the_log_view_starts_with_timestamps_shown_and_wrapping_off() {
+    // One row per line is what makes a tail scannable; a wrapped stack trace would push
+    // everything above it off the top before anyone asked for that.
+    assertTrue(ui.logTimestamps());
+    assertFalse(ui.logWrap());
+
+    ui.toggleLogWrap();
+    ui.toggleLogTimestamps();
+
+    assertFalse(ui.logTimestamps());
+    assertTrue(ui.logWrap());
+  }
+
+  // ---- listing what the prompt can open ----
+
+  @Test
+  void the_kinds_list_and_the_browser_are_never_open_at_the_same_time() {
+    ui.showKinds();
+    assertTrue(ui.viewingKinds());
+
+    ui.showResources();
+
+    assertFalse(ui.viewingKinds(), "opening a kind leaves the list it was chosen from");
+    assertTrue(ui.viewingResources());
+  }
+
   // ---- picking an ordering outright ----
 
   @Test

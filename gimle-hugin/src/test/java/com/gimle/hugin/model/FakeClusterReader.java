@@ -24,6 +24,16 @@ final class FakeClusterReader implements ClusterReader {
 
   private volatile RuntimeException failure;
 
+  private final String serverAddress;
+
+  FakeClusterReader() {
+    this("localhost:8080");
+  }
+
+  FakeClusterReader(final String serverAddress) {
+    this.serverAddress = serverAddress;
+  }
+
   FakeClusterReader withList(final String path, final List<Map<String, Object>> value) {
     lists.put(path, value);
     return this;
@@ -69,7 +79,20 @@ final class FakeClusterReader implements ClusterReader {
 
   @Override
   public String serverAddress() {
-    return "localhost:8080";
+    return serverAddress;
+  }
+
+  /**
+   * The same canned responses under another address, which is what makes a switch observable in a
+   * test: the rows do not change, so anything that does is the switch itself.
+   */
+  @Override
+  public FakeClusterReader forContext(final String nameOrAddress) {
+    FakeClusterReader moved = new FakeClusterReader(nameOrAddress);
+    moved.lists.putAll(lists);
+    moved.objects.putAll(objects);
+    moved.streams.putAll(streams);
+    return moved;
   }
 
   private void record(final String path) {

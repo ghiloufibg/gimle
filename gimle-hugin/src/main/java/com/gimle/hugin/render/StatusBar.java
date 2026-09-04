@@ -238,6 +238,10 @@ final class StatusBar {
         List.of("esc back", ": kind", "⏎ describe", "/ filter", "p pause", "? help", "q quit"));
   }
 
+  static String kindsKeys(final Painter painter, final Viewport viewport) {
+    return keyBar(painter, viewport, List.of("esc back", ": open one", "? help", "q quit"));
+  }
+
   static String describeKeys(final Painter painter, final Viewport viewport) {
     return keyBar(
         painter, viewport, List.of("esc back", "↑↓ scroll", "g/G top/bottom", "? help", "q quit"));
@@ -300,7 +304,15 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
-        List.of("esc back", "c category", "/ filter", "p pause", "? help", "q quit"));
+        List.of(
+            "esc back",
+            "c category",
+            "/ filter",
+            "w wrap",
+            "t time",
+            "p pause",
+            "? help",
+            "q quit"));
   }
 
   static String serviceKeys(final Painter painter, final UiState ui, final Viewport viewport) {

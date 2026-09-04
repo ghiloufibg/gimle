@@ -130,6 +130,11 @@ public final class TerminalViewSteps {
         return baseUrl;
       }
 
+      @Override
+      public ClusterReader forContext(final String nameOrAddress) {
+        throw new UnsupportedOperationException("this reader is not addressed by server");
+      }
+
       private String body(final String path) {
         try {
           HttpResponse<String> response =

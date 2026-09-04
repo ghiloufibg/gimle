@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 805
+- **Total requirements**: 806
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 675
+- **Not covered by automated test**: 676
 - **Release-readiness (automated coverage)**: 16.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 13 | 3 | 10 | 23.1% |
+| gimle-hugin | 14 | 3 | 11 | 21.4% |
 
 ## Checklist
 
@@ -2349,6 +2349,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | Given a cluster with a refused request, a failed instance transition and a firing alert rule When an operator presses `a` and cycles the feed with `c` Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line | No |
 | [ ] | GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares | No |
 | [ ] | GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable | No |
+| [ ] | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included | No |
 
 #### Distribution
 
