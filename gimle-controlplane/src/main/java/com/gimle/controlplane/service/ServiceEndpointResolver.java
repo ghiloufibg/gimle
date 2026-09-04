@@ -3,8 +3,9 @@ package com.gimle.controlplane.service;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.ServiceSpec;
-import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,10 +24,29 @@ import java.util.TreeSet;
  * both alive and ready -- the same "only route to a healthy backend" posture Kubernetes' own
  * EndpointSlice controller has, and {@code DeploymentReconciler#isReady} already established
  * elsewhere in this codebase for a different purpose (gating rolling-update progress).
+ *
+ * <p>{@code spec.deploymentNames()} names workloads by bare name, not by kind -- a Service can
+ * front a Deployment, StatefulSet, or DaemonSet alike (the same kind-agnostic join {@code
+ * /endpoints/{name}} and {@code handleAppendInstanceEvent} already perform), so this tries each
+ * kind's own assignment collection in turn against every declared name. Checking only Deployment-
+ * kind {@code InstanceAssignment} bookkeeping left a Service fronting a DaemonSet or StatefulSet
+ * with an empty endpoint set forever, even with every replica genuinely {@code ACTIVE}/ready and
+ * reporting a port matching the Service's own {@code targetPort} -- indistinguishable from "no live
+ * backing instance yet," a normal transient state this resolver otherwise treats as valid.
  */
 public final class ServiceEndpointResolver {
 
   private ServiceEndpointResolver() {}
+
+  /**
+   * One assignment-shaped candidate, kind-erased: a Deployment's {@code InstanceAssignment}, a
+   * StatefulSet's {@code StatefulSetAssignment} (both carry a real {@code instanceIndex}), or a
+   * DaemonSet's {@code DaemonSetAssignment} (whose own index is always {@code 0}, keyed by node
+   * instead -- see that record's own javadoc) all reduce to this same shape for the health/port
+   * join below, which never needs to know which kind actually placed a given candidate.
+   */
+  private record Candidate(
+      String deploymentName, int instanceIndex, String nodeId, Optional<String> tenantId) {}
 
   public static ServiceEndpointResolution resolve(final StoreReader store, final ServiceSpec spec) {
     // An ExternalName Service resolves to exactly its declared external host -- there are no
@@ -41,41 +61,72 @@ public final class ServiceEndpointResolver {
     final List<ServiceEndpoint> endpoints = new ArrayList<>();
     final List<String> exclusions = new ArrayList<>();
     for (final String deploymentName : spec.deploymentNames()) {
-      for (final InstanceAssignment assignment :
-          store.listAssignmentsFor(spec.tenantId(), deploymentName)) {
-        final Optional<InstanceObservation> observation = readyObservation(store, assignment);
+      for (final Candidate candidate : candidatesFor(store, spec.tenantId(), deploymentName)) {
+        final Optional<InstanceObservation> observation = readyObservation(store, candidate);
         if (observation.isEmpty()) {
           continue;
         }
         final OptionalInt port = selectPort(spec, observation.get());
         if (port.isEmpty()) {
-          exclusions.add(exclusionReason(spec, assignment, observation.get()));
+          exclusions.add(exclusionReason(spec, candidate, observation.get()));
           continue;
         }
-        resolveHost(store, assignment.nodeId())
+        resolveHost(store, candidate.nodeId())
             .ifPresent(
                 host ->
                     endpoints.add(
                         new ServiceEndpoint(
-                            host, port.getAsInt(), Optional.of(assignment.nodeId()))));
+                            host, port.getAsInt(), Optional.of(candidate.nodeId()))));
       }
     }
     return new ServiceEndpointResolution(endpoints, exclusions);
   }
 
+  /**
+   * Every currently-assigned candidate named {@code deploymentName} under {@code tenantId}, tried
+   * across all three placeable kinds a Service may front -- Deployment first (the common case),
+   * then StatefulSet, then DaemonSet. A name is unique across kinds within one tenant's own
+   * namespace, so at most one of these three ever actually contributes candidates for a given name;
+   * trying all three costs nothing when the other two are empty.
+   */
+  private static List<Candidate> candidatesFor(
+      final StoreReader store, final Optional<String> tenantId, final String deploymentName) {
+    final List<Candidate> candidates = new ArrayList<>();
+    store
+        .listAssignmentsFor(tenantId, deploymentName)
+        .forEach(
+            a ->
+                candidates.add(
+                    new Candidate(
+                        a.deploymentName(), a.instanceIndex(), a.nodeId(), a.tenantId())));
+    store
+        .listStatefulSetAssignmentsFor(tenantId, deploymentName)
+        .forEach(
+            (StatefulSetAssignment a) ->
+                candidates.add(
+                    new Candidate(
+                        a.statefulSetName(), a.instanceIndex(), a.nodeId(), a.tenantId())));
+    store
+        .listDaemonSetAssignmentsFor(tenantId, deploymentName)
+        .forEach(
+            (DaemonSetAssignment a) ->
+                candidates.add(new Candidate(a.daemonSetName(), 0, a.nodeId(), a.tenantId())));
+    return candidates;
+  }
+
   private static Optional<InstanceObservation> readyObservation(
-      final StoreReader store, final InstanceAssignment assignment) {
+      final StoreReader store, final Candidate candidate) {
     return store
-        .getNodeHeartbeat(assignment.nodeId())
+        .getNodeHeartbeat(candidate.nodeId())
         .map(ObservedHeartbeat::heartbeat)
         .flatMap(
             heartbeat ->
                 heartbeat.instances().stream()
                     .filter(
                         obs ->
-                            obs.deploymentName().equals(assignment.deploymentName())
-                                && obs.instanceIndex() == assignment.instanceIndex()
-                                && obs.tenantId().equals(assignment.tenantId()))
+                            obs.deploymentName().equals(candidate.deploymentName())
+                                && obs.instanceIndex() == candidate.instanceIndex()
+                                && obs.tenantId().equals(candidate.tenantId()))
                     .findFirst())
         .filter(InstanceObservation::alive)
         .filter(InstanceObservation::ready);
@@ -106,15 +157,13 @@ public final class ServiceEndpointResolver {
   }
 
   private static String exclusionReason(
-      final ServiceSpec spec,
-      final InstanceAssignment assignment,
-      final InstanceObservation observation) {
+      final ServiceSpec spec, final Candidate candidate, final InstanceObservation observation) {
     final String instance =
-        assignment.deploymentName()
+        candidate.deploymentName()
             + '/'
-            + assignment.instanceIndex()
+            + candidate.instanceIndex()
             + " on node "
-            + assignment.nodeId();
+            + candidate.nodeId();
     final String reported = new TreeSet<>(observation.ports().values()).toString();
     if (spec.targetPort().isPresent()) {
       return "service "

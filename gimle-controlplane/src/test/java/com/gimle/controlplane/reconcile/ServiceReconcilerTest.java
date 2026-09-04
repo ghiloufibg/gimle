@@ -92,6 +92,53 @@ class ServiceReconcilerTest {
         registry.getEndpoints(Optional.empty(), "orders"));
   }
 
+  /**
+   * QA finding: a Service fronting a DaemonSet never resolved any endpoints, even with every
+   * replica genuinely {@code ACTIVE}/ready and reporting a port matching the Service's own {@code
+   * targetPort} -- {@link com.gimle.controlplane.service.ServiceEndpointResolver} only ever
+   * consulted {@code listAssignmentsFor}, Deployment-kind bookkeeping alone. A byte-for-byte
+   * equivalent workload as a plain Deployment (the test directly above) resolved immediately.
+   */
+  @Test
+  void a_service_fronting_a_daemonset_resolves_its_endpoints() {
+    StateStore store = new StateStore();
+    registerNode(store, "node-a", "10.0.0.5:9101");
+    store.putDaemonSetAssignment(
+        new com.gimle.mimir.store.DaemonSetAssignment(
+            "cache-daemonset", "node-a", MODULE_ID, "/tmp/cache.jar", Optional.empty()));
+    putHeartbeat(store, "node-a", "cache-daemonset", 0, true, Map.of("HTTP_PORT", 51234));
+
+    ServiceRegistry registry = new ServiceRegistry(store);
+    registry.put(new ServiceSpec("cache", Optional.empty(), Set.of("cache-daemonset"), 8080));
+
+    new ServiceReconciler(registry, store).reconcileOnce();
+
+    assertEquals(
+        List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
+        registry.getEndpoints(Optional.empty(), "cache"));
+  }
+
+  /** The StatefulSet counterpart to the DaemonSet test above -- a real instanceIndex, not 0. */
+  @Test
+  void a_service_fronting_a_statefulset_resolves_its_endpoints() {
+    StateStore store = new StateStore();
+    registerNode(store, "node-a", "10.0.0.5:9101");
+    store.putStatefulSetAssignment(
+        new com.gimle.mimir.store.StatefulSetAssignment(
+            "sessions-statefulset", 0, "node-a", MODULE_ID, "/tmp/sessions.jar", Optional.empty()));
+    putHeartbeat(store, "node-a", "sessions-statefulset", 0, true, Map.of("HTTP_PORT", 51234));
+
+    ServiceRegistry registry = new ServiceRegistry(store);
+    registry.put(
+        new ServiceSpec("sessions", Optional.empty(), Set.of("sessions-statefulset"), 8080));
+
+    new ServiceReconciler(registry, store).reconcileOnce();
+
+    assertEquals(
+        List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
+        registry.getEndpoints(Optional.empty(), "sessions"));
+  }
+
   @Test
   void an_instance_reported_alive_but_not_ready_yet_contributes_no_endpoint() {
     StateStore store = new StateStore();
