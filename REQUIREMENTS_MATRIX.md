@@ -10545,13 +10545,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As a vault operator, I want to browse secrets, reveal values, view version history, write new versions, and soft-/hard-delete a key.
-- **Status**: Complete
+- **Status**: Fixed: two QA-found bugs, both confined to this screen. (1) "Reveal value" crashed the whole Secrets page: HttpSecretsRepository#versions declared its return type as number[], but GET .../versions actually returns an array of {version, author, writtenAtEpochMilli, type} objects -- the version-picker's own `<option key={version} value={version}>v{version}</option>` then tried to render one of those objects as a raw JSX child for every stored version, three uncaught React error #31s for a secret with three versions and a full-page error boundary. versions() (and the SecretsRepository contract) now returns the real per-version objects; every caller renders `.version` explicitly, and SecretValue/RevealedSecret carry the API's `type` field too rather than discarding it. (2) "Write new version" had no type field at all: every PUT always omitted `type`, which Fafnir's own SecretType#fromWire(null) treats as opaque, so writing a new version of an existing pem-certificate/pem-private-key secret silently downgraded its declared type with no shape validation ever run -- a value with no BEGIN CERTIFICATE marker corrupted a certificate secret undetected. SecretDialog now resolves and shows the secret's currently-declared type before opening (via versions(), without revealing its plaintext), defaults to it so a plain write preserves the type, lets an operator deliberately pick a different one, and runs the same structural PEM-marker check Fafnir's own SecretType#validate applies (src/lib/secretType.ts#pemProblem) client-side before submit -- on top of, not instead of, the server's own authoritative re-check once the correct type is actually sent.
 - **Confidence**: High
-- **Source location(s)**: `src/routes/_shell.secrets.tsx`, `src/components/vault/SecretDialog.tsx`, `src/stores/useSecretsStore.ts`, `src/repositories/http/secrets.ts`
-- **Test coverage**: `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`
+- **Source location(s)**: `src/routes/_shell.secrets.tsx`, `src/components/vault/SecretDialog.tsx`, `src/stores/useSecretsStore.ts`, `src/repositories/http/secrets.ts`, `src/repositories/secrets.ts`, `src/lib/secretType.ts` (new), `src/types/index.ts`
+- **Test coverage**: `src/repositories/secrets.test.ts` (MockSecretsRepository versions()/upsert() type handling and PEM rejection), `src/repositories/http/secrets.test.ts` (versions() returns the API's full per-version objects, read()/upsert() carry type), `src/stores/useSecretsStore.test.ts` (new: reveal() stores real per-version objects rather than bare numbers, currentType() resolves the latest version's declared type, save() sends the caller's declared type through to the write)
 - **Gherkin scenario**:
   ```gherkin
   Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; "destroy" permanently removes it.
+  Given a pem-certificate-typed secret, When "Write new version" is opened, Then its current type is shown and preselected, and a value with no BEGIN CERTIFICATE marker is refused client-side before it can reach the server.
   ```
 
 #### GIMLE-464 — Tenant filter via URL search param

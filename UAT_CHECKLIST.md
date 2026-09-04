@@ -2073,7 +2073,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-462 | Vault status overview (uptime, active key, transport mode, tenants) | Given the vault is running, When I open the overview route, Then uptime is formatted `Xd Yh Zm`, active key id and tenant count shown from `GET /status`. | No |
-| [ ] | GIMLE-463 | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; "destroy" permanently removes it. | No |
+| [ ] | GIMLE-463 | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; "destroy" permanently removes it. Given a pem-certificate-typed secret, When "Write new version" is opened, Then its current type is shown and preselected, and a value with no BEGIN CERTIFICATE marker is refused client-side before it can reach the server. | No |
 | [ ] | GIMLE-464 | Tenant filter via URL search param | Given a URL of `/secrets?tenant=acme`, When the route loads, Then the list is pre-filtered to tenant `acme`. | No |
 | [ ] | GIMLE-465 | Key rotation trigger | Given I trigger rotation, When complete, Then the new active key id is returned and reflected in the status panel. | No |
 | [ ] | GIMLE-466 | Fafnir console error banner / global error capture | Given an API call fails, When the error propagates to the store, Then `ErrorBanner` renders the message. | No |

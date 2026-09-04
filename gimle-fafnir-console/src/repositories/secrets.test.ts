@@ -30,6 +30,7 @@ describe("MockSecretsRepository", () => {
       key: "db/password",
       version: 3,
       value: "new-value",
+      type: "opaque",
     });
   });
 
@@ -66,5 +67,49 @@ describe("MockSecretsRepository", () => {
     const second = await repo.rotateKey();
 
     expect(second).toBe(first + 1);
+  });
+
+  it("versions returns one entry per stored version with its own type, not bare numbers", async () => {
+    const repo = new MockSecretsRepository();
+
+    const versions = await repo.versions("asgard", "db/password");
+
+    expect(versions).toEqual([
+      { version: 1, author: "mock", writtenAtEpochMilli: expect.any(Number), type: "opaque" },
+      { version: 2, author: "mock", writtenAtEpochMilli: expect.any(Number), type: "opaque" },
+    ]);
+  });
+
+  it("upsert with no type omitted defaults to opaque and skips PEM validation", async () => {
+    const repo = new MockSecretsRepository();
+
+    await repo.upsert("asgard", "db/password", "anything at all");
+
+    const read = await repo.read("asgard", "db/password");
+    expect(read.type).toBe("opaque");
+  });
+
+  it("upsert rejects a pem-certificate value with no BEGIN CERTIFICATE marker", async () => {
+    const repo = new MockSecretsRepository();
+
+    await expect(
+      repo.upsert("asgard", "tls/cert", "not a certificate at all", "pem-certificate"),
+    ).rejects.toThrow(/BEGIN CERTIFICATE/);
+  });
+
+  it("upsert accepts a well-formed pem-certificate value and preserves its type", async () => {
+    const repo = new MockSecretsRepository();
+    const cert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----";
+
+    await repo.upsert("asgard", "tls/cert", cert, "pem-certificate");
+
+    const read = await repo.read("asgard", "tls/cert");
+    expect(read).toEqual({
+      tenantId: "asgard",
+      key: "tls/cert",
+      version: 1,
+      value: cert,
+      type: "pem-certificate",
+    });
   });
 });

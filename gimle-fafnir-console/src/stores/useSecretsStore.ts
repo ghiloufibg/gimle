@@ -2,12 +2,13 @@ import { create } from "zustand";
 
 import { messageOf } from "@/lib/errors";
 import { secretsRepo } from "@/repositories";
-import type { SecretMetadata } from "@/types";
+import type { SecretMetadata, SecretType, SecretVersion } from "@/types";
 
 export interface RevealedSecret {
   value: string;
   version: number;
-  versions: number[];
+  type: SecretType;
+  versions: SecretVersion[];
   loading: boolean;
 }
 
@@ -24,7 +25,8 @@ interface SecretsState {
   reveal: (key: string) => Promise<void>;
   hide: (key: string) => void;
   selectVersion: (key: string, version: number) => Promise<void>;
-  save: (key: string, value: string) => Promise<number | null>;
+  currentType: (key: string) => Promise<SecretType | null>;
+  save: (key: string, value: string, type: SecretType) => Promise<number | null>;
   remove: (key: string, destroy: boolean) => Promise<boolean>;
   rotateKey: () => Promise<number | null>;
 }
@@ -61,7 +63,7 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
     set({
       revealed: {
         ...revealed,
-        [key]: { value: "", version: 0, versions: [], loading: true },
+        [key]: { value: "", version: 0, type: "opaque", versions: [], loading: true },
       },
     });
     try {
@@ -72,7 +74,13 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
       set((state) => ({
         revealed: {
           ...state.revealed,
-          [key]: { value: secret.value, version: secret.version, versions, loading: false },
+          [key]: {
+            value: secret.value,
+            version: secret.version,
+            type: secret.type,
+            versions,
+            loading: false,
+          },
         },
       }));
     } catch (error) {
@@ -107,7 +115,13 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
         return {
           revealed: {
             ...state.revealed,
-            [key]: { ...current, value: secret.value, version: secret.version, loading: false },
+            [key]: {
+              ...current,
+              value: secret.value,
+              version: secret.version,
+              type: secret.type,
+              loading: false,
+            },
           },
         };
       });
@@ -123,11 +137,29 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
     }
   },
 
-  async save(key, value) {
+  async currentType(key) {
+    const { tenantId, secrets, revealed } = get();
+    const alreadyRevealed = revealed[key];
+    if (alreadyRevealed && !alreadyRevealed.loading) return alreadyRevealed.type;
+    try {
+      const versions = await secretsRepo.versions(tenantId, key);
+      if (versions.length === 0) return "opaque";
+      const meta = secrets.find((s) => s.key === key);
+      const latest =
+        (meta && versions.find((v) => v.version === meta.latestVersion)) ??
+        versions.reduce((max, v) => (v.version > max.version ? v : max));
+      return latest.type;
+    } catch (error) {
+      set({ error: messageOf(error) });
+      return null;
+    }
+  },
+
+  async save(key, value, type) {
     const { tenantId } = get();
     set({ writing: true });
     try {
-      const version = await secretsRepo.upsert(tenantId, key, value);
+      const version = await secretsRepo.upsert(tenantId, key, value, type);
       set({ writing: false });
       await get().loadSecrets(tenantId);
       return version;

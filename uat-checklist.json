@@ -5094,7 +5094,7 @@
       "module": "gimle-fafnir-console",
       "category": "Web Console / Frontend",
       "feature": "Secrets browsing/reveal/version/write/destroy (vault-native UI)",
-      "step": "Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; \"destroy\" permanently removes it.",
+      "step": "Given a secret has 3 versions, When I view its history, Then all versions are listed with the latest flagged; \"destroy\" permanently removes it. Given a pem-certificate-typed secret, When \"Write new version\" is opened, Then its current type is shown and preselected, and a value with no BEGIN CERTIFICATE marker is refused client-side before it can reach the server.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -7968,12 +7968,15 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Secrets browsing/reveal/version/write/destroy (vault-native UI)\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`",
+      "otherTestCoverage": "`src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`, `src/stores/useSecretsStore.test.ts` (new)",
       "sourceLocations": [
         "`src/routes/_shell.secrets.tsx`",
         "`src/components/vault/SecretDialog.tsx`",
         "`src/stores/useSecretsStore.ts`",
-        "`src/repositories/http/secrets.ts`"
+        "`src/repositories/http/secrets.ts`",
+        "`src/repositories/secrets.ts`",
+        "`src/lib/secretType.ts` (new)",
+        "`src/types/index.ts`"
       ]
     },
     {
