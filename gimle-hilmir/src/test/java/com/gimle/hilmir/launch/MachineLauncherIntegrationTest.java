@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -222,6 +223,53 @@ class MachineLauncherIntegrationTest {
     final String status = output.toString(StandardCharsets.UTF_8);
     assertTrue(status.contains("alive=false"));
     assertTrue(status.contains("readiness=closed"));
+  }
+
+  @Test
+  void status_reports_a_still_running_pid_as_not_alive_once_its_own_readiness_address_closes()
+      throws IOException {
+    // A real, live process -- not a dead pid -- standing in for a killed process the OS process
+    // table hasn't reaped yet: the pid genuinely still exists, but the readiness address it was
+    // ledgered against is provably no longer answering, which is what a `kill -9` actually looks
+    // like from a subsequent, fresh `hilmir status` invocation.
+    final int fixturePort = LaunchTestSupport.freePort();
+    final ProcessBuilder processBuilder =
+        new ProcessBuilder(
+            LaunchTestSupport.javaExecutable(),
+            "-cp",
+            LaunchTestSupport.testClasspath(),
+            "com.gimle.hilmir.launch.fixture.SocketFixtureMain",
+            String.valueOf(fixturePort));
+    processBuilder.redirectErrorStream(true);
+    processBuilder.redirectOutput(
+        ProcessBuilder.Redirect.to(tempDir.resolve("fixture.log").toFile()));
+    final Process fixture = processBuilder.start();
+    try {
+      ReadinessPoller.awaitPortOpen(
+          "127.0.0.1:" + fixturePort, Duration.ofSeconds(10), "the test fixture process");
+
+      final RunRecord stillListedButNotServing =
+          new RunRecord(
+              "store-0",
+              "STORE",
+              fixture.pid(),
+              List.of("java", "-version"),
+              "store-0.log",
+              // Deliberately not the fixture's own bound port -- port 1 requires privileges no
+              // test runner has, so nothing is ever listening there.
+              "127.0.0.1:1");
+      RunLedger.write(tempDir, List.of(stillListedButNotServing));
+
+      final ByteArrayOutputStream output = new ByteArrayOutputStream();
+      MachineLauncher.status(tempDir, capture(output));
+
+      final String status = output.toString(StandardCharsets.UTF_8);
+      assertTrue(status.contains("alive=false"));
+      assertTrue(status.contains("readiness=closed"));
+    } finally {
+      fixture.destroyForcibly();
+      LaunchTestSupport.drainTempDir(tempDir);
+    }
   }
 
   private static void assertProcessGone(final long pid) {

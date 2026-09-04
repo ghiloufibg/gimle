@@ -1,6 +1,7 @@
 package com.gimle.hilmir.release;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,7 +31,7 @@ import java.util.Optional;
  */
 public final class ReleaseLedger {
 
-  static final String TENANT = "gimle-hilmir";
+  static final String TENANT = Tenant.HILMIR_BOOKKEEPING_TENANT_ID;
   private static final String KEY_PREFIX = "hilmir.release.";
   private static final String META_SUFFIX = ".meta";
   private static final String REVISION_INFIX = ".rev.";
@@ -38,12 +39,21 @@ public final class ReleaseLedger {
   private ReleaseLedger() {}
 
   /**
-   * Idempotently ensures the {@value #TENANT} bookkeeping tenant exists -- a plain {@code PUT}
-   * every time, since the control plane's own tenant write is itself idempotent (an existing tenant
-   * is simply overwritten with the same quota), needing no separate "does it already exist" check
-   * first.
+   * Idempotently ensures the {@value #TENANT} bookkeeping tenant exists. Checks first rather than
+   * always issuing the {@code PUT} the control plane's own idempotent tenant write would otherwise
+   * make unnecessary: plaintext mode refuses creating a *second* real tenant outright (an
+   * intentional restriction -- there's no caller identity to tell co-tenants apart without mTLS),
+   * and this bookkeeping tenant is exactly the kind of thing that trips it on a cluster that
+   * already has one real tenant of its own, even though nothing about this internal, every-release
+   * bootstrap call is the multi-tenant use that rule exists to catch. Skipping the write once
+   * {@value #TENANT} is already there -- the common case on every release after the first -- avoids
+   * that false trip without ever touching the rule itself for a caller creating a genuine second
+   * tenant.
    */
   static void ensureTenant(ControlPlaneApi api) {
+    if (api.exists("/tenants/" + TENANT)) {
+      return;
+    }
     Map<String, Object> quota = new LinkedHashMap<>();
     quota.put("maxMemoryBytes", 0L);
     quota.put("maxCpuMillicores", 0L);

@@ -113,7 +113,12 @@ class EnableGatewayCommandTest {
   }
 
   @Test
-  void set_flags_override_the_bundles_own_port_and_routes_defaults() throws Exception {
+  void set_flags_named_after_the_real_config_keys_override_the_bundles_own_defaults()
+      throws Exception {
+    // The values a `--set` flag targets here are named identically to the config keys
+    // GatewayHooks actually reads ("gateway.port"/"gateway.routes"), the names an operator
+    // reading this command's own usage text or gimle-system's stored config would know -- not a
+    // shorter internal alias that appears nowhere an operator would ever see it.
     fake = new FakeControlPlane();
     Path modulesDir = modulesDirWithGatewayJar("1.0.0");
 
@@ -124,9 +129,9 @@ class EnableGatewayCommandTest {
             "--modules-dir",
             modulesDir.toString(),
             "--set",
-            "port=9100",
+            "gateway.port=9100",
             "--set",
-            "routes=FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING"),
+            "gateway.routes=FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING"),
         capture(new ByteArrayOutputStream()));
 
     assertEquals("9100", fake.configValue("gimle-system", "gateway.port"));

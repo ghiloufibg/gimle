@@ -124,6 +124,44 @@ class DeployCommandTest {
   }
 
   @Test
+  void a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap() throws Exception {
+    // M37: the release ledger's own gimle-hilmir tenant bootstrap runs on every release verb (see
+    // ReleaseReconciler.deployFresh) -- a real control plane's plaintext single-real-tenant rule
+    // refuses re-creating a tenant that isn't there yet once a second real tenant exists, so this
+    // bootstrap must check for that tenant rather than unconditionally re-PUT-ing it every time.
+    fake = new FakeControlPlane();
+    DeployCommand.run(
+        List.of(
+            "-f", writeBundle().toString(),
+            "--server", fake.address(),
+            "--set", "apiToken=secret123"),
+        capture(new ByteArrayOutputStream()));
+    assertEquals(1, hilmirTenantPutCount());
+
+    Path secondBundleFile = tempDir.resolve("second-bundle.yaml");
+    Files.writeString(
+        secondBundleFile,
+        BUNDLE.replace("greeter-suite", "second-suite").replace("greeter-provider", "second-app"),
+        StandardCharsets.UTF_8);
+    DeployCommand.run(
+        List.of(
+            "-f", secondBundleFile.toString(),
+            "--server", fake.address(),
+            "--set", "apiToken=secret456"),
+        capture(new ByteArrayOutputStream()));
+
+    // Still exactly one -- the second release's own ensureTenant call found gimle-hilmir already
+    // there and skipped the write, rather than re-issuing it.
+    assertEquals(1, hilmirTenantPutCount());
+  }
+
+  private long hilmirTenantPutCount() {
+    return fake.requests.stream()
+        .filter(r -> r.method().equals("PUT") && r.path().equals("/tenants/gimle-hilmir"))
+        .count();
+  }
+
+  @Test
   void dry_run_renders_the_plan_and_makes_zero_control_plane_calls() throws Exception {
     fake = new FakeControlPlane();
     Path bundleFile = writeBundle();

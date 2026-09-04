@@ -6803,12 +6803,12 @@
       "module": "gimle-hilmir",
       "feature": "Real multi-process cluster bring-up (`hilmir up`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M43 fix: a re-run of `hilmir up --machine X` against a machine with some roles already alive used to respawn every role unconditionally -- including a second, fully live node-agent racing the original over worker ownership -- and overwrote its own run ledger with only the freshly-spawned pids, permanently losing all record of the still-alive originals. `up` now checks each role's own genuine liveness before respawning, skipping any role already running, and its ledger write for the re-run preserves every skipped role's real, original pid.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Real multi-process cluster bring-up (`hilmir up`)\".",
-      "otherTestCoverage": "`MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest`",
+      "otherTestCoverage": "`MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest`; `MachineLauncherUpSkipsAliveRolesTest#up_respawns_only_the_dead_role_and_keeps_the_alive_ones_own_pid_in_the_ledger`",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`",
         "`BootOrder.java`",
@@ -6822,12 +6822,12 @@
       "module": "gimle-hilmir",
       "feature": "Cluster teardown and status reporting (`hilmir down`/`status`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M42 fix: `status` used to report `alive=true` for a pid the OS process table still lists even once it's a killed process's own zombie entry not yet reaped by its parent. `status` now also weighs the record's own readiness probe: a pid the process table still shows alive is reported dead once its own readiness address (already open when `up` recorded it) is found closed.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Cluster teardown and status reporting (`hilmir down`/`status`)\".",
-      "otherTestCoverage": "`MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple)",
+      "otherTestCoverage": "`MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple); `MachineLauncherIntegrationTest#status_reports_a_still_running_pid_as_not_alive_once_its_own_readiness_address_closes`",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`",
         "`RunLedger.java`"
@@ -6904,16 +6904,17 @@
       "module": "gimle-hilmir",
       "feature": "Bundle-based fresh release deployment (`hilmir deploy`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M37 fix: see GIMLE-649's own statusNote for the release-ledger tenant-bootstrap fix shared by every release verb, including this one.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Bundle-based fresh release deployment (`hilmir deploy`)\".",
-      "otherTestCoverage": "`DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag`",
+      "otherTestCoverage": "`DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag`; `DeployCommandTest#a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap`",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/DeployCommand.java`",
         "`ReleaseReconciler.deployFresh`",
-        "`ReleasePlan.java`"
+        "`ReleasePlan.java`",
+        "`ReleaseLedger.ensureTenant`"
       ]
     },
     {
@@ -7125,12 +7126,12 @@
       "module": "gimle-hilmir",
       "feature": "Gateway extension enable (`hilmir enable gateway`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M56 fix: the synthesized bundle's own values: block named its two keys port/routes, an internal alias appearing nowhere an operator would ever see it -- --set gateway.routes=<value>/--set gateway.port=<value>, the exact names this command's own usage text and gimle-system's stored config both use, silently landed in the merged values map under a key nothing referenced. The values keys are now named identically to the config keys they feed (gateway.port/gateway.routes).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Gateway extension enable (`hilmir enable gateway`)\".",
-      "otherTestCoverage": "`EnableGatewayCommandTest` (5 tests); `GatewayJarLocatorTest` (7 tests)",
+      "otherTestCoverage": "`EnableGatewayCommandTest` (5 tests, including `set_flags_named_after_the_real_config_keys_override_the_bundles_own_defaults`, renamed and updated from the prior `port=`/`routes=`-keyed version to assert on the real `gateway.port=`/`gateway.routes=` names an operator actually uses); `GatewayJarLocatorTest` (7 tests)",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/extension/EnableGatewayCommand.java`",
         "`GatewayBundleTemplate.java`",
@@ -11233,15 +11234,17 @@
       "feature": "Plaintext Transport Is Explicitly Single-Tenant",
       "category": "Governance",
       "status": "Modified",
-      "statusNote": "Modified: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one.",
+      "statusNote": "Modified: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one. M37 fix: hilmir's own gimle-hilmir release-ledger bookkeeping tenant tripped this very rule on its own internal bootstrap, permanently blocking every release verb against an already-multi-tenant plaintext cluster. gimle-hilmir is now a third platform-reserved id (Tenant#HILMIR_BOOKKEEPING_TENANT_ID) this rule exempts exactly the way RESERVED_SYSTEM_TENANT_ID/DEFAULT_TENANT_ID already are, and hilmir's own bootstrap (ReleaseLedger#ensureTenant) is separately now idempotent, checking existence before issuing the write.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal, or its own audit-trail correctness, against a real running cluster yet -- coverage today is ApiServerTest/ApiServerAuditOutcomeTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.",
-      "otherTestCoverage": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied`",
+      "otherTestCoverage": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied` (asserts the refused write's own audit entry says REJECTED, not APPLIED, and that a genuine update to the tenant that does exist still records APPLIED); `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.; `ApiServerHilmirBookkeepingTenantTest` (4 tests: creating the bookkeeping tenant succeeds alongside an already-present real tenant, repeated bootstrap stays a no-op success, a genuine second real tenant is still refused, and the bookkeeping tenant's own presence doesn't itself count toward the limit); `DeployCommandTest#a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap`",
       "sourceLocations": [
         "`ApiServer#rejectSecondTenantUnderPlaintext`",
         "`ApiServer#handleTenant` (PUT branch)",
-        "`ApiServer#requireAuthorizedForWrite`"
+        "`ApiServer#requireAuthorizedForWrite`",
+        "`Tenant#HILMIR_BOOKKEEPING_TENANT_ID`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseLedger.java` (`ensureTenant`)"
       ]
     },
     {

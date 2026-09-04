@@ -20,8 +20,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -33,9 +35,11 @@ import java.util.regex.Pattern;
 /**
  * Turns one machine's own slice of a topology into real, running OS processes: {@link #up} spawns
  * everything that machine hosts (in the plan's own boot order, waiting on any remote prerequisite
- * first), {@link #down} tears a previous {@code up}'s processes back down, and {@link #status}
- * reports on them -- all three driven off a {@link RunLedger} written to disk, since {@code down}
- * and {@code status} necessarily run in a fresh JVM with no memory of what {@code up} started.
+ * first) except a role a previous {@code up} already left genuinely running, which it leaves alone
+ * rather than spawning a duplicate of; {@link #down} tears a previous {@code up}'s processes back
+ * down, and {@link #status} reports on them -- all three driven off a {@link RunLedger} written to
+ * disk, since {@code down} and {@code status} necessarily run in a fresh JVM with no memory of what
+ * {@code up} started.
  *
  * <p>{@link #up}'s cross-machine ordering: a topology fully and deterministically describes every
  * machine, so computing the *whole* {@link ClusterPlan} (not just this machine's own slice) lets
@@ -97,13 +101,27 @@ public final class MachineLauncher {
     }
     createDirectories(runtime.dataRoot());
 
+    final Map<String, RunRecord> alreadyRecorded = existingRecordsById(runtime.dataRoot());
     final Set<String> confirmedReady = new LinkedHashSet<>();
     final List<RunRecord> records = new ArrayList<>();
     boolean succeeded = false;
     try {
       for (final ProcessCommand command : myPlan.commands()) {
-        awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
-        final RunRecord record = spawn(topology, runtime, command, out);
+        final RunRecord previous = alreadyRecorded.get(command.id());
+        final RunRecord record;
+        if (previous != null && isActuallyAlive(previous, readinessSummary(previous))) {
+          out.println(
+              command.role()
+                  + " "
+                  + command.id()
+                  + " (pid "
+                  + previous.pid()
+                  + ") already running -- skipping respawn");
+          record = previous;
+        } else {
+          awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
+          record = spawn(topology, runtime, command, out);
+        }
         records.add(record);
         if (!record.readinessAddress().isBlank()) {
           confirmedReady.add(record.readinessAddress());
@@ -128,6 +146,21 @@ public final class MachineLauncher {
     out.println(
         "wrote run ledger for " + records.size() + " process(es) under " + runtime.dataRoot());
     return records;
+  }
+
+  /**
+   * A previous {@code up}'s own ledger, if any, keyed by command id -- consulted so a re-run
+   * against a machine with some roles already alive only respawns the ones that genuinely aren't,
+   * rather than unconditionally spawning a duplicate of every role (which, for a role like AGENT,
+   * means a second live process fighting the original over the same responsibilities). Absent
+   * entirely on a machine's first-ever {@code up}, which is not an error.
+   */
+  private static Map<String, RunRecord> existingRecordsById(final Path dataRoot) {
+    final Map<String, RunRecord> byId = new LinkedHashMap<>();
+    for (final RunRecord record : RunLedger.tryRead(dataRoot)) {
+      byId.put(record.id(), record);
+    }
+    return byId;
   }
 
   /**
@@ -652,8 +685,7 @@ public final class MachineLauncher {
   public static void status(final Path dataRoot, final PrintStream out) {
     final List<RunRecord> records = RunLedger.read(dataRoot);
     for (final RunRecord record : records) {
-      final boolean alive =
-          ProcessHandle.of(record.pid()).map(ProcessHandle::isAlive).orElse(false);
+      final String readiness = readinessSummary(record);
       out.println(
           record.role()
               + " "
@@ -661,10 +693,27 @@ public final class MachineLauncher {
               + " pid="
               + record.pid()
               + " alive="
-              + alive
+              + isActuallyAlive(record, readiness)
               + " readiness="
-              + readinessSummary(record));
+              + readiness);
     }
+  }
+
+  /**
+   * A pid the OS process table still lists is not necessarily a running process: a killed process
+   * that its own parent hasn't reaped yet lingers as a zombie, and {@link ProcessHandle#isAlive()}
+   * reports that pid alive right up until reaping happens -- which, for a process this launcher
+   * spawned in a now-long-exited {@code up} invocation, may never happen promptly (its real parent
+   * is whatever re-parented it, not this JVM). {@code up} only ever ledgers a record after that
+   * process's own readiness address answered open, so a since-observed "closed" is proof the
+   * process stopped serving, not evidence it's merely still starting -- overriding a lingering
+   * zombie's own stale "alive" pid entry. A blank/unknown readiness reading carries no such proof
+   * either way, so those fall back to the plain process-table signal.
+   */
+  private static boolean isActuallyAlive(final RunRecord record, final String readinessSummary) {
+    final boolean processTableAlive =
+        ProcessHandle.of(record.pid()).map(ProcessHandle::isAlive).orElse(false);
+    return processTableAlive && !readinessSummary.equals("closed");
   }
 
   private static String readinessSummary(final RunRecord record) {

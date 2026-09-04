@@ -34,6 +34,16 @@ public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isol
   public static final String DEFAULT_TENANT_ID = "default";
 
   /**
+   * {@code gimle-hilmir}'s own bookkeeping tenant, where {@code hilmir}'s release ledger stores
+   * every release's config rows -- reserved the same way {@link #RESERVED_SYSTEM_TENANT_ID} is (see
+   * {@code ApiServer}'s own plaintext single-tenant guard), so that hilmir's own internal bootstrap
+   * of it never counts as, or is blocked by, a real operator-created tenant. Unlike {@link
+   * #RESERVED_SYSTEM_TENANT_ID}/{@link #DEFAULT_TENANT_ID}, not auto-seeded on every replica --
+   * {@code hilmir} creates it lazily, on its own first release verb against a given cluster.
+   */
+  public static final String HILMIR_BOOKKEEPING_TENANT_ID = "gimle-hilmir";
+
+  /**
    * True only for a tenant an operator actually created and can be held accountable to something as
    * a real tenant -- {@link #DEFAULT_TENANT_ID} counts the same as {@code Optional.empty()} here,
    * matching real Kubernetes: the {@code default} namespace carries no {@code ResourceQuota} object
