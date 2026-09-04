@@ -9946,14 +9946,17 @@ public final class ApiServer implements AutoCloseable {
    * quietly allowing shared multi-tenant use with no way to tell callers apart, plaintext mode is
    * treated as explicitly single-tenant: creating a second real tenant is refused outright, the
    * same "reject, don't silently allow" posture every other hard policy in this class already
-   * takes. Neither {@link Tenant#RESERVED_SYSTEM_TENANT_ID} nor {@link Tenant#DEFAULT_TENANT_ID}
-   * counts toward the limit -- both are seeded automatically on every replica regardless of
-   * transport, not an operator's own tenant. A no-op for an update to an already-existing tenant
-   * (this id itself) and for every mTLS caller, where a real peer identity exists for RBAC to
-   * actually check.
+   * takes. None of {@link Tenant#RESERVED_SYSTEM_TENANT_ID}, {@link Tenant#DEFAULT_TENANT_ID}, or
+   * {@link Tenant#HILMIR_BOOKKEEPING_TENANT_ID} counts toward the limit -- all three are
+   * platform-reserved bookkeeping tenants, not an operator's own, so neither creating one nor an
+   * already-created one being present should trip this guard for a genuine second tenant a caller
+   * actually asked for. A no-op for an update to an already-existing tenant (this id itself) and
+   * for every mTLS caller, where a real peer identity exists for RBAC to actually check.
    */
   private boolean rejectSecondTenantUnderPlaintext(HttpExchange exchange, String id) {
-    if (exchange instanceof HttpsExchange || storeClient.getTenant(id).isPresent()) {
+    if (exchange instanceof HttpsExchange
+        || storeClient.getTenant(id).isPresent()
+        || id.equals(Tenant.HILMIR_BOOKKEEPING_TENANT_ID)) {
       return false;
     }
     boolean anotherRealTenantExists =
@@ -9961,7 +9964,8 @@ public final class ApiServer implements AutoCloseable {
             .anyMatch(
                 tenant ->
                     !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID)
-                        && !tenant.id().equals(Tenant.DEFAULT_TENANT_ID));
+                        && !tenant.id().equals(Tenant.DEFAULT_TENANT_ID)
+                        && !tenant.id().equals(Tenant.HILMIR_BOOKKEEPING_TENANT_ID));
     if (!anotherRealTenantExists) {
       return false;
     }

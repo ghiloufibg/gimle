@@ -225,6 +225,14 @@ public final class FakeControlPlane implements AutoCloseable {
         tenants.put(id, Json.asObject(Json.parse(body)));
         respond(exchange, 200, "ok");
       }
+      case "GET" -> {
+        Map<String, Object> tenant = tenants.get(id);
+        if (tenant == null) {
+          respond(exchange, 404, "no such tenant: " + id);
+        } else {
+          respondJson(exchange, 200, tenant);
+        }
+      }
       case "DELETE" -> {
         tenants.remove(id);
         respond(exchange, 200, "ok");
