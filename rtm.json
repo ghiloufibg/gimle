@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 796,
+  "requirementCount": 797,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -2168,15 +2168,19 @@
       "module": "gimle-agent",
       "feature": "Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware)",
       "category": "Health / Self-Healing",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Fixed (M27): a vessel declaring more than one {port: ...} env entry used to resolve a probe's target port ambiguously (whichever iterated first); a probe rung now names the port it dials, required once more than one is declared. See requirements-matrix.json for the full description.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a vessel process is alive and declares an HTTP readiness probe",
-      "otherTestCoverage": "NONE recorded in the baseline",
+      "otherTestCoverage": "`VesselSpecTest` (4 new cases), `StatefulSetManifestParserTest` (2 new cases), `DeploymentManifestParserTest` (extended + 1 new case), `AgentMainTest` (2 new cases driving `updateVesselHealth` against real local HTTP servers).",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`updateVesselHealth`, `evaluateProbe`)",
-        "`VesselProber.java`"
+        "`gimle-agent/src/main/java/com/gimle/agent/VesselProber.java`",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselProbeSpec.java` (`portName`)",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselSpec.java` (`declaredPortNameFor`, compact constructor)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`optionalPortNameField`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (vessel probe spec wire format)"
       ]
     },
     {
@@ -11548,16 +11552,16 @@
     {
       "id": "GIMLE-666",
       "module": "gimle-worker",
-      "feature": "A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event",
+      "feature": "A probe or job-hooks class that fails to load forces the module to FAILED with a durable event",
       "category": "Worker runtime / health",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-28 -- WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a r...",
+      "statusNote": "New requirement: closes FUNC-28 -- WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a r... Extended (M34): the identical gap existed for lifecycle.jobHooks -- a bad jobHooksClass left a Job stuck ACTIVE forever, never reaching COMPLETED/FAILED. instantiateProbeOrFail is now the generalized instantiateOrFail, covering job hooks the same way it already covered probes.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
-      "otherTestCoverage": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.",
+      "otherTestCoverage": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. `JobHooksExecutionTest#a_job_hooks_class_that_fails_to_load_forces_the_module_to_failed_with_an_event`.",
       "sourceLocations": [
-        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateOrFail`, `runJobHooks`)",
         "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)"
       ]
     },
@@ -13817,6 +13821,25 @@
       "otherTestCoverage": "`ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)"
+      ]
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-agent",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "category": "Health / Self-Healing",
+      "status": "New",
+      "statusNote": "New requirement: closes M19 -- a declared readiness probe genuinely ran but its result never reached anything outside the worker; AgentMain#observationJson derived `ready` purely from `lifecycleState == \"ACTIVE\"`. See requirements-matrix.json for the full description.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
       ]
     }
   ]

@@ -135,7 +135,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Active | Not Covered | — |
 | GIMLE-119 | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Active | Not Covered | — |
 | GIMLE-120 | Vessel config-file rendering to disk | Active | Not Covered | — |
-| GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Active | Not Covered | — |
+| GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Modified | Not Covered | — |
 | GIMLE-122 | Vessel crash respawn resets probe initial-delay clock | Active | Not Covered | — |
 | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS" |
 | GIMLE-124 | Periodic certificate rotation check and hot-swap of outbound HttpClient | Active | Not Covered | — |
@@ -680,7 +680,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | New | Not Covered | — |
 | GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | New | Not Covered | — |
 | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | New | Not Covered | — |
-| GIMLE-666 | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | New | Not Covered | — |
+| GIMLE-666 | A probe or job-hooks class that fails to load forces the module to FAILED with a durable event | New | Not Covered | — |
 | GIMLE-667 | Console session logout revokes the session token server-side, not just the client-side cookie | New | Not Covered | — |
 | GIMLE-668 | A NetworkPolicy change closes an already-open Bifrost connection, not just future ones | New | Not Covered | — |
 | GIMLE-669 | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | New | Not Covered | — |
@@ -811,6 +811,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | New | Not Covered | — |
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | New | Not Covered | — |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | New | Not Covered | — |
+| GIMLE-797 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2011,14 +2012,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `RealBundledHookAndProbeInvocationTest#bundled_hooks_and_probes_load_and_cast_against_this_jvms_own_platform_types`, `#bundled_probes_instantiate_and_cast_cleanly`
 - **Source location(s)**: `gimle-worker/src/test/java/com/gimle/worker/RealBundledHookAndProbeInvocationTest.java` (test validates production wiring in `gimle-module`'s `ModuleLayerFactory`)
 
-#### GIMLE-666 — A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event
+#### GIMLE-666 — A probe or job-hooks class that fails to load forces the module to FAILED with a durable event
 
 - **Category**: Worker runtime / health
-- **Status**: New  _(New requirement: closes FUNC-28 -- WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a r...)_
+- **Status**: New  _(New requirement: closes FUNC-28 -- WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a r... Extended (M34): the identical gap existed for lifecycle.jobHooks -- a bad jobHooksClass left a Job stuck ACTIVE forever, never reaching COMPLETED/FAILED. instantiateProbeOrFail is now the generalized instantiateOrFail, covering job hooks the same way it already covered probes.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.
-- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. `JobHooksExecutionTest#a_job_hooks_class_that_fails_to_load_forces_the_module_to_failed_with_an_event`.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateOrFail`, `runJobHooks`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)
 
 #### GIMLE-695 — ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool
 
@@ -2222,11 +2223,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-121 — Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware)
 
 - **Category**: Health / Self-Healing
-- **Status**: Active
+- **Status**: Modified  _(Fixed (M27): a vessel declaring more than one {port: ...} env entry used to resolve a probe's target port ambiguously (whichever iterated first); a probe rung now names the port it dials, required once more than one is declared. See requirements-matrix.json for the full description.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a vessel process is alive and declares an HTTP readiness probe
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`updateVesselHealth`, `evaluateProbe`), `VesselProber.java`
+- **Other test coverage (non-Holmgang, informational only)**: `VesselSpecTest` (4 new cases), `StatefulSetManifestParserTest` (2 new cases), `DeploymentManifestParserTest` (extended + 1 new case), `AgentMainTest` (2 new cases driving `updateVesselHealth` against real local HTTP servers).
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`updateVesselHealth`, `evaluateProbe`), `gimle-agent/src/main/java/com/gimle/agent/VesselProber.java`, `gimle-core/src/main/java/com/gimle/core/vessel/VesselProbeSpec.java` (`portName`), `gimle-core/src/main/java/com/gimle/core/vessel/VesselSpec.java` (`declaredPortNameFor`, compact constructor), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`optionalPortNameField`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (vessel probe spec wire format)
 
 #### GIMLE-122 — Vessel crash respawn resets probe initial-delay clock
 
@@ -2582,6 +2583,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises two tenants' identically-named workload landing on the same node at the same index. To close: a scenario deploying that exact collision across two tenants and asserting both get a real, independently-supervised worker.
 - **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index`
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`instanceKey`, `workloadTokenFor`)
+
+#### GIMLE-797 — A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state
+
+- **Category**: Health / Self-Healing
+- **Status**: New  _(New requirement: closes M19 -- a declared readiness probe genuinely ran but its result never reached anything outside the worker; AgentMain#observationJson derived `ready` purely from `lifecycleState == "ACTIVE"`. See requirements-matrix.json for the full description.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)
 
 ### gimle-mimir
 
@@ -8360,7 +8370,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**669 of 796 requirements are Not Covered.**
+**670 of 797 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8553,7 +8563,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-649 | gimle-controlplane | Plaintext Transport Is Explicitly Single-Tenant | Governance | `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied` |
 | GIMLE-090 | gimle-worker | Readiness-driven service registry availability (without restart) | Health / Fabric | `WorkerRuntimeTest#a_readiness_failure_marks_the_service_unready_without_stopping_the_module`, `#a_module_becomes_lookupable_again_when_its_readiness_probe_recovers` |
 | GIMLE-088 | gimle-worker | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | `ProbeLoopTest#a_passing_check_reports_true_repeatedly`, `#a_failing_check_reports_false`, `#a_check_that_throws_is_reported_as_a_failure_not_propagated`, `#a_check_that_hangs_past_its_timeout_is_reported_as_a_failure`, `#no_tick_fires_before_the_initial_delay_elapses`, `#after_the_initial_delay_ticks_settle_onto_the_ordinary_interval`, `#stop_halts_further_invocations_of_that_key`, `#two_keys_are_scheduled_independently`, `#the_production_constructor_still_schedules_on_a_real_ticker` |
-| GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | NONE recorded in the baseline |
+| GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | `VesselSpecTest` (4 new cases), `StatefulSetManifestParserTest` (2 new cases), `DeploymentManifestParserTest` (extended + 1 new case), `AgentMainTest` (2 new cases driving `updateVesselHealth` against real local HTTP servers). |
+| GIMLE-797 | gimle-agent | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`. |
 | GIMLE-080 | gimle-worker | Newline-delimited control-channel wire protocol (worker side) | Internal-Infra | `ControlChannelClientTest#a_sent_message_is_received_intact_on_the_other_end`, `#receive_returns_empty_once_the_peer_closes_the_connection` |
 | GIMLE-099 | gimle-worker | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-124 | gimle-agent | Periodic certificate rotation check and hot-swap of outbound HttpClient | Internal-Infra | NONE recorded in the baseline |
@@ -9028,7 +9039,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-101 | gimle-agent | Node agent registration and repeating reconcile/heartbeat/rotate tick loop | Worker Supervision / Internal-Infra | `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel`, `ControlPlaneAgentWorkerIntegrationTest#control_plane_places_replicas_on_real_agents_and_reschedules_after_an_agent_is_killed` |
 | GIMLE-091 | gimle-worker | Stopping/Uninstalled teardown of scheduler, probes, and service registry | Worker Supervision / Module System | `WorkerRuntimeTest#stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry`, `#on_uninstalled_fires_the_close_callback_exactly_once_with_the_registered_identity` |
 | GIMLE-114 | gimle-agent | Install-phase Nack escalates to FAILED (closing the "stuck at INSTALLED" gap) | Worker Supervision / Self-Healing | NONE recorded in the baseline |
-| GIMLE-666 | gimle-worker | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | Worker runtime / health | `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. |
+| GIMLE-666 | gimle-worker | A probe or job-hooks class that fails to load forces the module to FAILED with a durable event | Worker runtime / health | `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. `JobHooksExecutionTest#a_job_hooks_class_that_fails_to_load_forces_the_module_to_failed_with_an_event`. |
 | GIMLE-724 | gimle-mimir | CronJob schedules can be suspended without deleting and recreating them | Workload Kinds | CronJobReconcilerTest (5 new: a suspended CronJob never fires from any starting tick; unsuspending resumes at the next due instant without back-firing the backlog; history is preserved across suspend/unsuspend; convergence from an arbitrary mid-schedule state; triggerNow still fires); CronJobManifestParserTest, ManifestExportTest. |
 | GIMLE-601 | gimle-mimir | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Workload Lifecycle | `ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). |
 | GIMLE-670 | gimle-controlplane | CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits | Workloads / CronJob | `CronJobReconcilerTest#repeated_real_firings_marked_terminal_converge_to_the_default_history_limits` (6 firings, 4 succeeded/2 failed, converges to the default 3/1 limits, oldest pruned first) plus `CronJobManifestParserTest` coverage for the new fields' parsing and defaults. Full gimle-mimir/gimle-controlplane suites re-verified. |

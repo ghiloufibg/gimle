@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 796 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 797 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 172, uncited 0). |
-| **User-observable** | **529** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 529 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **530** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 530 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -124,7 +124,7 @@ not carry over to the new one.
 |---|---|---|---|---:|---:|
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 65 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
-| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 58 |
+| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 59 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 55 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 38 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 63 |
@@ -191,7 +191,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **DEP-4** | A | Redeploy the same Tier-1 module 25 times in a loop while watching the Metrics screen's worker metaspace/thread gauges and the count of meters per instance. | Metaspace stays flat (no sawtooth), no leak is reported in the worker log, the per-module meter set is evicted on each uninstall rather than accumulating. | GIMLE-048, GIMLE-085, GIMLE-712, GIMLE-353, GIMLE-097 |
 | **DEP-5** | A | Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker. | Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap) whose `-Xmx` is the node's shared-worker budget rather than any one module's limit; Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings. | GIMLE-004, GIMLE-065, GIMLE-110, GIMLE-212, GIMLE-647, GIMLE-746, GIMLE-786 |
 | **DEP-6** | A | `delete deployment` on a deployment with live traffic, then immediately reuse its name. | In-flight calls drain to the deadline, instances disappear with no ghost entries, no worker respawn is attempted for the deliberate stop, revision and event history are cleared so the reused name starts clean. | GIMLE-057, GIMLE-220, GIMLE-241, GIMLE-104, GIMLE-652, GIMLE-726 |
-| **DEP-7** | A | Deploy a module whose readiness probe fails for a warm-up period, then flaps once. | The instance is excluded from Service endpoints and fabric traffic until ready, shown in a distinct not-ready state; readiness only counts after a continuous stabilization window; readiness failure alone never triggers a reschedule. | GIMLE-090, GIMLE-227, GIMLE-683, GIMLE-063, GIMLE-088 |
+| **DEP-7** | A | Deploy a module whose readiness probe fails for a warm-up period, then flaps once. | The instance is excluded from Service endpoints and fabric traffic until ready, shown in a distinct not-ready state; readiness only counts after a continuous stabilization window; readiness failure alone never triggers a reschedule. | GIMLE-090, GIMLE-227, GIMLE-683, GIMLE-063, GIMLE-088, GIMLE-797 |
 | **DEP-8** | A | Deploy a module whose liveness probe starts failing after it is serving, with a short declared interval/threshold; let it fail repeatedly. | Module-tier restart happens without operator action, is visible as a legible event, and repeated failure escalates with backoff until the budget is exhausted and the instance is marked FAILED — never a silent hot loop. | GIMLE-089, GIMLE-036, GIMLE-088, GIMLE-725, GIMLE-008, GIMLE-113 |
 | **DEP-9** | A | Scale a deployment 1→4→2 by re-applying `replicas`. | Replica count converges each time; scale-down removes exactly the surplus and nothing else. | GIMLE-219, GIMLE-220 |
 | **DEP-10** | A | Deploy a manifest naming a probe class that does not exist in the jar; deploy a jar whose install fails inside the worker. | Both end in FAILED with a durable event that names the cause — never stuck at INSTALLED with no explanation. | GIMLE-666, GIMLE-114 |
@@ -1162,7 +1162,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-663 | `gimle-cli` | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | observable | FLEET | JRN-7 |
 | GIMLE-664 | `gimle-console` | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | observable | FLEET | OBS-7, JRN-7 |
 | GIMLE-665 | `gimle-cli` | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | observable | FLEET | CHAOS-4 |
-| GIMLE-666 | `gimle-worker` | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | observable | FLEET | DEP-10 |
+| GIMLE-666 | `gimle-worker` | A probe or job-hooks class that fails to load forces the module to FAILED with a durable event | observable | FLEET | DEP-10 |
 | GIMLE-667 | `gimle-core` | Console session logout revokes the session token server-side, not just the client-side cookie | observable | FLEET | SEC-9 |
 | GIMLE-668 | `gimle-agent` | A NetworkPolicy change closes an already-open Bifrost connection, not just future ones | observable | FLEET | NET-7 |
 | GIMLE-669 | `gimle-controlplane` | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | observable | FLEET | SCHED-6 |
@@ -1293,4 +1293,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-794 | `gimle-agent` | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | internal | UNIT | AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated by the assertion. |
 | GIMLE-795 | `gimle-agent` | Tenant-scoped instance supervision keying (instanceKey) | internal | UNIT | `AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index` |
 | GIMLE-796 | `gimle-controlplane` | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | internal | UNIT | `ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured` |
+| GIMLE-797 | `gimle-agent` | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | observable | FLEET | DEP-7 |
 <!-- /forseti:generated -->

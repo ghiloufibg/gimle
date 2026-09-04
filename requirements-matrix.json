@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 796,
+  "requirementCount": 797,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -2405,22 +2405,26 @@
       "feature": "Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware)",
       "category": "Health / Self-Healing",
       "userStory": "As the platform, I want a vessel's health derived from OS-level process liveness plus its declared TCP/HTTP probe rung (dialed externally, since a vessel shares no classloader with this agent), honoring its own initialDelaySeconds, so that HealthReconciler treats a dead/not-ready vessel exactly like a dead/not-ready module instance.",
-      "statusDetail": "Complete",
-      "confidence": "Medium",
+      "statusDetail": "Fixed (M27): once a vessel declared more than one env entry of type {port: ...}, evaluateProbe always resolved \"the\" declared port via firstDeclaredPortName -- the first one in the env map's own iteration order -- with no way to know which declared port a bare {tcp: true}/{http: <path>} rung actually meant. A vessel declaring HTTP_PORT and FIXED_PORT together, with its readiness probe meant for HTTP_PORT, would silently dial whichever port happened to iterate first and never become ready if that guess was wrong. VesselProbeSpec's Tcp/Http variants now carry their own optional portName; VesselSpec's compact constructor requires one once more than one port is declared (rejecting the ambiguous case outright at manifest-parse time) and resolves it via the new declaredPortNameFor, falling back to the sole declared port when there is only one. ManifestFields/DomainCodec gained the matching {port: <name>} manifest field and wire-format support.",
+      "confidence": "High",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`updateVesselHealth`, `evaluateProbe`)",
-        "`VesselProber.java`"
+        "`gimle-agent/src/main/java/com/gimle/agent/VesselProber.java`",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselProbeSpec.java` (`portName`)",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselSpec.java` (`declaredPortNameFor`, compact constructor)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`optionalPortNameField`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (vessel probe spec wire format)"
       ],
-      "testCoverageDetail": "NONE with a dedicated gimle-agent unit test found (VesselProber's tcp/http helpers have no dedicated test file either)",
+      "testCoverageDetail": "`VesselSpecTest#an_unnamed_probe_port_is_ambiguous_once_more_than_one_port_is_declared`, `#a_probe_naming_an_undeclared_port_is_rejected`, `#a_named_probe_port_resolves_correctly_among_several_declared_ports`, `#an_unnamed_probe_port_resolves_to_the_sole_declared_port`; `StatefulSetManifestParserTest#a_probe_names_which_declared_port_it_dials_when_more_than_one_is_declared`, `#an_unnamed_probe_port_is_rejected_once_more_than_one_port_is_declared`; `DeploymentManifestParserTest#parses_a_full_vessel_block` (extended to name each rung's own port), `#a_probe_with_more_than_one_declared_port_and_no_named_port_is_rejected`; `AgentMainTest#a_readiness_probe_dials_the_port_it_names_not_whichever_declared_port_iterates_first`, `#a_readiness_probe_naming_the_failing_port_stays_unready_even_though_the_other_port_is_up` (both drive `updateVesselHealth` against two real local HTTP servers, one per declared port).",
       "gherkinSteps": [
-        "Given a vessel process is alive and declares an HTTP readiness probe",
-        "When updateVesselHealth runs (polled once per agent tick)",
-        "Then lifecycleState becomes FAILED if the process is dead or liveness fails, STARTING if alive-but-not-ready, ACTIVE if both pass",
-        "Given the probe's initialDelaySeconds hasn't elapsed since startedAt",
-        "Then it reports the appropriate before-delay default (true for liveness, false for readiness) rather than actually dialing"
+        "Given a vessel declares two env ports (HTTP_PORT, FIXED_PORT) and a readiness probe naming HTTP_PORT",
+        "When updateVesselHealth evaluates the probe",
+        "Then it dials HTTP_PORT specifically, not whichever port iterates first",
+        "Given a vessel declares more than one port and a probe rung names none of them",
+        "Then the manifest is rejected at parse time as ambiguous, rather than guessed at when the agent later tries to probe"
       ],
       "statusSummary": "Complete",
-      "testCoverageLevel": "None"
+      "testCoverageLevel": "Yes"
     },
     {
       "id": "GIMLE-122",
@@ -13207,19 +13211,20 @@
     {
       "id": "GIMLE-666",
       "module": "gimle-worker",
-      "feature": "A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event",
+      "feature": "A probe or job-hooks class that fails to load forces the module to FAILED with a durable event",
       "category": "Worker runtime / health",
-      "userStory": "As a platform operator, I want a manifest typo in health.liveness/health.readiness (a probe class that can't be found or constructed) to be caught and surfaced, so a broken deployment fails loudly instead of sitting ACTIVE forever with no probe loop ever registered and no signal anything is wrong.",
-      "statusDetail": "Complete. WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a reaction to the module's own Active lifecycle event, into ModuleController#emit's generic event-sink catch, which only logs and drops the exception. Since markActive had already run before that catch fired, the instance was left ACTIVE forever with no probe loop registered. Fixed: a new instantiateProbeOrFail helper wraps instantiate in a try/catch; on failure it logs and calls controller.forceFailed(id, ...) -- mirroring restartModule's own budget-exhaustion escalation, the same call and the same durable TransitionFailed event -- with a best-effort guard around forceFailed itself for a concurrent transition (a racing uninstall). WorkerMain's own lifecycle-event dispatch also reorders its two control-channel reports to send before reacting to the event, since onActive can now synchronously force a further FAILED transition that recurses back into the same dispatch for its own event -- otherwise the stale ACTIVE report could land second and overwrite the agent's already-correct FAILED view.",
+      "userStory": "As a platform operator, I want a manifest typo in health.liveness/health.readiness/lifecycle.jobHooks (a class that can't be found or constructed) to be caught and surfaced, so a broken deployment or Job fails loudly instead of sitting ACTIVE forever with no probe loop or job run ever registered and no signal anything is wrong.",
+      "statusDetail": "Complete. WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a reaction to the module's own Active lifecycle event, into ModuleController#emit's generic event-sink catch, which only logs and drops the exception. Since markActive had already run before that catch fired, the instance was left ACTIVE forever with no probe loop registered. Fixed: a new instantiateProbeOrFail helper wraps instantiate in a try/catch; on failure it logs and calls controller.forceFailed(id, ...) -- mirroring restartModule's own budget-exhaustion escalation, the same call and the same durable TransitionFailed event -- with a best-effort guard around forceFailed itself for a concurrent transition (a racing uninstall). WorkerMain's own lifecycle-event dispatch also reorders its two control-channel reports to send before reacting to the event, since onActive can now synchronously force a further FAILED transition that recurses back into the same dispatch for its own event -- otherwise the stale ACTIVE report could land second and overwrite the agent's already-correct FAILED view. Extended (M34): the same gap existed, unfixed, for lifecycle.jobHooks -- WorkerRuntime#onActive called instantiate(...) for a Job's own hooks class with no equivalent guard, so a jobHooksClass that failed to load threw the identical way straight into ModuleController#emit's swallow-and-log catch, leaving a Job stuck ACTIVE forever: its JobHooks#run never started, so it never reached COMPLETED or FAILED, and nothing but its own activeDeadlineSeconds (if it declared one) ever ended it. instantiateProbeOrFail is now the generalized instantiateOrFail, used identically for liveness/readiness probes and job hooks alike; onActive resolves the JobHooks instance through it before ever starting the job's own virtual thread, so a bad jobHooksClass forces FAILED with a durable TransitionFailed event exactly like a bad probe class already did.",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateOrFail`, `runJobHooks`)",
         "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)"
       ],
-      "testCoverageDetail": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.",
+      "testCoverageDetail": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. `JobHooksExecutionTest#a_job_hooks_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent jobHooks class ends in FAILED with a durable TransitionFailed event, and the hooks class's own RAN flag never flips). Full gimle-worker module suite re-verified.",
       "gherkinSteps": [
         "Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop.",
-        "Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally."
+        "Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally.",
+        "Given a Job manifest naming a lifecycle.jobHooks class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE forever with its job hooks never run."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -16215,6 +16220,32 @@
       "gherkinSteps": [
         "Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely.",
         "Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-agent",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "category": "Health / Self-Healing",
+      "userStory": "As the platform, I want a hosted module instance's `ready` field (read by an operator, the console, and HealthReconciler) to reflect its own declared readiness probe's real, current answer, so a readiness probe that never passes is never reported ready:true forever just because the module reached ACTIVE.",
+      "statusDetail": "Fixed (M19). WorkerRuntime#onActive genuinely wires up and ticks a declared readiness probe (ProbeLoop, see GIMLE-088) and reacts to its result via onReadinessResult -- but that result only ever updated this worker's own in-JVM ServiceRegistry (which entries are eligible for a same-worker service lookup), never anything the agent could see. AgentMain#observationJson derived the externally-reported `ready` field purely from `lifecycleState == \"ACTIVE\"`, so once a module reached ACTIVE it read ready:true forever regardless of what its readiness probe actually answered on every subsequent tick. The wire message this needed, ControlMessage.HealthReport(id, alive, ready), already existed with full codec support but was never constructed by any production code and never handled by AgentMain#readLoop. WorkerRuntime#onReadinessResult now reports through a new HealthReportSink on every tick; WorkerMain wires it to relay a real HealthReport up the worker's own control channel; AgentMain#readLoop applies it to a new SupervisedInstance#readinessReported field (reset to empty on every ModuleStateChanged, so a stale reading from a previous ACTIVE window never survives a restart); observationJson now reports that reading when present, falling back to the original ACTIVE-derived default only when no readiness probe has reported yet (none declared, or none has ticked since the last transition) -- the same fallback this field always used before HealthReport existed.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
+      ],
+      "testCoverageDetail": "`WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink` (a real readiness probe's pass/fail/pass cycle is observed through the sink, and alive is always reported true from this path); `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it` (both drive a real `ControlChannelServer`/`WorkerConnection` pair with hand-sent wire messages, no worker subprocess needed since the fix is entirely in message handling).",
+      "gherkinSteps": [
+        "Given a hosted module declares a readiness probe that never passes",
+        "When the module reaches ACTIVE and its probe loop ticks",
+        "Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE",
+        "Given a module restarts",
+        "Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

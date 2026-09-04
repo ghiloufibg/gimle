@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 796
+- **Total requirements**: 797
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 669
-- **Release-readiness (automated coverage)**: 16.0%
+- **Not covered by automated test**: 670
+- **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 60 | 6 | 54 | 10.0% |
+| gimle-agent | 61 | 6 | 55 | 9.8% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
 | gimle-controlplane | 119 | 17 | 102 | 14.3% |
@@ -486,7 +486,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-666 | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop. Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally. | No |
+| [ ] | GIMLE-666 | A probe or job-hooks class that fails to load forces the module to FAILED with a durable event | Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop. Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally. Given a Job manifest naming a lifecycle.jobHooks class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE forever with its job hooks never run. | No |
 
 ### gimle-agent
 
@@ -553,7 +553,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Given a vessel process is alive and declares an HTTP readiness probe When updateVesselHealth runs (polled once per agent tick) Then lifecycleState becomes FAILED if the process is dead or liveness fails, STARTING if alive-but-not-ready, ACTIVE if both pass Given the probe's initialDelaySeconds hasn't elapsed since startedAt Then it reports the appropriate before-delay default (true for liveness, false for readiness) rather than actually dialing | No |
+| [ ] | GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Given a vessel declares two env ports (HTTP_PORT, FIXED_PORT) and a readiness probe naming HTTP_PORT When updateVesselHealth evaluates the probe Then it dials HTTP_PORT specifically, not whichever port iterates first Given a vessel declares more than one port and a probe rung names none of them Then the manifest is rejected at parse time as ambiguous, rather than guessed at when the agent later tries to probe | No |
+| [ ] | GIMLE-797 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Given a hosted module declares a readiness probe that never passes When the module reaches ACTIVE and its probe loop ticks Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE Given a module restarts Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one | No |
 
 #### Internal-Infra
 
