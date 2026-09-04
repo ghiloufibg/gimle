@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import type { LifecycleState, ModuleInstance } from "@/types";
-import { LifecycleBadge, StatusDot } from "@/components/status";
+import { LifecycleBadge, StatusDot, TierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -150,12 +150,13 @@ export function InstancesTable({
               <th className="px-2 py-1.5 font-medium">Node</th>
               <th className="px-2 py-1.5 font-medium">Worker</th>
               <th className="px-2 py-1.5 font-medium">Lifecycle</th>
+              <th className="px-2 py-1.5 font-medium">Tier</th>
               <th className="px-2 py-1.5 font-medium">A/R</th>
               <th className="px-2 py-1.5 font-medium text-right">req/s</th>
               <th className="px-2 py-1.5 font-medium text-right">err/s</th>
               <th className="px-2 py-1.5 font-medium text-right">queue</th>
-              <th className="px-2 py-1.5 font-medium text-right">cpu</th>
-              <th className="px-2 py-1.5 font-medium text-right">mem</th>
+              <th className="px-2 py-1.5 font-medium text-right">cpu used / limit</th>
+              <th className="px-2 py-1.5 font-medium text-right">mem used / limit</th>
               <th className="px-2 py-1.5 font-medium"></th>
             </tr>
           </thead>
@@ -188,6 +189,9 @@ export function InstancesTable({
                   <LifecycleBadge state={r.lifecycleState} />
                 </td>
                 <td className="px-2 py-1.5">
+                  {r.isolationTier ? <TierBadge tier={r.isolationTier} /> : "—"}
+                </td>
+                <td className="px-2 py-1.5">
                   <div className="flex items-center gap-1">
                     <StatusDot variant={r.alive ? "ok" : "bad"} />
                     <StatusDot variant={r.ready ? "ok" : r.alive ? "warn" : "bad"} />
@@ -207,8 +211,16 @@ export function InstancesTable({
                 <td className="px-2 py-1.5 font-mono text-right">{r.queueDepth}</td>
                 <td className="px-2 py-1.5 font-mono text-right">
                   {fmtMillicores(r.cpuMillicoresUsed)}
+                  {r.resourceLimit && (
+                    <span className="text-muted-foreground"> / {r.resourceLimit.cpu}</span>
+                  )}
                 </td>
-                <td className="px-2 py-1.5 font-mono text-right">{fmtBytes(r.memoryBytesUsed)}</td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {fmtBytes(r.memoryBytesUsed)}
+                  {r.resourceLimit && (
+                    <span className="text-muted-foreground"> / {r.resourceLimit.memory}</span>
+                  )}
+                </td>
                 <td className="px-2 py-1.5">
                   <InstanceLogsLink
                     kind={workloadKind}
@@ -220,7 +232,7 @@ export function InstancesTable({
             ))}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={14} className="px-4 py-8 text-center text-muted-foreground">
                   No instances match the current filters.
                 </td>
               </tr>

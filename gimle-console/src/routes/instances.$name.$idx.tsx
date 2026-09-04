@@ -4,7 +4,7 @@ import { useInstancesStore } from "@/stores/useInstancesStore";
 import { useEventsStore } from "@/stores/useEventsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { InstanceEventsPanel } from "@/components/instance-events";
-import { LifecycleBadge, StatusDot } from "@/components/status";
+import { LifecycleBadge, StatusDot, TierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { joinWorkerProcessId } from "@/components/process-picker";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
@@ -153,8 +153,20 @@ function InstanceDetail() {
           tone={r.errorRatePerSecond > 0 ? "alarm" : "default"}
         />
         <StatCell label="Queue depth" value={String(r.queueDepth)} mono />
-        <StatCell label="CPU used" value={fmtMillicores(r.cpuMillicoresUsed)} mono />
-        <StatCell label="Memory used" value={fmtBytes(r.memoryBytesUsed)} mono />
+        <StatCell
+          label="Isolation tier"
+          value={r.isolationTier ? <TierBadge tier={r.isolationTier} /> : "—"}
+        />
+        <StatCell
+          label="CPU used / limit"
+          value={`${fmtMillicores(r.cpuMillicoresUsed)}${r.resourceLimit ? ` / ${r.resourceLimit.cpu}` : ""}`}
+          mono
+        />
+        <StatCell
+          label="Memory used / limit"
+          value={`${fmtBytes(r.memoryBytesUsed)}${r.resourceLimit ? ` / ${r.resourceLimit.memory}` : ""}`}
+          mono
+        />
         <StatCell
           label="Node"
           value={

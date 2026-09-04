@@ -1,4 +1,4 @@
-import type { LifecycleState } from "@/types";
+import type { LifecycleState, Tier } from "@/types";
 import { cn } from "@/lib/utils";
 
 export function StatusDot({
@@ -64,4 +64,17 @@ export function LifecycleBadge({ state }: { state: LifecycleState }) {
           ? "bad"
           : "muted";
   return <StatusBadge variant={variant}>{state}</StatusBadge>;
+}
+
+/**
+ * TIER_2/TIER_3 get a dedicated worker JVM enforcing a real, hard resource ceiling; TIER_1 shares
+ * a worker with other modules under soft, JFR-based accounting only -- so it's flagged "info" to
+ * draw the eye toward the resourceLimit alongside it being a softer guarantee than it looks.
+ */
+export function TierBadge({ tier }: { tier: Tier }) {
+  return (
+    <StatusBadge variant={tier === "TIER_1" ? "info" : "muted"}>
+      {tier.replace("_", " ")}
+    </StatusBadge>
+  );
 }

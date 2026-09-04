@@ -32,6 +32,10 @@ export interface InstanceObservation {
   // not duplicated into it) as `${nodeId}:${workerId}`, this is the exact processId shape
   // components/process-picker.tsx already expects for a WORKER process target.
   workerId: string | null;
+  // Both optional on the wire (ApiServer's own observationToJson only writes them once the
+  // worker has reported them) -- absent means "not yet known", never "no limit"/"no tier".
+  isolationTier?: Tier;
+  resourceLimit?: ResourceBound;
 }
 
 export interface DeploymentInstance {
@@ -437,6 +441,10 @@ export interface ModuleInstance {
   cpuMillicoresUsed: number;
   memoryBytesUsed: number;
   workerId: string | null;
+  // Mirrors InstanceObservation's own fields of the same name -- see there for why both are
+  // optional.
+  isolationTier?: Tier;
+  resourceLimit?: ResourceBound;
 }
 
 export type LogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";

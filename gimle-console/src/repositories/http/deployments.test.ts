@@ -95,6 +95,39 @@ describe("HttpDeploymentsRepository", () => {
     expect(all[0].instances[0].observation.workerId).toBe("worker-4821");
   });
 
+  it("maps an instance observation's isolationTier and resourceLimit through unchanged", async () => {
+    const withResourceContext = {
+      ...RAW_DEPLOYMENT,
+      instances: [
+        {
+          ...RAW_DEPLOYMENT.instances[0],
+          observation: {
+            ...RAW_DEPLOYMENT.instances[0].observation,
+            isolationTier: "TIER_1",
+            resourceLimit: { memory: "32Mi", cpu: "50m" },
+          },
+        },
+      ],
+    };
+    stubFetchSequence([() => jsonResponse([withResourceContext])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].instances[0].observation.isolationTier).toBe("TIER_1");
+    expect(all[0].instances[0].observation.resourceLimit).toEqual({ memory: "32Mi", cpu: "50m" });
+  });
+
+  it("maps an instance observation with no isolationTier/resourceLimit keys to undefined, not a fabricated default", async () => {
+    stubFetchSequence([() => jsonResponse([RAW_DEPLOYMENT])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].instances[0].observation.isolationTier).toBeUndefined();
+    expect(all[0].instances[0].observation.resourceLimit).toBeUndefined();
+  });
+
   it("maps limitRangeViolating and its reason through unchanged", async () => {
     const violating = {
       ...RAW_DEPLOYMENT,
