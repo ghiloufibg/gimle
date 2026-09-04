@@ -6,6 +6,7 @@ import { useOverviewStore } from "@/stores/useOverviewStore";
 import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { TopologyDrawer, type TopologySelection } from "@/components/topology-drawer";
 import { fmtRelativeTime, isStale } from "@/lib/format";
+import { replicaBadgeSlots } from "@/lib/topology";
 import { cn } from "@/lib/utils";
 import type { Deployment, Node } from "@/types";
 
@@ -46,21 +47,18 @@ interface NodeFocus {
 
 /** Small square per replica: filled = placed, hollow = unplaced. */
 function ReplicaGrid({ d, activeNode }: { d: Deployment; activeNode: string | null }) {
-  const placed = d.instances.length;
-  const total = Math.max(placed, d.spec.replicas);
   const tone = placementTone(d);
   return (
     <div className="flex flex-wrap gap-[3px]">
-      {Array.from({ length: total }).map((_, i) => {
-        const onActiveNode =
-          i < placed && activeNode !== null && d.instances[i].nodeId === activeNode;
+      {replicaBadgeSlots(d).map((inst, i) => {
+        const onActiveNode = inst !== null && activeNode !== null && inst.nodeId === activeNode;
         return (
           <span
-            key={i}
-            title={i < placed ? `instance ${i} → ${d.instances[i].nodeId}` : "unplaced"}
+            key={inst ? inst.instanceIndex : `unplaced-${i}`}
+            title={inst ? `instance ${inst.instanceIndex} → ${inst.nodeId}` : "unplaced"}
             className={cn(
               "h-2.5 w-2.5 rounded-[1px] border transition-all",
-              i < placed
+              inst
                 ? tone === "bad"
                   ? "border-status-bad bg-status-bad/70"
                   : tone === "warn"
@@ -68,7 +66,7 @@ function ReplicaGrid({ d, activeNode }: { d: Deployment; activeNode: string | nu
                     : "border-status-ok bg-status-ok/70"
                 : "border-status-bad/50 bg-transparent",
               onActiveNode && "scale-125 ring-2 ring-primary ring-offset-1 ring-offset-background",
-              activeNode !== null && i < placed && !onActiveNode && "opacity-30",
+              activeNode !== null && inst !== null && !onActiveNode && "opacity-30",
             )}
           />
         );

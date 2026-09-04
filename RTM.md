@@ -817,6 +817,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | New | Not Covered | — |
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | New | Not Covered | — |
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | New | Not Covered | — |
+| GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7255,6 +7256,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts`, `gimle-console/src/repositories/http/services.ts`, `gimle-console/src/repositories/services.ts`, `gimle-console/src/stores/useServicesStore.ts`, `gimle-console/src/routes/networking.tsx`
 
+#### GIMLE-803 — Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed. ReplicaGrid on the Topology screen labeled and highlighted each badge by its position in the instances array rather than the instance's own instanceIndex, mislabeling badges whenever the control plane returned instances out of ascending-index order. The badge-slot computation is now a pure, tested function (replicaBadgeSlots) that sorts by instanceIndex first.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario drives the Topology screen against a real cluster returning instances out of order; coverage today is a pure-function Vitest suite only.
+- **Other test coverage (non-Holmgang, informational only)**: `lib/topology.test.ts` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-console/src/lib/topology.ts`, `gimle-console/src/routes/topology.tsx`
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -8420,7 +8430,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**675 of 802 requirements are Not Covered.**
+**676 of 803 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9071,6 +9081,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-787 | gimle-console | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Web Console / Frontend | 47 Vitest cases across the addon. kinds/replicated.test.ts covers every row of both truth tables (each lifecycle state, both probe failures, quota and LimitRange violations carrying the server's own reason, unplaced counts, scale-up and scale-down, nothing-placed reading Unknown rather than Healthy) plus Service attachment being matched on name and tenant together. kinds/jobs.test.ts covers the four Job phases, a retry in flight, a RUNNING Job with nothing placed reading OutOfSync, generated-Job matching rejecting a same-prefix hand-applied Job and another tenant's, a CronJob taking its verdict from the newest run, and the five-run cap. kinds/custom.test.ts covers caught-up, behind, no status, and a status without the convention. model.test.ts covers worst-first ordering being stable between polls, every filter including a custom kind's own name and the untenanted bucket. tree.test.ts covers one card per lane, parents centred over their children, two replicas on one machine yielding a single node card, machine cards never overlapping, every edge's endpoints existing, and the per-kind tree shapes. store.test.ts covers error surfacing, a poll never raising `loading` and keeping the last good list, revision history only for a revisioned kind, a stale revision response being discarded, and a rollback re-reading the cluster. |
 | GIMLE-801 | gimle-console | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | `repositories/http/deployments.test.ts`, `stores/useDeploymentsStore.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-802 | gimle-console | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | `repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail |
+| GIMLE-803 | gimle-console | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | `lib/topology.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

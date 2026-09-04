@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 802,
+    "totalRequirements": 803,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 675,
+    "notCoveredByAutomatedTest": 676,
     "releaseReadinessPercent": 15.8
   },
   "items": [
@@ -8824,6 +8824,17 @@
       "category": "Web Console / Frontend",
       "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
       "step": "Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare \"saved\" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-803",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
+      "step": "Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

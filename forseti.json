@@ -2206,9 +2206,10 @@
         "fleet"
       ],
       "objective": "Load the Topology screen against multi-node, multi-tenant Fleet.",
-      "oracle": "Placement shown matches `get instances`/`get nodes` independently.",
+      "oracle": "Placement shown matches `get instances`/`get nodes` independently, including each placement badge's own replica index when the control plane returns instances out of ascending-index order.",
       "requirements": [
-        "GIMLE-447"
+        "GIMLE-447",
+        "GIMLE-803"
       ]
     },
     {

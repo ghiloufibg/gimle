@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 802 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 803 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 172, uncited 0). |
-| **User-observable** | **535** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 535 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **536** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 536 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -131,7 +131,7 @@ not carry over to the new one.
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
-| **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 75 |
+| **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 76 |
 | **JRN** | Journeys — Sample applications | Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator. | A B | 7 | 26 |
 | **CHAOS** | Exploratory, Chaos & Negative-path | Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster. | A B C | 10 | 41 |
 | **LEAD** | Lead — Triage, deduplication & report | The Tech QA lead. Never runs a scenario. Ingests every raw finding, fingerprints and merges duplicates, adjudicates disagreement, writes the findings artifact. | — | — | — |
@@ -299,7 +299,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **OBS-3** | B | Stop the agent supervising a running instance, then read that instance's logs again through the control plane. | Still retrievable through the Muninn fallback for the whole node-death window — the shipped platform and instance logs are complete; asking the fallback to `--follow` is refused with a clear reason rather than hanging. | GIMLE-267, GIMLE-343, GIMLE-130, GIMLE-319, GIMLE-320, GIMLE-321, GIMLE-322 |
 | **OBS-4** | A B | Compare a live metric to its history an hour later; `gimle metrics` and `metrics-history`; per-deployment rollup, per-instance error rate, per-module CPU/allocation attribution, the control plane's own request metrics; the Metrics screen's charts. | History persisted through Muninn rather than re-rendering the live snapshot; every CLI and console figure agrees; error rate is real; JFR attribution is per module. | GIMLE-268, GIMLE-323, GIMLE-324, GIMLE-344, GIMLE-449, GIMLE-754, GIMLE-763, GIMLE-764, GIMLE-275, GIMLE-710, GIMLE-351, GIMLE-273, GIMLE-448, GIMLE-097 |
 | **OBS-5** | A B | Trigger a cross-worker fabric call and find its trace; follow it across processes on the Traces screen; `traces-history` from the CLI. | Both hops present and ordered with context propagated across the virtual-thread and wire boundaries. | GIMLE-195, GIMLE-087, GIMLE-325, GIMLE-326, GIMLE-450, GIMLE-741, GIMLE-764 |
-| **OBS-6** | B | Load the Topology screen against multi-node, multi-tenant Fleet. | Placement shown matches `get instances`/`get nodes` independently. | GIMLE-447 |
+| **OBS-6** | B | Load the Topology screen against multi-node, multi-tenant Fleet. | Placement shown matches `get instances`/`get nodes` independently, including each placement badge's own replica index when the control plane returns instances out of ascending-index order. | GIMLE-447, GIMLE-803 |
 | **OBS-7** | A | Walk every console route as a normal logged-in user: Overview, HUD/Signal toggle, theme, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances (with node/tenant filters), Nodes, Tenants, Config, ConfigMaps, Secrets, SecretMaps, Networking, Access-Control, Artifacts, Audit, Control-Plane, Metrics, Traces, Topology, Logs, Custom Resources, Volumes, LimitRanges, Seal, Applications (health/sync verdicts, filters, and one application's resource tree). | No route errors, blanks or contradicts the CLI's view of the same data. | GIMLE-437, GIMLE-438, GIMLE-444, GIMLE-445, GIMLE-458, GIMLE-459, GIMLE-664, GIMLE-751, GIMLE-750, GIMLE-752, GIMLE-457, GIMLE-440, GIMLE-441, GIMLE-442, GIMLE-443, GIMLE-446, GIMLE-453, GIMLE-454, GIMLE-455, GIMLE-456, GIMLE-585, GIMLE-593, GIMLE-586, GIMLE-587, GIMLE-787 |
 | **OBS-8** | A | Log into the Fafnir and Andvari consoles: status overviews, tenant filter via URL param, secrets browsing/reveal/write/destroy, the global error banner on a forced failure. | Each console's status is truthful; the URL filter works; vault-native actions match the CLI; errors surface in the banner rather than vanishing. | GIMLE-461, GIMLE-462, GIMLE-463, GIMLE-464, GIMLE-466, GIMLE-467, GIMLE-468 |
 | **OBS-9** | A | Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it; read its durable firing state via GET /alertrules/{name}/firing before, during, and after. | The timeline is complete and ordered; the webhook fires once on crossing and once on resolve; the firing endpoint reports known=false before the rule ever crosses, known=true/firing=true once it fires, and known=true/firing=false once it resolves -- the same answer regardless of which control-plane replica answers or whether one just restarted. | GIMLE-377, GIMLE-753, GIMLE-711, GIMLE-790 |
@@ -1299,4 +1299,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-800 | `gimle-examples` | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | observable | FLEET | NET-1 |
 | GIMLE-801 | `gimle-console` | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | observable | FLEET | DEP-12 |
 | GIMLE-802 | `gimle-console` | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | observable | FLEET | NET-1 |
+| GIMLE-803 | `gimle-console` | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | observable | FLEET | OBS-6 |
 <!-- /forseti:generated -->

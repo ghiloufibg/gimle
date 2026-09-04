@@ -812,6 +812,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | Fixed | Yes |
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | Fixed | Yes |
+| GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -10542,6 +10543,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message.
   Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.
+  ```
+
+#### GIMLE-803 — Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator reading the Topology screen's per-replica badges, I want each badge's "instance N" label to name the real instance it represents, so I can trust which replica index actually sits on which node instead of a label that silently swaps whenever the control plane returns instances out of ascending-index order.
+- **Status**: Fixed. `ReplicaGrid` (the Topology screen's per-deployment row of placement squares) labeled and highlighted each badge by its position `i` in `d.instances`, not `d.instances[i].instanceIndex` -- correct only when the control plane happens to return instances already sorted by ascending index. Confirmed against a real 3-replica deployment whose instances array arrived in descending order (indices 2, 1, 0 for agent-2/agent-1/agent-edge respectively): the console mislabeled instance 0 as agent-edge and instance 2 as agent-2 -- indices 0 and 2 swapped -- while index 1 (the one entry whose array position happened to coincidentally match its own instanceIndex) rendered correctly, reproduced identically in both the "by tenant" and "by node" groupings. The badge-slot computation is now a pure, tested function (`replicaBadgeSlots`, `gimle-console/src/lib/topology.ts`) that sorts a copy of the instances by their own `instanceIndex` before building the badge list and pads trailing `null` slots for any replica the manifest asks for but nothing has placed yet, so a badge's label and its node-hover-highlight behavior always describe the instance actually rendered at that position regardless of the API's own array order. `topology-drawer.tsx`'s own instance rows already read `instanceIndex` correctly and needed no change.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/lib/topology.ts` (`replicaBadgeSlots`), `gimle-console/src/routes/topology.tsx` (`ReplicaGrid`)
+- **Test coverage**: `lib/topology.test.ts` (new): orders_slots_by_each_instance's_own_instanceIndex,_not_the_array's_arrival_order (reproduces the exact reported case -- three instances at indices 0/1/2 returned as 2, 1, 0), already-ordered_input_stays_in_the_same_order, pads_trailing_null_slots_for_replicas_the_manifest_asks_for_but_nothing_has_placed_yet, and never_truncates_below_the_placed_count_even_if_replicas_somehow_reports_fewer.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array.
+  Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance.
   ```
 
 ### gimle-fafnir-console

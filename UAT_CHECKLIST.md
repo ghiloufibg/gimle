@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 802
+- **Total requirements**: 803
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 675
+- **Not covered by automated test**: 676
 - **Release-readiness (automated coverage)**: 15.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 56 | 0 | 56 | 0.0% |
+| gimle-console | 57 | 0 | 57 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -2055,6 +2055,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |
 | [ ] | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner. | No |
 | [ ] | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears. | No |
+| [ ] | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance. | No |
 
 #### Web Console / Testing
 
