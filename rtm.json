@@ -15717,7 +15717,7 @@
       "feature": "Ivaldi web console: blueprint designer canvas",
       "category": "Developer tooling / Internal-Infra",
       "status": "New",
-      "statusNote": "",
+      "statusNote": "The full node palette now renders and applies, including limitRange (render.ts emits it as its own manifest, RunController applies it via PUT /limitranges/{tenantId}).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests).",
@@ -15726,7 +15726,8 @@
         "`gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`",
         "`gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`",
         "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
-        "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`"
+        "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)"
       ]
     },
     {

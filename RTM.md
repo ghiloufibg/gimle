@@ -9514,11 +9514,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-910 — Ivaldi web console: blueprint designer canvas
 
 - **Category**: Developer tooling / Internal-Infra
-- **Status**: New
+- **Status**: New  _(The full node palette now renders and applies, including limitRange (render.ts emits it as its own manifest, RunController applies it via PUT /limitranges/{tenantId}).)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests).
 - **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts` in gimle-ivaldi-console's own Vitest suite
-- **Source location(s)**: `gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`, `gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`, `gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`, `gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`, `gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`, `gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`, `gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)
 
 ## Coverage Gaps — Release-Readiness Checklist
 

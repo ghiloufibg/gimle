@@ -18729,15 +18729,17 @@
       "feature": "Ivaldi web console: blueprint designer canvas",
       "category": "Developer tooling / Internal-Infra",
       "userStory": "As a developer or operator, I want a drag-and-drop canvas to design a local Gimlé cluster topology and its application, see tier-1 and tier-2 validation problems live, and save/list/duplicate/import/export the design as a Blueprint, served at /console the same way every other Gimlé process bundles its own console.",
-      "statusDetail": "Blueprint list, Designer canvas, Inspector, Problems/Files drawers, tier-1 (client-side rules.ts) and tier-2 (POST /api/validate) validation, zip export/import, and cluster-connection targeting for mTLS (client cert/key, never a password) are implemented and wired to the real gimle-ivaldi backend for everything it serves today (blueprint CRUD, tier-2 validate). Running a Blueprint against a cluster and persisting cluster connections server-side remain client-side stand-ins (MockRunnerClient, LocalStorageClustersRepository) pending the /api/runs and /api/clusters backend surfaces, which do not exist yet.",
+      "statusDetail": "Blueprint list, Designer canvas, Inspector, Problems/Files drawers, tier-1 (client-side rules.ts) and tier-2 (POST /api/validate) validation, zip export/import, and cluster-connection targeting for mTLS (client cert/key, never a password) are implemented and wired to the real gimle-ivaldi backend for everything it serves today (blueprint CRUD, tier-2 validate, running a Blueprint and persisting cluster connections server-side -- see GIMLE-784). The full node palette renders, including limitRange: render.ts emits it as its own manifest file (kind: LimitRange, deliberately kept out of bundle.workloads[] since Hilmir's BundleParser has no such workload kind) and RunController applies it directly via PUT /limitranges/{tenantId} during a run, with the matching `gimle apply -f` command in the zip's README for the download-and-run-by-hand path.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`",
         "`gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`",
         "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
-        "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`"
+        "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`putJson`)"
       ],
-      "testCoverageDetail": "`rules.test.ts`, `render.test.ts` (structural assertions against the bundled samples), `units.test.ts`, `ports.test.ts` -- pure module coverage; `httpBlueprints.test.ts` -- the real backend repository against a fake fetch; `useBlueprintsListStore.test.ts` -- error surfacing on a failed list() call",
+      "testCoverageDetail": "`rules.test.ts`, `render.test.ts` (structural assertions against the bundled samples, including the limitRange manifest being rendered and excluded from bundle.workloads[]), `units.test.ts`, `ports.test.ts` -- pure module coverage; `httpBlueprints.test.ts` -- the real backend repository against a fake fetch; `useBlueprintsListStore.test.ts` -- error surfacing on a failed list() call",
       "gherkinSteps": [
         "Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors.",
         "Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh."
