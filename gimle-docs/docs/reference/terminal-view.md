@@ -117,6 +117,39 @@ request per declared rule, since the rule list carries no firing state of its ow
   instead: an unreadable answer is never reported as zero, because zero is the finding.
 - Resolving endpoints costs one request per Service, so this screen polls only while it is open.
 
+**XRay** — `x` from the cluster view:
+
+The chain a call actually travels — Service → the deployments it fronts → their instances — as one
+tree. Both halves are already drawn elsewhere; what is only visible here is the gap between them.
+
+- A Service naming a workload the cluster has never heard of reads `NOT FOUND`; one naming a
+  workload that exists but is running nothing reads `NOT RUNNING`. Those are two different mistakes
+  — a Service pointed at a typo, against a workload scaled to zero — and telling them apart is most
+  of the value of looking.
+- Workloads no Service fronts get their own heading. Nothing can reach them except whatever already
+  knows their instances, which is a finding about the cluster's wiring, not an absence of data.
+- A Service and a workload in different tenants are never joined to each other, so two tenants
+  running an identically-named deployment are never reported as one fronting the other's instances.
+- `/` narrows the tree and keeps every matched row's ancestors, so a matched instance still appears
+  under the Service and deployment it belongs to.
+- It costs exactly what the services screen costs — one request per declared Service — because it is
+  a join of two readings rather than a read of its own.
+
+**Pulse** — `P` from the cluster view:
+
+One screen answering "is this cluster all right", from the two readings that together say so.
+
+- The control plane's own account of itself: up or down, uptime, transport, how many tenants it can
+  still see in the store. A control plane that has lost its store answers every list route from
+  nothing, so the cluster view alone would look serene.
+- What it is running: nodes ready, instances failed and not ready, replicas unplaced, workloads
+  unsettled. A healthy control plane says nothing about instances crash-looping under it.
+- Deployments currently reporting errors, named before the merely busy ones.
+- A control plane that never answered reads `UNREACHABLE`, distinct from one reporting itself
+  `DOWN` — the second is a process reporting on itself, the first is no process reporting anything.
+- The traffic rollup is gated on its own permission; a caller who cannot read it is told that, not
+  shown a cluster serving nothing.
+
 **Resource browser** — `:` from any table, then a kind:
 
 Every collection the control plane lists, in one table whose columns come from the kind itself
@@ -179,6 +212,8 @@ carry, since they differ per cluster.
 | `1` … `9` | sort by that column outright, on whichever table has the cursor |
 | `d` | describe the workload behind the selected instance |
 | `s` | services and the endpoints they resolve to |
+| `x` | the dependency tree: service → deployment → instance |
+| `P` | one-screen health: the control plane and what it runs |
 | `a` | cluster activity; `c` switches audit / lifecycle / alerts |
 | `:` | open a kind: `tenants`, `roles`, `volumes`, a registered kind… |
 | `:` then `enter` | list every kind this cluster can show |

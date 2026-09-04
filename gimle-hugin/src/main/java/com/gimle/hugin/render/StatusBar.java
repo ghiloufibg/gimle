@@ -238,6 +238,27 @@ final class StatusBar {
         List.of("esc back", ": kind", "⏎ describe", "/ filter", "p pause", "? help", "q quit"));
   }
 
+  static String pulseKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter, viewport, List.of("esc back", "p pause", "r refresh", "? help", "q quit"));
+  }
+
+  static String xrayKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "↑↓ scroll", "/ filter", "p pause", "? help", "q quit"));
+  }
+
   static String kindsKeys(final Painter painter, final Viewport viewport) {
     return keyBar(painter, viewport, List.of("esc back", ": open one", "? help", "q quit"));
   }
@@ -260,19 +281,20 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
-        // Trimmed to what fits an 80-column terminal without the tail being cut: a key bar whose
-        // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set
-        // is one "?" away. Two omissions are deliberate: the arrow keys, which nobody needs told
-        // move a cursor, and "o", whose orderings the instance table's own label now names along
-        // with the digits that pick one -- which is where an operator is already looking.
+        // Eighty columns is the budget, and what it buys is every key that reaches a screen an
+        // operator could not otherwise find. Everything else is one "?" away: the arrow keys,
+        // which nobody needs told move a cursor; "o", whose orderings the instance table's own
+        // label already names beside the digits that pick one; and "p"/"r", which act on the
+        // screen already in front of you rather than leading anywhere.
         List.of(
             "⏎ open",
-            "d describe",
+            "d yaml",
             "s svc",
+            "x tree",
+            "P pulse",
             "a activity",
             ": kind",
             "/ filter",
-            "p pause",
             "q quit"));
   }
 

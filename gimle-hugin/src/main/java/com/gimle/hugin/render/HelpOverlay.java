@@ -17,6 +17,8 @@ public final class HelpOverlay {
           new String[] {"⏎", "inspect whatever the cursor is on"},
           new String[] {"tab", "move the cursor between the node and instance tables"},
           new String[] {"s", "services and the endpoints they resolve to"},
+          new String[] {"x", "the dependency tree: service → deployment → instance"},
+          new String[] {"P", "one-screen health: the control plane and what it runs"},
           new String[] {"esc", "back to the cluster view"},
           new String[] {"a", "cluster activity; c switches audit / lifecycle / alerts"},
           new String[] {":", "open a kind: tenants, roles, volumes, a registered kind…"},

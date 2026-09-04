@@ -46,6 +46,9 @@ public final class UiState {
   private Optional<String> commandError = Optional.empty();
   private boolean viewingResources;
   private boolean viewingKinds;
+  private boolean viewingXray;
+  private boolean viewingPulse;
+  private int xrayScroll;
   private boolean logWrap;
   private boolean logTimestamps = true;
   private Optional<String> selectedResource = Optional.empty();
@@ -146,6 +149,50 @@ public final class UiState {
     logTimestamps = !logTimestamps;
   }
 
+  /** Whether the one-screen health reading is showing. */
+  public boolean viewingPulse() {
+    return viewingPulse;
+  }
+
+  public void showPulse() {
+    viewingPulse = true;
+  }
+
+  public void closePulse() {
+    viewingPulse = false;
+  }
+
+  /** Whether the dependency tree is showing. */
+  public boolean viewingXray() {
+    return viewingXray;
+  }
+
+  public void showXray() {
+    viewingXray = true;
+    xrayScroll = 0;
+  }
+
+  public void closeXray() {
+    viewingXray = false;
+  }
+
+  /** Where the tree is scrolled to. Clamped at render time, when its length is finally known. */
+  public int xrayOffset() {
+    return xrayScroll;
+  }
+
+  public void scrollXray(final int delta) {
+    xrayScroll = Math.max(0, xrayScroll + delta);
+  }
+
+  public void scrollXrayToTop() {
+    xrayScroll = 0;
+  }
+
+  public void scrollXrayToBottom() {
+    xrayScroll = Integer.MAX_VALUE - 1;
+  }
+
   /**
    * Closes every view, leaving the cluster table showing. What {@code :ctx} needs: every screen
    * here is about one cluster, so none of them survives being pointed at another. The filter goes
@@ -153,6 +200,9 @@ public final class UiState {
    */
   public void leaveEveryView() {
     viewingKinds = false;
+    viewingXray = false;
+    viewingPulse = false;
+    xrayScroll = 0;
     viewingResources = false;
     viewingServices = false;
     viewingActivity = false;

@@ -9,6 +9,8 @@ import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.PulseReader;
+import com.gimle.hugin.model.PulseSnapshot;
 import com.gimle.hugin.model.ResourceCatalog;
 import com.gimle.hugin.model.ResourceKind;
 import com.gimle.hugin.model.ResourceReader;
@@ -26,9 +28,11 @@ import com.gimle.hugin.render.InstanceScreen;
 import com.gimle.hugin.render.KindsScreen;
 import com.gimle.hugin.render.NodeScreen;
 import com.gimle.hugin.render.Painter;
+import com.gimle.hugin.render.PulseScreen;
 import com.gimle.hugin.render.ResourceScreen;
 import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.Viewport;
+import com.gimle.hugin.render.XrayScreen;
 import com.gimle.hugin.term.Key;
 import com.gimle.hugin.term.TerminalSession;
 import java.time.Instant;
@@ -72,6 +76,9 @@ public final class Hugin {
   private final ResourceScreen resourceScreen;
   private final DescribeScreen describeScreen;
   private final KindsScreen kindsScreen;
+  private final XrayScreen xrayScreen;
+  private final PulseScreen pulseScreen;
+  private SnapshotPoller<PulseSnapshot> pulsePoller;
   private ResourceCatalog catalog;
   private SnapshotPoller<ResourceSnapshot> resourcePoller;
   private SnapshotPoller<ClusterSnapshot> clusterPoller;
@@ -93,6 +100,8 @@ public final class Hugin {
     this.resourceScreen = new ResourceScreen(painter);
     this.describeScreen = new DescribeScreen(painter);
     this.kindsScreen = new KindsScreen(painter);
+    this.xrayScreen = new XrayScreen(painter);
+    this.pulseScreen = new PulseScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -112,6 +121,7 @@ public final class Hugin {
       closeServicePoller();
       closeActivityPoller();
       closeResourcePoller();
+      closePulsePoller();
       closeClusterPoller();
     }
   }
@@ -151,6 +161,7 @@ public final class Hugin {
     closeServicePoller();
     closeActivityPoller();
     closeResourcePoller();
+    closePulsePoller();
     ui.leaveEveryView();
     catalog = null;
     reader = reader.forContext(target);
@@ -162,6 +173,14 @@ public final class Hugin {
     Instant now = Instant.now();
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
+    }
+    if (ui.viewingPulse() && pulsePoller != null) {
+      return pulseScreen.render(
+          pulsePoller.current(), snapshot, ui, viewport, pulsePoller.paused(), now);
+    }
+    if (ui.viewingXray() && servicePoller != null) {
+      return xrayScreen.render(
+          servicePoller.current(), snapshot, ui, viewport, servicePoller.paused(), now);
     }
     if (ui.viewingKinds()) {
       return kindsScreen.render(catalog(), reader.serverAddress(), viewport);
@@ -222,6 +241,14 @@ public final class Hugin {
       // Any key closes the help: an operator who opened it by accident should not have to work out
       // which key gets them back.
       ui.hideHelp();
+      return;
+    }
+    if (ui.viewingPulse()) {
+      handlePulseKey(key);
+      return;
+    }
+    if (ui.viewingXray()) {
+      handleXrayKey(key);
       return;
     }
     if (ui.viewingKinds()) {
@@ -299,6 +326,10 @@ public final class Hugin {
       openActivity();
     } else if (key.isChar('s')) {
       openServices();
+    } else if (key.isChar('x')) {
+      openXray();
+    } else if (key.isChar('P')) {
+      openPulse();
     } else if (key.isChar(':')) {
       ui.beginCommand();
     } else if (key.isChar('d') && !onNodes) {
@@ -396,6 +427,85 @@ public final class Hugin {
       return;
     }
     openResources(command);
+  }
+
+  private void handleXrayKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeXray();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollXray(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollXray(1);
+    } else if (key.isChar('g')) {
+      ui.scrollXrayToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollXrayToBottom();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('p') && servicePoller != null) {
+      servicePoller.togglePaused();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  private void handlePulseKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closePulse();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('p') && pulsePoller != null) {
+      pulsePoller.togglePaused();
+    } else if (key.isChar('r') && pulsePoller != null) {
+      pulsePoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * The tree is a join of two readings rather than a read of its own, so it costs exactly what the
+   * services screen costs -- one request per declared Service -- and nothing beyond it.
+   */
+  private void openXray() {
+    ui.showXray();
+    startServicePoller();
+  }
+
+  private void closeXray() {
+    ui.closeXray();
+    closeServicePoller();
+  }
+
+  /** Two small reads on the slower interval: neither changes faster than a person can read it. */
+  private void openPulse() {
+    ui.showPulse();
+    closePulsePoller();
+    pulsePoller =
+        new SnapshotPoller<>(
+            new PulseReader(reader)::read,
+            PulseSnapshot.connecting(reader.serverAddress()),
+            intervals.services(),
+            "hugin-pulse");
+    pulsePoller.start();
+  }
+
+  private void closePulse() {
+    ui.closePulse();
+    closePulsePoller();
+  }
+
+  private void closePulsePoller() {
+    if (pulsePoller != null) {
+      pulsePoller.close();
+      pulsePoller = null;
+    }
   }
 
   private void handleKindsKey(final Key key) {
@@ -682,6 +792,10 @@ public final class Hugin {
    */
   private void openServices() {
     ui.showServices();
+    startServicePoller();
+  }
+
+  private void startServicePoller() {
     closeServicePoller();
     servicePoller =
         new SnapshotPoller<>(

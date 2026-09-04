@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 806,
+    "totalRequirements": 808,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 676,
+    "notCoveredByAutomatedTest": 678,
     "releaseReadinessPercent": 16.1
   },
   "items": [
@@ -8868,6 +8868,28 @@
       "category": "CLI UX",
       "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
       "step": "Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-807",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view joins Services to the instances behind them and names the gaps",
+      "step": "Given a Service naming a deployment that is not running When an operator presses `x` in the terminal view Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-808",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view reads the control plane's own health alongside what it is running",
+      "step": "Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

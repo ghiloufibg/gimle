@@ -816,6 +816,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | Complete | Unit only |
 | GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | Complete | Unit only |
 | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | Complete | Unit only |
+| GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | Complete | Unit only |
+| GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -12217,4 +12219,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an operator in the terminal view
   When they press `:` and then enter with nothing typed
   Then every kind this cluster can show is listed, registered kinds included
+  ```
+
+#### GIMLE-807 — The terminal view joins Services to the instances behind them and names the gaps
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see which Service reaches which instances, so that a Service fronting nothing and a workload nothing fronts are both visible instead of each looking healthy in its own table.
+- **Status**: Complete. `x` draws Service -> the deployments it fronts -> their instances as one flat tree. The join is the point: both halves are already on screen elsewhere and neither answers this, because the two findings that matter live in the gap between them. A Service naming a workload the cluster has never heard of reads NOT FOUND; one naming a workload that exists but runs nothing reads NOT RUNNING -- a Service pointed at a typo and a workload scaled to zero are different mistakes, and telling them apart is most of the value. Workloads no Service fronts get their own heading rather than being left off, since nothing can reach them except whatever already knows their instances. The join is tenant-scoped on both sides, so two tenants running an identically-named deployment are never reported as one fronting the other's instances. Filtering keeps every matched row's ancestors, because a tree filtered to bare matches loses what it was drawn for. A pure function of the Services and cluster snapshots -- no read of its own, so it costs exactly the Services poll the services screen already costs.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/Xray.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/XrayRow.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/XrayScreen.java`
+- **Test coverage**: XrayTest covers the service/deployment/instance chain and its depths, a Service naming an unknown workload, a workload that exists but runs nothing being a distinct finding, unfronted workloads getting their own group without duplicating fronted ones, the tenant-scoped join, filtering keeping ancestors, and a cluster with no Services at all. XrayScreenTest covers the top-down indentation, the findings reading as words and being counted on the label, the empty case, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service naming a deployment that is not running
+  When an operator presses `x` in the terminal view
+  Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts
+  ```
+
+#### GIMLE-808 — The terminal view reads the control plane's own health alongside what it is running
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want one screen telling me whether this cluster is all right, so that neither a sick control plane nor sick workloads under a healthy one can go unnoticed.
+- **Status**: Complete. `P` reads `GET /health` and `GET /metrics` into one screen beside the cluster reading already polled. Both are needed and neither catches the other's failure: a control plane that has lost its store still answers every list route from nothing, so a cluster view alone would look serene, while a healthy control plane says nothing about instances crash-looping under it. A control plane that never answered reads UNREACHABLE, distinct from one reporting itself DOWN -- the second is a process reporting on itself, the first is no process reporting anything, and the health route answers 503 when it cannot reach its store, which the client surfaces as a failure rather than a body. The per-deployment traffic rollup is gated on its own permission and is read best-effort on top of health, so a caller who cannot read it still learns whether the control plane is up, and is told the rollup is unreadable rather than shown a cluster serving nothing. Deployments reporting errors are named before the merely busy ones. Every line reads as a judgement in words rather than a number to interpret.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/PulseScreen.java`
+- **Test coverage**: PulseReaderTest covers a healthy control plane's own fields, a control plane that does not answer being reported as a state rather than thrown, the per-deployment rollup and its tenant, a rollup the caller cannot read leaving health readable, a row naming no deployment being dropped, and the busiest/erroring orderings. PulseScreenTest covers a healthy cluster reading as healthy in words, unreachable reading differently from down, a healthy control plane over a broken cluster still reporting the cluster, an unreadable rollup saying so, a quiet readable rollup saying none, erroring deployments named first, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane that has lost its store
+  When an operator presses `P` in the terminal view
+  Then the control plane is reported as unhealthy rather than the cluster reading as serene
   ```

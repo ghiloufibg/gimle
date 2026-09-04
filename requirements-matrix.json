@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 806,
+  "requirementCount": 808,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16456,6 +16456,50 @@
         "Given an operator in the terminal view",
         "When they press `:` and then enter with nothing typed",
         "Then every kind this cluster can show is listed, registered kinds included"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit only"
+    },
+    {
+      "id": "GIMLE-807",
+      "module": "gimle-hugin",
+      "feature": "The terminal view joins Services to the instances behind them and names the gaps",
+      "category": "CLI UX",
+      "userStory": "As an operator, I want to see which Service reaches which instances, so that a Service fronting nothing and a workload nothing fronts are both visible instead of each looking healthy in its own table.",
+      "statusDetail": "Complete. `x` draws Service -> the deployments it fronts -> their instances as one flat tree. The join is the point: both halves are already on screen elsewhere and neither answers this, because the two findings that matter live in the gap between them. A Service naming a workload the cluster has never heard of reads NOT FOUND; one naming a workload that exists but runs nothing reads NOT RUNNING -- a Service pointed at a typo and a workload scaled to zero are different mistakes, and telling them apart is most of the value. Workloads no Service fronts get their own heading rather than being left off, since nothing can reach them except whatever already knows their instances. The join is tenant-scoped on both sides, so two tenants running an identically-named deployment are never reported as one fronting the other's instances. Filtering keeps every matched row's ancestors, because a tree filtered to bare matches loses what it was drawn for. A pure function of the Services and cluster snapshots -- no read of its own, so it costs exactly the Services poll the services screen already costs.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/Xray.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/XrayRow.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/XrayScreen.java`"
+      ],
+      "testCoverageDetail": "XrayTest covers the service/deployment/instance chain and its depths, a Service naming an unknown workload, a workload that exists but runs nothing being a distinct finding, unfronted workloads getting their own group without duplicating fronted ones, the tenant-scoped join, filtering keeping ancestors, and a cluster with no Services at all. XrayScreenTest covers the top-down indentation, the findings reading as words and being counted on the label, the empty case, the frame fitting, and no escape sequences without colour.",
+      "gherkinSteps": [
+        "Given a Service naming a deployment that is not running",
+        "When an operator presses `x` in the terminal view",
+        "Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit only"
+    },
+    {
+      "id": "GIMLE-808",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reads the control plane's own health alongside what it is running",
+      "category": "CLI UX",
+      "userStory": "As an operator, I want one screen telling me whether this cluster is all right, so that neither a sick control plane nor sick workloads under a healthy one can go unnoticed.",
+      "statusDetail": "Complete. `P` reads `GET /health` and `GET /metrics` into one screen beside the cluster reading already polled. Both are needed and neither catches the other's failure: a control plane that has lost its store still answers every list route from nothing, so a cluster view alone would look serene, while a healthy control plane says nothing about instances crash-looping under it. A control plane that never answered reads UNREACHABLE, distinct from one reporting itself DOWN -- the second is a process reporting on itself, the first is no process reporting anything, and the health route answers 503 when it cannot reach its store, which the client surfaces as a failure rather than a body. The per-deployment traffic rollup is gated on its own permission and is read best-effort on top of health, so a caller who cannot read it still learns whether the control plane is up, and is told the rollup is unreadable rather than shown a cluster serving nothing. Deployments reporting errors are named before the merely busy ones. Every line reads as a judgement in words rather than a number to interpret.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/PulseScreen.java`"
+      ],
+      "testCoverageDetail": "PulseReaderTest covers a healthy control plane's own fields, a control plane that does not answer being reported as a state rather than thrown, the per-deployment rollup and its tenant, a rollup the caller cannot read leaving health readable, a row naming no deployment being dropped, and the busiest/erroring orderings. PulseScreenTest covers a healthy cluster reading as healthy in words, unreachable reading differently from down, a healthy control plane over a broken cluster still reporting the cluster, an unreadable rollup saying so, a quiet readable rollup saying none, erroring deployments named first, the frame fitting, and no escape sequences without colour.",
+      "gherkinSteps": [
+        "Given a control plane that has lost its store",
+        "When an operator presses `P` in the terminal view",
+        "Then the control plane is reported as unhealthy rather than the cluster reading as serene"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Unit only"
