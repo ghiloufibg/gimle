@@ -52,15 +52,25 @@ batch arrived directly or via a relaying agent.
 
 ## JFR-backed accounting
 
-`ThreadNameJfrAttributor` attributes `jdk.ExecutionSample`/`jdk.ThreadAllocationStatistics` JFR
-events to modules by thread-name prefix (`gimle-<module>-<version>-`, the same naming convention
+`ThreadNameJfrAttributor` attributes `jdk.ExecutionSample`/`jdk.ObjectAllocationSample` JFR events
+to modules by thread-name prefix (`gimle-<module>-<version>-`, the same naming convention
 `BoundedModuleScheduler` gives every virtual thread it creates) — a different classification key
 from the module system's classloader-package heuristic, because the question here is whose *work*
 a sampled thread represents, not whose *classes* it's running. This per-module CPU/allocation
 accounting is what makes Tier 1 soft resource limits enforceable without a kernel-level mechanism.
-If JFR itself is unavailable in the running environment, attribution degrades to reporting no
-samples rather than failing the owning process — the same degrade-don't-fail posture `MuninnShipper`
-applies when a ship attempt fails.
+Both events are sampling-based and virtual-thread-aware; the older periodic
+`jdk.ThreadAllocationStatistics` was tried first for the allocation side and rejected — it walks
+only the JVM's live platform-thread list, so it never once names a virtual thread, and every
+module-hosting thread here is virtual. If JFR itself is unavailable in the running environment,
+attribution degrades to reporting no samples rather than failing the owning process — the same
+degrade-don't-fail posture `MuninnShipper` applies when a ship attempt fails.
+
+`WorkerMain` constructs one `ThreadNameJfrAttributor` per worker JVM, over the same `MeterRegistry`
+`WorkerMetrics` builds its own request-rate/latency counters in, and registers/unregisters each
+module's thread-name prefix as it goes `Active`/`Uninstalled` (or `Completed`, for a finished Job).
+Sharing that registry is what lets `gimle.module.cpu.samples`/`gimle.module.allocated.bytes` ride
+the same periodic `MeterSnapshotCodec` NDJSON snapshot request-rate/latency already do, instead of
+being visible only through a separate live-read path.
 
 ## Shipping to Muninn
 

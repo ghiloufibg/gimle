@@ -28,6 +28,7 @@ import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MeterSnapshotCodec;
+import com.gimle.observability.ThreadNameJfrAttributor;
 import com.gimle.observability.WorkerMetrics;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -141,6 +142,11 @@ public final class WorkerMain {
     // wire it in for the client (outbound-call) side of fabric request metrics -- the same registry
     // instance bindFabricServer later wires in for the server (inbound-dispatch) side.
     WorkerMetrics workerMetrics = new WorkerMetrics();
+    // Shares workerMetrics' own registry so the JFR-derived gimle.module.cpu.samples/
+    // gimle.module.allocated.bytes counters ride the exact same periodic Muninn NDJSON snapshot
+    // (muninnMetricsRelayLoop below, via MeterSnapshotCodec) that request-rate/latency already do,
+    // rather than landing in a registry nothing ever ships.
+    ThreadNameJfrAttributor jfrAttributor = new ThreadNameJfrAttributor(workerMetrics.registry());
     FabricServiceRegistry fabricRegistry =
         buildFabricRegistry(
             selfNode,
@@ -169,7 +175,8 @@ public final class WorkerMain {
             instanceLogCloser,
             activeModules,
             relay,
-            nodeId);
+            nodeId,
+            jfrAttributor);
     ModuleController controller = controllerAndRuntime.controller();
     WorkerRuntime runtime = controllerAndRuntime.runtime();
 
@@ -343,10 +350,13 @@ public final class WorkerMain {
       InstanceLogCloser instanceLogCloser,
       Set<ModuleId> activeModules,
       ControlPlaneRelay relay,
-      String nodeId) {
+      String nodeId,
+      ThreadNameJfrAttributor jfrAttributor) {
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
-        event -> handleLifecycleEvent(event, runtimeRef, activeModules, channel, identityRegistry);
+        event ->
+            handleLifecycleEvent(
+                event, runtimeRef, activeModules, channel, identityRegistry, jfrAttributor);
     // Never closed: its two background threads are daemon/virtual, so they never hold the JVM
     // open past a real shutdown, and this worker's own module churn is exactly what it needs to
     // watch for the process's whole lifetime, not just some bounded window within it.
@@ -453,9 +463,11 @@ public final class WorkerMain {
       AtomicReference<WorkerRuntime> runtimeRef,
       Set<ModuleId> activeModules,
       ControlChannelClient channel,
-      InstanceIdentityRegistry identityRegistry) {
+      InstanceIdentityRegistry identityRegistry,
+      ThreadNameJfrAttributor jfrAttributor) {
     if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
-      handleUninstalled(uninstalled, runtimeRef, activeModules, channel, identityRegistry);
+      handleUninstalled(
+          uninstalled, runtimeRef, activeModules, channel, identityRegistry, jfrAttributor);
       return;
     }
     // Reported before runtimeRef's own reaction below runs, not after: WorkerRuntime#onActive can
@@ -475,11 +487,13 @@ public final class WorkerMain {
                     new ControlMessage.InstanceEventOccurred(instanceEventFor(event, identity))));
     if (event instanceof LifecycleEvent.Active active) {
       activeModules.add(active.id());
+      jfrAttributor.registerModule(active.id());
     } else if (event instanceof LifecycleEvent.Completed completed) {
       // A COMPLETED Job stops accumulating metricsReportLoop's per-tick CPU/memory report -- it's
       // done, not still running work worth reporting, the same reasoning Uninstalled already gets
       // in handleUninstalled.
       activeModules.remove(completed.id());
+      jfrAttributor.unregisterModule(completed.id());
     }
     runtimeRef.get().onLifecycleEvent(event);
   }
@@ -510,9 +524,11 @@ public final class WorkerMain {
       AtomicReference<WorkerRuntime> runtimeRef,
       Set<ModuleId> activeModules,
       ControlChannelClient channel,
-      InstanceIdentityRegistry identityRegistry) {
+      InstanceIdentityRegistry identityRegistry,
+      ThreadNameJfrAttributor jfrAttributor) {
     Optional<InstanceIdentity> identity = identityRegistry.lookup(event.id());
     activeModules.remove(event.id());
+    jfrAttributor.unregisterModule(event.id());
     runtimeRef.get().onLifecycleEvent(event);
     sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
     identity.ifPresent(

@@ -3,6 +3,7 @@ package com.gimle.observability;
 import com.gimle.core.module.ModuleId;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -12,19 +13,31 @@ import jdk.jfr.consumer.RecordedThread;
 import jdk.jfr.consumer.RecordingStream;
 
 /**
- * Attributes JFR {@code jdk.ExecutionSample}/{@code jdk.ThreadAllocationStatistics} events to
- * modules by thread-name prefix ({@code gimle-<module>-<version>-}) -- a different classification
- * key than the module system's classloader-package heuristic used elsewhere, because the question
- * here is "whose <em>work</em> is this," not "whose <em>classes</em> are these." Memoizes the
+ * Attributes JFR {@code jdk.ExecutionSample}/{@code jdk.ObjectAllocationSample} events to modules
+ * by thread-name prefix ({@code gimle-<module>-<version>-}) -- a different classification key than
+ * the module system's classloader-package heuristic used elsewhere, because the question here is
+ * "whose <em>work</em> is this," not "whose <em>classes</em> are these." Memoizes the
  * thread-name-to-prefix classification (a virtual thread's name never changes after creation), so
  * repeated samples for the same thread don't re-scan the live prefix set every time.
  *
- * <p>Field names below ({@code sampledThread}, {@code thread}) were confirmed against this JDK's
- * actual {@code EventType} metadata rather than assumed -- {@code jdk.ExecutionSample} in
- * particular does <em>not</em> use the generic {@code eventThread} convention {@link
- * RecordedEvent#getThread()} would read; its field is explicitly {@code sampledThread}.
+ * <p>Both events are sampling-based (not the older periodic {@code jdk.ThreadAllocationStatistics},
+ * which was tried first and rejected: it walks only the JVM's live platform-thread list, so it
+ * never once names a virtual thread -- confirmed against this JDK's actual event stream -- and
+ * every module-hosting thread here is virtual). {@code jdk.ObjectAllocationSample}'s own {@code
+ * eventThread} field is virtual-thread-aware, matching {@code jdk.ExecutionSample}'s {@code
+ * sampledThread} field; {@code jdk.ExecutionSample} in particular does <em>not</em> use the generic
+ * {@code eventThread} convention {@link RecordedEvent#getThread()} would read, so its field name
+ * was confirmed against this JDK's actual {@code EventType} metadata rather than assumed.
  */
 public final class ThreadNameJfrAttributor implements AutoCloseable {
+
+  // jdk.ExecutionSample's own built-in default period is "everyChunk" -- effectively never, for a
+  // RecordingStream that (like this one) is never configured with a maxAge/maxSize that would force
+  // periodic chunk rotation. An explicit period is required or no sample ever fires, regardless of
+  // how much CPU a classified thread burns. jdk.ObjectAllocationSample needs no such override -- as
+  // a throttled allocation-site sampler (not a periodic thread-list walk), it fires on its own as
+  // allocation happens.
+  private static final Duration EXECUTION_SAMPLE_PERIOD = Duration.ofMillis(20);
 
   private final MeterRegistry registry;
   private final Set<String> livePrefixes = ConcurrentHashMap.newKeySet();
@@ -36,10 +49,10 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
     RecordingStream started;
     try {
       started = new RecordingStream();
-      started.enable("jdk.ExecutionSample");
-      started.enable("jdk.ThreadAllocationStatistics");
+      started.enable("jdk.ExecutionSample").withPeriod(EXECUTION_SAMPLE_PERIOD);
+      started.enable("jdk.ObjectAllocationSample");
       started.onEvent("jdk.ExecutionSample", this::onExecutionSample);
-      started.onEvent("jdk.ThreadAllocationStatistics", this::onAllocationSample);
+      started.onEvent("jdk.ObjectAllocationSample", this::onAllocationSample);
       started.startAsync();
     } catch (RuntimeException e) {
       // JFR unavailable/disabled in this environment: attribution degrades to "no samples,"
@@ -71,16 +84,21 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
                     .increment());
   }
 
+  /**
+   * {@code weight} is the sampler's own estimate of bytes allocated at this sample -- not an exact
+   * count the way a TLAB-level counter would be, the standard tradeoff every low-overhead
+   * allocation profiler (this JDK's own {@code jdk.ObjectAllocationSample} included) makes to avoid
+   * instrumenting every single allocation.
+   */
   private void onAllocationSample(RecordedEvent event) {
-    RecordedThread thread = event.getThread("thread");
-    Optional<String> prefix = classify(thread);
-    if (prefix.isEmpty() || !event.hasField("allocated")) {
+    Optional<String> prefix = classify(event.getThread());
+    if (prefix.isEmpty() || !event.hasField("weight")) {
       return;
     }
     Counter.builder("gimle.module.allocated.bytes")
         .tag("module_prefix", prefix.get())
         .register(registry)
-        .increment(event.getLong("allocated"));
+        .increment(event.getLong("weight"));
   }
 
   private Optional<String> classify(RecordedThread thread) {
