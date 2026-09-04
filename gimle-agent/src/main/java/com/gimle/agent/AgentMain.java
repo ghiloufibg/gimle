@@ -3565,10 +3565,13 @@ public final class AgentMain {
   private static Optional<String> workloadTokenFor(
       SupervisedInstance instance, String nodeId, HttpClient httpClient, URI baseUrl) {
     // Tenant-scoped for the same reason instanceKey() is: two different tenants' identically-named
-    // workload on this same node must never share a cached token minted for only one of them.
+    // workload on this same node must never share a cached token minted for only one of them. "#"
+    // rather than a NUL separator for the identical reason instanceKey() uses it --
+    // deploymentName's
+    // own validation regex guarantees it can never contain "#", so this stays unambiguous.
     String cacheKey =
         instance.assigned.tenantId().orElse("")
-            + '\0'
+            + "#"
             + instance.assigned.deploymentName()
             + "#"
             + nodeId;
@@ -3918,9 +3921,17 @@ public final class AgentMain {
    * rolling update needs to cross: a workload's own tenant cannot change mid-rollout, so the
    * deliberate same-key reuse {@code requiresReplacement}'s own javadoc describes is untouched by
    * this.
+   *
+   * <p>{@code "#"} joins every segment, not a NUL byte: this same string is also used verbatim as a
+   * single {@code workers/<key>} directory name ({@code logRoot.resolve("workers").resolve(key)}),
+   * and a NUL byte in a path segment is illegal on every OS this platform runs on -- the worker
+   * spawn itself throws before ever reaching the handshake. {@code "#"} is filesystem-safe (the
+   * pre-existing {@code deploymentName#index} half of this key already proved that) and unambiguous
+   * -- {@code deploymentName}'s own validation regex excludes it, so it can never appear inside
+   * either segment and collide with itself.
    */
   static String instanceKey(Optional<String> tenantId, String deploymentName, int instanceIndex) {
-    return tenantId.orElse("") + '\0' + deploymentName + "#" + instanceIndex;
+    return tenantId.orElse("") + "#" + deploymentName + "#" + instanceIndex;
   }
 
   /**
