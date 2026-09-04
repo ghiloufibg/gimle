@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 791,
+  "requirementCount": 796,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -4297,8 +4297,8 @@
       "module": "gimle-controlplane",
       "feature": "CronJob manual trigger (`gimle cronjob trigger`)",
       "category": "Reconciliation / API Server",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CronJob exists; When POST /cronjobs/{name}/trigger is called; Then a Job is materialized immediately, and cronJobLastSchedule is left untouched.",
@@ -4469,12 +4469,12 @@
       "module": "gimle-controlplane",
       "feature": "PUT-time re-tenanting double-authorization",
       "category": "Authorization",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given deployment D belongs to tenant A; When a caller with write access only to tenant B PUTs D with tenantId=B; Then the request is rejected unless the caller also has write access to tenant A.",
-      "otherTestCoverage": "Embedded in `ApiServerAuthzTest`'s broader RBAC flow coverage",
+      "otherTestCoverage": "`ApiServerAuthzTest#a_write_permission_scoped_to_only_one_tenant_cannot_retenant_another_tenants_same_name`, `#a_write_permission_covering_both_tenants_can_retenant_a_shared_name`",
       "sourceLocations": [
         "`ApiServer.dispatchResourceRequest` (PUT branch)"
       ]
@@ -11350,16 +11350,16 @@
       "module": "gimle-controlplane",
       "feature": "Tenant-scoped heartbeat instance-observation matching and instance-log node resolution",
       "category": "Multi-tenancy / Observability",
-      "status": "New",
-      "statusNote": "New requirement: closes a residual cross-tenant mismatch risk in heartbeat-to-assignment matching and instance-log node resolution.",
+      "status": "Modified",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario placing two tenants' identically-named workload on the same node and asserting health/readiness/log-read never cross tenants.",
-      "otherTestCoverage": "Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.",
+      "otherTestCoverage": "Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.; `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all`, `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick`; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant`, `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all`",
       "sourceLocations": [
-        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`"
       ]
     },
     {
@@ -11367,12 +11367,12 @@
       "module": "gimle-controlplane",
       "feature": "Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup",
       "category": "Multi-tenancy / Authorization",
-      "status": "New",
-      "statusNote": "New requirement: closes a bug where an explicit caller-declared ?tenant= was silently ignored on single-resource GET/DELETE and the endpoints lookup, in favor of a bare-name search across all tenants.",
+      "status": "Modified",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario with two tenants sharing a bare workload name and asserting `gimle get`/`gimle delete --tenant <id>` act on the declared tenant's own resource, not a bare-name search result.",
-      "otherTestCoverage": "`ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.",
+      "otherTestCoverage": "`ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.; `ApiServerServicesTest#an_ambiguous_service_name_across_two_tenants_is_a_400_not_a_flaky_404`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ]
@@ -13443,16 +13443,16 @@
       "feature": "A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing",
       "category": "Networking / Services",
       "status": "Modified",
-      "statusNote": "New requirement: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN. Modified further: a third, more severe instance of the identical defect was found in the plain GET/DELETE /services/{name} branch itself, not just its /endpoints sub-route. With no explicit ?tenant=, DELETE resolved the same empty tenant hint and removed the untenanted key nothing was ever stored under -- a silent no-op that still answered 200, confirmed at Fleet scale on 11 different Services across both control-plane replicas while Deployment/DaemonSet/NetworkPolicy deletes in the same session all worked correctly. GET had the same read-side bug. handleService's GET/DELETE branch now shares the same declaredOrExistingTenant-backed fallback the /endpoints sub-route already had.",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. ApiServerServicesTest also gained delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing).",
+      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. ApiServerServicesTest also gained delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing).; `ServiceReconcilerTest#a_service_fronting_a_daemonset_resolves_its_endpoints`, `#a_service_fronting_a_statefulset_resolves_its_endpoints`",
       "sourceLocations": [
+        "`ApiServer#declaredOrExistingTenant`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`)",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
-        "`ApiServer#declaredOrExistingTenant`"
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`"
       ],
       "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically, and none exercises DELETE against a tenant-scoped Service with no explicit ?tenant= at all. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     },
@@ -13788,6 +13788,36 @@
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`main`'s tick loop, `handleFatalTickError`)"
       ],
       "gapNote": "No .feature scenario drives a real agent process to an actual OutOfMemoryError and asserts the process exits and is respawned by its supervisor -- doing so deterministically against a real cluster is impractical; unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Closing the companion cross-module half (the agent's own launch command line carrying -XX:+ExitOnOutOfMemoryError, in gimle-hilmir's LaunchPlanner and/or gimle-dist's topology.yaml) remains open."
+    },
+    {
+      "id": "GIMLE-795",
+      "module": "gimle-agent",
+      "feature": "Tenant-scoped instance supervision keying (instanceKey)",
+      "category": "Multi-tenancy / Scheduling",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises two tenants' identically-named workload landing on the same node at the same index. To close: a scenario deploying that exact collision across two tenants and asserting both get a real, independently-supervised worker.",
+      "otherTestCoverage": "`AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index`",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`instanceKey`, `workloadTokenFor`)"
+      ]
+    },
+    {
+      "id": "GIMLE-796",
+      "module": "gimle-controlplane",
+      "feature": "Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises `gimle logs --follow` against a node whose agent is stopped. To close: a scenario stopping a node's agent mid-follow and asserting either the Muninn fallback or a fast, clear error, never a hang.",
+      "otherTestCoverage": "`ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)"
+      ]
     }
   ]
 }

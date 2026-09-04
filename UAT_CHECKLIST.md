@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 794
+- **Total requirements**: 796
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 667
+- **Not covered by automated test**: 669
 - **Release-readiness (automated coverage)**: 16.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,10 +18,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 59 | 6 | 53 | 10.2% |
+| gimle-agent | 60 | 6 | 54 | 10.0% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 118 | 17 | 101 | 14.4% |
+| gimle-controlplane | 119 | 17 | 102 | 14.3% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -574,6 +574,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-746 | Tier-1 worker density is an operator-configurable, validated knob | Given an agent configured with a Tier-1 density of one When two Tier-1 modules are assigned to it Then they are not packed into the same worker And an agent configured with a zero or non-numeric density fails at startup | No |
 
+#### Multi-tenancy / Scheduling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | Given tenant A and tenant B each deploy a StatefulSet named "session-store" and both land instance index 0 on the same node; When this agent reconciles both assignments; Then each gets its own real worker, keyed separately by tenant, rather than the second one reading as already-supervised. Given tenant A's own "session-store" is later deleted entirely; When the agent next reconciles; Then tenant B's own "session-store" instance -- previously starved of a worker -- is now correctly started, its own key having never been occupied by tenant A's own instance in the first place. | No |
+
 #### Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1086,7 +1092,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-249 | PUT-time re-tenanting double-authorization | Given deployment D belongs to tenant A; When a caller with write access only to tenant B PUTs D with tenantId=B; Then the request is rejected unless the caller also has write access to tenant A. | No |
+| [ ] | GIMLE-249 | PUT-time re-tenanting double-authorization | Given deployment D belongs to tenant A; When a caller with write access only to tenant B PUTs D with tenantId=B; Then the request is rejected unless the caller also has write access to tenant A. Given the same setup but the caller holds write access to both tenant A and tenant B; When the identical PUT is submitted; Then it succeeds, tenant A's own copy survives untouched, and tenant B gets its own new copy. | No |
 | [ ] | GIMLE-250 | RBAC-gated resource CRUD across every workload kind | Given a principal with no grant for ResourceKind.JOB; When GET/PUT/DELETE against /jobs/{name}; Then every request is rejected with 403. | No |
 | [ ] | GIMLE-252 | `gimle-system` reserved-tenant operator-only guard | Given a caller holds a broad but non-operator-group grant; When writing under tenantId=gimle-system; Then rejected 403 regardless of ordinary RBAC outcome. | No |
 | [ ] | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Given a certificate carrying gimle:nodes and CN=node-42; When calling POST /nodes/node-42/heartbeat; Then it succeeds via the self-service short-circuit; a request against node-99 is rejected. | No |
@@ -1197,7 +1203,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Given tenant "acme" and tenant "default" each have their own deployment named "shared-name"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's. Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward. | No |
+| [ ] | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Given tenant "acme" and tenant "default" each have their own deployment named "shared-name"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's. Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward. Given two tenants each own a same-named Deployment/StatefulSet/Service; When a bare, untenanted GET or /endpoints read addresses that name with no ?tenant=; Then the response is a 400 naming every colliding tenant and asking for an explicit ?tenant=, never a silent, inconsistent pick. | No |
 
 #### Multi-tenancy / Internal-Infra
 
@@ -1209,7 +1215,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready. | No |
+| [ ] | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready. Given a StatefulSet instance genuinely running under tenant acme (not default); When its logs are read via /logs/instances/{name}/{idx} with no ?tenant= at all; Then the live proxy resolves the real tenant by searching workload specs and serves the live agent's log, rather than 404ing against the untenanted namespace. Given the identical StatefulSet instance's own agent-relayed lifecycle event; When GET /events reads it with no --tenant flag; Then the event is found under its real tenant, and an explicit --tenant naming a different (wrong) tenant sees nothing. | No |
 
 #### Multi-tenancy / Self-healing
 
@@ -1230,7 +1236,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
-| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request When DELETE /services/{name} is called Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under | No |
+| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request When DELETE /services/{name} is called Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under Given a Service fronting a DaemonSet (or StatefulSet) workload with every replica ACTIVE/ready and reporting a port matching the Service's own targetPort; When its endpoints are resolved; Then the live endpoints are returned, not an empty array. | No |
 
 #### Observability
 
@@ -1241,6 +1247,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant | No |
 | [ ] | GIMLE-788 | Cluster-wide instance lifecycle event read | Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies. | No |
 | [ ] | GIMLE-790 | A durable, replica-agnostic read of whether an AlertRule is currently firing | Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403. | No |
+| [ ] | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection. | No |
 
 #### Orchestration / Internal-Infra
 
