@@ -6061,14 +6061,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Governance
 - **User story**: As an operator running plaintext (the default transport, no peer identity to check), I want the platform to refuse creating a second real tenant, so plaintext is never quietly used for shared multi-tenancy with no way to tell callers apart after the fact.
-- **Status**: Complete. Fixed alongside: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one.
+- **Status**: Complete. Fixed alongside: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one. M37 fix: hilmir's own gimle-hilmir release-ledger bookkeeping tenant tripped this very rule on its own internal bootstrap -- every hilmir release verb (deploy/upgrade/rollback/undeploy/sync/enable/disable) unconditionally PUTs that tenant into existence on first use, which this rule refused outright the moment a plaintext cluster already had one real, operator-created tenant, permanently blocking every release verb against such a cluster -- reproduced even with a minimal bundle declaring no tenants/config/secrets of its own at all. `gimle-hilmir` is now a third platform-reserved id (`Tenant#HILMIR_BOOKKEEPING_TENANT_ID`) this rule exempts exactly the way `RESERVED_SYSTEM_TENANT_ID`/`DEFAULT_TENANT_ID` already are: creating it never trips the rule, and its own presence never counts toward it against a genuine second real tenant. hilmir's own bootstrap (`ReleaseLedger#ensureTenant`) is separately now idempotent, checking the tenant's existence before ever issuing the write, rather than unconditionally re-PUTting it on every release verb.
 - **Confidence**: High
-- **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch), `ApiServer#requireAuthorizedForWrite`
-- **Test coverage**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied` (asserts the refused write's own audit entry says REJECTED, not APPLIED, and that a genuine update to the tenant that does exist still records APPLIED); `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.
+- **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch), `ApiServer#requireAuthorizedForWrite`, `Tenant#HILMIR_BOOKKEEPING_TENANT_ID`, `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseLedger.java` (`ensureTenant`)
+- **Test coverage**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied` (asserts the refused write's own audit entry says REJECTED, not APPLIED, and that a genuine update to the tenant that does exist still records APPLIED); `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.; `ApiServerHilmirBookkeepingTenantTest` (4 tests: creating the bookkeeping tenant succeeds alongside an already-present real tenant, repeated bootstrap stays a no-op success, a genuine second real tenant is still refused, and the bookkeeping tenant's own presence doesn't itself count toward the limit); `DeployCommandTest#a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap`
 - **Gherkin scenario**:
   ```gherkin
   Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.
   Given the same refused second-tenant submission, When its own audit trail entry is read back, Then it records outcome:REJECTED, never APPLIED, even though plaintext mode's RBAC carve-out allowed the attempt to reach admission at all.
+  Given a plaintext control plane with one real tenant already created, When hilmir's own gimle-hilmir bookkeeping tenant is created (or re-created) for the first time, Then it succeeds regardless, and a genuine second real tenant is still refused with 403.
   ```
 
 #### GIMLE-656 — Tenant-scoped heartbeat instance-observation matching and instance-log node resolution
@@ -9068,26 +9069,28 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Release Management
 - **User story**: As an operator, I want one command to actually spawn every process a topology places on a named machine, in correct boot order.
-- **Status**: Complete
+- **Status**: Complete. M43 fix: a re-run of `hilmir up --machine X` against a machine with some roles already alive used to respawn every role unconditionally -- including a second, fully live node-agent racing the original over worker ownership -- and overwrote its own run ledger with only the freshly-spawned pids, permanently losing all record of the still-alive originals. `up` now checks each role's own genuine liveness (process-table alive and, where the role carries a readiness address, still answering there) before respawning, skips any role already running, and its ledger write for the re-run keeps every skipped role's real, original pid alongside any freshly-spawned replacement rather than overwriting it.
 - **Confidence**: High
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`, `BootOrder.java`, `ReadinessPoller.java`, `RunLedger.java`, `JavaArgFile.java`
-- **Test coverage**: `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest`
+- **Test coverage**: `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest`; `MachineLauncherUpSkipsAliveRolesTest#up_respawns_only_the_dead_role_and_keeps_the_alive_ones_own_pid_in_the_ledger`
 - **Gherkin scenario**:
   ```gherkin
   Given a validated topology, When "hilmir up -f topology.yaml --machine m1", Then every process is spawned in plan order, waited for readiness, remote prerequisites TCP-polled first, and a run ledger written.
+  Given a machine with some roles already alive from a prior "hilmir up", When "hilmir up" is re-run against the same machine, Then only the genuinely dead roles are respawned and the resulting run ledger still names every already-alive role's real, original pid.
   ```
 
 #### GIMLE-393 — Cluster teardown and status reporting (`hilmir down`/`status`)
 
 - **Category**: Release Management
 - **User story**: As an operator, I want to stop every process a prior "hilmir up" started, and inspect whether they're still alive.
-- **Status**: Complete
+- **Status**: Complete. M42 fix: `status` used to report `alive=true` for a pid the OS process table still lists even once it is a killed process's own zombie entry the OS hasn't reaped yet -- a naive `ProcessHandle#isAlive()` check alone cannot tell a zombie from a genuinely running process. `status` now also weighs the record's own readiness probe: a pid the process table still shows alive is reported dead once its own readiness address (already confirmed open at the moment `up` recorded it) is found closed, since a role's readiness can only regress from open to closed by actually dying, never by merely still starting.
 - **Confidence**: High
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`, `RunLedger.java`
-- **Test coverage**: `MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple)
+- **Test coverage**: `MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple); `MachineLauncherIntegrationTest#status_reports_a_still_running_pid_as_not_alive_once_its_own_readiness_address_closes`
 - **Gherkin scenario**:
   ```gherkin
   Given a run ledger from a prior "hilmir up", When "hilmir down --machine m1", Then every process (and descendants) killed in reverse spawn order and the ledger deleted; status against a never-run machine reports a clean error.
+  Given a run ledger record for a pid the OS process table still lists but whose own readiness address has stopped answering, When "hilmir status", Then it is reported alive=false, not alive=true.
   ```
 
 #### GIMLE-394 — Cluster TLS/PKI bootstrap (`hilmir pki init`)
@@ -9148,10 +9151,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Release Management
 - **User story**: As an operator, I want to deploy a versioned "Bundle" (tenants+config+secrets+workloads) as a named release with --dry-run and --wait.
-- **Status**: Complete
+- **Status**: Complete. M37 fix: see GIMLE-649's own statusDetail for the release-ledger tenant-bootstrap fix shared by every release verb, including this one.
 - **Confidence**: High
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/DeployCommand.java`, `ReleaseReconciler.deployFresh`, `ReleasePlan.java`
-- **Test coverage**: `DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/DeployCommand.java`, `ReleaseReconciler.deployFresh`, `ReleasePlan.java`, `ReleaseLedger.ensureTenant`
+- **Test coverage**: `DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag`; `DeployCommandTest#a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap`
 - **Gherkin scenario**:
   ```gherkin
   Given no existing release "orders", When "hilmir deploy -f orders-bundle.yaml --wait", Then tenant/config/secrets/workloads applied in order, each polled to readiness, revision 1 written; re-deploying an existing release fails clearly.
@@ -9330,13 +9333,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Release Management
 - **User story**: As an operator, I want a one-command way to push gimle-gateway's own jar to the registry and deploy/upgrade a synthesized bundle for it.
-- **Status**: Complete
+- **Status**: Complete. M56 fix: the synthesized bundle's own `values:` block named its two keys `port`/`routes`, an internal alias appearing nowhere an operator would ever see it -- `--set gateway.routes=<value>`/`--set gateway.port=<value>`, the exact names this command's own usage text and gimle-system's stored config both use, silently landed in the merged values map under a key nothing referenced, so the bundle's own hardcoded default rendered regardless and the command still reported full success. The values keys are now named identically to the config keys they feed (`gateway.port`/`gateway.routes`), so `--set` using those actual names takes effect.
 - **Confidence**: High
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/extension/EnableGatewayCommand.java`, `GatewayBundleTemplate.java`, `GatewayJarLocator.java`
-- **Test coverage**: `EnableGatewayCommandTest` (5 tests); `GatewayJarLocatorTest` (7 tests)
+- **Test coverage**: `EnableGatewayCommandTest` (5 tests, including `set_flags_named_after_the_real_config_keys_override_the_bundles_own_defaults`, renamed and updated from the prior `port=`/`routes=`-keyed version to assert on the real `gateway.port=`/`gateway.routes=` names an operator actually uses); `GatewayJarLocatorTest` (7 tests)
 - **Gherkin scenario**:
   ```gherkin
   Given gimle-gateway not registered/deployed, When "hilmir enable gateway --server host:port", Then jar pushed and a synthesized bundle deployed fresh; identical-sha jar already registered skips the push; already-deployed at an older version upgrades instead.
+  Given `hilmir enable gateway --set gateway.routes=<routes> --set gateway.port=<port>`, When applied, Then the stored gimle-system/gateway.routes and gateway.port config values actually reflect the --set overrides, not the bundle's own hardcoded defaults.
   ```
 
 #### GIMLE-413 — Gateway extension disable (`hilmir disable gateway`)
