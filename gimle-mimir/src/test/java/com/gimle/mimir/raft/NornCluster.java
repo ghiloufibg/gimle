@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * An in-process, virtual-time Raft cluster: {@link #nodeIds} real {@link RaftNode}s wired directly
@@ -53,6 +55,18 @@ final class NornCluster implements AutoCloseable {
   private final Map<String, NornScheduler> schedulersById = new HashMap<>();
   private final Set<String> isolated = new HashSet<>();
   private final List<String> nodeIds;
+
+  /**
+   * Per-node simulated CPU-contention delay range, real wall-clock milliseconds -- distinct from
+   * {@link #isolated}: a jittery node's RPCs still eventually land (every {@link NornPeerClient}
+   * call still reaches {@link #liveTarget}), just slower, the same way a leader or follower stuck
+   * behind a GC pause or a loaded host's scheduler is still reachable, only late. Guarded by {@link
+   * ConcurrentHashMap} rather than any lock here since {@link NornPeerClient} reads it from
+   * whichever real background thread ({@code peerSenderLoop}, an election's vote-response handler)
+   * is making the call, concurrently with the driving thread's own {@link #setJitter} calls between
+   * rounds.
+   */
+  private final Map<String, long[]> jitterMillisByNode = new ConcurrentHashMap<>();
 
   NornCluster(Path root, List<String> nodeIds) {
     this.root = root;
@@ -110,6 +124,8 @@ final class NornCluster implements AutoCloseable {
       if (isolated.contains(fromId) || isolated.contains(toId)) {
         throw new RuntimeException("norn: simulated partition between " + fromId + " and " + toId);
       }
+      sleepForJitter(fromId);
+      sleepForJitter(toId);
       return nodesById.get(toId);
     }
 
@@ -126,6 +142,33 @@ final class NornCluster implements AutoCloseable {
     @Override
     public InstallSnapshotResponse installSnapshot(InstallSnapshot request) {
       return liveTarget().onInstallSnapshot(request);
+    }
+  }
+
+  /**
+   * Simulates {@code id} running on a CPU-contended host: every RPC to or from it (both directions,
+   * real background threads) sleeps a real, random duration in {@code [minMillis, maxMillis]}
+   * before proceeding -- never fails the call, unlike {@link #isolate}, since real scheduling
+   * contention delays a process without ever making its peers unreachable to it.
+   */
+  void setJitter(String id, long minMillis, long maxMillis) {
+    jitterMillisByNode.put(id, new long[] {minMillis, maxMillis});
+  }
+
+  private void sleepForJitter(String id) {
+    long[] range = jitterMillisByNode.get(id);
+    if (range == null) {
+      return;
+    }
+    long delayMillis =
+        range[0] == range[1]
+            ? range[0]
+            : ThreadLocalRandom.current().nextLong(range[0], range[1] + 1);
+    try {
+      Thread.sleep(delayMillis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("norn: interrupted while simulating jitter for " + id, e);
     }
   }
 

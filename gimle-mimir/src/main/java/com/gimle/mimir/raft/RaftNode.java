@@ -86,18 +86,28 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * completed an RPC round trip -- success or reject, either proves the peer is reachable and on a
    * term this leader still recognizes; only a thrown exception (unreachable this cycle) leaves
    * {@link #lastContactAt} untouched -- with a majority of its own voting peers within this window
-   * steps itself down, on its own, without waiting to observe a higher term. Set to {@link
-   * #ELECTION_TIMEOUT_MAX_MS}, the same "one election timeout" upper bound a healthy follower
-   * itself tolerates before concluding its leader is gone; {@link #checkQuorumTick} runs every
-   * {@link #HEARTBEAT_INTERVAL} (far more often than this window), so this is the binding bound in
-   * practice, not the check's own polling granularity.
+   * steps itself down, on its own, without waiting to observe a higher term. {@link
+   * #checkQuorumTick} runs every {@link #HEARTBEAT_INTERVAL} (far more often than this window), so
+   * this is the binding bound in practice, not the check's own polling granularity.
+   *
+   * <p>Deliberately twice {@link #ELECTION_TIMEOUT_MAX_MS} rather than equal to it: at one election
+   * timeout, ordinary real-world RPC scheduling delay (peer sender threads and their sockets
+   * contending for CPU with everything else on a loaded host, not a genuine partition) self-demotes
+   * a stable leader on nearly every occurrence of that jitter -- see {@code
+   * NornCheckQuorumJitterRegressionTest}, which measures this directly rather than asserting it
+   * from theory. Doubling the window eliminates that false-positive path entirely against the same
+   * jitter range while only roughly doubling how long a *genuine* total partition takes to be
+   * detected (still well under a second) -- the right trade, since a spurious self-demotion costs a
+   * real, avoidable leader election under normal operation, while a slower-to-detect genuine
+   * partition costs only a bounded, already-expected delay.
    *
    * <p>This governs a leader already exchanging heartbeats with its peers. Getting those exchanges
    * started in the first place is a much slower one-off, bounded by {@link
    * #LEADERSHIP_CONTACT_GRACE} instead -- applying this window to it judges every new leader
    * against a deadline its own transport cannot meet.
    */
-  private static final Duration CHECK_QUORUM_WINDOW = Duration.ofMillis(ELECTION_TIMEOUT_MAX_MS);
+  private static final Duration CHECK_QUORUM_WINDOW =
+      Duration.ofMillis(2L * ELECTION_TIMEOUT_MAX_MS);
 
   /**
    * The absolute ceiling on how long a freshly-elected leader may go without having reached a
