@@ -1,14 +1,7 @@
 import type { Blueprint } from "@/lib/blueprint";
 
 export type RunStatus =
-  | "idle"
-  | "validating"
-  | "booting"
-  | "seeding"
-  | "deploying"
-  | "running"
-  | "stopping"
-  | "failed";
+  "idle" | "validating" | "booting" | "seeding" | "deploying" | "running" | "stopping" | "failed";
 
 export type RunStepStatus = "pending" | "running" | "ok" | "failed" | "skipped";
 
@@ -75,7 +68,6 @@ export interface ClustersRepository {
   save(cluster: ClusterConnection): ClusterConnection;
   delete(id: string): void;
 }
-
 
 /** One jar-sourced workload pushed to the control plane's artifact service. */
 export interface RunArtifact {
@@ -174,7 +166,6 @@ export interface HilmirValidatorClient {
   readonly baseUrl: string | null;
   validate(files: RunFile[]): Promise<HilmirReport>;
 }
-
 
 /** What the list endpoint returns: no counts, only identity + timestamps. */
 export interface BlueprintSummary {

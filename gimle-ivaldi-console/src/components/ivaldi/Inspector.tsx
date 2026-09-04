@@ -46,7 +46,11 @@ function BlueprintSettings({ blueprint }: { blueprint: Blueprint }) {
     <div className="space-y-3">
       <div className="hud-label">Blueprint</div>
       <TextField label="Name" value={blueprint.name} onChange={(name) => patch({ name })} />
-      <TextField label="Version" value={blueprint.version} onChange={(version) => patch({ version })} />
+      <TextField
+        label="Version"
+        value={blueprint.version}
+        onChange={(version) => patch({ version })}
+      />
       <SelectField
         label="Transport"
         value={blueprint.transport}
@@ -119,7 +123,10 @@ function WorkloadForm({
         options={["registry", "jar"] as const}
         onChange={(source) =>
           update({
-            artifact: source === "jar" ? { source: "jar", path: "/abs/path/module.jar" } : { source: "registry" },
+            artifact:
+              source === "jar"
+                ? { source: "jar", path: "/abs/path/module.jar" }
+                : { source: "registry" },
           } as Partial<NodeData>)
         }
         problems={pick(problems, ["NO_ANDVARI_FOR_REGISTRY"])}
@@ -207,7 +214,9 @@ function WorkloadForm({
             checked={Boolean(d.disruption)}
             onChange={(on) =>
               update({
-                disruption: on ? { maxUnavailable: 1, maxSurge: kind === "deployment" ? 1 : undefined } : undefined,
+                disruption: on
+                  ? { maxUnavailable: 1, maxSurge: kind === "deployment" ? 1 : undefined }
+                  : undefined,
               } as Partial<NodeData>)
             }
           />
@@ -283,7 +292,11 @@ function WorkloadForm({
               resources: { ...d.resources, request: { ...d.resources.request, memory } },
             } as Partial<NodeData>)
           }
-          problems={pick(problems, ["RESOURCES_REQUEST_OVER_LIMIT", "LIMITRANGE_VIOLATION", "QUOTA_EXCEEDED"])}
+          problems={pick(problems, [
+            "RESOURCES_REQUEST_OVER_LIMIT",
+            "LIMITRANGE_VIOLATION",
+            "QUOTA_EXCEEDED",
+          ])}
         />
         <CpuField
           label="Request cpu"

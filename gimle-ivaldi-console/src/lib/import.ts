@@ -4,7 +4,9 @@ import type { Blueprint } from "./blueprint";
 
 function isBlueprint(value: unknown): value is Blueprint {
   const v = value as Blueprint;
-  return Boolean(v && typeof v.name === "string" && Array.isArray(v.nodes) && Array.isArray(v.edges));
+  return Boolean(
+    v && typeof v.name === "string" && Array.isArray(v.nodes) && Array.isArray(v.edges),
+  );
 }
 
 export async function readBlueprintFile(file: File): Promise<Blueprint> {

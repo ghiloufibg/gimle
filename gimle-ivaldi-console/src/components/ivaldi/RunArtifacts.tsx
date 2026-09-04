@@ -27,7 +27,9 @@ function size(bytes: number | null): string {
 export function RunArtifacts({ artifacts }: { artifacts: RunArtifact[] }) {
   if (!artifacts.length)
     return (
-      <p className="mt-1 text-[10px] text-muted-foreground">No jar-sourced workloads in this blueprint.</p>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        No jar-sourced workloads in this blueprint.
+      </p>
     );
 
   return (
@@ -38,10 +40,16 @@ export function RunArtifacts({ artifacts }: { artifacts: RunArtifact[] }) {
           <li key={a.workload} className="rounded-sm border border-border/70 px-2 py-1">
             <div className="flex items-center gap-1.5">
               <Icon
-                className={cn("size-3", STATUS_CLASS[a.status], a.status === "uploading" && "animate-spin")}
+                className={cn(
+                  "size-3",
+                  STATUS_CLASS[a.status],
+                  a.status === "uploading" && "animate-spin",
+                )}
               />
               <span className="truncate font-mono text-[11px] text-foreground">{a.workload}</span>
-              <span className="num ml-auto text-[10px] text-muted-foreground">{size(a.sizeBytes)}</span>
+              <span className="num ml-auto text-[10px] text-muted-foreground">
+                {size(a.sizeBytes)}
+              </span>
             </div>
             <div className="mt-0.5 space-y-0.5 pl-[18px]">
               <div className="num truncate text-[10px] text-muted-foreground">
@@ -60,7 +68,9 @@ export function RunArtifacts({ artifacts }: { artifacts: RunArtifact[] }) {
                 </button>
               ) : (
                 <div className="num text-[10px] text-muted-foreground">
-                  {a.status === "failed" ? (a.error ?? "push failed") : `pending push → ${a.server}`}
+                  {a.status === "failed"
+                    ? (a.error ?? "push failed")
+                    : `pending push → ${a.server}`}
                 </div>
               )}
               {a.digest && (

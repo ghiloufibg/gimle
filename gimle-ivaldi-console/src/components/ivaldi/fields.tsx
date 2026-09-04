@@ -124,11 +124,7 @@ export function SelectField<T extends string>({
 }) {
   return (
     <Field label={label} problems={problems}>
-      <select
-        className={inputClass}
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-      >
+      <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value as T)}>
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -236,7 +232,9 @@ export function MemoryField({
     <Field
       label={label}
       problems={ok ? problems : [UNIT_ERROR("memory"), ...problems]}
-      hint={hint ?? (ok ? `${formatMemory(bytes)} · ${bytes.toLocaleString()} B` : "Ki / Mi / Gi / Ti")}
+      hint={
+        hint ?? (ok ? `${formatMemory(bytes)} · ${bytes.toLocaleString()} B` : "Ki / Mi / Gi / Ti")
+      }
     >
       <input
         className={cn(inputClass, "num", !ok && "border-status-bad")}
@@ -267,7 +265,9 @@ export function CpuField({
     <Field
       label={label}
       problems={ok ? problems : [UNIT_ERROR("cpu"), ...problems]}
-      hint={hint ?? (ok ? `${formatCpu(milli)} · ${(milli / 1000).toFixed(3)} cores` : "500m or 0.5")}
+      hint={
+        hint ?? (ok ? `${formatCpu(milli)} · ${(milli / 1000).toFixed(3)} cores` : "500m or 0.5")
+      }
     >
       <input
         className={cn(inputClass, "num", !ok && "border-status-bad")}

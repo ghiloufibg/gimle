@@ -22,7 +22,10 @@ export function RunConsole({ log, className }: { log: RunLogLine[]; className?: 
   }, [log]);
 
   return (
-    <div ref={ref} className={cn("overflow-auto bg-background p-3 font-mono text-[11px]", className)}>
+    <div
+      ref={ref}
+      className={cn("overflow-auto bg-background p-3 font-mono text-[11px]", className)}
+    >
       {log.length === 0 ? (
         <p className="text-[10px] text-muted-foreground">
           No output yet. Start a run to stream the runner console.

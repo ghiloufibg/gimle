@@ -34,8 +34,8 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
   const header = (
     <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
       <span className="hud-label">
-        {rows.length} problem{rows.length === 1 ? "" : "s"} — ivaldi {ivaldiProblems.length} / hilmir{" "}
-        {hilmirProblems.length}
+        {rows.length} problem{rows.length === 1 ? "" : "s"} — ivaldi {ivaldiProblems.length} /
+        hilmir {hilmirProblems.length}
       </span>
       <div className="flex items-center gap-2">
         <span className="font-mono text-[10px] text-muted-foreground">
@@ -88,7 +88,12 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
                     selectedId && p.nodeId === selectedId && "bg-accent/60",
                   )}
                 >
-                  <td className={cn("px-3 py-1 font-mono text-[11px] uppercase", severityClass(p.severity))}>
+                  <td
+                    className={cn(
+                      "px-3 py-1 font-mono text-[11px] uppercase",
+                      severityClass(p.severity),
+                    )}
+                  >
                     {p.severity}
                   </td>
                   <td className="px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
@@ -108,4 +113,3 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
     </div>
   );
 }
-

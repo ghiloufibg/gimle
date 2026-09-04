@@ -110,13 +110,31 @@ function validateTopology(t: Topology): HilmirFinding[] {
   const machines = new Set((t.machines ?? []).map((m) => m.name).filter(Boolean) as string[]);
 
   if (!t.name)
-    out.push({ code: "HIL1000", severity: "error", message: "topology.name is required", file, path: "name" });
+    out.push({
+      code: "HIL1000",
+      severity: "error",
+      message: "topology.name is required",
+      file,
+      path: "name",
+    });
   if (machines.size === 0)
-    out.push({ code: "HIL1001", severity: "error", message: "no machines declared", file, path: "machines" });
+    out.push({
+      code: "HIL1001",
+      severity: "error",
+      message: "no machines declared",
+      file,
+      path: "machines",
+    });
 
   const store = t.store?.replicas ?? [];
   if (store.length === 0)
-    out.push({ code: "HIL1010", severity: "error", message: "store has no replicas", file, path: "store.replicas" });
+    out.push({
+      code: "HIL1010",
+      severity: "error",
+      message: "store has no replicas",
+      file,
+      path: "store.replicas",
+    });
   else if (store.length % 2 === 0)
     out.push({
       code: "HIL1011",
@@ -201,7 +219,13 @@ function validateManifest(doc: ManifestDoc, file: string): HilmirFinding[] {
   const resource = `${kind.charAt(0).toLowerCase()}${kind.slice(1)}/${doc.name ?? "unnamed"}`;
 
   if (!doc.name)
-    out.push({ code: "HIL2000", severity: "error", message: "manifest has no name", file, path: "name" });
+    out.push({
+      code: "HIL2000",
+      severity: "error",
+      message: "manifest has no name",
+      file,
+      path: "name",
+    });
   if (!doc.tenantId)
     out.push({
       code: "HIL2001",
@@ -215,9 +239,23 @@ function validateManifest(doc: ManifestDoc, file: string): HilmirFinding[] {
   const mod = doc.module ?? doc.jobTemplate?.module;
   if (mod) {
     if (!mod.name)
-      out.push({ code: "HIL2010", severity: "error", message: `${resource} module.name is missing`, file, path: "module.name", resource });
+      out.push({
+        code: "HIL2010",
+        severity: "error",
+        message: `${resource} module.name is missing`,
+        file,
+        path: "module.name",
+        resource,
+      });
     if (!mod.version)
-      out.push({ code: "HIL2011", severity: "error", message: `${resource} module.version is missing`, file, path: "module.version", resource });
+      out.push({
+        code: "HIL2011",
+        severity: "error",
+        message: `${resource} module.version is missing`,
+        file,
+        path: "module.version",
+        resource,
+      });
     else if (!SEMVER.test(mod.version))
       out.push({
         code: "HIL2012",

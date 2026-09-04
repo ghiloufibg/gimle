@@ -181,7 +181,9 @@ function Designer() {
 
   useEffect(() => {
     if (!blueprint || !dirty) return;
-    const t = setTimeout(() => { void save(); }, 600);
+    const t = setTimeout(() => {
+      void save();
+    }, 600);
     return () => clearTimeout(t);
   }, [blueprint, dirty, save]);
 
@@ -233,7 +235,11 @@ function Designer() {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <Counter count={tallies.errors} tone="bad" onClick={() => toggleDrawer("problems")} />
-            <Counter count={tallies.warnings} tone="warn" onClick={() => toggleDrawer("problems")} />
+            <Counter
+              count={tallies.warnings}
+              tone="warn"
+              onClick={() => toggleDrawer("problems")}
+            />
             <Counter count={tallies.infos} tone="info" onClick={() => toggleDrawer("problems")} />
           </div>
           <ToolbarButton

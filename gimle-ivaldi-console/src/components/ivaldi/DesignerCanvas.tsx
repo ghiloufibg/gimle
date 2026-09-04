@@ -15,12 +15,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
-import {
-  EDGE_LABELS,
-  KIND_LABELS,
-  type Blueprint,
-  type NodeKind,
-} from "@/lib/blueprint";
+import { EDGE_LABELS, KIND_LABELS, type Blueprint, type NodeKind } from "@/lib/blueprint";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useValidationStore } from "@/stores/useValidationStore";
 
@@ -134,7 +129,12 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
         minZoom={0.2}
         className="bg-background"
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--color-border)" />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={16}
+          size={1}
+          color="var(--color-border)"
+        />
         <MiniMap
           pannable
           zoomable

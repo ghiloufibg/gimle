@@ -128,14 +128,17 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
     doc.schedule = d.schedule;
     doc.concurrencyPolicy = d.concurrencyPolicy;
     if (d.suspend) doc.suspend = true;
-    const tpl: Record<string, unknown> = { module: { name: d.module.name, version: d.module.version } };
+    const tpl: Record<string, unknown> = {
+      module: { name: d.module.name, version: d.module.version },
+    };
     if (d.activeDeadlineSeconds !== undefined) tpl.activeDeadlineSeconds = d.activeDeadlineSeconds;
     if (d.backoffLimit !== undefined) tpl.backoffLimit = d.backoffLimit;
     doc.jobTemplate = tpl;
   } else {
     doc.module = { name: d.module.name, version: d.module.version };
     if (node.kind === "job") {
-      if (d.activeDeadlineSeconds !== undefined) doc.activeDeadlineSeconds = d.activeDeadlineSeconds;
+      if (d.activeDeadlineSeconds !== undefined)
+        doc.activeDeadlineSeconds = d.activeDeadlineSeconds;
       if (d.backoffLimit !== undefined) doc.backoffLimit = d.backoffLimit;
     }
     if (node.kind === "deployment" || node.kind === "statefulSet") doc.replicas = d.replicas ?? 1;
@@ -144,7 +147,8 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
   if (d.placement && (d.placement.antiAffinity || d.placement.requiredLabels?.length)) {
     const pl: Record<string, unknown> = {};
     if (d.placement.antiAffinity) pl.antiAffinity = true;
-    if (d.placement.requiredLabels?.length) pl.requiredLabels = [...d.placement.requiredLabels].sort();
+    if (d.placement.requiredLabels?.length)
+      pl.requiredLabels = [...d.placement.requiredLabels].sort();
     doc.placement = pl;
   }
   if (d.autoscale && node.kind === "deployment") doc.autoscale = { ...d.autoscale };

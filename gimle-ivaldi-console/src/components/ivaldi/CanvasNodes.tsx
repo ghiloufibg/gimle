@@ -100,7 +100,9 @@ export function MachineNode({ data }: NodeProps) {
         <span className="font-mono text-[11px] font-semibold text-foreground">{d.label}</span>
         <span className="num text-[10px] text-muted-foreground">{d.fact}</span>
       </div>
-      <div className={cn("absolute left-0 top-0 h-full w-[3px] rounded-l-sm", stripeClass(d.problems))} />
+      <div
+        className={cn("absolute left-0 top-0 h-full w-[3px] rounded-l-sm", stripeClass(d.problems))}
+      />
       <Handle type="target" position={Position.Left} className="!size-2 !bg-primary" />
       <Handle type="source" position={Position.Right} className="!size-2 !bg-primary" />
     </div>

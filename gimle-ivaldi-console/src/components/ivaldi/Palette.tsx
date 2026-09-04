@@ -47,7 +47,6 @@ export function Palette() {
       </aside>
     );
 
-
   const match = (kind: NodeKind) =>
     !query.trim() ||
     KIND_LABELS[kind].toLowerCase().includes(query.toLowerCase()) ||

@@ -54,10 +54,14 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
-    <!-- gimle-ivaldi-console (runtime scope, bundled SPA at ivaldi-console/**, the same
-         BundledSpa pattern gimle-saga/gimle-saga-console already establishes) is added here once
-         that module exists. Until then, BundledSpa.resolve simply finds nothing on the classpath,
-         and IvaldiMain logs /console as disabled, the same graceful absence SagaMain logs when
-         its own console jar isn't present. -->
+    <!-- No Java sources of its own: just the built web console SPA bundled at
+         ivaldi-console/** inside its own jar (see that module's pom.xml). IvaldiMain resolves
+         it off the classpath at startup via BundledSpa, the same pattern gimle-saga/
+         gimle-saga-console already establishes. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-ivaldi-console</artifactId>
+      <scope>runtime</scope>
+    </dependency>
   </dependencies>
 </project>

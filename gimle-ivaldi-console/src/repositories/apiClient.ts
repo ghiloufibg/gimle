@@ -24,7 +24,10 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || `${init?.method ?? "GET"} ${path} failed (${res.status})`);
+    throw new ApiError(
+      res.status,
+      text || `${init?.method ?? "GET"} ${path} failed (${res.status})`,
+    );
   }
   return res;
 }

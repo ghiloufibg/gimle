@@ -24,7 +24,7 @@ export class HttpRunnerClient implements RunnerClient {
       ...init,
       headers: {
         "content-type": "application/json",
-        
+
         ...(init?.headers ?? {}),
       },
     });

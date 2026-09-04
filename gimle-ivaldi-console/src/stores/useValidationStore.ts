@@ -93,8 +93,20 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
 
   allProblems: () => [...get().problems, ...get().serverProblems],
   sourceOf: (problem) => (get().serverProblems.includes(problem) ? "hilmir" : "ivaldi"),
-  problemsFor: (nodeId) => get().allProblems().filter((p) => p.nodeId === nodeId),
-  errorCount: () => get().allProblems().filter((p) => p.severity === "error").length,
-  warningCount: () => get().allProblems().filter((p) => p.severity === "warning").length,
-  infoCount: () => get().allProblems().filter((p) => p.severity === "info").length,
+  problemsFor: (nodeId) =>
+    get()
+      .allProblems()
+      .filter((p) => p.nodeId === nodeId),
+  errorCount: () =>
+    get()
+      .allProblems()
+      .filter((p) => p.severity === "error").length,
+  warningCount: () =>
+    get()
+      .allProblems()
+      .filter((p) => p.severity === "warning").length,
+  infoCount: () =>
+    get()
+      .allProblems()
+      .filter((p) => p.severity === "info").length,
 }));

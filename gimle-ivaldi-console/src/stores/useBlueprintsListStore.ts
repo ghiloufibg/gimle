@@ -9,6 +9,7 @@ interface ListState {
   /** Full bodies, filled in lazily in the background for the count columns. */
   details: Record<string, Blueprint>;
   loading: boolean;
+  error: string | null;
   refresh: () => Promise<void>;
   loadDetails: () => Promise<void>;
   create: (name: string, options?: { empty?: boolean }) => Promise<BlueprintSummary>;
@@ -26,12 +27,17 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   blueprints: [],
   details: {},
   loading: false,
+  error: null,
 
   refresh: async () => {
-    set({ loading: true });
-    const blueprints = await blueprintsRepository.list();
-    set({ blueprints, loading: false });
-    void get().loadDetails();
+    set({ loading: true, error: null });
+    try {
+      const blueprints = await blueprintsRepository.list();
+      set({ blueprints, loading: false });
+      void get().loadDetails();
+    } catch (e) {
+      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   loadDetails: async () => {
@@ -61,7 +67,9 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   duplicate: async (id) => {
     const source = await blueprintsRepository.get(id);
     if (!source) return null;
-    const copy = await blueprintsRepository.create(stamped({ ...source, name: `${source.name}-copy` }));
+    const copy = await blueprintsRepository.create(
+      stamped({ ...source, name: `${source.name}-copy` }),
+    );
     await get().refresh();
     return copy;
   },

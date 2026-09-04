@@ -7,33 +7,32 @@ import type {
   RunnerClient,
 } from "./contracts";
 import { HttpBlueprintsRepository } from "./httpBlueprints";
-import { HttpHilmirValidator } from "./httpHilmir";
 import { HttpRunnerClient } from "./httpRunner";
 import { HttpValidationRepository } from "./httpValidation";
-import { MockHilmirValidator } from "./mockHilmir";
-import { MockBlueprintsRepository } from "./localStorageBlueprints";
 import { LocalStorageClustersRepository } from "./localStorageClusters";
 import { MockRunnerClient } from "./mockRunner";
 
 /**
- * Composition root for blueprint storage.
- * Mock is the default; swap to `new HttpBlueprintsRepository()` to talk to the
- * real gimle-ivaldi backend over same-origin /api paths.
+ * Composition root. Wires the real gimle-ivaldi backend for everything it already serves
+ * (blueprints CRUD, tier-2 validate — both same-origin /api routes); a resource the backend
+ * doesn't serve yet stays on its client-side stand-in. The Mock and LocalStorage implementations
+ * exist only for Vitest coverage and as reference implementations of the same interfaces, never
+ * behind a runtime toggle here.
  */
-export const blueprintsRepository: BlueprintsRepository = new MockBlueprintsRepository();
+export const blueprintsRepository: BlueprintsRepository = new HttpBlueprintsRepository();
 
+/**
+ * No /api/clusters backend exists yet (see the design's §05a) — cluster connections are a
+ * client-side stand-in ahead of that landing, not a permanent choice.
+ */
 export const clustersRepository: ClustersRepository = new LocalStorageClustersRepository();
 
 /**
- * Composition root for the runner transport.
- * Set VITE_RUNNER_API_URL (e.g. http://127.0.0.1:7777) to talk to a real local
- * runner daemon; without it the mock client serves the same contract.
+ * No /api/runs backend exists yet either. A cluster with its own runner daemon URL gets an HTTP
+ * client against the §05a runner protocol; everything else falls back to the mock so the Designer
+ * and Run drawer stay usable while that lands.
  */
-const runnerBaseUrl = (import.meta.env.VITE_RUNNER_API_URL as string | undefined)?.replace(/\/$/, "");
-
-export const runnerClient: RunnerClient = runnerBaseUrl
-  ? new HttpRunnerClient(runnerBaseUrl)
-  : new MockRunnerClient();
+export const runnerClient: RunnerClient = new MockRunnerClient();
 
 /**
  * Picks the transport for a selected cluster: a cluster with its own runner
@@ -65,21 +64,8 @@ export async function checkClusterStatus(cluster: ClusterConnection): Promise<Cl
   }
 }
 
-
-/**
- * Composition root for the Hilmir topology validator.
- * Set VITE_HILMIR_API_URL to validate against a real Hilmir; without it the
- * mock validator answers with the same report shape and Hilmir codes.
- */
-const hilmirBaseUrl = (import.meta.env.VITE_HILMIR_API_URL as string | undefined)?.replace(/\/$/, "");
-
-/**
- * Tier-2 validation. Mock by default; swap to `new HttpValidationRepository()`
- * for the real same-origin POST /api/validate.
- */
-export const hilmirValidator: HilmirValidatorClient = hilmirBaseUrl
-  ? new HttpHilmirValidator(hilmirBaseUrl)
-  : new MockHilmirValidator();
+/** Tier-2 validation against gimle-ivaldi's real parsers, same-origin POST /api/validate. */
+export const hilmirValidator: HilmirValidatorClient = new HttpValidationRepository();
 
 export { HttpBlueprintsRepository, HttpValidationRepository };
 

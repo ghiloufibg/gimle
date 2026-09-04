@@ -30,7 +30,11 @@ export function RunSteps({ steps }: { steps: RunStep[] }) {
         return (
           <li key={step.id} className="flex items-start gap-2 font-mono text-[11px]">
             <Icon
-              className={cn("mt-0.5 size-3 shrink-0", CLASS[step.status], step.status === "running" && "animate-spin")}
+              className={cn(
+                "mt-0.5 size-3 shrink-0",
+                CLASS[step.status],
+                step.status === "running" && "animate-spin",
+              )}
             />
             <span className="min-w-0 flex-1">
               <span className={cn("break-words", CLASS[step.status])}>{step.label}</span>

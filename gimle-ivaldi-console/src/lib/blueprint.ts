@@ -10,13 +10,7 @@ export interface Problem {
 }
 
 export type PlatformKind =
-  | "machine"
-  | "store"
-  | "controlPlane"
-  | "fafnir"
-  | "muninn"
-  | "andvari"
-  | "agent";
+  "machine" | "store" | "controlPlane" | "fafnir" | "muninn" | "andvari" | "agent";
 
 export type AppKind =
   | "tenant"
@@ -223,8 +217,7 @@ export const KIND_LABELS: Record<NodeKind, string> = {
   limitRange: "LimitRange",
 };
 
-export const isWorkload = (kind: NodeKind): boolean =>
-  (WORKLOAD_KINDS as string[]).includes(kind);
+export const isWorkload = (kind: NodeKind): boolean => (WORKLOAD_KINDS as string[]).includes(kind);
 
 export const isPlacedRole = (kind: NodeKind): boolean =>
   ["store", "controlPlane", "fafnir", "muninn", "andvari", "agent"].includes(kind);
@@ -318,7 +311,11 @@ export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
   }
 }
 
-export function createNode(kind: NodeKind, position: { x: number; y: number }, seed = 1): BlueprintNode {
+export function createNode(
+  kind: NodeKind,
+  position: { x: number; y: number },
+  seed = 1,
+): BlueprintNode {
   return { id: uid(kind), kind, position, data: defaultDataFor(kind, seed) };
 }
 

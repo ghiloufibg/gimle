@@ -87,9 +87,7 @@ function validateTopology(bp: Blueprint): Problem[] {
     if (["store", "controlPlane", "fafnir", "muninn", "andvari", "agent"].includes(n.kind)) {
       const machine = (n.data as { machine?: string }).machine ?? "";
       if (!machine || !names.includes(machine))
-        p.push(
-          err("UNKNOWN_MACHINE", `${n.kind} is not placed on a known machine.`, n.id),
-        );
+        p.push(err("UNKNOWN_MACHINE", `${n.kind} is not placed on a known machine.`, n.id));
     }
   }
 
@@ -259,7 +257,11 @@ function validateApplication(bp: Blueprint): Problem[] {
     const targets = [...targetsFromEdges, ...targetsFromNames];
     if (targets.length === 0)
       p.push(
-        err("SERVICE_TARGET_MISSING", "Service fronts no existing deployment or statefulSet.", s.id),
+        err(
+          "SERVICE_TARGET_MISSING",
+          "Service fronts no existing deployment or statefulSet.",
+          s.id,
+        ),
       );
     if (d.port < 1 || d.port > 65535 || d.targetPort < 1 || d.targetPort > 65535)
       p.push(err("SERVICE_PORT_RANGE", "Service ports must be between 1 and 65535.", s.id));
@@ -288,7 +290,11 @@ function validateApplication(bp: Blueprint): Problem[] {
     for (const c of callers)
       if (!tenantIds.includes(c))
         p.push(
-          err("POLICY_ALLOWED_TENANT_UNKNOWN", `Allowed caller tenant "${c}" does not exist.`, np.id),
+          err(
+            "POLICY_ALLOWED_TENANT_UNKNOWN",
+            `Allowed caller tenant "${c}" does not exist.`,
+            np.id,
+          ),
         );
     const restricts = bp.edges.filter((e) => e.kind === "restricts" && e.source === np.id);
     if ((d.deploymentNames ?? []).length === 0 && restricts.length === 0 && callers.length === 0)
@@ -306,10 +312,12 @@ function validateApplication(bp: Blueprint): Problem[] {
       if (a.maxReplicas < a.minReplicas || a.targetCpuUtilizationPercent <= 0)
         p.push(err("AUTOSCALE_RANGE", "Autoscale range or target CPU is invalid.", w.id));
     }
-    if (d.disruption && (d.disruption.maxUnavailable ?? 0) === 0 && (d.disruption.maxSurge ?? 0) === 0)
-      p.push(
-        err("DISRUPTION_BOTH_ZERO", "maxUnavailable and maxSurge cannot both be zero.", w.id),
-      );
+    if (
+      d.disruption &&
+      (d.disruption.maxUnavailable ?? 0) === 0 &&
+      (d.disruption.maxSurge ?? 0) === 0
+    )
+      p.push(err("DISRUPTION_BOTH_ZERO", "maxUnavailable and maxSurge cannot both be zero.", w.id));
     if (w.kind === "daemonSet") {
       if (d.placement?.antiAffinity)
         p.push(err("DAEMONSET_ANTI_AFFINITY", "DaemonSets cannot declare anti-affinity.", w.id));
@@ -330,9 +338,7 @@ function validateApplication(bp: Blueprint): Problem[] {
     const reqCpu = parseCpu(d.resources?.request.cpu);
     const limCpu = parseCpu(d.resources?.limit.cpu);
     if (reqMem > limMem || reqCpu > limCpu)
-      p.push(
-        err("RESOURCES_REQUEST_OVER_LIMIT", "Resource request exceeds its limit.", w.id),
-      );
+      p.push(err("RESOURCES_REQUEST_OVER_LIMIT", "Resource request exceeds its limit.", w.id));
     if (d.artifact?.source === "jar" && d.artifact.path && !d.artifact.path.startsWith("/"))
       p.push(warn("JAR_PATH_RELATIVE", "Jar artifact path is not absolute.", w.id));
     if (d.placement?.requiredLabels?.length) {
@@ -416,8 +422,7 @@ function validateApplication(bp: Blueprint): Problem[] {
 
   for (const c of nodesOf(bp, "configEntry")) {
     const d = c.data as ConfigEntryData;
-    if (!d.key?.trim())
-      p.push(err("WORKLOAD_NAME_BLANK", "Config entry key is blank.", c.id));
+    if (!d.key?.trim()) p.push(err("WORKLOAD_NAME_BLANK", "Config entry key is blank.", c.id));
   }
 
   for (const st of nodesOf(bp, "store")) {

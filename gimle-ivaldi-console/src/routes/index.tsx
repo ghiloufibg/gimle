@@ -53,7 +53,7 @@ function counts(bp: Blueprint | undefined) {
 
 function BlueprintsList() {
   const navigate = useNavigate();
-  const { blueprints, details, refresh, create, remove, duplicate, importBlueprint } =
+  const { blueprints, details, error, refresh, create, remove, duplicate, importBlueprint } =
     useBlueprintsListStore();
   const { theme, toggleTheme, setTheme } = useUiStore();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -69,13 +69,16 @@ function BlueprintsList() {
     refreshClusters();
   }, [refresh, setTheme, refreshClusters]);
 
+  useEffect(() => {
+    if (error) toast.error("Couldn't load blueprints", { description: error });
+  }, [error]);
+
   async function createAndOpen(clusterId?: string) {
     setAskCluster(false);
     if (clusterId) selectCluster(clusterId);
     const bp = await create(`blueprint-${blueprints.length + 1}`, { empty: !clusterId });
     void navigate({ to: "/designer/$blueprintId", params: { blueprintId: bp.id } });
   }
-
 
   return (
     <main className="min-h-screen bg-background">
@@ -138,13 +141,20 @@ function BlueprintsList() {
           <table className="w-full border-collapse text-[12px]">
             <thead className="bg-card">
               <tr className="border-b border-border text-left">
-                {["Name", "Version", "Machines", "Roles", "Workloads", "Problems", "Updated", ""].map(
-                  (h) => (
-                    <th key={h} className="hud-label px-3 py-1.5">
-                      {h}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Name",
+                  "Version",
+                  "Machines",
+                  "Roles",
+                  "Workloads",
+                  "Problems",
+                  "Updated",
+                  "",
+                ].map((h) => (
+                  <th key={h} className="hud-label px-3 py-1.5">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -160,7 +170,9 @@ function BlueprintsList() {
                   >
                     <td className="px-3 py-1.5 font-mono text-[12px] text-foreground">{bp.name}</td>
                     <td className="num px-3 py-1.5 text-muted-foreground">{bp.version}</td>
-                    <td className="num px-3 py-1.5 text-muted-foreground">{c ? c.machines : "—"}</td>
+                    <td className="num px-3 py-1.5 text-muted-foreground">
+                      {c ? c.machines : "—"}
+                    </td>
                     <td className="num px-3 py-1.5 text-muted-foreground">{c ? c.roles : "—"}</td>
                     <td className="num px-3 py-1.5 text-muted-foreground">
                       {c ? c.workloads : "—"}

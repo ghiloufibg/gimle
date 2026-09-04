@@ -76,9 +76,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const kindOfEdge = (target: BlueprintNode) => edgeKindFor(kind, target.kind);
       if (machines.length === 1 && kindOfEdge(machines[0]) === "placedOn") {
         edges.push({ id: uid("edge"), kind: "placedOn", source: node.id, target: machines[0].id });
-        (node.data as { machine?: string }).machine = (
-          machines[0].data as { name: string }
-        ).name;
+        (node.data as { machine?: string }).machine = (machines[0].data as { name: string }).name;
       }
       if (tenants.length === 1 && kindOfEdge(tenants[0]) === "belongsTo") {
         edges.push({ id: uid("edge"), kind: "belongsTo", source: node.id, target: tenants[0].id });
@@ -130,15 +128,17 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const t = bp.nodes.find((n) => n.id === target);
       if (!s || !t) return { ok: false, reason: "Unknown node." };
       const kind = edgeKindFor(s.kind, t.kind);
-      if (!kind)
-        return { ok: false, reason: `A ${s.kind} cannot connect to a ${t.kind}.` };
+      if (!kind) return { ok: false, reason: `A ${s.kind} cannot connect to a ${t.kind}.` };
       if (bp.edges.some((e) => e.source === source && e.target === target && e.kind === kind))
         return { ok: false, reason: "That link already exists." };
       const edge: BlueprintEdge = { id: uid("edge"), kind, source, target };
       const nodes = bp.nodes.map((n) => {
         if (n.id !== source) return n;
         if (kind === "placedOn")
-          return { ...n, data: { ...n.data, machine: (t.data as { name: string }).name } as NodeData };
+          return {
+            ...n,
+            data: { ...n.data, machine: (t.data as { name: string }).name } as NodeData,
+          };
         if (kind === "belongsTo")
           return { ...n, data: { ...n.data, tenantId: (t.data as { id: string }).id } as NodeData };
         return n;

@@ -31,7 +31,6 @@ interface Session {
   script: ScriptEntry[];
   timers: ReturnType<typeof setTimeout>[];
   seq: number;
-
 }
 
 interface TopologyRole {
@@ -109,7 +108,6 @@ function buildScript(request: CreateRunRequest): {
   script: ScriptEntry[];
   artifacts: RunArtifact[];
 } {
-
   const byPath = new Map(request.files.map((f) => [f.path, f.content]));
   const topology = safeParse<Topology>(byPath.get("topology.yaml")) ?? {};
   const host = topology.machines?.[0]?.host ?? "127.0.0.1";
@@ -184,7 +182,13 @@ function buildScript(request: CreateRunRequest): {
         text: `${agent.nodeId ?? "node"}: joined on ${agent.machine ?? request.machine} (gossip ${agent.gossipPort ?? DEFAULT_PORT.agent})`,
       });
     }
-    script.push({ delay: 200, stepId: "agents", stepStatus: "ok", source: "agent", text: "ring stable" });
+    script.push({
+      delay: 200,
+      stepId: "agents",
+      stepStatus: "ok",
+      source: "agent",
+      text: "ring stable",
+    });
   }
 
   const cpPort = topology.controlPlane?.replicas?.[0]?.port ?? DEFAULT_PORT.controlPlane;
@@ -213,7 +217,10 @@ function buildScript(request: CreateRunRequest): {
   });
 
   if (artifacts.length) {
-    addStep("artifacts", `Push ${artifacts.length} local artifact${artifacts.length === 1 ? "" : "s"}`);
+    addStep(
+      "artifacts",
+      `Push ${artifacts.length} local artifact${artifacts.length === 1 ? "" : "s"}`,
+    );
     script.push({
       delay: 300,
       stepId: "artifacts",
@@ -249,7 +256,6 @@ function buildScript(request: CreateRunRequest): {
     });
   }
 
-
   addStep("deploy", `Apply bundle (${manifests.length} manifests)`);
   script.push({
     delay: 320,
@@ -264,10 +270,22 @@ function buildScript(request: CreateRunRequest): {
     const name = /name:\s*(.+)/.exec(manifest.content)?.[1]?.trim() ?? manifest.path;
     script.push({ delay: 240, source: "controlPlane", text: `${kind}/${name} reconciled` });
   }
-  script.push({ delay: 300, stepId: "deploy", stepStatus: "ok", source: "hilmir", text: "bundle applied" });
+  script.push({
+    delay: 300,
+    stepId: "deploy",
+    stepStatus: "ok",
+    source: "hilmir",
+    text: "bundle applied",
+  });
 
   addStep("active", "Wait for ACTIVE");
-  script.push({ delay: 200, stepId: "active", stepStatus: "running", source: "controlPlane", text: "waiting for ACTIVE" });
+  script.push({
+    delay: 200,
+    stepId: "active",
+    stepStatus: "running",
+    source: "controlPlane",
+    text: "waiting for ACTIVE",
+  });
 
   const endpoints: RunEndpoint[] = [];
   if (topology.controlPlane?.replicas?.length) {
@@ -279,7 +297,10 @@ function buildScript(request: CreateRunRequest): {
     endpoints.push({ label: "Muninn", url: `http://${host}:${muninnPort ?? DEFAULT_PORT.muninn}` });
   const andvariPort = topology.andvari?.replicas?.[0]?.port;
   if (topology.andvari?.replicas?.length)
-    endpoints.push({ label: "Andvari registry", url: `http://${host}:${andvariPort ?? DEFAULT_PORT.andvari}` });
+    endpoints.push({
+      label: "Andvari registry",
+      url: `http://${host}:${andvariPort ?? DEFAULT_PORT.andvari}`,
+    });
 
   script.push({
     delay: 600,
@@ -350,10 +371,15 @@ export class MockRunnerClient implements RunnerClient {
               : session.snapshot.artifacts,
             steps: session.snapshot.steps.map((step) =>
               step.id === entry.stepId
-                ? { ...step, status: entry.stepStatus ?? step.status, detail: entry.detail ?? step.detail }
+                ? {
+                    ...step,
+                    status: entry.stepStatus ?? step.status,
+                    detail: entry.detail ?? step.detail,
+                  }
                 : step,
             ),
-            finishedAt: entry.status === "running" ? new Date().toISOString() : session.snapshot.finishedAt,
+            finishedAt:
+              entry.status === "running" ? new Date().toISOString() : session.snapshot.finishedAt,
           };
           session.snapshot = next;
           onEvent({
