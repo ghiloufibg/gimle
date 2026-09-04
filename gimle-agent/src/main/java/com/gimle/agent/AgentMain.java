@@ -230,6 +230,17 @@ public final class AgentMain {
   private AgentMain() {}
 
   public static void main(String[] args) throws IOException, InterruptedException {
+    // The tick loop's own catch (Error e) below only covers Errors thrown by that one thread.
+    // This agent starts several others (gossip, the admin API, the config/network-policy relays,
+    // Bifrost) with no such explicit guard of their own; an OutOfMemoryError on any of them would
+    // otherwise just kill that one thread (the JVM's own default uncaught-exception behavior)
+    // while every other non-daemon thread keeps the process alive as an unresponsive zombie --
+    // the same failure mode handleFatalTickError exists to avoid for the main thread, generalized
+    // here to every thread this process ever starts. An ordinary (non-Error) uncaught exception is
+    // left to the default handler's usual stderr print -- that thread dying alone is the existing,
+    // unremarkable behavior for a real bug in background work, not a reason to halt the process.
+    Thread.setDefaultUncaughtExceptionHandler(
+        defaultUncaughtExceptionHandler(Runtime.getRuntime()::halt));
     DnsCacheTtl.apply();
     GimleBanner.print(
         System.out,
@@ -637,24 +648,42 @@ public final class AgentMain {
   }
 
   /**
-   * What the tick loop's own {@code catch (Error e)} does with a fatal error, extracted so a test
-   * can assert on it without actually terminating the JVM running the test -- {@code terminate} is
-   * {@link Runtime#halt(int)} in production, a recording stub in a test. {@code halt} (not {@code
-   * exit}) skips shutdown hooks and finalizers, which themselves risk allocating under the same
-   * low-memory condition that caused this. Unlike the worker JVMs this agent spawns (whose launch
-   * always carries {@code -XX:+ExitOnOutOfMemoryError}, see {@link #stableWorkerFlags}), this
-   * agent's own JVM was never launched with that flag -- a launch-time option, not something a
-   * running process can add to itself -- so without this, an uncaught {@link Error} on the main
-   * thread would kill only that thread while every other non-daemon thread this agent started
-   * (gossip, the admin API, the config/network-policy relays, Bifrost) keeps the process alive as a
-   * zombie that never ticks or heartbeats again, indistinguishable from a healthy agent in {@code
-   * ps aux}. The exit code matches HotSpot's own for {@code -XX:+ExitOnOutOfMemoryError} -- the
-   * same abrupt-but-honest exit a worker gives its supervisor, so this agent's own supervisor
-   * (systemd/hilmir/docker) sees a real process exit and restarts it the same way.
+   * What a fatal {@link Error} anywhere in this agent gets treated as -- the tick loop's own {@code
+   * catch (Error e)} calls this directly, and {@code main}'s {@link
+   * Thread#setDefaultUncaughtExceptionHandler} backstops every other thread this agent starts
+   * (gossip, the admin API, the config/network-policy relays, Bifrost) with the same handling.
+   * Extracted so a test can assert on it without actually terminating the JVM running the test --
+   * {@code terminate} is {@link Runtime#halt(int)} in production, a recording stub in a test.
+   * {@code halt} (not {@code exit}) skips shutdown hooks and finalizers, which themselves risk
+   * allocating under the same low-memory condition that caused this. Unlike the worker JVMs this
+   * agent spawns (whose launch always carries {@code -XX:+ExitOnOutOfMemoryError}, see {@link
+   * #stableWorkerFlags}), this agent's own JVM was never launched with that flag -- a launch-time
+   * option, not something a running process can add to itself -- so without this, an uncaught
+   * {@link Error} on any one thread would kill only that thread while every other non-daemon thread
+   * this agent started keeps the process alive as a zombie that never ticks or heartbeats again,
+   * indistinguishable from a healthy agent in {@code ps aux}. The exit code matches HotSpot's own
+   * for {@code -XX:+ExitOnOutOfMemoryError} -- the same abrupt-but-honest exit a worker gives its
+   * supervisor, so this agent's own supervisor (systemd/hilmir/docker) sees a real process exit and
+   * restarts it the same way.
    */
   static void handleFatalTickError(Error e, IntConsumer terminate) {
     log.error("agent tick suffered a fatal error; halting so the supervisor can restart it", e);
     terminate.accept(WorkerProcessSupervisor.OOM_EXIT_CODE);
+  }
+
+  /**
+   * What {@code main} installs via {@link Thread#setDefaultUncaughtExceptionHandler} -- a factory
+   * rather than an inline lambda so a test can drive it against a throwaway thread with a recording
+   * {@code terminate} stub, the same seam {@link #handleFatalTickError} itself uses.
+   */
+  static Thread.UncaughtExceptionHandler defaultUncaughtExceptionHandler(IntConsumer terminate) {
+    return (thread, throwable) -> {
+      if (throwable instanceof Error fatal) {
+        handleFatalTickError(fatal, terminate);
+      } else {
+        log.error("uncaught exception on thread {}", thread.getName(), throwable);
+      }
+    };
   }
 
   private static InetSocketAddress parseHostPort(String text) {

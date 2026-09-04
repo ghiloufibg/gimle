@@ -80,6 +80,56 @@ class AgentMainTest {
     assertEquals(List.of(WorkerProcessSupervisor.OOM_EXIT_CODE), exitCodes);
   }
 
+  @Test
+  void a_fatal_error_on_any_other_agent_thread_also_halts_the_process()
+      throws InterruptedException {
+    // The tick loop's own catch (Error e) above only ever covers that one thread. This agent
+    // starts several others (gossip, the admin API, the config/network-policy relays, Bifrost)
+    // with no explicit guard of their own -- main installs defaultUncaughtExceptionHandler as the
+    // JVM's own Thread.setDefaultUncaughtExceptionHandler precisely so an OutOfMemoryError on any
+    // of *those* threads halts the process the same way, rather than silently killing just that
+    // one thread and leaving the agent a zombie. Driven against a real throwaway thread (not
+    // called directly) so this actually exercises Thread.UncaughtExceptionHandler dispatch, not
+    // just the handler's own body.
+    List<Integer> exitCodes = new ArrayList<>();
+    Thread.UncaughtExceptionHandler handler =
+        AgentMain.defaultUncaughtExceptionHandler(exitCodes::add);
+    Thread thread =
+        new Thread(
+            () -> {
+              throw new OutOfMemoryError("simulated, on a background thread");
+            },
+            "some-background-thread");
+    thread.setUncaughtExceptionHandler(handler);
+    thread.start();
+    thread.join();
+
+    assertEquals(List.of(WorkerProcessSupervisor.OOM_EXIT_CODE), exitCodes);
+  }
+
+  @Test
+  void an_ordinary_runtime_exception_on_another_thread_does_not_halt_the_process()
+      throws InterruptedException {
+    // An uncaught Error is treated as fatal to the whole process; an ordinary RuntimeException is
+    // not -- that thread dying alone (the JVM's own default uncaught-exception behavior, just
+    // logged through this agent's own logger instead) is the existing, unremarkable outcome for a
+    // real bug in background work, not a reason to halt every other thread's work along with it.
+    List<Integer> exitCodes = new ArrayList<>();
+    Thread.UncaughtExceptionHandler handler =
+        AgentMain.defaultUncaughtExceptionHandler(exitCodes::add);
+    Thread thread =
+        new Thread(
+            () -> {
+              throw new IllegalStateException("simulated, ordinary bug");
+            },
+            "some-other-background-thread");
+    thread.setUncaughtExceptionHandler(handler);
+    thread.start();
+    thread.join();
+
+    assertEquals(List.of(), exitCodes);
+  }
+
   private static final ResourceSpec REQUEST = new ResourceSpec("16Mi", "500m");
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
 
