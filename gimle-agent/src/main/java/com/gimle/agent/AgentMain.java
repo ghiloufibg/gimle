@@ -134,6 +134,21 @@ public final class AgentMain {
   private static final Duration TICK_INTERVAL = Duration.ofSeconds(5);
   private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
+  /**
+   * Which {@code supervised} key a lifecycle-command correlation id was sent on behalf of -- {@link
+   * ControlMessage.Nack} carries no {@link ModuleId} (unlike {@code ModuleStateChanged}/ {@code
+   * HealthReport}/etc.), so under Tier 1 density {@link #readLoop} has no other way to tell a
+   * packed sibling's own Install/Resolve/Start/Stop failure apart from the connection-owning
+   * instance's. Without this, a nacked command belonging to a packed sibling silently updated the
+   * wrong {@code SupervisedInstance} (the owner's, via {@link #readLoop}'s own {@code instance}
+   * parameter) -- typically a no-op, since the owner is rarely sitting at {@code INSTALLED} -- and
+   * the sibling itself stayed stuck at {@code INSTALLED} forever with no diagnostic trail naming it
+   * at all. Entries are removed as their correlation id is observed (see {@link #readLoop}); a
+   * connection that drops before a reply arrives leaves a small number of orphaned entries behind,
+   * an accepted cost against this map growing without bound for the life of the agent process.
+   */
+  private static final Map<String, String> pendingLifecycleCorrelations = new ConcurrentHashMap<>();
+
   /** Request timeout for every outbound HTTP call this agent makes to the control plane. */
   private static final Duration HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
@@ -2587,7 +2602,7 @@ public final class AgentMain {
       Map<String, List<MuninnShipper>> instanceShippers) {
     try {
       sendInstallStartSequence(
-          instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
+          instance, key, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
       log.error("failed to install {} into shared worker: {}", key, e.getMessage());
       supervised.remove(key);
@@ -2852,7 +2867,13 @@ public final class AgentMain {
                       workerShippers));
       for (Map.Entry<String, SupervisedInstance> entry : hosted) {
         sendInstallStartSequence(
-            entry.getValue(), connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
+            entry.getValue(),
+            entry.getKey(),
+            connection,
+            httpClient,
+            baseUrl,
+            fafnirBaseUrl,
+            volumeManager);
       }
     } catch (IOException e) {
       log.error("failed to redrive worker {} after respawn: {}", spawnedWorkerId, e.getMessage());
@@ -3110,7 +3131,7 @@ public final class AgentMain {
                       muninnEndpoint,
                       workerShippers));
       sendInstallStartSequence(
-          instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
+          instance, key, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
       // This is the sole caller of sendInstallStartSequence for this instance -- nothing retries
       // it on a later reconcile tick, so a failure here strands the instance forever at whatever
@@ -3159,18 +3180,25 @@ public final class AgentMain {
    * built, since that message is what carries the resolved host path down to the worker, which
    * needs it no later than {@code resolve()} time (the worker's own {@code ModuleContext} is
    * created there, before {@code onInstall} fires).
+   *
+   * <p>{@code key} is recorded against each of this sequence's own correlation ids in {@link
+   * #pendingLifecycleCorrelations} -- see that field's own javadoc for why {@link #readLoop} needs
+   * it to attribute a {@link ControlMessage.Nack} to the right instance under Tier 1 density.
    */
-  private static void sendInstallStartSequence(
+  static void sendInstallStartSequence(
       SupervisedInstance instance,
+      String key,
       WorkerConnection connection,
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
       VolumeManager volumeManager)
       throws IOException {
+    String installCorrelationId = nextCorrelationId();
+    pendingLifecycleCorrelations.put(installCorrelationId, key);
     connection.send(
         new ControlMessage.InstallModule(
-            nextCorrelationId(),
+            installCorrelationId,
             instance.assigned.artifactPath(),
             instance.assigned.deploymentName(),
             instance.assigned.instanceIndex()));
@@ -3179,15 +3207,19 @@ public final class AgentMain {
     for (VolumeHandle handle : instance.volumeHandles) {
       dataDirectories.put(handle.volumeName(), volumeManager.hostPath(handle).toString());
     }
+    String resolveCorrelationId = nextCorrelationId();
+    pendingLifecycleCorrelations.put(resolveCorrelationId, key);
     connection.send(
         new ControlMessage.ResolveModule(
-            nextCorrelationId(), instance.assigned.moduleId(), dataDirectories));
+            resolveCorrelationId, instance.assigned.moduleId(), dataDirectories));
     // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
     // Start, over this same ordered channel, so every module hook's config(key) lookups are
     // already backed by real values from the moment it starts.
     deliverConfig(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
+    String startCorrelationId = nextCorrelationId();
+    pendingLifecycleCorrelations.put(startCorrelationId, key);
     connection.send(
-        new ControlMessage.StartModule(nextCorrelationId(), instance.assigned.moduleId()));
+        new ControlMessage.StartModule(startCorrelationId, instance.assigned.moduleId()));
   }
 
   /**
@@ -3358,16 +3390,40 @@ public final class AgentMain {
         } else if (message instanceof ControlMessage.HealthReport health) {
           findByModuleId(supervised, connection, health.id())
               .ifPresent(target -> target.readinessReported = Optional.of(health.ready()));
+        } else if (message instanceof ControlMessage.Ack ack) {
+          pendingLifecycleCorrelations.remove(ack.correlationId());
         } else if (message instanceof ControlMessage.Nack nack) {
-          log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
+          // Nack carries no ModuleId, so under Tier 1 density the connection-owning `instance`
+          // parameter is not necessarily who this actually belongs to --
+          // pendingLifecycleCorrelations
+          // (populated by sendInstallStartSequence/stopInstance) names the real target by the
+          // correlation id both sides already agree on. Falling back to `instance`/`key` only for a
+          // correlation id this agent never tracked (e.g. a test driving the wire by hand).
+          String targetKey = pendingLifecycleCorrelations.remove(nack.correlationId());
+          SupervisedInstance target = targetKey != null ? supervised.get(targetKey) : instance;
+          String loggedKey = targetKey != null ? targetKey : key;
+          log.warn("instance {} nacked {}: {}", loggedKey, nack.correlationId(), nack.reason());
           // An install-phase nack (the module never left its initial INSTALLED state -- e.g. the
-          // worker couldn't read the jar) used to leave lifecycleState at "INSTALLED" forever:
-          // the instance looked merely still-starting, indefinitely, in the console and
+          // worker couldn't read the jar, or a Tier 1 density collision with a stale ModuleId
+          // already resident in this shared worker) used to leave lifecycleState at "INSTALLED"
+          // forever: the instance looked merely still-starting, indefinitely, in the console and
           // `gimle deployment status`. FAILED makes the failure visible and, via observationJson's
           // own alive derivation, hands it to the health reconciler to heal. A nack after a
           // successful start keeps the last real lifecycle state rather than clobbering it.
-          if ("INSTALLED".equals(instance.lifecycleState)) {
-            instance.lifecycleState = "FAILED";
+          if (target != null && "INSTALLED".equals(target.lifecycleState)) {
+            target.lifecycleState = "FAILED";
+            postInstanceEvent(
+                httpClient,
+                baseUrl,
+                nodeId,
+                new InstanceEvent(
+                    UUID.randomUUID().toString(),
+                    target.assigned.deploymentName(),
+                    target.assigned.instanceIndex(),
+                    InstanceEventKind.TRANSITION_FAILED,
+                    "install sequence nacked",
+                    Optional.of(nack.reason()),
+                    System.currentTimeMillis()));
           }
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
           postInstanceEvent(httpClient, baseUrl, nodeId, occurred.event());
@@ -3796,8 +3852,10 @@ public final class AgentMain {
         // StopModule alone drives ACTIVE -> STOPPING -> UNINSTALLED in one call on the worker
         // side (ModuleController#stop already finishes with its own uninstall) -- no separate
         // UninstallModule follow-up needed or wanted here.
+        String stopCorrelationId = nextCorrelationId();
+        pendingLifecycleCorrelations.put(stopCorrelationId, key);
         connection.send(
-            new ControlMessage.StopModule(nextCorrelationId(), instance.assigned.moduleId()));
+            new ControlMessage.StopModule(stopCorrelationId, instance.assigned.moduleId()));
         if (!awaitGracefulUninstall(instance, key) && instance.fabricWorkerId != null) {
           // The worker never confirmed UNINSTALLED within its grace period, so its own
           // ServiceUnregistered notification for this export -- WorkerRuntime#onUninstalled's
