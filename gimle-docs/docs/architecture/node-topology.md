@@ -77,9 +77,16 @@ via the plain `Process` API (`WorkerProcessSupervisor`), assigns each worker's r
 (portable JVM flags today — see [Tiered isolation](./tiered-isolation.md)), reports machine
 capacity and observed state to the control plane, and executes placement directives it receives.
 It **never runs user code**, so a misbehaving module can't crash it — `ControlChannelServer` is the
-local channel workers report over (`WorkerConnection` on the agent side). `AgentLogServer`, its one
-always-on HTTP surface, answers `GET /health` unconditionally (no configuration needed) alongside its
-log-serving routes — an operator-pollable liveness signal distinct from the opt-in admin fault API.
+local channel workers report over (`WorkerConnection` on the agent side). `AgentLogServer`, its
+always-on log-serving HTTP surface, answers `GET /health` unconditionally (no configuration
+needed) — an operator-pollable liveness signal distinct from the opt-in admin fault API.
+`AgentGossipServer` is a second always-on HTTP surface, read-only: `GET /gossip/members` returns
+this node's own current SWIM view (member id, status, incarnation) — the live table behind the
+"is now DEAD" log lines [Failure detection and gossip](../concepts/failure-detection-and-gossip.md)
+describes. It binds an OS-assigned ephemeral port by default, like the admin fault API; the agent's
+own startup log line ("serving gossip membership at :`port`") is, today, the only way to learn
+which one. This is distinct from the `gossipPort` a topology file or `hilmir plan` names for a
+node — that's the SWIM protocol's own UDP port, not this HTTP surface's port.
 
 ## Worker JVM
 

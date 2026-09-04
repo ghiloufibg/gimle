@@ -70,6 +70,11 @@ Membership), a protocol designed around exactly those two constraints: bounded t
 of cluster size, and a multi-step process before declaring anyone dead, so a single bad signal
 never gets the final say alone.
 
+To see a node's own live view of this rather than inferring it from log lines, `gimle-agent`
+exposes it directly: `GET /gossip/members` on that node's `AgentGossipServer` HTTP surface — see
+[Node topology § Node Agent](../architecture/node-topology.md#node-agent) for where that port
+comes from.
+
 ## Direct ping, then ask around
 
 Every node runs on a fixed cadence — `protocolPeriod = 1s` by default. Each tick, it picks one
