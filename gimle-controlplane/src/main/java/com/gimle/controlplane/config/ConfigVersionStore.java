@@ -112,7 +112,7 @@ public final class ConfigVersionStore {
   /** Every version ever stamped for {@code key}, oldest first. */
   public List<ConfigVersion> listVersions(String tenantId, String key) {
     List<ConfigVersion> result = new ArrayList<>();
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isVersionKey(entry.key(), key)) {
         result.add(decodeVersion(entry.value()));
       }
@@ -159,14 +159,14 @@ public final class ConfigVersionStore {
   }
 
   private Optional<ConfigEntry> findLiveLinearizable(String tenantId, String key) {
-    return storeClient.listConfigEntriesForLinearizable(tenantId).stream()
+    return storeClient.listConfigEntriesFor(tenantId).stream()
         .filter(e -> e.key().equals(key))
         .findFirst();
   }
 
   private Optional<ConfigVersion> findVersion(String tenantId, String key, int version) {
     String rawKey = versionKey(key, version);
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (entry.key().equals(rawKey)) {
         return Optional.of(decodeVersion(entry.value()));
       }
@@ -176,7 +176,7 @@ public final class ConfigVersionStore {
 
   private int nextVersion(String tenantId, String key) {
     int max = 0;
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isVersionKey(entry.key(), key)) {
         max = Math.max(max, decodeVersion(entry.value()).version());
       }

@@ -38,6 +38,15 @@ a leader stuck on the minority side to step down rather than keep serving stale-
 answers. That minority becomes briefly unavailable rather than silently wrong. This is a textbook
 **CP** choice.
 
+Reads are held to the same standard, which matters more than it first sounds: a store that protects
+only its *writes* with a majority still hands out stale answers the moment a read is served by a
+replica that has fallen behind, or by a leader that has been deposed without noticing yet. Every
+read therefore establishes a [read index](./consensus-and-replication.md#reads-the-read-index)
+before the store is touched, and a node that cannot prove it still leads refuses the read instead of
+answering it. The C in this CP choice covers reads, not just writes — and the cost is exactly the
+one CAP predicts: during a partition, the side that can't reach a majority returns an error rather
+than an answer.
+
 ## `gimle-fabric`'s gossip membership: leans A over C
 
 Cluster membership — who's alive, who's suspect, who's dead — is a different kind of data. A

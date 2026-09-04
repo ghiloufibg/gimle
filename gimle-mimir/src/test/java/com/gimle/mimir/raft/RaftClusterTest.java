@@ -409,6 +409,59 @@ class RaftClusterTest {
     assertTrue(leader.raftNode().isLeader());
   }
 
+  // ---- read index: a read is only as trustworthy as the leadership behind it ----
+
+  @Test
+  @Timeout(20)
+  void a_leader_cut_off_from_the_majority_refuses_a_read_rather_than_answer_from_stale_state()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode isolated = awaitLeader(cluster);
+    List<ClusterNode> majority = cluster.stream().filter(c -> c != isolated).toList();
+    isolated
+        .raftNode()
+        .propose(new StateMutation.PutTenant(new Tenant("acme", new ResourceQuota(1, 1, 1))));
+    Await.until(
+        () -> cluster.stream().allMatch(c -> c.store().getTenant("acme").isPresent()),
+        Duration.ofSeconds(3));
+
+    partition(isolated.id(), majority.get(0).id());
+    partition(isolated.id(), majority.get(1).id());
+
+    // The majority elects its own leader and deletes the tenant -- a write committed by a real
+    // quorum that the cut-off node has no way of hearing about.
+    ClusterNode newLeader = awaitLeader(majority);
+    newLeader.raftNode().propose(new StateMutation.RemoveTenant("acme"));
+    Await.until(
+        () -> majority.stream().allMatch(c -> c.store().getTenant("acme").isEmpty()),
+        Duration.ofSeconds(3));
+
+    // The stale copy is sitting right there in the cut-off node's own store: reading it locally
+    // would produce a clean, successful answer contradicting what the cluster actually holds --
+    // a resource reported alive that every other node agrees is gone. Refusing is the whole point.
+    assertTrue(isolated.store().getTenant("acme").isPresent());
+    assertThrows(GimleRaftException.class, () -> isolated.raftNode().awaitReadIndex());
+  }
+
+  @Test
+  @Timeout(20)
+  void a_read_index_from_a_healthy_leader_covers_the_write_it_just_committed() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode leader = awaitLeader(cluster);
+    leader
+        .raftNode()
+        .propose(new StateMutation.PutTenant(new Tenant("acme", new ResourceQuota(1, 1, 1))));
+
+    long readIndex = leader.raftNode().awaitReadIndex();
+
+    // Returning at all means a majority confirmed this node still leads; the state machine having
+    // reached the returned index is the other half -- together, what makes reading the store
+    // immediately below safe rather than merely likely to be right.
+    assertTrue(readIndex > 0);
+    assertTrue(leader.raftNode().lastAppliedForTest() >= readIndex);
+    assertTrue(leader.store().getTenant("acme").isPresent());
+  }
+
   @Test
   @Timeout(10)
   void a_redirected_write_to_a_follower_returns_the_correct_leader_address() throws Exception {

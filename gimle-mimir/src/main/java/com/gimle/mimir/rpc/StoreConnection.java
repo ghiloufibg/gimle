@@ -75,6 +75,14 @@ public final class StoreConnection implements AutoCloseable {
     } catch (IOException e) {
       closeQuietlyLocked();
       throw new UncheckedIOException(e);
+    } catch (RuntimeException e) {
+      // Anything that isn't an IOException still leaves this socket at an unknown offset in the
+      // stream -- a frame this connection failed to decode was read partially or not at all, and
+      // whatever remains would be read as the next call's response. Keeping the socket would turn
+      // one failed call into a connection that fails every later call the same way until the
+      // process restarts; dropping it costs a reconnect and nothing else.
+      closeQuietlyLocked();
+      throw e;
     } finally {
       lock.unlock();
     }

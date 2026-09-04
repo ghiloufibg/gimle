@@ -50,9 +50,11 @@ public interface StoreReader {
   /**
    * The compare-and-set precondition value for {@code ApiServer}'s deployment apply/delete/rollback
    * handlers -- see {@code StateMutation.PutDeployment}/{@code RemoveDeployment}'s own javadoc. 0
-   * for a deployment that has never existed or was fully removed; every successful {@code
-   * putDeployment} bumps it, every {@code removeDeployment} resets it, so a fresh {@code apply}
-   * under the same name starts a new generation lineage rather than continuing the old one.
+   * only for a name that has never existed: every {@code putDeployment} bumps it and so does every
+   * {@code removeDeployment}, which leaves the bumped value behind rather than clearing it, so a
+   * deleted name never reads back as a free one. That is what stops a proposal captured while the
+   * name was free from satisfying its own precondition a second time once a later leader commits
+   * it, resurrecting a Deployment that was deleted in between.
    */
   long getDeploymentGeneration(Optional<String> tenantId, String name);
 

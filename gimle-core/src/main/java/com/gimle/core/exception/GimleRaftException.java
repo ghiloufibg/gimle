@@ -6,9 +6,10 @@ import java.util.Optional;
 
 /**
  * A Raft-replicated control plane's consensus failures: a write rejected by a non-leader, a
- * proposal that never commits, or a follower/restarting node that can't trust its own persisted
- * snapshot. Never thrown for ordinary follower-vs-leader staleness on reads -- that is normal,
- * expected behavior, not a failure.
+ * proposal that never commits, a read whose leader could not prove it still leads, or a
+ * follower/restarting node that can't trust its own persisted snapshot. Reads throw here rather
+ * than quietly answering from a replica that may be behind -- refusing a read the cluster cannot
+ * currently stand behind is the honest outcome, and every caller treats it as retryable.
  */
 public class GimleRaftException extends RuntimeException {
 
@@ -32,6 +33,23 @@ public class GimleRaftException extends RuntimeException {
 
   public static GimleRaftException proposalTimedOut(String nodeId, Duration waited) {
     return new GimleRaftException("node " + nodeId + "'s proposal did not commit within " + waited);
+  }
+
+  /**
+   * A leader could not establish a read index within {@code waited}: it never confirmed with a
+   * majority of its voting peers that it is still the leader, so it has no way to know whether a
+   * newer leader has committed writes it has not seen. Distinct from {@link #notLeader}, which
+   * names a node that already knows it isn't leading -- this one is a node that still believes it
+   * leads but cannot prove it, and so refuses to answer rather than serve a read that may be
+   * missing another leader's committed writes.
+   */
+  public static GimleRaftException readIndexTimedOut(String nodeId, Duration waited) {
+    return new GimleRaftException(
+        "node "
+            + nodeId
+            + " could not confirm its leadership with a majority within "
+            + waited
+            + "; refusing to serve a possibly stale read");
   }
 
   public static GimleRaftException snapshotCorrupted(Path snapshotFile, Throwable cause) {

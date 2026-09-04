@@ -169,7 +169,6 @@ public final class StoreCodec {
   private static final byte TAG_INT_INT_MAP_RESULT = 90;
   private static final byte TAG_STATUS = 91;
   private static final byte TAG_STATUS_RESULT = 92;
-  private static final byte TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE = 93;
   private static final byte TAG_GET_SERVICE = 94;
   private static final byte TAG_LIST_SERVICES = 95;
   private static final byte TAG_SERVICE_RESULT = 96;
@@ -513,10 +512,6 @@ public final class StoreCodec {
         }
         case StoreRpc.GetSnapshot v -> out.writeByte(TAG_GET_SNAPSHOT);
         case StoreRpc.GetAuditTrailStatus v -> out.writeByte(TAG_GET_AUDIT_TRAIL_STATUS);
-        case StoreRpc.ListConfigEntriesForLinearizable v -> {
-          out.writeByte(TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE);
-          out.writeUTF(v.tenantId());
-        }
         case StoreRpc.GetReconcilerInstanceState v -> {
           out.writeByte(TAG_GET_RECONCILER_INSTANCE_STATE);
           DomainCodec.writeOptionalString(out, v.tenantId());
@@ -1160,8 +1155,6 @@ public final class StoreCodec {
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
         case TAG_GET_SNAPSHOT -> new StoreRpc.GetSnapshot();
         case TAG_GET_AUDIT_TRAIL_STATUS -> new StoreRpc.GetAuditTrailStatus();
-        case TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE ->
-            new StoreRpc.ListConfigEntriesForLinearizable(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
             new StoreRpc.GetReconcilerInstanceState(
                 DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());

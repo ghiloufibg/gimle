@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 828
+- **Total requirements**: 829
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 698
+- **Not covered by automated test**: 699
 - **Release-readiness (automated coverage)**: 15.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
 | gimle-agent | 61 | 6 | 55 | 9.8% |
-| gimle-mimir | 69 | 36 | 33 | 52.2% |
+| gimle-mimir | 70 | 36 | 34 | 51.4% |
 | gimle-fabric | 42 | 1 | 41 | 2.4% |
 | gimle-controlplane | 119 | 17 | 102 | 14.3% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
@@ -860,6 +860,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-147 | Non-Voting Learner & Automatic Promotion | Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange. | Yes |
 | [ ] | GIMLE-148 | Durable Raft Log Persistence | Given a node appends entries and votes; When restarted and RaftLog reopened; Then every persisted entry, term, and vote are recovered exactly as written. | Yes |
 | [ ] | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Given a cluster configured for mTLS with a shared CA; When peers exchange RequestVote/AppendEntries/InstallSnapshot; Then election and replication succeed as in plaintext; a peer cert not signed by the CA is rejected; reloaded TLS material lets a fresh connection succeed without restart. | Yes |
+| [ ] | GIMLE-829 | Linearizable reads via a Raft read index, replacing round-robin replica reads | Given a 3-node store cluster holding a tenant, When the leader is partitioned from the majority and the majority elects a new leader and deletes that tenant, Then the partitioned node refuses a read of it rather than answering from its own still-present copy. Given a healthy store leader that has just committed a write, When a read index is established, Then a majority has confirmed the node still leads and the state machine has applied through the returned index before the store is read. | No |
 
 #### Raft Consensus / Internal-Infra / Testing
 
@@ -897,7 +898,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 | [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
-| [ ] | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
+| [ ] | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. Given a deployment is proposed while its name is free, and the name is then created and deleted before that proposal applies, When the proposal finally reaches the state machine, Then its generation precondition fails and the deployment stays deleted. | No |
 | [ ] | GIMLE-726 | Instance event history is cleared when a workload is removed, so a reused name starts clean | Given a Deployment with recorded instance events When it is deleted and an unrelated Deployment is created with the same name Then the new Deployment's event timeline is empty And the cleared timeline does not reappear after a snapshot restore or log replay | No |
 
 #### Upgrade path

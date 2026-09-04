@@ -66,8 +66,16 @@ public sealed interface StateMutation extends RaftLogPayload {
    * what committed in between -- not a leader-side guess -- and the store is left untouched rather
    * than silently overwritten. This is the compare-and-set half of what closes the concurrent
    * apply/delete race a plain unconditional {@code putDeployment} could not: a racing {@code
-   * RemoveDeployment} that committed first bumps the generation (to 0, via removal) out from under
-   * this one, so a stale apply can no longer resurrect a deployment someone else just deleted.
+   * RemoveDeployment} that committed first bumps the generation out from under this one, so a stale
+   * apply can no longer resurrect a deployment someone else just deleted.
+   *
+   * <p>The gap between proposing an entry and checking its precondition is not bounded by the
+   * proposer's own patience: an entry a leader appended but never committed can survive that
+   * leader's demotion in a follower's log and be committed by a later leader, minutes on. Which is
+   * why {@link StateStore#removeDeployment} keeps bumping this counter rather than clearing it --
+   * were a deleted name to read back at the same 0 a never-used one does, an entry proposed while
+   * the name was genuinely free would find its precondition true again on that late apply and
+   * recreate a Deployment whose deletion had already been acknowledged.
    */
   record PutDeployment(DeploymentSpec spec, long expectedGeneration) implements StateMutation {
     @Override

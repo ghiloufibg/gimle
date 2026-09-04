@@ -65,12 +65,14 @@ import java.util.stream.Collectors;
  * implements {@link MutationSink} so it drops straight into every reconciler's existing constructor
  * parameter with no other code change.
  *
- * <p>Reads go to any configured endpoint, rotating on transport failure -- no leader-awareness,
- * matching how a follower's own co-located {@code StateStore} could already be slightly stale
- * today. {@link #propose}, {@link #putHeartbeat}, {@link #tryAcquireOrRenewLease}, and {@link
- * #releaseLease} are leader-only: on {@link StoreRpc.NotLeader}, this client follows the returned
- * address and retries once rather than a {@code StoreNode} silently forwarding the write itself,
- * then caches the successful endpoint as the preferred leader for next time.
+ * <p>Every request but {@link #status} goes to the leader -- writes ({@link #propose}, {@link
+ * #putHeartbeat}, {@link #tryAcquireOrRenewLease}, {@link #releaseLease}) because only the leader
+ * may append to the log, and reads because only the leader can establish a read index and so answer
+ * with everything committed before the read began (see {@link #sendRead}). On {@link
+ * StoreRpc.NotLeader}, this client follows the returned address and retries once rather than a
+ * {@code StoreNode} silently forwarding the request itself, then caches the successful endpoint as
+ * the preferred leader for next time. {@link #status} alone still rotates across endpoints, since
+ * it asks each node what it believes rather than reading replicated state.
  */
 public final class StoreClient implements MutationSink, StoreReader, AutoCloseable {
 
@@ -572,25 +574,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
    * ""} in a mid-election gap.
    */
   public StoreRpc.StatusResult status() {
-    return (StoreRpc.StatusResult) sendRead(new StoreRpc.Status());
+    return (StoreRpc.StatusResult) sendAnyNode(new StoreRpc.Status());
   }
 
   public List<ConfigEntry> listConfigEntriesFor(String tenantId) {
     return ((StoreRpc.ConfigEntryListResult) sendRead(new StoreRpc.ListConfigEntriesFor(tenantId)))
-        .values();
-  }
-
-  /**
-   * Same query as {@link #listConfigEntriesFor}, but routed only to the current leader -- see
-   * {@link StoreRpc.ListConfigEntriesForLinearizable}'s own javadoc for why a caller like {@code
-   * SecretStore.put}'s own before/after version check needs this instead of the round-robin
-   * default.
-   */
-  public List<ConfigEntry> listConfigEntriesForLinearizable(String tenantId) {
-    return ((StoreRpc.ConfigEntryListResult)
-            sendLeaderOnly(
-                "listConfigEntriesForLinearizable",
-                new StoreRpc.ListConfigEntriesForLinearizable(tenantId)))
         .values();
   }
 
@@ -736,11 +724,29 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   /**
-   * Tries every configured endpoint in rotation, starting from a shared cursor so repeated calls
-   * spread across the pool rather than pinning to one -- reads never need leader-awareness, only
-   * tolerance of one endpoint being unreachable.
+   * Reads route to the leader exactly as writes do, and for the same reason: the leader is the only
+   * node that can establish a read index (see {@code RaftNode#awaitReadIndex}), so it is the only
+   * one whose answer reflects every write committed before the read began. A follower answers
+   * {@link StoreRpc.NotLeader} and this redirects, so no read is ever served from a replica that is
+   * merely behind.
+   *
+   * <p>Rotating across endpoints instead -- what this used to do -- spread read load, but it meant
+   * a read could land on a replica lagging the cluster and return a clean, successful answer that
+   * omitted resources another replica would have shown, or contradicted a read the same caller had
+   * just made. Spreading load is not worth an API whose answers disagree with each other.
    */
   private StoreRpc.Response sendRead(StoreRpc.Request request) {
+    return sendLeaderOnly(request.getClass().getSimpleName(), request);
+  }
+
+  /**
+   * Tries every configured endpoint in rotation, starting from a shared cursor so repeated calls
+   * spread across the pool rather than pinning to one. Reserved for {@link StoreRpc.Status}, the
+   * one request every node answers for itself: it reports what this node believes about leadership
+   * and membership, so routing it to a leader would make it useless in the one situation an
+   * operator reaches for it -- when no leader can be found.
+   */
+  private StoreRpc.Response sendAnyNode(StoreRpc.Request request) {
     int start = readCursor.getAndUpdate(i -> (i + 1) % endpoints.size());
     for (int i = 0; i < endpoints.size(); i++) {
       SocketAddress address = endpoints.get((start + i) % endpoints.size());

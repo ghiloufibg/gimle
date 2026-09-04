@@ -176,8 +176,8 @@ class StoreNodeTest {
     assertEquals(
         new StoreRpc.NotLeader(""),
         node.handle(new StoreRpc.ReleaseLease("reconciler-leader", "node-a")));
-    // GetNodeHeartbeat is the one leader-only *read* in this group -- a non-leader must
-    // reject it the same way, not answer from its own always-empty local heartbeat map.
+    // GetNodeHeartbeat would have to be refused even if reads in general weren't: heartbeats are
+    // never replicated, so a non-leader's own map is empty rather than merely behind.
     assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.GetNodeHeartbeat("node-a")));
   }
 
@@ -196,10 +196,29 @@ class StoreNodeTest {
   }
 
   @Test
-  void reads_are_still_served_by_a_non_leader_node() {
+  void a_non_leader_refuses_a_read_rather_than_answering_from_its_own_replica() {
     StoreNode node = neverElectedNode("follower-reads");
-    assertEquals(
-        new StoreRpc.DeploymentListResult(List.of()), node.handle(new StoreRpc.ListDeployments()));
+
+    // An empty list is exactly what this node's own store holds, and answering it would look
+    // perfectly successful to the caller -- which is the failure mode: a replica that has not
+    // caught up cannot tell "nothing was ever created" apart from "I have not seen it yet", so it
+    // refuses and the client redirects to a node that can establish a read index.
+    assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.ListDeployments()));
+    assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.ListTenants()));
+    assertEquals(new StoreRpc.NotLeader(""), node.handle(new StoreRpc.GetTenant("acme")));
+  }
+
+  @Test
+  void a_non_leader_still_answers_status_for_itself() {
+    StoreNode node = neverElectedNode("follower-status");
+
+    // The one request that must survive having no leader at all: it reports this node's own view
+    // of leadership and membership, which is what an operator asks for precisely when routing to a
+    // leader is what has stopped working.
+    StoreRpc.StatusResult status = (StoreRpc.StatusResult) node.handle(new StoreRpc.Status());
+
+    assertEquals("follower-status", status.selfId());
+    assertFalse(status.leader());
   }
 
   @Test

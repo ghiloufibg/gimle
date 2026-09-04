@@ -49,15 +49,12 @@ import java.util.Optional;
  *
  * <p>{@link Propose}, {@link PutHeartbeat}, {@link AcquireOrRenewLease}, {@link ReleaseLease},
  * {@link AddServer}, and {@link RemoveServer} are writes that must land on the current Raft leader
- * specifically; {@link GetNodeHeartbeat} is a leader-only *read* for a different reason -- node
- * heartbeats are deliberately never replicated through the log, so a follower's local copy is never
- * anything but empty, and answering from it the way every other read here does would be silently
- * wrong, not just stale. {@link ListConfigEntriesForLinearizable} is a third, narrower leader-only
- * *read*: unlike {@link GetNodeHeartbeat} its data is fully replicated, so any replica's answer is
- * eventually correct, but a caller whose own correctness depends on immediately reading back a
- * write it just made cannot tolerate "eventually." Every other request may be served by any {@code
- * StoreNode} -- reads stay exactly as loose as today, no linearizability requirement. Every
- * leader-only request shares one {@link NotLeader} response for the same reason {@link
+ * specifically. So does every read here, for a different reason: only the leader can establish a
+ * read index, and only an answer taken against one reflects everything committed cluster-wide
+ * before the request arrived rather than however far one replica has caught up. {@link Status} is
+ * the single exception any {@code StoreNode} answers for itself -- it reports that node's own
+ * belief about leadership rather than reading replicated state at all. Every leader-only request
+ * shares one {@link NotLeader} response for the same reason {@link
  * com.gimle.mimir.raft.RaftNode#propose} already rejects a non-leader immediately rather than
  * silently forwarding: {@code StoreClient} follows the returned leader address and retries once,
  * rather than a {@code StoreNode} proxying the write internally.
@@ -132,7 +129,6 @@ public sealed interface StoreRpc {
           ListSurgeIndices,
           GetNodeHeartbeat,
           GetSnapshot,
-          ListConfigEntriesForLinearizable,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
           GetWorkloadHealthState,
@@ -247,40 +243,26 @@ public sealed interface StoreRpc {
   record RemoveServer(String peerId) implements Request {}
 
   /**
-   * The one leader-only *read* in this group: node heartbeats are deliberately never replicated
-   * through the Raft log (too high-frequency, tolerant of a brief gap after a leader change -- see
-   * {@code StateStore.putNodeHeartbeat}'s own javadoc), so a follower's local copy is never
-   * anything but empty. Routing this through the leader the same way a write would be is what makes
-   * the answer actually correct instead of merely available.
+   * Leader-routed like every read here, but it would have to be even if none of the others were:
+   * node heartbeats are deliberately never replicated through the Raft log (too high-frequency,
+   * tolerant of a brief gap after a leader change -- see {@code StateStore.putNodeHeartbeat}'s own
+   * javadoc), so a follower's local copy is never anything but empty. For this one request a
+   * follower's answer would be flatly wrong rather than merely behind.
    */
   record GetNodeHeartbeat(String nodeId) implements Request {}
 
   /**
    * A full-state snapshot, taken from the current leader specifically so a caller backing up the
    * cluster gets a point-in-time view that's never stale by a not-yet-caught-up follower's replay
-   * lag -- the same "why leader-only" reasoning {@link GetNodeHeartbeat} and {@link
-   * ListConfigEntriesForLinearizable} each give for their own different reasons. Answered by
-   * encoding {@code StateStore#snapshot()} via {@code RaftCodec#encodeSnapshot}; restoring one back
-   * goes through the ordinary replicated {@link Propose} path instead (as a {@code
-   * StateMutation.RestoreSnapshot}), not a dedicated request here, so every replica applies it the
-   * same way any other mutation is applied rather than one node's local state silently diverging
-   * from the rest of the cluster.
+   * lag. Answered by encoding {@code StateStore#snapshot()} via {@code RaftCodec#encodeSnapshot};
+   * restoring one back goes through the ordinary replicated {@link Propose} path instead (as a
+   * {@code StateMutation.RestoreSnapshot}), not a dedicated request here, so every replica applies
+   * it the same way any other mutation is applied rather than one node's local state silently
+   * diverging from the rest of the cluster.
    */
   record GetSnapshot() implements Request {}
 
-  /**
-   * Same query and same {@link ConfigEntryListResult} response shape as {@link
-   * ListConfigEntriesFor}, but leader-routed: a caller whose own correctness depends on reading
-   * back a write it just made through this same client (see {@code SecretStore.put}'s optimistic
-   * before/after version check) cannot rely on {@link ListConfigEntriesFor}'s round-robin routing,
-   * which may land on a follower that has not yet replicated that write -- silently stale, not
-   * merely slow, the same failure mode {@link GetNodeHeartbeat} exists to avoid for a different
-   * reason. {@link ListConfigEntriesFor} itself stays any-node-servable and unchanged for every
-   * other caller, which has no such requirement.
-   */
-  record ListConfigEntriesForLinearizable(String tenantId) implements Request {}
-
-  // ---- reads: served by any StoreNode ----
+  // ---- reads: served by the leader, against a read index it establishes first ----
 
   record ListAccounts() implements Request {}
 

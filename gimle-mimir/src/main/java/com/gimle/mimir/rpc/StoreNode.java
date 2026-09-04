@@ -38,18 +38,24 @@ import java.util.Optional;
 
 /**
  * The server side of {@link StoreRpc}: wraps an already-constructed {@link RaftNode} + {@link
- * StateStore}, dispatching every request either straight to a {@code StateStore} getter (any node
- * may answer) or, for {@link StoreRpc.Propose}/{@link StoreRpc.PutHeartbeat}/{@link
- * StoreRpc.AcquireOrRenewLease}/{@link StoreRpc.ReleaseLease}/{@link StoreRpc.AddServer}/{@link
- * StoreRpc.RemoveServer}/{@link StoreRpc.GetNodeHeartbeat}/{@link
- * StoreRpc.ListConfigEntriesForLinearizable}, through a leader check first, translating a
- * non-leader into {@link StoreRpc.NotLeader} carrying the leader's *client* address rather than its
- * Raft ID -- resolved via {@code raftIdToClientAddress}. {@link StoreRpc.GetNodeHeartbeat} and
- * {@link StoreRpc.ListConfigEntriesForLinearizable} are the two *reads* in this leader-only group,
- * for two different reasons -- see each type's own javadoc. Unlike every other field here, {@code
- * raftIdToClientAddress} is a *live* reference the caller ({@code StoreMain}) keeps mutating as
- * membership changes -- {@code StoreNode} takes no defensive copy of it on purpose, so a peer added
- * after this node was constructed still resolves correctly.
+ * StateStore}, dispatching every request to the matching {@code StateStore} method. Everything but
+ * {@link StoreRpc.Status} is answered by the leader alone -- writes (see {@link
+ * #isLeaderOnlyWrite}) through the leader check each already performs for itself, reads through a
+ * Raft read index ({@link RaftNode#awaitReadIndex}) established before this node touches its own
+ * store, so an answer reflects every write committed anywhere in the cluster before the request
+ * arrived rather than however far this particular replica happens to have caught up. A node that
+ * isn't leading, or a leader that can no longer confirm that it leads, answers {@link
+ * StoreRpc.NotLeader} carrying the leader's *client* address rather than its Raft ID -- resolved
+ * via {@code raftIdToClientAddress} -- and the client redirects.
+ *
+ * <p>{@link StoreRpc.Status} is the one deliberate exception, answerable by any node in any state:
+ * it reports what this node believes about leadership and membership, which is exactly the question
+ * worth asking when there is no leader to route to, so making it leader-only would leave an
+ * operator blind during precisely the outage they need it for.
+ *
+ * <p>Unlike every other field here, {@code raftIdToClientAddress} is a *live* reference the caller
+ * ({@code StoreMain}) keeps mutating as membership changes -- {@code StoreNode} takes no defensive
+ * copy of it on purpose, so a peer added after this node was constructed still resolves correctly.
  */
 public final class StoreNode implements StoreRpcHandler {
 
@@ -65,6 +71,13 @@ public final class StoreNode implements StoreRpcHandler {
 
   @Override
   public StoreRpc.Response handle(StoreRpc.Request request) {
+    if (!(request instanceof StoreRpc.Status) && !isLeaderOnlyWrite(request)) {
+      try {
+        raftNode.awaitReadIndex();
+      } catch (GimleRaftException e) {
+        return notLeaderResponse();
+      }
+    }
     return switch (request) {
       case StoreRpc.Propose r -> handlePropose(r);
       case StoreRpc.PutHeartbeat r -> handlePutHeartbeat(r);
@@ -200,9 +213,9 @@ public final class StoreNode implements StoreRpcHandler {
               List.copyOf(store.getRollingIndices(r.tenantId(), r.deploymentName())));
       case StoreRpc.ListSurgeIndices r ->
           surgeIndicesResult(store.getSurgeIndices(r.tenantId(), r.deploymentName()));
-      case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
-      case StoreRpc.GetSnapshot r -> handleGetSnapshot();
-      case StoreRpc.ListConfigEntriesForLinearizable r -> handleListConfigEntriesForLinearizable(r);
+      case StoreRpc.GetNodeHeartbeat r -> heartbeatResult(store.getNodeHeartbeat(r.nodeId()));
+      case StoreRpc.GetSnapshot r ->
+          new StoreRpc.SnapshotResult(RaftCodec.encodeSnapshot(store.snapshot()));
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
               store.getReconcilerInstanceState(
@@ -238,6 +251,21 @@ public final class StoreNode implements StoreRpcHandler {
               raftNode.leaderHint().orElse(""),
               raftNode.memberIds());
     };
+  }
+
+  /**
+   * The requests that take no read index, because replicating through the Raft log already orders
+   * them against every other write and each checks leadership on its own way there. Putting one
+   * through {@link RaftNode#awaitReadIndex} first would buy nothing and cost a confirmation round
+   * ahead of every write.
+   */
+  private static boolean isLeaderOnlyWrite(StoreRpc.Request request) {
+    return request instanceof StoreRpc.Propose
+        || request instanceof StoreRpc.PutHeartbeat
+        || request instanceof StoreRpc.AcquireOrRenewLease
+        || request instanceof StoreRpc.ReleaseLease
+        || request instanceof StoreRpc.AddServer
+        || request instanceof StoreRpc.RemoveServer;
   }
 
   private StoreRpc.Response handlePropose(StoreRpc.Propose request) {
@@ -281,45 +309,6 @@ public final class StoreNode implements StoreRpcHandler {
     }
     store.releaseLease(request.name(), request.holderId());
     return new StoreRpc.Ok();
-  }
-
-  /**
-   * Leader-only, per this class's own javadoc above: a follower's local heartbeat map is never
-   * anything but empty, so answering from it (as every other read here does) would be silently
-   * wrong rather than merely stale.
-   */
-  private StoreRpc.Response handleGetNodeHeartbeat(StoreRpc.GetNodeHeartbeat request) {
-    if (!raftNode.isLeader()) {
-      return notLeaderResponse();
-    }
-    return heartbeatResult(store.getNodeHeartbeat(request.nodeId()));
-  }
-
-  /**
-   * Leader-only per {@link StoreRpc.GetSnapshot}'s own javadoc: a point-in-time backup should never
-   * be a not-yet-caught-up follower's stale replay of the log.
-   */
-  private StoreRpc.Response handleGetSnapshot() {
-    if (!raftNode.isLeader()) {
-      return notLeaderResponse();
-    }
-    return new StoreRpc.SnapshotResult(RaftCodec.encodeSnapshot(store.snapshot()));
-  }
-
-  /**
-   * Leader-only for a different reason than {@link #handleGetNodeHeartbeat}: this data is fully
-   * replicated, so a follower's answer is never wrong, only possibly not-yet-caught-up with a write
-   * the calling client just made through this same connection. Answering only from the leader --
-   * which has already applied its own just-committed writes to its own local state by the time it
-   * responds to them -- is what gives a caller like {@code SecretStore.put} a read-your-own-write
-   * guarantee {@link StoreRpc.ListConfigEntriesFor}'s round-robin routing cannot.
-   */
-  private StoreRpc.Response handleListConfigEntriesForLinearizable(
-      StoreRpc.ListConfigEntriesForLinearizable request) {
-    if (!raftNode.isLeader()) {
-      return notLeaderResponse();
-    }
-    return new StoreRpc.ConfigEntryListResult(store.listConfigEntriesFor(request.tenantId()));
   }
 
   /**

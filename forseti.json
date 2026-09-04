@@ -2482,11 +2482,12 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Kill the current Mimir leader mid-write on the three-replica store.",
-      "oracle": "A new leader is elected, writes resume within a bounded window, and no acknowledged write vanishes.",
+      "objective": "Kill the current Mimir leader mid-write on the three-replica store, then read the same resources back from every replica while the new leader is still settling.",
+      "oracle": "A new leader is elected, writes resume within a bounded window, and no acknowledged write vanishes. No read anywhere returns a resource the cluster has already deleted or omits one it holds: a replica that cannot answer against a confirmed leadership errors rather than answering from its own copy.",
       "requirements": [
         "GIMLE-136",
-        "GIMLE-148"
+        "GIMLE-148",
+        "GIMLE-829"
       ]
     },
     {

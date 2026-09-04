@@ -122,6 +122,39 @@ log has drifted (say, it missed some entries while restarting) gets repaired aut
 mismatch, the leader backs its `nextIndex` for that follower down one entry at a time until they
 agree again, then replays forward from there.
 
+## Reads: the read index
+
+A leader answering a read straight from its own state machine is wrong for the same reason a
+follower answering one is: having been the leader a moment ago is not the same as being the leader
+now. A leader that has been partitioned away — or outvoted while its own timers were quiet — still
+believes it leads, while the cluster it can no longer see elects a successor and commits writes it
+will never receive. An answer taken from its copy at that point isn't merely stale, it contradicts
+itself: a Deployment an earlier read returned can vanish from a later one, and a tenant every other
+node agrees exists can be missing from a clean, successful listing that reports no error at all.
+
+So every read establishes a **read index** first, via `awaitReadIndex`, which does three things in
+order:
+
+1. **Waits for this leadership term to have committed an entry of its own** — the no-op appended at
+   election. Until that commits, the leader's `commitIndex` is only what it inherited, which can sit
+   below writes a previous leader already committed elsewhere.
+2. **Records `commitIndex` as the read index, then confirms leadership with a majority** of voting
+   peers — using `AppendEntries` round trips that *began after* that recording, not whatever contact
+   happened to have occurred before it. A majority answering in this leader's own term proves no
+   later term has gathered a majority of its own, so nothing was committed behind this node's back.
+3. **Waits for the state machine to catch up** to the read index, since `commitIndex` deliberately
+   runs ahead of `lastApplied`.
+
+Only then is the store read. A leader that can't complete step 2 refuses rather than answering from
+state it can no longer vouch for, and the client redirects to whichever node can — the same redirect
+a write already performs. Nothing is appended to the log for a read, so this costs no disk write and
+no log growth, and concurrent reads share a single confirmation round rather than each paying for
+one.
+
+The `Status` request is the one deliberate exception, answerable by any node in any state: it
+reports what that node believes about leadership and membership rather than reading replicated
+state, and it is exactly what an operator reaches for when there is no leader to route to.
+
 ## What breaks without check-quorum
 
 A leader doesn't just wait to be told it lost its majority — it checks proactively.

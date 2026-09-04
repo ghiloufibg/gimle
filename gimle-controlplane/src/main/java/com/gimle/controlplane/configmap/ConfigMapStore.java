@@ -138,7 +138,7 @@ public final class ConfigMapStore {
   /** Every version ever stamped for {@code name}, oldest first. */
   public List<ConfigMapVersion> listVersions(String tenantId, String name) {
     List<ConfigMapVersion> result = new ArrayList<>();
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isVersionKey(entry.key(), name)) {
         result.add(decodeVersion(entry.value()));
       }
@@ -237,7 +237,7 @@ public final class ConfigMapStore {
 
   private Optional<ConfigMapVersion> findVersion(String tenantId, String name, int version) {
     String rawKey = versionKey(name, version);
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (entry.key().equals(rawKey)) {
         return Optional.of(decodeVersion(entry.value()));
       }
@@ -247,7 +247,7 @@ public final class ConfigMapStore {
 
   private int nextVersion(String tenantId, String name) {
     int max = 0;
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isVersionKey(entry.key(), name)) {
         max = Math.max(max, decodeVersion(entry.value()).version());
       }
@@ -314,9 +314,7 @@ public final class ConfigMapStore {
    * #getMany} reads stay plain round-robin; only the write path's own check needs this.
    */
   private Optional<ConfigMap> findLinearizable(String tenantId, String name) {
-    return ConfigMapCodec.decodeAll(
-            tenantId, storeClient.listConfigEntriesForLinearizable(tenantId))
-        .stream()
+    return ConfigMapCodec.decodeAll(tenantId, storeClient.listConfigEntriesFor(tenantId)).stream()
         .filter(cm -> cm.name().equals(name))
         .findFirst();
   }

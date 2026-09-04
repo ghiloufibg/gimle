@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 828,
+    "totalRequirements": 829,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 698,
+    "notCoveredByAutomatedTest": 699,
     "releaseReadinessPercent": 15.7
   },
   "items": [
@@ -7107,7 +7107,7 @@
       "module": "gimle-mimir",
       "category": "State Store",
       "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
-      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.",
+      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. Given a deployment is proposed while its name is free, and the name is then created and deleted before that proposal applies, When the proposal finally reaches the state machine, Then its generation precondition fails and the deployment stays deleted.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -9110,6 +9110,17 @@
       "category": "CLI UX",
       "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",
       "step": "Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-829",
+      "module": "gimle-mimir",
+      "category": "Raft Consensus",
+      "feature": "Linearizable reads via a Raft read index, replacing round-robin replica reads",
+      "step": "Given a 3-node store cluster holding a tenant, When the leader is partitioned from the majority and the majority elects a new leader and deletes that tenant, Then the partitioned node refuses a read of it rather than answering from its own still-present copy. Given a healthy store leader that has just committed a write, When a read index is established, Then a majority has confirmed the node still leads and the state machine has applied through the returned index before the store is read.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

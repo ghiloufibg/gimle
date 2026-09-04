@@ -729,6 +729,17 @@ public final class ApiServer implements AutoCloseable {
           return;
         }
         delegate.handle(exchange);
+      } catch (GimleRaftException e) {
+        // A store that cannot currently serve a linearizable read or land a write is a retryable
+        // condition, not this process's own internal error -- and it reaches here from any route
+        // whose own handler doesn't already draw that distinction for itself. Guarded on nothing
+        // having been sent yet: a handler that already answered and then failed on a later store
+        // call must not have a second response appended to its own, which would leave the
+        // connection's framing wrong for whatever the caller sends next.
+        if (exchange.getResponseCode() <= 0) {
+          respondStoreUnavailable(exchange);
+        }
+        exchange.close();
       } finally {
         admission.release();
         Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);

@@ -269,11 +269,23 @@ public final class StateStore implements StoreReader {
    * no concurrent writers, clearing here is enough on its own to make a delete-then-recreate a
    * clean break -- no separate identity token is needed to protect against a race that can't
    * happen.
+   *
+   * <p>The single thing deliberately not cleared is this name's generation counter, which is bumped
+   * here like any other write instead. That counter is the compare-and-set token {@link
+   * com.gimle.mimir.raft.StateMutation.PutDeployment} checks its precondition against, and an entry
+   * carries the generation its proposer read at propose time while the check itself only runs when
+   * the entry applies -- which, across a leader change, can be arbitrarily later. Dropping the key
+   * would reset the counter to its absent default, making "deleted" indistinguishable from "never
+   * existed": a proposal captured while the name was still free would find its precondition true a
+   * second time and resurrect a Deployment deleted in between. Staying monotonic across deletion is
+   * what makes that stale proposal fail instead, at the cost of one long per Deployment name ever
+   * used -- the bound every monotonic resource-version scheme carries, and why this is the one
+   * exception to the wholesale cleanup above.
    */
   public void removeDeployment(Optional<String> tenantId, String name) {
     String key = scopedKey(tenantId, name);
     deployments.remove(key);
-    deploymentGenerations.remove(key);
+    deploymentGenerations.merge(key, 1L, Long::sum);
     clearAllRollingIndices(tenantId, name);
     clearAllSurgeIndices(tenantId, name);
     effectiveReplicas.remove(key);

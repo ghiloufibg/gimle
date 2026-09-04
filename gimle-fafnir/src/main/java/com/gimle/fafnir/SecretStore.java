@@ -74,7 +74,7 @@ public final class SecretStore {
    * writes, the same staleness risk {@link #put} already guards its own meta-advance against.
    */
   public List<SecretMetadata> listLinearizable(String tenantId) {
-    return decodeAll(tenantId, storeClient.listConfigEntriesForLinearizable(tenantId));
+    return decodeAll(tenantId, storeClient.listConfigEntriesFor(tenantId));
   }
 
   private List<SecretMetadata> decodeAll(String tenantId, List<ConfigEntry> entries) {
@@ -370,7 +370,7 @@ public final class SecretStore {
   }
 
   private Optional<ConfigEntry> findEntryLinearizable(String tenantId, String rawKey) {
-    return storeClient.listConfigEntriesForLinearizable(tenantId).stream()
+    return storeClient.listConfigEntriesFor(tenantId).stream()
         .filter(e -> e.key().equals(rawKey))
         .findFirst();
   }

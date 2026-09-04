@@ -309,7 +309,7 @@ public final class SecretMapStore {
    */
   public List<SecretMapGroupVersion> listGroupVersions(String tenantId, String name) {
     List<SecretMapGroupVersion> result = new ArrayList<>();
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isGroupVersionKey(entry.key(), name)) {
         result.add(decodeGroupVersion(entry.value()));
       }
@@ -429,7 +429,7 @@ public final class SecretMapStore {
 
   private int nextGroupVersion(String tenantId, String name) {
     int max = 0;
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isGroupVersionKey(entry.key(), name)) {
         max = Math.max(max, decodeGroupVersion(entry.value()).groupVersion());
       }
@@ -444,7 +444,7 @@ public final class SecretMapStore {
    * #listGroupVersions} comes back empty rather than still listing every version it ever had.
    */
   private void purgeGroupVersions(String tenantId, String name) {
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (isGroupVersionKey(entry.key(), name)) {
         storeClient.propose(
             new StateMutation.RemoveConfigEntry(metaTenantId(tenantId), entry.key()));
@@ -460,7 +460,7 @@ public final class SecretMapStore {
   private Optional<SecretMapGroupVersion> findGroupVersion(
       String tenantId, String name, int groupVersion) {
     String rawKey = groupVersionKey(name, groupVersion);
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(metaTenantId(tenantId))) {
       if (entry.key().equals(rawKey)) {
         return Optional.of(decodeGroupVersion(entry.value()));
       }

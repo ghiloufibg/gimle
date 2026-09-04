@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 828 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 829 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 199 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 173, uncited 0). |
-| **User-observable** | **560** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 537 | **95.9%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **561** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 538 | **95.9%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 23 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -133,7 +133,7 @@ not carry over to the new one.
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 26 |
 | **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 76 |
 | **JRN** | Journeys — Sample applications | Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator. | A B | 7 | 26 |
-| **CHAOS** | Exploratory, Chaos & Negative-path | Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster. | A B C | 10 | 41 |
+| **CHAOS** | Exploratory, Chaos & Negative-path | Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster. | A B C | 10 | 42 |
 | **LEAD** | Lead — Triage, deduplication & report | The Tech QA lead. Never runs a scenario. Ingests every raw finding, fingerprints and merges duplicates, adjudicates disagreement, writes the findings artifact. | — | — | — |
 <!-- /forseti:generated -->
 
@@ -326,7 +326,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **CHAOS-3** | A | Compare `-o table` and `-o json` for every `get`, and `-o json` on every mutating verb including node and volume ones. | Same underlying data — no field present in one and silently missing in the other. | GIMLE-388, GIMLE-760, GIMLE-637 |
 | **CHAOS-4** | A | No `--server` and no `GIMLE_SERVER`; a manifest path that does not exist; `-h` at every verb level; a wrong flag; two positional names to a single-resource verb; switch clusters with `gimle context`. | Every failure exits with a code that names why, shows usage where a flag was wrong, rejects the extra positional rather than truncating, and gives a message a first-time user can act on; contexts switch cleanly. | GIMLE-653, GIMLE-761, GIMLE-665, GIMLE-765, GIMLE-635 |
 | **CHAOS-5** | B | Fire a scale-up and a delete at the same deployment back to back; then two concurrent applies from two control-plane replicas. | Converges to deleted with no half-scaled zombie; the concurrent applies are generation-guarded so one loses with a conflict rather than a silent lost update. | GIMLE-646, GIMLE-241 |
-| **CHAOS-6** | B | Kill the current Mimir leader mid-write on the three-replica store. | A new leader is elected, writes resume within a bounded window, and no acknowledged write vanishes. | GIMLE-136, GIMLE-148 |
+| **CHAOS-6** | B | Kill the current Mimir leader mid-write on the three-replica store, then read the same resources back from every replica while the new leader is still settling. | A new leader is elected, writes resume within a bounded window, and no acknowledged write vanishes. No read anywhere returns a resource the cluster has already deleted or omits one it holds: a replica that cannot answer against a confirmed leadership errors rather than answering from its own copy. | GIMLE-136, GIMLE-148, GIMLE-829 |
 | **CHAOS-7** | B | Kill one of the two control-plane replicas while a client points at the other. | Zero client disruption; reconciliation continues; the killed replica's health signal fails fast and recovers on restart. | GIMLE-706, GIMLE-393 |
 | **CHAOS-8** | C | As a tenant-B account, attempt every action GOV-3 confirmed tenant-A-only, straight at the API rather than through the console; also directly at Fafnir, Andvari and Muninn. | Refused identically (403) everywhere, independent of any UI-level hiding. | GIMLE-250, GIMLE-285, GIMLE-310, GIMLE-691 |
 | **CHAOS-9** | B | Unpack the Ragnarok archive; `ragnarok preflight` against Fleet; run a small chaos plan (worker kill through the agent's admin fault API, store bounce, an SSH-inventory link cut where the SSH machine exists); `report` and `replay` it; run a small `stress` workload with the bundled pause module. | Preflight names every unmet precondition; every strike is gated on recovery and lands in a replayable ledger; the report is complete; stress gates on its declared thresholds and writes a diffable summary. | GIMLE-641, GIMLE-639, GIMLE-533, GIMLE-548, GIMLE-640, GIMLE-645, GIMLE-643, GIMLE-644, GIMLE-642 |
@@ -1349,4 +1349,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-826 | `gimle-hugin` | The terminal view shows what the calling certificate may do | observable | UNIT | gimle-hugin's PermissionReaderTest (the vocabulary-driven grid, silence never read as denial, the answering identity, escaping and the tenant scope) and PermissionScreenTest (the words in each cell, the unidentified-caller warning, and the unreadable-grid wording). |
 | GIMLE-827 | `gimle-hugin` | The terminal view browses a tenant's own config and secret holdings | observable | UNIT | gimle-hugin's ResourceReaderTest (the tenant-scoped route, the redaction in both the cells and the raw object, bare-name responses, and a secret listing's columns). |
 | GIMLE-828 | `gimle-hugin` | The terminal view reads a config key's, ConfigMap's or secret's revision history | observable | UNIT | gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker). |
+| GIMLE-829 | `gimle-mimir` | Linearizable reads via a Raft read index, replacing round-robin replica reads | observable | FLEET | CHAOS-6 |
 <!-- /forseti:generated -->

@@ -213,6 +213,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private final ReentrantLock lock = new ReentrantLock();
   private final Condition commitAdvanced = lock.newCondition();
 
+  /** Signalled whenever {@link #currentTermResponses} grows -- see {@link #awaitReadIndex}. */
+  private final Condition leadershipConfirmed = lock.newCondition();
+
   private volatile Role role = Role.FOLLOWER;
   private volatile String leaderHint;
   private volatile boolean running;
@@ -248,6 +251,37 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * time this bookkeeping does.
    */
   private final Map<String, Instant> lastContactAt = new HashMap<>();
+
+  /**
+   * Read-index bookkeeping (see {@link #awaitReadIndex}), guarded by {@link #lock} and cleared on
+   * every {@link #becomeLeaderLocked} alongside {@link #lastContactAt}: per peer, how many {@code
+   * AppendEntries} this leadership tenure has dispatched to it and how many of those it answered
+   * carrying this leader's own term. Counters rather than {@link #lastContactAt}'s instants because
+   * what a linearizable read needs is not "recently" but "after the moment this read began" -- and
+   * counting sidesteps clock resolution entirely: a peer whose answered count has overtaken the
+   * dispatched count a read recorded when it started must have answered a request dispatched after
+   * that, since every earlier dispatch is already inside the recorded count.
+   *
+   * <p>Deliberately stricter than {@link #lastContactAt}, which counts any response at all, a
+   * previous term's included, because it only asks whether a peer is alive. A response carrying
+   * this leader's current term proves something else entirely: that the peer has not moved on to a
+   * later term, which is exactly the question "am I still the leader" reduces to. A log-mismatch
+   * rejection proves it as well as a success does -- a follower answers in the leader's own term
+   * only once it has accepted that leader for it, and a term has at most one leader.
+   */
+  private final Map<String, Long> currentTermRequestsSent = new HashMap<>();
+
+  private final Map<String, Long> currentTermResponses = new HashMap<>();
+
+  /**
+   * Whether this leadership tenure has committed an entry of its own term yet, guarded by {@link
+   * #lock} -- set wherever {@link #advanceCommitIndexLocked} advances (which its own Figure 8 rule
+   * only ever does onto a current-term entry) and reset by {@link #becomeLeaderLocked}. Until the
+   * no-op that tenure appends commits, this leader's inherited {@code commitIndex} may still sit
+   * below writes a previous leader had already committed elsewhere, so a read taken against it
+   * could miss them; {@link #awaitReadIndex} waits this out rather than reading early.
+   */
+  private boolean currentTermEntryCommitted;
 
   /**
    * When this node last became leader, guarded by {@link #lock} -- the instant {@link
@@ -595,9 +629,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     long index;
     lock.lock();
     try {
-      if (role != Role.LEADER) {
-        throw GimleRaftException.notLeader(selfId, leaderHint());
-      }
+      requireLeaderLocked();
       long term = raftLog.currentTerm();
       index = raftLog.lastIndex() + 1;
       raftLog.append(new LogEntry(term, index, mutation));
@@ -607,6 +639,118 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     }
     wakePeerSenders();
     return awaitAppliedThrowing(index);
+  }
+
+  // ---- read index: what makes a read linearizable rather than merely local ----
+
+  /**
+   * Blocks until this node can serve a read that reflects every write committed anywhere in the
+   * cluster before the call began, then returns the log index that read is good as of. Callers read
+   * {@link StateStore} directly once this returns; nothing is appended to the log, so a read costs
+   * no disk write and no log growth.
+   *
+   * <p>Reading a leader's own local state is not enough on its own. A leader that has been deposed
+   * -- partitioned away, or simply outvoted while its own election timer was quiet -- still
+   * believes it leads and still answers, while the cluster elects a successor and commits writes it
+   * will never see. Answering from its state then produces a read that is not merely stale but
+   * self-contradictory: a resource an earlier read returned can vanish from a later one, or a write
+   * the caller was told committed can be missing from the read that follows it. Three steps in
+   * order rule that out, and each is load-bearing:
+   *
+   * <ol>
+   *   <li>Wait until this tenure has committed an entry of its own term ({@link
+   *       #currentTermEntryCommitted}, which the no-op {@link #becomeLeaderLocked} appends brings
+   *       about). Until then this leader's {@code commitIndex} is only what it inherited, which can
+   *       sit below what a previous leader already committed elsewhere.
+   *   <li>Record {@code commitIndex} as the read index, then confirm with a majority of voting
+   *       peers that this node is still their leader -- and confirm it with round trips that began
+   *       <em>after</em> that recording (see {@link #currentTermRequestsSent}), not with whatever
+   *       contact happened to have occurred before it. A majority answering in this leader's own
+   *       term means no later term has gathered its own majority, so nothing was committed behind
+   *       this node's back.
+   *   <li>Wait for the state machine to catch up to the read index, since {@code commitIndex} runs
+   *       ahead of {@code lastApplied} by design.
+   * </ol>
+   *
+   * <p>Throws {@link GimleRaftException#notLeader} if this node isn't leading (the caller
+   * redirects, exactly as it would for a write) and {@link GimleRaftException#readIndexTimedOut} if
+   * leadership can't be confirmed within {@link #proposeTimeout} -- a partitioned leader fails the
+   * read rather than answering from state it can no longer vouch for. Concurrent reads cost one
+   * confirmation round between them rather than one each: they all wait on the same peer responses,
+   * and the {@link #wakePeerSenders} below asks for those immediately instead of waiting out the
+   * heartbeat interval. A single-voter cluster confirms trivially and never blocks here at all.
+   *
+   * <p>What this deliberately does not do is let a follower serve the read by asking its leader for
+   * an index and catching up to it locally. That spreads read load, but it needs a read-index RPC
+   * between store nodes where today they exchange only Raft's own three; routing reads to the
+   * leader reuses the redirect a write already performs, and this is a control-plane store whose
+   * read volume its leader can carry.
+   */
+  public long awaitReadIndex() {
+    lock.lock();
+    try {
+      long deadlineNanos = System.nanoTime() + proposeTimeout.toNanos();
+      requireLeaderLocked();
+      while (!currentTermEntryCommitted) {
+        awaitReadableLocked(commitAdvanced, deadlineNanos);
+      }
+      long readIndex = commitIndex;
+      Map<String, Long> dispatchedBefore = Map.copyOf(currentTermRequestsSent);
+      wakePeerSenders();
+      while (!majorityAnsweredSinceLocked(dispatchedBefore)) {
+        awaitReadableLocked(leadershipConfirmed, deadlineNanos);
+      }
+      while (lastApplied < readIndex) {
+        awaitReadableLocked(commitAdvanced, deadlineNanos);
+      }
+      return readIndex;
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Whether a majority of voting peers -- this node itself counted in, as it always trivially
+   * agrees it is leader -- has answered an {@code AppendEntries} dispatched after {@code
+   * dispatchedBefore} was recorded. A peer's answered count exceeding the dispatch count taken then
+   * is what proves it: every request dispatched earlier is already inside that recorded count, so
+   * one answer beyond it can only belong to a later one.
+   */
+  private boolean majorityAnsweredSinceLocked(Map<String, Long> dispatchedBefore) {
+    Map<String, RaftPeerClient> votingPeers = votingPeersLocked();
+    long answered = 1;
+    for (String peerId : votingPeers.keySet()) {
+      if (currentTermResponses.getOrDefault(peerId, 0L)
+          > dispatchedBefore.getOrDefault(peerId, 0L)) {
+        answered++;
+      }
+    }
+    return answered >= (votingPeers.size() + 1) / 2 + 1;
+  }
+
+  /**
+   * One bounded wait inside {@link #awaitReadIndex}, re-checking leadership first: losing it
+   * mid-wait makes this node's own state useless for the read, and the caller's redirect to whoever
+   * won is the right answer rather than waiting out the rest of the deadline.
+   */
+  private void awaitReadableLocked(Condition condition, long deadlineNanos) {
+    requireLeaderLocked();
+    long remaining = deadlineNanos - System.nanoTime();
+    if (remaining <= 0) {
+      throw GimleRaftException.readIndexTimedOut(selfId, proposeTimeout);
+    }
+    try {
+      condition.awaitNanos(remaining);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw GimleRaftException.readIndexTimedOut(selfId, proposeTimeout);
+    }
+  }
+
+  private void requireLeaderLocked() {
+    if (role != Role.LEADER) {
+      throw GimleRaftException.notLeader(selfId, leaderHint());
+    }
   }
 
   // ---- membership changes: etcd-style, one at a time, not full joint consensus ----
@@ -1044,12 +1188,15 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     // could never advance its commit index past what it inherited -- and with a state machine
     // rebuilt from snapshot plus committed replay, entries between the snapshot floor and the log
     // tip would stay unapplied on every node until the next client write happened to arrive.
+    currentTermEntryCommitted = false;
     raftLog.append(new LogEntry(raftLog.currentTerm(), raftLog.lastIndex() + 1, new Noop()));
     advanceCommitIndexLocked(); // a single-node cluster commits its own writes immediately
     for (Map.Entry<String, RaftPeerClient> peerEntry : peers.entrySet()) {
       startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());
     }
     lastContactAt.clear();
+    currentTermRequestsSent.clear();
+    currentTermResponses.clear();
     leadershipEstablishedAt = clock.instant();
     initialQuorumContactMade = false;
     peerFirstAttemptFailed.clear();
@@ -1272,6 +1419,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       long prevTerm = prevIndex <= 0 ? 0 : raftLog.termAt(prevIndex);
       List<LogEntry> entries = raftLog.entriesFrom(peerNextIndex);
       request = new AppendEntries(term, selfId, prevIndex, prevTerm, entries, commitIndex);
+      // Counted before the dispatch below, never after: awaitReadIndex's own correctness rests on
+      // a request counted after it recorded its baseline having genuinely left this node after
+      // that moment, which only holds if the count precedes the send.
+      currentTermRequestsSent.merge(peerId, 1L, Long::sum);
     } finally {
       lock.unlock();
     }
@@ -1305,6 +1456,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
       if (role != Role.LEADER || raftLog.currentTerm() != request.term()) {
         return; // stale response from a previous term/role
+      }
+      if (response.term() == request.term()) {
+        currentTermResponses.merge(peerId, 1L, Long::sum);
+        leadershipConfirmed.signalAll();
       }
       if (response.success()) {
         long newMatchIndex = request.prevLogIndex() + request.entries().size();
@@ -1499,6 +1654,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     long candidate = matchIndexes.get(matchIndexes.size() / 2);
     if (candidate > commitIndex && raftLog.termAt(candidate) == raftLog.currentTerm()) {
       commitIndex = candidate;
+      // The guard just above is what makes this assignment sound: this leader only ever advances
+      // onto an entry of its own term, so advancing at all is the same fact awaitReadIndex waits
+      // for. Set here rather than derived from termAt(commitIndex) on demand so it stays true of
+      // the tenure even once compaction moves the log floor past the entry that established it.
+      currentTermEntryCommitted = true;
       applyCommittedLocked();
     }
   }
