@@ -92,7 +92,8 @@ class IvaldiServerTest {
   @Test
   @Timeout(10)
   void creates_lists_reads_and_deletes_a_blueprint() throws Exception {
-    HttpResponse<String> created = post("/api/blueprints", "{\"name\":\"orders-platform-local\"}");
+    HttpResponse<String> created =
+        post("/api/blueprints", "{\"name\":\"orders-platform-local\",\"nodes\":[],\"edges\":[]}");
     assertEquals(201, created.statusCode());
     String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
     assertEquals("orders-platform-local", id);
@@ -105,7 +106,8 @@ class IvaldiServerTest {
     HttpResponse<String> fetched = get("/api/blueprints/" + id);
     assertEquals(200, fetched.statusCode());
     assertEquals(
-        "{\"name\":\"orders-platform-local\",\"id\":\"orders-platform-local\"}", fetched.body());
+        "{\"name\":\"orders-platform-local\",\"nodes\":[],\"edges\":[],\"id\":\"orders-platform-local\"}",
+        fetched.body());
 
     HttpResponse<String> deleted = delete("/api/blueprints/" + id);
     assertEquals(200, deleted.statusCode());
@@ -115,12 +117,14 @@ class IvaldiServerTest {
   @Test
   @Timeout(10)
   void put_upserts_a_blueprint_at_an_explicit_id() throws Exception {
-    HttpResponse<String> response = put("/api/blueprints/my-cluster", "{\"name\":\"first cut\"}");
+    HttpResponse<String> response =
+        put("/api/blueprints/my-cluster", "{\"name\":\"first cut\",\"nodes\":[],\"edges\":[]}");
 
     assertEquals(200, response.statusCode());
     assertEquals("first cut", Json.asObject(Json.parse(response.body())).get("name"));
     assertEquals(
-        "{\"name\":\"first cut\",\"id\":\"my-cluster\"}", get("/api/blueprints/my-cluster").body());
+        "{\"name\":\"first cut\",\"nodes\":[],\"edges\":[],\"id\":\"my-cluster\"}",
+        get("/api/blueprints/my-cluster").body());
   }
 
   @Test

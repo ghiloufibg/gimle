@@ -133,7 +133,7 @@ public final class TopologyParser {
       throw new GimleManifestException("'tls' must be a mapping");
     }
     requireNoUnknownKeys(map, Set.of("materialDir"), "tls");
-    return Optional.of(new TlsMaterial(Path.of(requireString(map, "materialDir"))));
+    return Optional.of(new TlsMaterial(resolvePath(requireString(map, "materialDir"))));
   }
 
   private static List<Machine> parseMachines(final Map<?, ?> root) {
@@ -174,7 +174,7 @@ public final class TopologyParser {
     return new RuntimeSettings(
         optionalString(map, "javaExecutable"),
         optionalString(map, "classpath"),
-        optionalString(map, "dataRoot").map(Path::of),
+        optionalString(map, "dataRoot").map(TopologyParser::resolvePath),
         optionalBoolean(map, "useBundledJre", false),
         parseSsh(map, "runtime.ssh"));
   }
@@ -280,7 +280,7 @@ public final class TopologyParser {
       throw new GimleManifestException("'fafnir' must be a mapping");
     }
     requireNoUnknownKeys(map, Set.of("keyFile", "replicas"), "fafnir");
-    final Optional<Path> keyFile = optionalString(map, "keyFile").map(Path::of);
+    final Optional<Path> keyFile = optionalString(map, "keyFile").map(TopologyParser::resolvePath);
     final List<ServiceReplica> replicas =
         parseReplicasList(map.get("replicas"), "fafnir", DEFAULT_FAFNIR_PORT);
     return new FafnirRole(keyFile, replicas);
@@ -334,6 +334,23 @@ public final class TopologyParser {
         throw new GimleManifestException("unknown field in '" + context + "': " + key);
       }
     }
+  }
+
+  /**
+   * A path from a topology document, with a leading {@code ~} expanded to the user's home. A shell
+   * expands the tilde before a command ever sees it, but nothing does so for a path read out of a
+   * YAML file -- and {@code Path.of("~/.gimle/data")} silently creates a directory literally named
+   * "~" beside the current working directory, which is where a cluster's Raft state and Fafnir
+   * master key would then land while every shell command the operator types looks in their home.
+   */
+  private static Path resolvePath(final String raw) {
+    if (raw.equals("~")) {
+      return Path.of(System.getProperty("user.home"));
+    }
+    if (raw.startsWith("~/") || raw.startsWith("~" + java.io.File.separator)) {
+      return Path.of(System.getProperty("user.home"), raw.substring(2));
+    }
+    return Path.of(raw);
   }
 
   private static String requireString(final Map<?, ?> map, final String key) {

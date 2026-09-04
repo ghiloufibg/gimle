@@ -171,7 +171,13 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   const files: RenderedFile[] = [{ path: "topology.yaml", content: renderTopology(bp) }];
 
   let index = 1;
+  // bundle.workloads[] carries the five workload kinds and nothing else: gimle-hilmir's own
+  // BundleApplier maps a workload's kind: to a control-plane path prefix and knows only those
+  // five, so a Service, NetworkPolicy or LimitRange listed there fails the deploy outright.
+  // Those three are standalone control-plane resources instead -- applied by the run itself
+  // before the bundle deploy, or by hand via `gimle apply -f` on the download-and-run path.
   const manifestPaths: string[] = [];
+  const standalonePaths: string[] = [];
 
   for (const w of orderedWorkloads(bp)) {
     const d = w.data as WorkloadData;
@@ -183,7 +189,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   for (const s of nodesOf(bp, "service")) {
     const d = s.data as ServiceData;
     const path = `manifests/${pad(index++)}-service-${d.name || "unnamed"}.yaml`;
-    manifestPaths.push(path);
+    standalonePaths.push(path);
     const fronted = bp.edges
       .filter((e) => e.kind === "fronts" && e.source === s.id)
       .map((e) => bp.nodes.find((n) => n.id === e.target))
@@ -206,7 +212,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   for (const np of nodesOf(bp, "networkPolicy")) {
     const d = np.data as NetworkPolicyData;
     const path = `manifests/${pad(index++)}-networkpolicy-${d.name || "unnamed"}.yaml`;
-    manifestPaths.push(path);
+    standalonePaths.push(path);
     const restricted = bp.edges
       .filter((e) => e.kind === "restricts" && e.source === np.id)
       .map((e) => bp.nodes.find((n) => n.id === e.target))
@@ -229,17 +235,11 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     files.push({ path, content: yml(doc) });
   }
 
-  // LimitRange is not a Bundle-applied resource -- gimle-hilmir's own BundleParser has no
-  // "LimitRange" workload kind, so this file is deliberately kept out of manifestPaths (and
-  // therefore out of bundle.workloads[]) even though it lives alongside the other manifests. It's
-  // a standalone control-plane resource (PUT /limitranges/{tenantId}), applied by the run itself
-  // outside the bundle deploy, or by hand via `gimle apply -f` for the "download and run" path.
-  const limitRangeFiles: { path: string; tenantId: string }[] = [];
   for (const lr of nodesOf(bp, "limitRange")) {
     const d = lr.data as LimitRangeData;
     const tenantId = tenantIdOf(bp, lr) ?? d.tenantId;
     const path = `manifests/${pad(index++)}-limitrange-${tenantId || "unnamed"}.yaml`;
-    limitRangeFiles.push({ path, tenantId });
+    standalonePaths.push(path);
     files.push({
       path,
       content: yml({
@@ -281,7 +281,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   };
   files.push({ path: "bundle.yaml", content: yml(bundle) });
   files.push({ path: "values.example.yaml", content: yml(values) });
-  files.push({ path: "README.md", content: renderReadme(bp, limitRangeFiles) });
+  files.push({ path: "README.md", content: renderReadme(bp, standalonePaths) });
   files.push({
     path: "ivaldi.blueprint.json",
     content: `${JSON.stringify(bp, null, 2)}\n`,
@@ -295,17 +295,48 @@ export function controlPlanePort(bp: Blueprint): number {
   return cp ? (cp.data as RoleData).port : DEFAULT_PORTS.controlPlane;
 }
 
+export function firstMachineHost(bp: Blueprint): string {
+  const m = nodesOf(bp, "machine")[0];
+  return m ? (m.data as MachineData).host : "127.0.0.1";
+}
+
 export function firstMachineName(bp: Blueprint): string {
   const m = nodesOf(bp, "machine")[0];
   return m ? (m.data as MachineData).name : "local";
 }
 
-function renderReadme(
-  bp: Blueprint,
-  limitRangeFiles: { path: string; tenantId: string }[],
-): string {
+function renderReadme(bp: Blueprint, standalonePaths: string[]): string {
   const machine = firstMachineName(bp);
   const port = controlPlanePort(bp);
+  // Under mTLS every leaf certificate is minted for the machine's declared hostname (an IP
+  // literal is refused outright by the topology rules), so an IP here would fail SAN matching
+  // even once the scheme is right.
+  const mtls = bp.transport === "mtls";
+  const host = mtls ? firstMachineHost(bp) : "127.0.0.1";
+  const scheme = mtls ? "https" : "http";
+  const server = `${host}:${port}`;
+  // Every client below has to speak the same transport as the cluster, and neither bin/gimle nor
+  // bin/hilmir forwards -D flags to the JVM, so the properties go through JAVA_TOOL_OPTIONS.
+  const tlsEnv = mtls
+    ? `export JAVA_TOOL_OPTIONS="-Dgimle.transport.protocol=tls \\
+  -Dgimle.tls.certFile=${bp.tlsMaterialDir ?? "<tls-dir>"}/operator.crt \\
+  -Dgimle.tls.keyFile=${bp.tlsMaterialDir ?? "<tls-dir>"}/operator.key \\
+  -Dgimle.tls.caFile=${bp.tlsMaterialDir ?? "<tls-dir>"}/ca.crt"
+
+`
+    : "";
+  const pkiStep = mtls
+    ? `## 1b. Mint the TLS material
+
+\`hilmir up\` does not mint certificates; every process reads them from the material directory
+and refuses to start without them.
+
+\`\`\`sh
+hilmir pki init -f topology.yaml
+\`\`\`
+
+`
+    : "";
   const jars = orderedWorkloads(bp)
     .map((w) => w.data as WorkloadData)
     .filter((d) => d.artifact?.source === "jar");
@@ -313,13 +344,13 @@ function renderReadme(
     ? jars
         .map(
           (d) =>
-            `gimle artifact push ${d.artifact.source === "jar" ? d.artifact.path : ""} --server 127.0.0.1:${port}`,
+            `gimle artifact push ${d.artifact.source === "jar" ? d.artifact.path : ""} --server ${server}`,
         )
         .join("\n")
     : "# no jar-sourced workloads";
-  const limitRangeApplies = limitRangeFiles.length
-    ? limitRangeFiles.map((f) => `gimle apply -f ${f.path} --server 127.0.0.1:${port}`).join("\n")
-    : "# no limit ranges to apply";
+  const standaloneApplies = standalonePaths.length
+    ? standalonePaths.map((path) => `gimle apply -f ${path} --server ${server}`).join("\n")
+    : "# no standalone resources to apply";
 
   return `# ${bp.name}
 
@@ -331,7 +362,7 @@ Generated by Ivaldi. Version ${bp.version}.
 hilmir validate -f topology.yaml
 \`\`\`
 
-## 2. Bring the cluster up
+${pkiStep}## 2. Bring the cluster up
 
 \`\`\`sh
 hilmir up -f topology.yaml --machine ${machine}
@@ -340,25 +371,28 @@ hilmir up -f topology.yaml --machine ${machine}
 ## 3. Push local artifacts
 
 \`\`\`sh
-${pushes}
+${tlsEnv}${pushes}
 \`\`\`
 
-## 3b. Apply limit ranges
+## 3b. Apply the standalone resources
+
+Services, network policies and limit ranges are control-plane resources in their own right, not
+bundle workloads, so they are applied directly rather than through \`hilmir deploy\`.
 
 \`\`\`sh
-${limitRangeApplies}
+${standaloneApplies}
 \`\`\`
 
 ## 4. Deploy the bundle
 
 \`\`\`sh
 cp values.example.yaml values.yaml   # fill in the secret values
-hilmir deploy -f bundle.yaml --values values.yaml --server 127.0.0.1:${port} --wait
+hilmir deploy -f bundle.yaml --values values.yaml --server ${server} --wait
 \`\`\`
 
 ## 5. Console
 
-http://127.0.0.1:${port}/console
+${scheme}://${server}/console
 
 ## 6. Tear down
 

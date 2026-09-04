@@ -96,6 +96,15 @@
       <artifactId>gimle-worker</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- Runtime scope for the same reason, one step further removed: bringing an mTLS topology up
+         mints each node agent's certificate-bootstrap token by spawning com.gimle.cli.GimleCli on
+         that same classpath, so without this every mTLS run fails at the first agent with
+         ClassNotFoundException. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-cli</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <!-- No Java sources of its own: just the built web console SPA bundled at
          ivaldi-console/** inside its own jar (see that module's pom.xml). IvaldiMain resolves
          it off the classpath at startup via BundledSpa, the same pattern gimle-saga/

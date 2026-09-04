@@ -1,11 +1,12 @@
 @echo off
 rem Launches Ivaldi (the cluster designer's backend) against every jar in this archive's own
 rem lib\ directory, regardless of the caller's current working directory. Windows counterpart of
-rem the bin/ivaldi sh script -- keep both in sync. IvaldiMain reads no positional arguments at
-rem all, only -D system properties (gimle.ivaldi.port/dataRoot/host), so %* is placed before the
-rem main class below rather than after it, unlike gimle.cmd/hilmir.cmd: a -D flag is a JVM option
-rem and only ever takes effect there.
-rem   ivaldi -Dgimle.ivaldi.port=9097 -Dgimle.ivaldi.dataRoot=C:\gimle-ivaldi-data
+rem the bin/ivaldi sh script -- keep both in sync. Ivaldi accepts both its own flags and JVM
+rem options, and the two belong on opposite sides of the main class -- a -D is a JVM option,
+rem invisible to the program after the class name; a --flag is a program argument, rejected by the
+rem JVM before it. So each argument is routed below by its own leading character.
+rem   ivaldi --port 9097 --data-root C:\gimle-ivaldi-data
+rem   ivaldi -Dgimle.ivaldi.port=9097          (the equivalent system properties still work)
 setlocal enabledelayedexpansion
 
 set "script_dir=%~dp0"
@@ -78,5 +79,26 @@ if defined JAVA_HOME (
   if not defined java_bin set "java_bin=java"
 )
 
-"%java_bin%" -cp "%classpath%" %* com.gimle.ivaldi.IvaldiMain
+rem Route each argument: JVM options (-D..., -X..., -agentlib:..., -ea, ...) ahead of the main
+rem class, Ivaldi's own flags after it.
+set "jvm_opts="
+set "app_args="
+for %%a in (%*) do (
+  set "arg=%%~a"
+  set "is_jvm_opt="
+  if "!arg:~0,2!"=="-D" set "is_jvm_opt=1"
+  if "!arg:~0,2!"=="-X" set "is_jvm_opt=1"
+  if "!arg:~0,9!"=="-agentlib" set "is_jvm_opt=1"
+  if "!arg:~0,10!"=="-agentpath" set "is_jvm_opt=1"
+  if "!arg:~0,10!"=="-javaagent" set "is_jvm_opt=1"
+  if "!arg!"=="-ea" set "is_jvm_opt=1"
+  if "!arg!"=="-da" set "is_jvm_opt=1"
+  if defined is_jvm_opt (
+    set "jvm_opts=!jvm_opts! %%a"
+  ) else (
+    set "app_args=!app_args! %%a"
+  )
+)
+
+"%java_bin%" -cp "%classpath%" %jvm_opts% com.gimle.ivaldi.IvaldiMain %app_args%
 exit /b %ERRORLEVEL%

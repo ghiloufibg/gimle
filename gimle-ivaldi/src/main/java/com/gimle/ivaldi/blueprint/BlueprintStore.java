@@ -88,6 +88,7 @@ public final class BlueprintStore {
    */
   public BlueprintSummary create(String rawJson) {
     Map<String, Object> json = parseObject(rawJson);
+    requireBlueprintShape(json);
     String id =
         requestedId(json)
             .orElseGet(() -> mintId(String.valueOf(json.getOrDefault("name", "blueprint"))));
@@ -100,6 +101,7 @@ public final class BlueprintStore {
   public BlueprintSummary save(String id, String rawJson) {
     requireValidId(id);
     Map<String, Object> json = parseObject(rawJson);
+    requireBlueprintShape(json);
     Map<String, Object> stamped = withId(json, id);
     write(id, Json.write(stamped));
     return summaryOf(id, stamped);
@@ -181,6 +183,37 @@ public final class BlueprintStore {
    * to minting rather than overwriting: a POST is a create, and must never silently replace an
    * existing blueprint just because a client reused an id.
    */
+  /**
+   * Refuses a document that is syntactically JSON but structurally not a blueprint. Without this
+   * any object at all is stored verbatim and every screen that reads the list then throws on it --
+   * one malformed POST leaves the whole console unusable, and the only way back is deleting the
+   * document over this same API. Checked here rather than in the HTTP layer so a bad document
+   * cannot reach the store by any route.
+   */
+  private static void requireBlueprintShape(Map<String, Object> json) {
+    Object name = json.get("name");
+    if (!(name instanceof String text) || text.isBlank()) {
+      throw new IllegalArgumentException("blueprint has no 'name'");
+    }
+    requireNodeList(json, "nodes");
+    requireNodeList(json, "edges");
+  }
+
+  private static void requireNodeList(Map<String, Object> json, String field) {
+    Object value = json.get(field);
+    if (!(value instanceof List<?> list)) {
+      throw new IllegalArgumentException("blueprint has no '" + field + "' list");
+    }
+    for (int i = 0; i < list.size(); i++) {
+      if (!(list.get(i) instanceof Map<?, ?> entry)) {
+        throw new IllegalArgumentException(field + "[" + i + "] is not an object");
+      }
+      if (!(entry.get("kind") instanceof String kind) || kind.isBlank()) {
+        throw new IllegalArgumentException(field + "[" + i + "] has no 'kind'");
+      }
+    }
+  }
+
   private Optional<String> requestedId(Map<String, Object> json) {
     Object raw = json.get("id");
     if (!(raw instanceof String id) || !ID_PATTERN.matcher(id).matches()) {

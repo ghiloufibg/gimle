@@ -1,12 +1,12 @@
 #!/bin/sh
 # Launches Ivaldi (the cluster designer's backend) against every jar in this archive's own lib/
-# directory, regardless of the caller's current working directory. IvaldiMain reads no positional
-# arguments at all, only -D system properties (gimle.ivaldi.port/dataRoot/host -- see
-# gimle-docs/docs/reference/maven-plugin-goals.md's own mvn gimle:ivaldi section for the full
-# list), so unlike bin/gimle/bin/hilmir this script places "$@" before the main class on the java
-# command line rather than after it: a -D flag is a JVM option, not a program argument, and only
-# ever takes effect there.
-#   ivaldi -Dgimle.ivaldi.port=9097 -Dgimle.ivaldi.dataRoot=/var/lib/gimle-ivaldi
+# directory, regardless of the caller's current working directory. Ivaldi accepts both its own
+# flags and JVM options, and the two belong on opposite sides of the main class -- a -D is a JVM
+# option, invisible to the program if it lands after the class name; a --flag is a program
+# argument, rejected by the JVM if it lands before it. So each argument is routed by its own
+# leading character rather than the whole list being placed on one side.
+#   ivaldi --port 9097 --data-root /var/lib/gimle-ivaldi
+#   ivaldi -Dgimle.ivaldi.port=9097          (the equivalent system properties still work)
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -56,4 +56,18 @@ else
   java_bin=java
 fi
 
-exec "$java_bin" -cp "$classpath" "$@" com.gimle.ivaldi.IvaldiMain
+# Route each argument: JVM options (-D..., -X..., -agentlib:..., -ea, ...) ahead of the main class,
+# Ivaldi's own flags after it.
+jvm_opts=
+app_args=
+for arg in "$@"; do
+  case "$arg" in
+    -D*|-X*|-agentlib:*|-agentpath:*|-javaagent:*|-ea|-da|-enableassertions|-disableassertions)
+      jvm_opts="$jvm_opts $arg" ;;
+    *)
+      app_args="$app_args $arg" ;;
+  esac
+done
+
+# shellcheck disable=SC2086 # both lists are deliberately word-split back into separate arguments
+exec "$java_bin" -cp "$classpath" $jvm_opts com.gimle.ivaldi.IvaldiMain $app_args

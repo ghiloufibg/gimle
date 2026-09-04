@@ -6,6 +6,15 @@ import { controlPlanePort, firstMachineName, renderFiles } from "./render";
 
 const [ordersPlatform] = sampleBlueprints();
 
+const STANDALONE_KINDS = ["Service", "NetworkPolicy", "LimitRange"];
+
+/** A manifest's own declared kind -- a filename can't be trusted for this, since a workload may
+ *  legitimately be named something like "inventory-service". */
+function kindOf(file: { path: string; content: string }): string | undefined {
+  if (!file.path.startsWith("manifests/")) return undefined;
+  return (parse(file.content) as { kind?: string }).kind;
+}
+
 function fileNamed(files: ReturnType<typeof renderFiles>, path: string) {
   const file = files.find((f) => f.path === path);
   if (!file) throw new Error(`no rendered file at ${path}`);
@@ -90,13 +99,37 @@ describe("renderFiles", () => {
     expect(bundle.secrets).toEqual([
       { tenant: "orders-platform", key: "admin.token", value: "${values.admin.token}" },
     ]);
-    // every workload manifest is referenced exactly once, in the same order they were rendered --
-    // except the LimitRange manifest, which is never a Bundle workload (see render.ts's own
-    // comment): it's a standalone control-plane resource, applied outside the bundle deploy.
-    const manifestPaths = files
-      .map((f) => f.path)
-      .filter((p) => p.startsWith("manifests/") && !p.includes("-limitrange-"));
-    expect(bundle.workloads.map((w) => w.file)).toEqual(manifestPaths);
+    // Every workload manifest is referenced exactly once, in the same order they were rendered.
+    // Service, NetworkPolicy and LimitRange manifests are never Bundle workloads (see render.ts's
+    // own comment): gimle-hilmir's BundleApplier maps a workload kind to a control-plane path
+    // prefix and knows only the five workload kinds, so listing one there fails the whole deploy.
+    const workloadPaths = files
+      .filter((f) => f.path.startsWith("manifests/") && !STANDALONE_KINDS.includes(kindOf(f)))
+      .map((f) => f.path);
+    expect(bundle.workloads.map((w) => w.file)).toEqual(workloadPaths);
+  });
+
+  it("keeps Service, NetworkPolicy and LimitRange manifests out of bundle.workloads", () => {
+    const files = renderFiles(ordersPlatform!);
+    const bundle = parse(fileNamed(files, "bundle.yaml").content) as {
+      workloads: Array<{ file: string }>;
+    };
+    const referenced = bundle.workloads.map((w) => w.file);
+    for (const kind of STANDALONE_KINDS) {
+      const standalone = files.filter((f) => kindOf(f) === kind);
+      expect(standalone.length).toBeGreaterThan(0);
+      for (const file of standalone) expect(referenced).not.toContain(file.path);
+    }
+  });
+
+  it("README applies every standalone resource by hand, since the bundle deploy cannot", () => {
+    const files = renderFiles(ordersPlatform!);
+    const readme = fileNamed(files, "README.md").content;
+    for (const file of files) {
+      if (STANDALONE_KINDS.includes(kindOf(file))) {
+        expect(readme).toContain(`gimle apply -f ${file.path}`);
+      }
+    }
   });
 
   /**

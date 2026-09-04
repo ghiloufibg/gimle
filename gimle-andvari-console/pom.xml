@@ -90,6 +90,33 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-clean-plugin</artifactId>
+        <executions>
+          <!-- Empties the bundled-SPA directory before the copy below refills it. Vite empties its
+               own dist/ on every build, but target/classes survives an incremental build, so
+               without this every hashed chunk from every previous build stays in the jar forever:
+               the artifact grows without bound and "which bundle is shipping" stops having one
+               answer. Scoped to this one directory: excludeDefaultDirectory keeps a plain
+               `mvn package` from wiping the whole target/ out from under itself. -->
+          <execution>
+            <id>clean-bundled-spa</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>clean</goal>
+            </goals>
+            <configuration>
+              <excludeDefaultDirectory>true</excludeDefaultDirectory>
+              <filesets>
+                <fileset>
+                  <directory>${project.build.outputDirectory}/andvari-console</directory>
+                </fileset>
+              </filesets>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
         <executions>
           <!-- Copies Vite's own conventional dist/ output (produced by the bun-build execution

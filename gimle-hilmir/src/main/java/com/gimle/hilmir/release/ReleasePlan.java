@@ -27,6 +27,12 @@ public final class ReleasePlan {
 
   static void printWithPrune(
       RenderedBundle bundle, List<ResourceRef> toPrune, boolean json, PrintStream out) {
+    // Resolve every workload's kind here, discarding the result: a dry run that lists a kind the
+    // real apply cannot route is worse than no dry run at all -- it reports a plan, exits 0, and
+    // the identical command then fails on the first unroutable workload.
+    for (RenderedWorkload workload : bundle.workloads()) {
+      WorkloadKinds.pathPrefix(workload.kind());
+    }
     Map<String, Object> plan = planMap(bundle);
     plan.put("prune", toPrune.stream().map(ResourceRef::toJson).toList());
     if (json) {

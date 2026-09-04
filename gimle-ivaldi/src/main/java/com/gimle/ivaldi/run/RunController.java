@@ -34,9 +34,11 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,9 +52,9 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * machinery, called directly: {@link MachineLauncher#up}/{@link MachineLauncher#down} for the
  * platform process tree, {@link BundleRenderer}/{@link ReleaseReconciler} for the application
  * deploy, {@link ControlPlaneApi#putFile} for jar-sourced artifact pushes, {@link
- * ControlPlaneApi#putJson} for LimitRange application (not itself part of the Bundle -- see {@link
- * #limitRangeManifests}). One run at a time: a second {@link #start} while one is {@linkplain
- * RunStatus#isInFlight() in flight} is refused.
+ * ControlPlaneApi#putJson}/{@link ControlPlaneApi#postJson} for the resources that aren't Bundle
+ * workloads (see {@link #standaloneManifests}). One run at a time: a second {@link #start} while
+ * one is {@linkplain RunStatus#isInFlight() in flight} is refused.
  *
  * <h2>Deploy-only vs. reboot</h2>
  *
@@ -84,6 +86,10 @@ public final class RunController {
 
   private static final Logger log = LoggerFactory.getLogger(RunController.class);
   private static final SecureRandom RANDOM = new SecureRandom();
+
+  /** The manifest kinds a run applies itself rather than handing to the bundle deploy. */
+  private static final Set<String> STANDALONE_KINDS =
+      Set.of("Service", "NetworkPolicy", "LimitRange");
 
   private final ClusterStore clusters;
   private final Path workspaceRoot;
@@ -251,12 +257,12 @@ public final class RunController {
         run.log.append("no jar-sourced workloads to push");
       }
 
-      List<RenderedFile> limitRanges = limitRangeManifests(files);
-      for (RenderedFile manifest : limitRanges) {
-        applyLimitRange(api, manifest, run);
+      List<RenderedFile> standalone = standaloneManifests(files);
+      for (RenderedFile manifest : standalone) {
+        applyStandalone(api, manifest, run);
       }
-      if (limitRanges.isEmpty()) {
-        run.log.append("no limit ranges to apply");
+      if (standalone.isEmpty()) {
+        run.log.append("no standalone resources to apply");
       }
 
       run.status = RunStatus.DEPLOYING;
@@ -401,34 +407,42 @@ public final class RunController {
   }
 
   /**
-   * LimitRange isn't part of the Bundle -- {@code gimle-hilmir}'s own {@code BundleParser} has no
-   * "LimitRange" workload kind, so it never rides {@code bundle.workloads[]} the way a Deployment
-   * or Service manifest does (see {@code render.ts}'s own comment on this). It's a standalone
-   * control-plane resource instead, so this run applies it directly via {@code PUT
-   * /limitranges/{tenantId}}, the same call {@code gimle apply -f} makes by hand.
+   * The manifests that aren't Bundle workloads. {@code gimle-hilmir}'s own {@code BundleApplier}
+   * maps a workload's {@code kind:} to a control-plane path prefix and knows only the five workload
+   * kinds, so a Service, NetworkPolicy or LimitRange riding {@code bundle.workloads[]} would fail
+   * the deploy outright. Each is a control-plane resource in its own right, applied here directly
+   * -- the same calls {@code gimle apply -f} makes by hand -- before the bundle deploy, so a
+   * workload that fronts one finds it already in place.
    */
-  private static List<RenderedFile> limitRangeManifests(List<RenderedFile> files) {
-    List<RenderedFile> limitRanges = new ArrayList<>();
+  private static List<RenderedFile> standaloneManifests(List<RenderedFile> files) {
+    List<RenderedFile> standalone = new ArrayList<>();
     for (RenderedFile file : files) {
       if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
         continue;
       }
-      Map<?, ?> mapping = readMapping(file.content());
-      if ("LimitRange".equals(mapping.get("kind"))) {
-        limitRanges.add(file);
+      if (STANDALONE_KINDS.contains(String.valueOf(readMapping(file.content()).get("kind")))) {
+        standalone.add(file);
       }
     }
-    return limitRanges;
+    return standalone;
   }
 
-  private void applyLimitRange(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
+  private void applyStandalone(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
     Map<?, ?> mapping = readMapping(manifest.content());
-    Object name = mapping.get("name");
-    if (!(name instanceof String tenantId) || tenantId.isBlank()) {
-      throw new RunFailedException(
-          "LimitRange manifest " + manifest.path() + " has no tenant 'name'");
+    switch (String.valueOf(mapping.get("kind"))) {
+      case "LimitRange" -> applyLimitRange(api, manifest, mapping, run);
+      case "Service" -> applyService(api, manifest, mapping, run);
+      case "NetworkPolicy" -> applyNetworkPolicy(api, manifest, mapping, run);
+      default ->
+          throw new RunFailedException(
+              "manifest " + manifest.path() + " has no standalone-resource handler");
     }
-    Map<String, Object> body = new java.util.LinkedHashMap<>();
+  }
+
+  private void applyLimitRange(
+      ControlPlaneApi api, RenderedFile manifest, Map<?, ?> mapping, ActiveRun run) {
+    String tenantId = requireName(manifest, mapping, "LimitRange", "tenant 'name'");
+    Map<String, Object> body = new LinkedHashMap<>();
     for (String key : List.of("minRequest", "maxRequest", "minLimit", "maxLimit")) {
       Object bound = mapping.get(key);
       if (bound != null) {
@@ -437,6 +451,72 @@ public final class RunController {
     }
     api.putJson("/limitranges/" + tenantId, Json.write(body));
     run.log.append("applied limitrange for tenant " + tenantId);
+  }
+
+  /**
+   * {@code POST /services} creates or replaces by the name its own body carries, so re-running a
+   * blueprint onto a live cluster re-applies a Service rather than colliding with the one already
+   * there.
+   */
+  private void applyService(
+      ControlPlaneApi api, RenderedFile manifest, Map<?, ?> mapping, ActiveRun run) {
+    String name = requireName(manifest, mapping, "Service", "'name'");
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("name", name);
+    copyIfPresent(mapping, body, "tenantId");
+    body.put("deploymentNames", stringList(mapping.get("deploymentNames")));
+    Object port = mapping.get("port");
+    if (port == null) {
+      throw new RunFailedException("Service manifest " + manifest.path() + " has no 'port'");
+    }
+    body.put("port", port);
+    copyIfPresent(mapping, body, "targetPort");
+    api.postJson("/services", Json.write(body));
+    run.log.append("applied service " + name);
+  }
+
+  private void applyNetworkPolicy(
+      ControlPlaneApi api, RenderedFile manifest, Map<?, ?> mapping, ActiveRun run) {
+    String name = requireName(manifest, mapping, "NetworkPolicy", "'name'");
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("name", name);
+    Object tenantId = mapping.get("tenantId");
+    if (!(tenantId instanceof String tenant) || tenant.isBlank()) {
+      throw new RunFailedException(
+          "NetworkPolicy manifest " + manifest.path() + " has no 'tenantId'");
+    }
+    body.put("tenantId", tenant);
+    for (String key :
+        List.of("deploymentNames", "allowedCallerTenantIds", "allowedCalleeTenantIds")) {
+      List<String> values = stringList(mapping.get(key));
+      if (!values.isEmpty()) {
+        body.put(key, values);
+      }
+    }
+    api.postJson("/networkpolicies", Json.write(body));
+    run.log.append("applied networkpolicy " + name);
+  }
+
+  private static String requireName(
+      RenderedFile manifest, Map<?, ?> mapping, String kind, String field) {
+    if (!(mapping.get("name") instanceof String name) || name.isBlank()) {
+      throw new RunFailedException(kind + " manifest " + manifest.path() + " has no " + field);
+    }
+    return name;
+  }
+
+  private static void copyIfPresent(Map<?, ?> mapping, Map<String, Object> body, String key) {
+    Object value = mapping.get(key);
+    if (value != null) {
+      body.put(key, value);
+    }
+  }
+
+  private static List<String> stringList(Object value) {
+    if (!(value instanceof List<?> list)) {
+      return List.of();
+    }
+    return list.stream().map(String::valueOf).distinct().toList();
   }
 
   private static void writeWorkspace(Path workspace, List<RenderedFile> files) {

@@ -116,11 +116,17 @@ public final class MachineLauncher {
                   + previous.pid()
                   + ") already running -- skipping respawn");
           record = previous;
+          records.add(record);
         } else {
           awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
-          record = spawn(topology, runtime, command, out);
+          final Spawned spawned = spawn(topology, runtime, command, out);
+          // Recorded before the readiness wait, not after: a process that starts but never opens
+          // its port is exactly the one a failed `up` most needs to kill, and a record added only
+          // once it is ready would leave it running with nothing on disk pointing at it.
+          records.add(spawned.record());
+          awaitReadiness(command, spawned);
+          record = spawned.record();
         }
-        records.add(record);
         if (!record.readinessAddress().isBlank()) {
           confirmedReady.add(record.readinessAddress());
         }
@@ -211,14 +217,19 @@ public final class MachineLauncher {
         "stopping " + role + " " + command.id() + " (pid " + existing.pid() + ") for restart...");
     killWithDescendants(newRuntime.dataRoot(), existing, out);
 
-    final RunRecord fresh = spawn(topology, newRuntime, command, out);
+    final Spawned spawned = spawn(topology, newRuntime, command, out);
+    final RunRecord fresh = spawned.record();
+    // The ledger points at the replacement before anything waits on its port, for the same reason
+    // `up` records a process the moment it starts: a restart that never becomes ready must still
+    // leave `down` able to find and kill what it started.
+    RunLedger.replace(newRuntime.dataRoot(), command.id(), fresh);
+    awaitReadiness(command, spawned);
 
     if (role == ProcessRole.STORE) {
       requireStoreQuorumMaintained(clusterPlan, command, "after");
       awaitStoreLeaderServing(clusterPlan, topology, command, out);
     }
 
-    RunLedger.replace(newRuntime.dataRoot(), command.id(), fresh);
     out.println("restarted " + role + " " + command.id() + " (pid " + fresh.pid() + ") -> ready");
     return fresh;
   }
@@ -453,7 +464,10 @@ public final class MachineLauncher {
     }
   }
 
-  private static RunRecord spawn(
+  /** A started process and the ledger record naming it, before anything has waited on its port. */
+  private record Spawned(RunRecord record, Process process, Path logFile) {}
+
+  private static Spawned spawn(
       final Topology topology,
       final ResolvedRuntime runtime,
       final ProcessCommand command,
@@ -477,21 +491,28 @@ public final class MachineLauncher {
       throw new HilmirException("failed spawning " + command.role() + " " + command.id(), e);
     }
     out.println("spawned " + command.role() + " " + command.id() + " (pid " + process.pid() + ")");
-    if (!command.readinessAddress().isBlank()) {
-      ReadinessPoller.awaitPortOpen(
-          command.readinessAddress(),
-          READINESS_TIMEOUT,
-          command.role() + " " + command.id(),
-          process,
-          logFile);
+    return new Spawned(
+        new RunRecord(
+            command.id(),
+            command.role().name(),
+            process.pid(),
+            command.command(),
+            command.logFileName(),
+            command.readinessAddress()),
+        process,
+        logFile);
+  }
+
+  private static void awaitReadiness(final ProcessCommand command, final Spawned spawned) {
+    if (command.readinessAddress().isBlank()) {
+      return;
     }
-    return new RunRecord(
-        command.id(),
-        command.role().name(),
-        process.pid(),
-        command.command(),
-        command.logFileName(),
-        command.readinessAddress());
+    ReadinessPoller.awaitPortOpen(
+        command.readinessAddress(),
+        READINESS_TIMEOUT,
+        command.role() + " " + command.id(),
+        spawned.process(),
+        spawned.logFile());
   }
 
   /**

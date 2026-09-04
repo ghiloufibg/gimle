@@ -1,5 +1,6 @@
 import { parse } from "yaml";
 
+import { DEFAULT_PORTS } from "@/lib/ports";
 import { applyLogLine, finalizeSteps, initialSteps, markCurrentPhase } from "@/lib/runPhases";
 
 import type {
@@ -14,11 +15,6 @@ import type {
 } from "./contracts";
 
 const POLL_INTERVAL_MS = 1200;
-const DEFAULT_PORT: Record<string, number> = {
-  controlPlane: 8080,
-  muninn: 9093,
-  andvari: 9094,
-};
 
 /** The exact shape gimle-ivaldi's RunController.snapshotOf/toJsonMap emits. `processes` exists
  * on the wire but nothing here reads it yet -- steps are derived from the log instead (see
@@ -38,8 +34,10 @@ interface TopologyRole {
 }
 
 interface Topology {
+  transport?: string;
   machines?: { host?: string }[];
   controlPlane?: { replicas?: TopologyRole[] };
+  fafnir?: { replicas?: TopologyRole[] };
   muninn?: { replicas?: TopologyRole[] };
   andvari?: { replicas?: TopologyRole[] };
 }
@@ -58,18 +56,26 @@ function safeParseTopology(content: string | undefined): Topology {
 function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
   const topology = safeParseTopology(content);
   const host = topology.machines?.[0]?.host ?? "127.0.0.1";
+  // An mTLS cluster's listeners speak TLS only, so an http:// link to one is dead rather than
+  // merely unencrypted.
+  const scheme = topology.transport === "mtls" ? "https" : "http";
   const endpoints: RunEndpoint[] = [];
-  const cpPort = topology.controlPlane?.replicas?.[0]?.port ?? DEFAULT_PORT.controlPlane;
+  const cpPort = topology.controlPlane?.replicas?.[0]?.port ?? DEFAULT_PORTS.controlPlane;
   if (topology.controlPlane?.replicas?.length) {
-    endpoints.push({ label: "Console", url: `http://${host}:${cpPort}/console` });
-    endpoints.push({ label: "Control plane API", url: `http://${host}:${cpPort}/api` });
+    endpoints.push({ label: "Console", url: `${scheme}://${host}:${cpPort}/console` });
+    // The control plane's resources sit at the server root -- /deployments, /nodes, /tenants --
+    // with no /api prefix, so /healthz is the one path that is both stable and meaningful.
+    endpoints.push({ label: "Control plane health", url: `${scheme}://${host}:${cpPort}/healthz` });
   }
-  const muninnPort = topology.muninn?.replicas?.[0]?.port ?? DEFAULT_PORT.muninn;
+  const fafnirPort = topology.fafnir?.replicas?.[0]?.port ?? DEFAULT_PORTS.fafnir;
+  if (topology.fafnir?.replicas?.length)
+    endpoints.push({ label: "Fafnir vault", url: `${scheme}://${host}:${fafnirPort}/console` });
+  const muninnPort = topology.muninn?.replicas?.[0]?.port ?? DEFAULT_PORTS.muninn;
   if (topology.muninn?.replicas?.length)
-    endpoints.push({ label: "Muninn", url: `http://${host}:${muninnPort}` });
-  const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORT.andvari;
+    endpoints.push({ label: "Muninn", url: `${scheme}://${host}:${muninnPort}` });
+  const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORTS.andvari;
   if (topology.andvari?.replicas?.length)
-    endpoints.push({ label: "Andvari registry", url: `http://${host}:${andvariPort}` });
+    endpoints.push({ label: "Andvari registry", url: `${scheme}://${host}:${andvariPort}/console` });
   return endpoints;
 }
 

@@ -30,11 +30,11 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * Tier-2 validation: runs a Blueprint's already-rendered files through the real platform parsers
  * and validators -- {@link TopologyParser}/{@link TopologyValidator} for {@code topology.yaml},
  * {@link ManifestParser} for the five workload kinds, {@link ServiceSpec}/{@link NetworkPolicySpec}
- * for the two resource kinds {@code ManifestParser} doesn't cover, and {@link BundleParser} for
- * {@code bundle.yaml} -- so a design is checked against the platform's own admission rules, not a
- * browser-side reimplementation of them. This is deliberately the authoritative check for the bytes
- * it is given: it never re-derives them from a Blueprint's node/edge graph, which stays the
- * console's own concern.
+ * plus a LimitRange's own bound blocks for the three resource kinds {@code ManifestParser} doesn't
+ * cover, and {@link BundleParser} for {@code bundle.yaml} -- so a design is checked against the
+ * platform's own admission rules, not a browser-side reimplementation of them. This is deliberately
+ * the authoritative check for the bytes it is given: it never re-derives them from a Blueprint's
+ * node/edge graph, which stays the console's own concern.
  *
  * <p>Every other file in a rendered set ({@code values.example.yaml}, {@code README.md}, {@code
  * ivaldi.blueprint.json}) has nothing here to check against and is silently skipped.
@@ -190,6 +190,8 @@ public final class FileSetValidator {
       validateService(file, root, findings);
     } else if ("NetworkPolicy".equals(kindName)) {
       validateNetworkPolicy(file, root, findings);
+    } else if ("LimitRange".equals(kindName)) {
+      validateLimitRange(file, root, findings);
     } else {
       findings.add(
           Finding.error(
@@ -247,6 +249,46 @@ public final class FileSetValidator {
           Optional.empty());
     } catch (IllegalArgumentException e) {
       findings.add(Finding.error("NETWORKPOLICY_INVALID", messageOf(e), file.path()));
+    }
+  }
+
+  /**
+   * A LimitRange's four bound blocks are each optional, but a block that is present needs both its
+   * {@code memory} and its {@code cpu} -- the same all-or-nothing rule {@code gimle apply -f}
+   * enforces on the identical document.
+   */
+  private static void validateLimitRange(
+      RenderedFile file, Map<?, ?> root, List<Finding> findings) {
+    Object name = root.get("name");
+    if (!(name instanceof String tenantId) || tenantId.isBlank()) {
+      findings.add(
+          Finding.error(
+              "LIMITRANGE_INVALID", "limit range has no tenant 'name' field", file.path()));
+      return;
+    }
+    boolean anyBound = false;
+    for (String key : List.of("minRequest", "maxRequest", "minLimit", "maxLimit")) {
+      Object bound = root.get(key);
+      if (bound == null) {
+        continue;
+      }
+      anyBound = true;
+      if (!(bound instanceof Map<?, ?> pair)
+          || pair.get("memory") == null
+          || pair.get("cpu") == null) {
+        findings.add(
+            Finding.error(
+                "LIMITRANGE_INVALID",
+                "limit range '" + key + "' requires both 'memory' and 'cpu'",
+                file.path()));
+      }
+    }
+    if (!anyBound) {
+      findings.add(
+          Finding.warning(
+              "LIMITRANGE_NO_BOUNDS",
+              "limit range for tenant '" + tenantId + "' declares no bounds and constrains nothing",
+              file.path()));
     }
   }
 

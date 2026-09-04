@@ -65,6 +65,7 @@
         <include>com.gimle:gimle-andvari</include>
         <include>com.gimle:gimle-andvari-console</include>
         <include>com.gimle:gimle-agent</include>
+        <include>com.gimle:gimle-cli</include>
         <include>com.gimle:gimle-os</include>
         <include>com.gimle:gimle-fabric</include>
         <include>com.gimle:gimle-worker</include>
@@ -73,6 +74,13 @@
   </dependencySets>
 
   <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/main/ivaldi</directory>
+      <outputDirectory></outputDirectory>
+      <includes>
+        <include>README.md</include>
+      </includes>
+    </fileSet>
     <fileSet>
       <directory>${project.basedir}/src/main/dist/bin</directory>
       <outputDirectory>bin</outputDirectory>
