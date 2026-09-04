@@ -18737,9 +18737,11 @@
         "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
         "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`",
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)",
-        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`putJson`)"
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`putJson`)",
+        "`gimle-ivaldi/src/test/java/com/gimle/ivaldi/validate/TopologyTierAgreementTest.java`",
+        "`gimle-ivaldi/src/test/resources/golden/*-topology.yaml`"
       ],
-      "testCoverageDetail": "`rules.test.ts`, `render.test.ts` (structural assertions against the bundled samples, including the limitRange manifest being rendered and excluded from bundle.workloads[]), `units.test.ts`, `ports.test.ts` -- pure module coverage; `httpBlueprints.test.ts` -- the real backend repository against a fake fetch; `useBlueprintsListStore.test.ts` -- error surfacing on a failed list() call",
+      "testCoverageDetail": "`rules.test.ts`, `render.test.ts` (structural assertions against the bundled samples, including the limitRange manifest being rendered and excluded from bundle.workloads[]), `units.test.ts`, `ports.test.ts` -- pure module coverage; `httpBlueprints.test.ts` -- the real backend repository against a fake fetch; `useBlueprintsListStore.test.ts` -- error surfacing on a failed list() call; `rules.golden.test.ts` (this module) and gimle-ivaldi's `TopologyTierAgreementTest.java` share one committed fixture (render.ts's own byte-for-byte topology.yaml output for both sample Blueprints) and assert tier-1's rules.ts and the real TopologyValidator agree on the same distinct code set for it -- the tier1/tier2 golden-agreement test the design doc calls for, previously claimed but not actually built; it surfaced and documents a legitimate divergence (tier 1 emits one Problem per implicated canvas node, tier 2 one Finding per situation).",
       "gherkinSteps": [
         "Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors.",
         "Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh."

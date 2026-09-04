@@ -15717,17 +15717,18 @@
       "feature": "Ivaldi web console: blueprint designer canvas",
       "category": "Developer tooling / Internal-Infra",
       "status": "New",
-      "statusNote": "The full node palette now renders and applies, including limitRange (render.ts emits it as its own manifest, RunController applies it via PUT /limitranges/{tenantId}).",
+      "statusNote": "The full node palette now renders and applies, including limitRange (render.ts emits it as its own manifest, RunController applies it via PUT /limitranges/{tenantId}). The tier1/tier2 golden-agreement test the design doc calls for is now real (rules.golden.test.ts + TopologyTierAgreementTest.java, one shared fixture), not just claimed.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests).",
-      "otherTestCoverage": "`rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts` in gimle-ivaldi-console's own Vitest suite",
+      "gapNote": "No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests) plus the cross-module golden test.",
+      "otherTestCoverage": "`rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts`, `rules.golden.test.ts` in gimle-ivaldi-console's own Vitest suite; `TopologyTierAgreementTest.java` in gimle-ivaldi's own JUnit suite",
       "sourceLocations": [
         "`gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`",
         "`gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`",
         "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
         "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`",
-        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)"
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`)",
+        "`gimle-ivaldi/src/test/java/com/gimle/ivaldi/validate/TopologyTierAgreementTest.java`"
       ]
     },
     {
