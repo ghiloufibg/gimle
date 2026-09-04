@@ -29,8 +29,9 @@ describe("renderFiles", () => {
     expect(paths).toContain("values.example.yaml");
     expect(paths).toContain("README.md");
     expect(paths).toContain("ivaldi.blueprint.json");
-    // orders-platform-local: 1 statefulSet + 1 deployment + 1 cronJob + 1 service + 1 networkPolicy
-    expect(paths.filter((p) => p.startsWith("manifests/"))).toHaveLength(5);
+    // orders-platform-local: 1 statefulSet + 1 deployment + 1 cronJob + 1 service +
+    // 1 networkPolicy + 1 limitRange
+    expect(paths.filter((p) => p.startsWith("manifests/"))).toHaveLength(6);
   });
 
   it("orders workload manifests statefulSet, daemonSet, deployment, job, cronJob", () => {
@@ -89,8 +90,12 @@ describe("renderFiles", () => {
     expect(bundle.secrets).toEqual([
       { tenant: "orders-platform", key: "admin.token", value: "${values.admin.token}" },
     ]);
-    // every workload manifest is referenced exactly once, in the same order they were rendered
-    const manifestPaths = files.map((f) => f.path).filter((p) => p.startsWith("manifests/"));
+    // every workload manifest is referenced exactly once, in the same order they were rendered --
+    // except the LimitRange manifest, which is never a Bundle workload (see render.ts's own
+    // comment): it's a standalone control-plane resource, applied outside the bundle deploy.
+    const manifestPaths = files
+      .map((f) => f.path)
+      .filter((p) => p.startsWith("manifests/") && !p.includes("-limitrange-"));
     expect(bundle.workloads.map((w) => w.file)).toEqual(manifestPaths);
   });
 

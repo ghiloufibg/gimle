@@ -105,6 +105,17 @@ public final class ControlPlaneApi {
     }
   }
 
+  /**
+   * PUTs a JSON body to {@code path} and expects a 2xx response -- public for the same reason
+   * {@link #putFile} is: a caller outside this package driving a control-plane resource that isn't
+   * itself part of a release (Ivaldi's own {@code LimitRange} push, for instance) has no other way
+   * to reach {@link #put}, which stays package-private for {@link ReleaseReconciler}'s own internal
+   * use.
+   */
+  public void putJson(String path, String jsonBody) {
+    expectSuccess(put(path, jsonBody));
+  }
+
   /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object. */
   Map<String, Object> getObject(String path) {
     return Json.asObject(Json.parse(expectSuccess(get(path))));

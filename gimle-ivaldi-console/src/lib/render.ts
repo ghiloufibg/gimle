@@ -5,6 +5,7 @@ import {
   type Blueprint,
   type BlueprintNode,
   type ConfigEntryData,
+  type LimitRangeData,
   type MachineData,
   type NetworkPolicyData,
   type RoleData,
@@ -223,6 +224,28 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     files.push({ path, content: yml(doc) });
   }
 
+  // LimitRange is not a Bundle-applied resource -- gimle-hilmir's own BundleParser has no
+  // "LimitRange" workload kind, so this file is deliberately kept out of manifestPaths (and
+  // therefore out of bundle.workloads[]) even though it lives alongside the other manifests. It's
+  // a standalone control-plane resource (PUT /limitranges/{tenantId}), applied by the run itself
+  // outside the bundle deploy, or by hand via `gimle apply -f` for the "download and run" path.
+  const limitRangeFiles: { path: string; tenantId: string }[] = [];
+  for (const lr of nodesOf(bp, "limitRange")) {
+    const d = lr.data as LimitRangeData;
+    const tenantId = tenantIdOf(bp, lr) ?? d.tenantId;
+    const path = `manifests/${pad(index++)}-limitrange-${tenantId || "unnamed"}.yaml`;
+    limitRangeFiles.push({ path, tenantId });
+    files.push({
+      path,
+      content: yml({
+        kind: "LimitRange",
+        name: tenantId,
+        minRequest: { memory: d.min.memory, cpu: d.min.cpu },
+        maxRequest: { memory: d.max.memory, cpu: d.max.cpu },
+      }),
+    });
+  }
+
   const secrets = nodesOf(bp, "secret").map((s) => ({
     node: s,
     data: s.data as SecretData,
@@ -253,7 +276,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   };
   files.push({ path: "bundle.yaml", content: yml(bundle) });
   files.push({ path: "values.example.yaml", content: yml(values) });
-  files.push({ path: "README.md", content: renderReadme(bp) });
+  files.push({ path: "README.md", content: renderReadme(bp, limitRangeFiles) });
   files.push({
     path: "ivaldi.blueprint.json",
     content: `${JSON.stringify(bp, null, 2)}\n`,
@@ -272,7 +295,10 @@ export function firstMachineName(bp: Blueprint): string {
   return m ? (m.data as MachineData).name : "local";
 }
 
-function renderReadme(bp: Blueprint): string {
+function renderReadme(
+  bp: Blueprint,
+  limitRangeFiles: { path: string; tenantId: string }[],
+): string {
   const machine = firstMachineName(bp);
   const port = controlPlanePort(bp);
   const jars = orderedWorkloads(bp)
@@ -286,6 +312,9 @@ function renderReadme(bp: Blueprint): string {
         )
         .join("\n")
     : "# no jar-sourced workloads";
+  const limitRangeApplies = limitRangeFiles.length
+    ? limitRangeFiles.map((f) => `gimle apply -f ${f.path} --server 127.0.0.1:${port}`).join("\n")
+    : "# no limit ranges to apply";
 
   return `# ${bp.name}
 
@@ -307,6 +336,12 @@ hilmir up -f topology.yaml --machine ${machine}
 
 \`\`\`sh
 ${pushes}
+\`\`\`
+
+## 3b. Apply limit ranges
+
+\`\`\`sh
+${limitRangeApplies}
 \`\`\`
 
 ## 4. Deploy the bundle

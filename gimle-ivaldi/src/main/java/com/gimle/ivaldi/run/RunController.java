@@ -49,8 +49,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * Every step below is a small, already-public piece of {@code gimle-hilmir}'s own release/launch
  * machinery, called directly: {@link MachineLauncher#up}/{@link MachineLauncher#down} for the
  * platform process tree, {@link BundleRenderer}/{@link ReleaseReconciler} for the application
- * deploy, {@link ControlPlaneApi#putFile} for jar-sourced artifact pushes. One run at a time: a
- * second {@link #start} while one is {@linkplain RunStatus#isInFlight() in flight} is refused.
+ * deploy, {@link ControlPlaneApi#putFile} for jar-sourced artifact pushes, {@link
+ * ControlPlaneApi#putJson} for LimitRange application (not itself part of the Bundle -- see {@link
+ * #limitRangeManifests}). One run at a time: a second {@link #start} while one is {@linkplain
+ * RunStatus#isInFlight() in flight} is refused.
  *
  * <h2>Deploy-only vs. reboot</h2>
  *
@@ -246,6 +248,14 @@ public final class RunController {
         run.log.append("no jar-sourced workloads to push");
       }
 
+      List<RenderedFile> limitRanges = limitRangeManifests(files);
+      for (RenderedFile manifest : limitRanges) {
+        applyLimitRange(api, manifest, run);
+      }
+      if (limitRanges.isEmpty()) {
+        run.log.append("no limit ranges to apply");
+      }
+
       run.status = RunStatus.DEPLOYING;
       Bundle bundle = BundleParser.parse(streamOf(bundleFile));
       List<String> setFlags =
@@ -385,6 +395,45 @@ public final class RunController {
       }
     }
     return jars;
+  }
+
+  /**
+   * LimitRange isn't part of the Bundle -- {@code gimle-hilmir}'s own {@code BundleParser} has no
+   * "LimitRange" workload kind, so it never rides {@code bundle.workloads[]} the way a Deployment
+   * or Service manifest does (see {@code render.ts}'s own comment on this). It's a standalone
+   * control-plane resource instead, so this run applies it directly via {@code PUT
+   * /limitranges/{tenantId}}, the same call {@code gimle apply -f} makes by hand.
+   */
+  private static List<RenderedFile> limitRangeManifests(List<RenderedFile> files) {
+    List<RenderedFile> limitRanges = new ArrayList<>();
+    for (RenderedFile file : files) {
+      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
+        continue;
+      }
+      Map<?, ?> mapping = readMapping(file.content());
+      if ("LimitRange".equals(mapping.get("kind"))) {
+        limitRanges.add(file);
+      }
+    }
+    return limitRanges;
+  }
+
+  private void applyLimitRange(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
+    Map<?, ?> mapping = readMapping(manifest.content());
+    Object name = mapping.get("name");
+    if (!(name instanceof String tenantId) || tenantId.isBlank()) {
+      throw new RunFailedException(
+          "LimitRange manifest " + manifest.path() + " has no tenant 'name'");
+    }
+    Map<String, Object> body = new java.util.LinkedHashMap<>();
+    for (String key : List.of("minRequest", "maxRequest", "minLimit", "maxLimit")) {
+      Object bound = mapping.get(key);
+      if (bound != null) {
+        body.put(key, bound);
+      }
+    }
+    api.putJson("/limitranges/" + tenantId, Json.write(body));
+    run.log.append("applied limitrange for tenant " + tenantId);
   }
 
   private static void writeWorkspace(Path workspace, List<RenderedFile> files) {
