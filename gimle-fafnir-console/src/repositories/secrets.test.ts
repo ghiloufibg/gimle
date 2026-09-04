@@ -67,4 +67,15 @@ describe("MockSecretsRepository", () => {
 
     expect(second).toBe(first + 1);
   });
+
+  it("versions returns one object per stored version, not a bare number", async () => {
+    const repo = new MockSecretsRepository();
+
+    const versions = await repo.versions("asgard", "db/password");
+
+    expect(versions).toEqual([
+      { version: 1, author: "mock", writtenAtEpochMilli: expect.any(Number) },
+      { version: 2, author: "mock", writtenAtEpochMilli: expect.any(Number) },
+    ]);
+  });
 });

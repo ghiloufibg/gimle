@@ -27,3 +27,10 @@ export interface SecretValue {
   version: number;
   value: string; // already decoded to plain text by the repository layer
 }
+
+/** One entry of a secret's version history, as returned by GET .../{key}/versions. */
+export interface SecretVersion {
+  version: number;
+  author: string;
+  writtenAtEpochMilli: number;
+}

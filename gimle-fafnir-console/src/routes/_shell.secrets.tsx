@@ -224,9 +224,9 @@ function SecretsPage() {
                               void store.selectVersion(secret.key, Number(event.target.value))
                             }
                           >
-                            {revealed.versions.map((version) => (
-                              <option key={version} value={version}>
-                                v{version}
+                            {revealed.versions.map((entry) => (
+                              <option key={entry.version} value={entry.version}>
+                                v{entry.version}
                               </option>
                             ))}
                           </select>

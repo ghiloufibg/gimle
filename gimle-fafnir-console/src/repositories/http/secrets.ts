@@ -1,5 +1,5 @@
 import type { SecretsRepository } from "@/repositories/secrets";
-import type { SecretMetadata, SecretValue } from "@/types";
+import type { SecretMetadata, SecretValue, SecretVersion } from "@/types";
 
 import { requestJson, requestJsonWithBody, requestOk } from "./apiClient";
 
@@ -36,8 +36,12 @@ export class HttpSecretsRepository implements SecretsRepository {
     return { tenantId, key, version: data.version, value: decodeValue(data.value) };
   }
 
-  async versions(tenantId: string, key: string): Promise<number[]> {
-    const data = await requestJson<{ versions: number[] }>(
+  async versions(tenantId: string, key: string): Promise<SecretVersion[]> {
+    // The API's own /versions response is an array of {version, author, writtenAtEpochMilli,
+    // type} objects, not bare numbers -- returning it unmapped here once meant a caller expecting
+    // number[] (e.g. a version-picker <option value>) rendered one of these objects as a raw JSX
+    // child instead.
+    const data = await requestJson<{ versions: SecretVersion[] }>(
       `/secrets/${seg(tenantId)}/${seg(key)}/versions`,
     );
     return data.versions;

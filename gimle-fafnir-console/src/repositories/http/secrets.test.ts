@@ -42,6 +42,25 @@ describe("HttpSecretsRepository", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe("/secrets/asgard/db%2Fpassword?version=1");
   });
 
+  it("versions returns the API's full per-version objects rather than bare numbers", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          versions: [
+            { version: 1, author: "anonymous", writtenAtEpochMilli: 1000 },
+            { version: 2, author: "anonymous", writtenAtEpochMilli: 2000 },
+          ],
+        }),
+    ]);
+
+    const versions = await new HttpSecretsRepository().versions("asgard", "db/password");
+
+    expect(versions).toEqual([
+      { version: 1, author: "anonymous", writtenAtEpochMilli: 1000 },
+      { version: 2, author: "anonymous", writtenAtEpochMilli: 2000 },
+    ]);
+  });
+
   it("upsert base64-encodes the value before sending it", async () => {
     const fetch = stubFetchSequence([() => jsonResponse({ version: 4 })]);
 

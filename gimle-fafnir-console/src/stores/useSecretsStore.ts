@@ -2,12 +2,12 @@ import { create } from "zustand";
 
 import { messageOf } from "@/lib/errors";
 import { secretsRepo } from "@/repositories";
-import type { SecretMetadata } from "@/types";
+import type { SecretMetadata, SecretVersion } from "@/types";
 
 export interface RevealedSecret {
   value: string;
   version: number;
-  versions: number[];
+  versions: SecretVersion[];
   loading: boolean;
 }
 

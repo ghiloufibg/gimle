@@ -1,9 +1,9 @@
-import type { SecretMetadata, SecretValue } from "@/types";
+import type { SecretMetadata, SecretValue, SecretVersion } from "@/types";
 
 export interface SecretsRepository {
   list(tenantId: string): Promise<SecretMetadata[]>;
   read(tenantId: string, key: string, version?: number): Promise<SecretValue>;
-  versions(tenantId: string, key: string): Promise<number[]>;
+  versions(tenantId: string, key: string): Promise<SecretVersion[]>;
   upsert(tenantId: string, key: string, value: string): Promise<number>;
   remove(tenantId: string, key: string, destroy?: boolean): Promise<void>;
   rotateKey(): Promise<number>;
@@ -64,11 +64,15 @@ export class MockSecretsRepository implements SecretsRepository {
     return { tenantId, key, version: resolved, value };
   }
 
-  async versions(tenantId: string, key: string): Promise<number[]> {
+  async versions(tenantId: string, key: string): Promise<SecretVersion[]> {
     await delay(120);
     const entry = this.tenant(tenantId).get(key);
     if (!entry) throw new Error("no such secret");
-    return entry.versions.map((_, index) => index + 1);
+    return entry.versions.map((_, index) => ({
+      version: index + 1,
+      author: "mock",
+      writtenAtEpochMilli: Date.now(),
+    }));
   }
 
   async upsert(tenantId: string, key: string, value: string): Promise<number> {
