@@ -9,9 +9,12 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.vessel.VesselSpec;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,33 @@ class DaemonSetManifestParserTest {
 
   private static InputStream yaml(String content) {
     return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+  }
+
+  /**
+   * The manifest shipped under {@code gimle-skald/deploy/} is the one a reader copies, so it has to
+   * survive the same admission every other manifest does. It didn't: it left {@code artifactPath}
+   * explicitly blank (refused, since blank is a typo rather than the registry sentinel) and named
+   * no port at all, leaving its own HTTP probes with nothing to resolve against.
+   */
+  @Test
+  void the_shipped_skald_daemonset_example_parses_and_its_probes_resolve_a_declared_port()
+      throws Exception {
+    Path example = Path.of("..", "gimle-skald", "deploy", "skald-daemonset.yaml");
+    assertTrue(Files.exists(example), "shipped example missing: " + example.toAbsolutePath());
+
+    DaemonSetSpec spec;
+    try (InputStream in = Files.newInputStream(example)) {
+      spec = DaemonSetManifestParser.parse(in);
+    }
+
+    assertEquals("skald", spec.name());
+    assertEquals(ArtifactReference.REGISTRY_COORDINATE, spec.artifactPath());
+    VesselSpec vessel = spec.vessel().orElseThrow();
+    assertTrue(vessel.env().containsKey("SKALD_HEALTH_PORT"), vessel.env().keySet().toString());
+    assertEquals(
+        Optional.of("SKALD_HEALTH_PORT"), vessel.probes().liveness().orElseThrow().portName());
+    assertEquals(
+        Optional.of("SKALD_HEALTH_PORT"), vessel.probes().readiness().orElseThrow().portName());
   }
 
   @Test

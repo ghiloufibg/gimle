@@ -12,14 +12,21 @@ module:
   version: 1.0.0
 # Published as a BUNDLE artifact: Skald is not a self-contained jar, so `gimle artifactset` zips the
 # platform archive's own lib/ layout together with a generated gimle-entrypoint.yaml rather than
-# this being launched as `java -jar`.
-artifactPath: ""
+# this being launched as `java -jar`. artifactPath is omitted entirely rather than left blank --
+# omitting it is what resolves module: {name, version} through the registry; an explicitly blank
+# value is refused, so that a typo can't silently change how the artifact is resolved.
 placement:
   # Above the default 0 every ordinary workload gets, so cluster DNS makes room for itself under
   # resource pressure instead of sitting unplaced behind batch work. Nothing else about scheduling
   # changes: while any node has capacity, this lands there like anything else.
   priority: 1000
 vessel:
+  # Both ports are declared here, not just passed as arguments: the agent only knows about a port
+  # a vessel declares, and a probe can only name one it finds here. Fixed rather than dynamic
+  # because a resolver has to answer on the port its callers already have configured.
+  env:
+    SKALD_DNS_PORT: {port: 8600}
+    SKALD_HEALTH_PORT: {port: 8601}
   args:
     - "8600"
     - "--control-plane-endpoint"
@@ -32,10 +39,10 @@ vessel:
     # Liveness stays green while the directory is merely stale: a control-plane outage is not a
     # fault restarting this process would fix, and treating it as one would restart every replica
     # in the cluster at once.
-    liveness: {http: /health, initialDelaySeconds: 5}
+    liveness: {http: /health, port: SKALD_HEALTH_PORT, initialDelaySeconds: 5}
     # Readiness closes when the directory goes stale, taking this instance out of the Service's
     # endpoint set so callers are steered to a replica still holding current data.
-    readiness: {http: /ready, initialDelaySeconds: 5}
+    readiness: {http: /ready, port: SKALD_HEALTH_PORT, initialDelaySeconds: 5}
   resources:
     request: {memory: 64Mi, cpu: 50m}
     limit:   {memory: 128Mi, cpu: 250m}

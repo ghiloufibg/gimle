@@ -24,9 +24,9 @@ with real running workloads. `docker compose ps` shows `healthy` once the contro
 | URL | What |
 |---|---|
 | http://localhost:8080/console | The Gimlé web console (deployments, instances, nodes, logs, metrics, topology, artifacts) |
-| http://localhost:8080 | Control plane API — point `gimle` CLI verbs at `--server localhost:8080` (API only: its bare root serves 404, there is no page there) |
+| http://localhost:8080 | Control plane API — point `gimle` CLI verbs at `--server localhost:8080`. Its bare root redirects to `/console`, so a browser opened here lands on the console rather than an error |
 | http://localhost:9092/console | Fafnir's own secrets console |
-| http://localhost:9093 | Muninn observability API (API only — same 404-at-root note as the control plane) |
+| http://localhost:9093 | Muninn observability API — API only, with no console of its own and nothing served at its bare root |
 | http://localhost:9094/console | Andvari's own artifact-registry console |
 
 The cluster is plaintext and unauthenticated, exactly like every other local-dev Gimlé setup —
