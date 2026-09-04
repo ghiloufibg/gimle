@@ -43,6 +43,20 @@ final class SupervisedVessel {
 
   volatile String lifecycleState = "STARTING";
 
+  /**
+   * Set once {@link VesselProcessSupervisor}'s own {@code RestartTracker} exhausts its restart
+   * budget for this instance -- {@link AgentMain#reconcileVesselAssignment} reads this to stop
+   * calling {@link AgentMain#startVesselInstance} for the same unchanged assignment on every
+   * subsequent poll tick. Without it, the reconcile loop finds this key missing from {@code
+   * supervisedVessels} (the old behavior removed the entry outright on exhaustion) and treats that
+   * as "never started," spawning a brand-new supervisor with a brand-new budget -- silently
+   * defeating the whole backoff/give-up policy the ERROR log this fires alongside claims already
+   * happened. Cleared only by {@link AgentMain#requiresVesselReplacement} actually finding a
+   * changed assignment (a real rollout, i.e. an explicit operator action), never by the passage of
+   * time.
+   */
+  volatile boolean restartBudgetExhausted;
+
   SupervisedVessel(
       AssignedInstance assigned,
       VesselSpec vessel,

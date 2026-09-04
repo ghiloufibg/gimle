@@ -6,6 +6,9 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.SocketException;
+import java.net.StandardSocketOptions;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -73,12 +76,49 @@ final class UdpServiceListener implements ServiceRelay {
       throws IOException {
     this.serviceName = serviceName;
     this.localNodeId = localNodeId;
-    this.socket = new DatagramSocket(bindAddress);
+    this.socket = bindWithReuse(bindAddress);
     this.boundAddress = new InetSocketAddress(socket.getLocalAddress(), socket.getLocalPort());
     this.receiveThread =
         Thread.ofVirtual()
             .name("gimle-bifrost-udp-listener-" + serviceName)
             .start(this::receiveLoop);
+  }
+
+  /**
+   * {@code new DatagramSocket(bindAddress)} binds with {@code SO_REUSEADDR} off, which is fine for
+   * TCP-shaped port sharing but not for UDP: this listener's own bind address is a specific
+   * interface (a synthesized loopback ClusterIP, or the real node interface when {@code
+   * BifrostProxy} exposes services), and the backing workload it fronts very often binds its own
+   * socket to the wildcard address at the identical numeric port -- a completely ordinary listen
+   * pattern for a UDP server. Linux's overlap check for {@code SOCK_DGRAM} treats a wildcard bind
+   * and a specific-address bind at the same port as colliding unless {@code SO_REUSEADDR} is set on
+   * whichever side is already occupying the port as well as the side binding after it, whereas the
+   * equivalent TCP check is more permissive -- so the identical shape of Service worked for a TCP
+   * listener and failed here with "Address already in use", repeatably, on every single poll tick,
+   * even against a workload that would have cooperated if this listener's own socket had ever asked
+   * to share. Binding unbound-then-explicit rather than through the one-shot constructor is what
+   * makes setting the option before bind possible at all -- {@code DatagramSocket}'s socket-option
+   * setters throw once a socket is already bound. {@code SO_REUSEPORT} is set best-effort alongside
+   * it: not every platform's {@link DatagramSocket} exposes it. Neither option can force a bind to
+   * succeed against a peer socket that itself sets neither -- that peer's own choice, out of this
+   * listener's control, is a kernel-level limit no bind call on this side can paper over.
+   */
+  private static DatagramSocket bindWithReuse(InetSocketAddress bindAddress) throws IOException {
+    DatagramSocket socket = new DatagramSocket((SocketAddress) null);
+    try {
+      socket.setReuseAddress(true);
+      try {
+        socket.setOption(StandardSocketOptions.SO_REUSEPORT, true);
+      } catch (UnsupportedOperationException | IOException ignored) {
+        // Not every platform's DatagramSocket supports SO_REUSEPORT; SO_REUSEADDR above already
+        // resolves the wildcard/specific-address overlap this listener actually hits.
+      }
+      socket.bind(bindAddress);
+    } catch (SocketException e) {
+      socket.close();
+      throw e;
+    }
+    return socket;
   }
 
   @Override

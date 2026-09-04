@@ -42,6 +42,11 @@ public final class BifrostProxy implements AutoCloseable {
   private final NetworkPolicySource networkPolicySource;
   private final BifrostSettings settings;
   private final Map<String, ServiceRelay> listeners = new ConcurrentHashMap<>();
+  // Services this node is currently declining to expose locally because doing so would collide
+  // with the very workload instance the Service fronts -- see #isColocatedAtServicePort. Tracked
+  // separately from `listeners` (which only ever holds a Service this proxy actually bound) so a
+  // transition into or out of that state is logged once, not on every poll tick.
+  private final Set<String> colocationSkipped = ConcurrentHashMap.newKeySet();
   private volatile ScheduledExecutorService scheduler;
 
   /** Convenience: no {@link NetworkPolicySource} means every service is always unrestricted. */
@@ -60,7 +65,11 @@ public final class BifrostProxy implements AutoCloseable {
    * of its synthesized per-service loopback ClusterIP, making the service dialable from off this
    * node at {@code <nodeHost>:<servicePort>}. The tradeoff is the same one NodePort itself carries
    * -- one port namespace for the whole node, so two services declaring the same port can't both be
-   * exposed; the second bind fails and is logged, exactly like any other bind failure below.
+   * exposed; the second bind fails and is logged, exactly like any other bind failure below. A
+   * Service whose own backing instance happens to be co-located on this node at that identical port
+   * is a distinct case, not just another instance of that same tradeoff -- see {@link
+   * #isColocatedAtServicePort} for why this proxy declines to even attempt that bind rather than
+   * let the two race for the socket.
    */
   public BifrostProxy(
       ServiceSource source, NetworkPolicySource networkPolicySource, BifrostSettings settings) {
@@ -137,6 +146,7 @@ public final class BifrostProxy implements AutoCloseable {
         }
       }
     }
+    colocationSkipped.retainAll(currentNames);
 
     for (ServiceSummary service : currentServices) {
       String name = service.name();
@@ -154,6 +164,30 @@ public final class BifrostProxy implements AutoCloseable {
         continue;
       }
       ServiceEndpoints endpoints = spec.get();
+
+      if (settings.exposeOnAllInterfaces() && isColocatedAtServicePort(endpoints)) {
+        // The very workload this Service fronts is already listening on this node at the exact
+        // port a wildcard bind would claim -- whichever of the two the kernel hands the socket to
+        // first wins permanently, so binding here would either fail outright or starve the
+        // workload's own bind depending on spawn ordering. Neither this proxy nor the workload has
+        // a way to "go second" on purpose, so the only fix that isn't a race is to not bind at
+        // all: an off-node caller already reaches this node's own instance directly at that same
+        // port, with no proxy hop needed.
+        ServiceRelay superseded = listeners.remove(name);
+        if (superseded != null) {
+          superseded.close();
+        }
+        if (colocationSkipped.add(name)) {
+          log.info(
+              "bifrost leaves service {} to its own co-located instance on this node rather than"
+                  + " wildcard-binding port {} over it",
+              name,
+              endpoints.port());
+        }
+        continue;
+      }
+      colocationSkipped.remove(name);
+
       ServiceRelay listener = listeners.get(name);
       if (listener == null) {
         // Wildcard-bound when exposing (the NodePort analogue -- reachable from off-node, one
@@ -187,6 +221,28 @@ public final class BifrostProxy implements AutoCloseable {
       listener.setSessionAffinity(endpoints.sessionAffinity());
       listener.setApplicableRules(applicableRules(service, policies));
     }
+  }
+
+  /**
+   * Whether one of {@code endpoints}' own live backends is this proxy's own node, listening at the
+   * exact numeric port {@link BifrostSettings#exposeOnAllInterfaces} would wildcard-bind for this
+   * Service. Both this proxy and the backing workload bind unconditionally on their own schedule --
+   * there is no signal either side could wait on to "go second" on purpose -- so once both want the
+   * identical address and port, one of them is going to lose that race forever, however the next
+   * reconnect happens to land.
+   */
+  private boolean isColocatedAtServicePort(ServiceEndpoints endpoints) {
+    if (settings.localNodeId().isEmpty()) {
+      return false;
+    }
+    String localNodeId = settings.localNodeId().get();
+    for (ServiceEndpoint endpoint : endpoints.endpoints()) {
+      if (endpoint.nodeId().map(localNodeId::equals).orElse(false)
+          && endpoint.port() == endpoints.port()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

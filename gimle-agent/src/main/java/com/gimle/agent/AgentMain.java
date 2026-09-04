@@ -1703,8 +1703,16 @@ public final class AgentMain {
    * {@code gimle-module.yaml} of its own, so its entire runtime config (env, args, jvmFlags, files,
    * probes, resource request/limit) lives directly in the manifest's own {@code vessel:} block and
    * would otherwise never be detected as changed.
+   *
+   * <p>A {@code current} entry whose {@link SupervisedVessel#restartBudgetExhausted} is set has
+   * already burned through {@code VesselProcessSupervisor}'s restart budget for exactly this
+   * assignment -- it stays in {@code supervisedVessels} (rather than being torn down) precisely so
+   * this check can see it and decline to start a fresh supervisor with a fresh budget on the very
+   * next tick, which would make the ERROR log that reported "giving up" false within seconds. Only
+   * the replacement branch above clears it, since a changed assignment is the one thing that
+   * legitimately deserves a clean budget again.
    */
-  private static void reconcileVesselAssignment(
+  static void reconcileVesselAssignment(
       AssignedInstance assigned,
       String key,
       Map<String, SupervisedVessel> supervisedVessels,
@@ -1727,6 +1735,10 @@ public final class AgentMain {
       // A replacement at the same key keeps its volumes -- the data must survive the swap.
       stopVesselInstance(
           key, supervisedVessels, resourceLimiter, capacityTracker, volumeManager, false);
+      current = null;
+    }
+    if (current != null && current.restartBudgetExhausted) {
+      return;
     }
     if (!supervisedVessels.containsKey(key)) {
       try {
@@ -1848,11 +1860,21 @@ public final class AgentMain {
             restartTracker,
             exhaustedKey -> {
               log.error(
-                  "vessel {} exhausted its restart budget on this node; giving up locally",
+                  "vessel {} exhausted its restart budget on this node; giving up locally until"
+                      + " its assignment changes",
                   exhaustedKey);
               resourceLimiter.release(handle);
               capacityTracker.release(exhaustedKey);
-              supervisedVessels.remove(exhaustedKey);
+              // Left in supervisedVessels, not removed: reconcileVesselAssignment reads
+              // restartBudgetExhausted to decline starting a fresh supervisor (with a fresh
+              // budget) for this same unchanged assignment on the very next poll tick, which is
+              // what actually makes "giving up" true rather than a false claim contradicted a few
+              // seconds later. updateVesselHealth keeps reporting this dead process as FAILED same
+              // as always.
+              SupervisedVessel exhausted = supervisedVessels.get(exhaustedKey);
+              if (exhausted != null) {
+                exhausted.restartBudgetExhausted = true;
+              }
             },
             applicationLogFile,
             respawnedKey -> onVesselRespawned(respawnedKey, supervisedVessels));
@@ -1877,8 +1899,14 @@ public final class AgentMain {
       return;
     }
     instance.supervisor.close();
-    resourceLimiter.release(instance.resourceLimitHandle);
-    capacityTracker.release(key);
+    // An exhausted instance already released both of these from its own onRestartBudgetExhausted
+    // callback -- releasing again would double-release against whatever ResourceLimiter/
+    // CapacityTracker implementation is in play, harmless for today's stateless portable limiter
+    // but not a safe assumption to bake in here.
+    if (!instance.restartBudgetExhausted) {
+      resourceLimiter.release(instance.resourceLimitHandle);
+      capacityTracker.release(key);
+    }
     if (releaseVolumes) {
       instance.volumeHandles.forEach(volumeManager::release);
     }
