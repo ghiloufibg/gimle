@@ -82,4 +82,54 @@ class VesselSpecTest {
     assertThrows(IllegalArgumentException.class, () -> new VesselProbeSpec.Tcp(-1));
     assertThrows(IllegalArgumentException.class, () -> new VesselProbeSpec.Http("/health", -1));
   }
+
+  @Test
+  void an_unnamed_probe_port_is_ambiguous_once_more_than_one_port_is_declared() {
+    Map<String, VesselEnvValue> env =
+        Map.of(
+            "HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()),
+            "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000)));
+    VesselProbes probes =
+        new VesselProbes(Optional.empty(), Optional.of(new VesselProbeSpec.Http("/health")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new VesselSpec(List.of(), List.of(), env, List.of(), probes, REQUEST, LIMIT));
+  }
+
+  @Test
+  void a_probe_naming_an_undeclared_port_is_rejected() {
+    Map<String, VesselEnvValue> env =
+        Map.of("HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()));
+    VesselProbes probes =
+        new VesselProbes(
+            Optional.empty(),
+            Optional.of(new VesselProbeSpec.Http("/health", Optional.of("NO_SUCH_PORT"), 0)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new VesselSpec(List.of(), List.of(), env, List.of(), probes, REQUEST, LIMIT));
+  }
+
+  @Test
+  void a_named_probe_port_resolves_correctly_among_several_declared_ports() {
+    Map<String, VesselEnvValue> env =
+        Map.of(
+            "HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()),
+            "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000)));
+    VesselProbeSpec readiness = new VesselProbeSpec.Http("/health", Optional.of("HTTP_PORT"), 0);
+    VesselProbes probes = new VesselProbes(Optional.empty(), Optional.of(readiness));
+    VesselSpec vessel =
+        new VesselSpec(List.of(), List.of(), env, List.of(), probes, REQUEST, LIMIT);
+    assertEquals(Optional.of("HTTP_PORT"), vessel.declaredPortNameFor(readiness));
+  }
+
+  @Test
+  void an_unnamed_probe_port_resolves_to_the_sole_declared_port() {
+    Map<String, VesselEnvValue> env =
+        Map.of("HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()));
+    VesselProbeSpec readiness = new VesselProbeSpec.Http("/health");
+    VesselProbes probes = new VesselProbes(Optional.empty(), Optional.of(readiness));
+    VesselSpec vessel =
+        new VesselSpec(List.of(), List.of(), env, List.of(), probes, REQUEST, LIMIT);
+    assertEquals(Optional.of("HTTP_PORT"), vessel.declaredPortNameFor(readiness));
+  }
 }

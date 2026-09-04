@@ -1938,11 +1938,11 @@ public final class AgentMain {
     if (Instant.now().isBefore(instance.startedAt.plusSeconds(probe.initialDelaySeconds()))) {
       return beforeDelayDefault;
     }
-    // VesselSpec's own compact constructor already guarantees at least one declared port exists
-    // whenever a tcp/http rung is present -- firstDeclaredPortName() is only empty here in a state
-    // that construction should have made unreachable.
+    // VesselSpec's own compact constructor already guarantees this resolves: it rejects a probe
+    // rung that doesn't name a port whenever more than one is declared, and requires at least one
+    // declared port whenever a tcp/http rung is present at all.
     Optional<Integer> port =
-        instance.vessel.firstDeclaredPortName().map(instance.allocatedPorts::get);
+        instance.vessel.declaredPortNameFor(probe).map(instance.allocatedPorts::get);
     if (port.isEmpty()) {
       return true;
     }

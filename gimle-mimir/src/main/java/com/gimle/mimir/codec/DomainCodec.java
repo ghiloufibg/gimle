@@ -849,11 +849,13 @@ public final class DomainCodec {
       case VesselProbeSpec.Tcp tcp -> {
         out.writeByte(0);
         out.writeInt(tcp.initialDelaySeconds());
+        writeOptionalString(out, tcp.portName());
       }
       case VesselProbeSpec.Http http -> {
         out.writeByte(1);
         out.writeInt(http.initialDelaySeconds());
         out.writeUTF(http.path());
+        writeOptionalString(out, http.portName());
       }
     }
   }
@@ -866,8 +868,12 @@ public final class DomainCodec {
     int tag = in.readUnsignedByte();
     int initialDelaySeconds = in.readInt();
     return switch (tag) {
-      case 0 -> Optional.of(new VesselProbeSpec.Tcp(initialDelaySeconds));
-      case 1 -> Optional.of(new VesselProbeSpec.Http(in.readUTF(), initialDelaySeconds));
+      case 0 -> Optional.of(new VesselProbeSpec.Tcp(readOptionalString(in), initialDelaySeconds));
+      case 1 -> {
+        String path = in.readUTF();
+        yield Optional.of(
+            new VesselProbeSpec.Http(path, readOptionalString(in), initialDelaySeconds));
+      }
       default -> throw new IllegalStateException("unknown vessel probe tag: " + tag);
     };
   }

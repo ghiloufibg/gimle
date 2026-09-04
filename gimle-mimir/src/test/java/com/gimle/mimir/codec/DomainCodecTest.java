@@ -54,8 +54,8 @@ class DomainCodecTest {
                 new VesselFileMount("conf/app.yaml", "app-config"),
                 new VesselFileMount("conf/db.pass", Optional.empty(), Optional.of("db.password"))),
             new VesselProbes(
-                Optional.of(new VesselProbeSpec.Http("/health", 20)),
-                Optional.of(new VesselProbeSpec.Tcp(5))),
+                Optional.of(new VesselProbeSpec.Http("/health", Optional.of("HTTP_PORT"), 20)),
+                Optional.of(new VesselProbeSpec.Tcp(Optional.of("FIXED_PORT"), 5))),
             new ResourceSpec("256Mi", "100m"),
             new ResourceSpec("512Mi", "500m"));
 

@@ -889,8 +889,8 @@ class DeploymentManifestParserTest {
                     - {path: conf/application.yaml, config: billing.app-config}
                     - {path: conf/db.pass, secret: db.password}
                   probes:
-                    liveness: {http: /actuator/health/liveness, initialDelaySeconds: 20}
-                    readiness: {tcp: true}
+                    liveness: {http: /actuator/health/liveness, port: HTTP_PORT, initialDelaySeconds: 20}
+                    readiness: {tcp: true, port: FIXED_PORT}
                   resources:
                     request: {memory: 512Mi, cpu: 250m}
                     limit: {memory: 1Gi, cpu: 1000m}
@@ -916,7 +916,14 @@ class DeploymentManifestParserTest {
     VesselProbeSpec.Http liveness = (VesselProbeSpec.Http) vessel.probes().liveness().orElseThrow();
     assertEquals("/actuator/health/liveness", liveness.path());
     assertEquals(20, liveness.initialDelaySeconds());
-    assertTrue(vessel.probes().readiness().orElseThrow() instanceof VesselProbeSpec.Tcp);
+    assertEquals(Optional.of("HTTP_PORT"), liveness.portName());
+    VesselProbeSpec readiness = vessel.probes().readiness().orElseThrow();
+    assertTrue(readiness instanceof VesselProbeSpec.Tcp);
+    assertEquals(Optional.of("FIXED_PORT"), readiness.portName());
+    // Two ports declared, each probe naming a different one -- exactly the shape that used to
+    // resolve both rungs against whichever port happened to iterate first.
+    assertEquals(Optional.of("HTTP_PORT"), vessel.declaredPortNameFor(liveness));
+    assertEquals(Optional.of("FIXED_PORT"), vessel.declaredPortNameFor(readiness));
     assertEquals("512Mi", vessel.resourceRequest().memory());
     assertEquals("1Gi", vessel.resourceLimit().memory());
   }
@@ -936,6 +943,32 @@ class DeploymentManifestParserTest {
                     artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
                     replicas: 1
                     vessel:
+                      probes:
+                        readiness: {tcp: true}
+                      resources:
+                        request: {memory: 512Mi, cpu: 250m}
+                        limit: {memory: 1Gi, cpu: 1000m}
+                    """)));
+  }
+
+  @Test
+  void a_probe_with_more_than_one_declared_port_and_no_named_port_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: billing-api
+                    module:
+                      name: com.acme.billing-api
+                      version: 2.3.1
+                    artifactPath: /var/gimle/artifacts/billing-api-2.3.1.jar
+                    replicas: 1
+                    vessel:
+                      env:
+                        HTTP_PORT: {port: dynamic}
+                        FIXED_PORT: {port: 9000}
                       probes:
                         readiness: {tcp: true}
                       resources:

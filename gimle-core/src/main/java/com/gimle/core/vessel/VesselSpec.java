@@ -20,10 +20,11 @@ import java.util.Optional;
  * <p>A {@code tcp}/{@code http} probe rung needs at least one declared port to dial -- checked here
  * rather than left to fail confusingly once the agent actually tries to probe, by counting {@code
  * env} entries of type {@link VesselEnvValue.PortAllocation}. When more than one port is declared,
- * the agent probes the first one in this map's own iteration order; nothing here picks a specific
- * one by name, since the ladder has no way to know which declared port a bare {@code {tcp: true}}
- * or {@code {http: ...}} entry means without an explicit reference this manifest shape doesn't
- * carry.
+ * each probe rung must name which one it dials via its own {@link VesselProbeSpec#portName()} --
+ * left unnamed, there's no way to know which declared port a bare {@code {tcp: true}} or {@code
+ * {http: ...}} entry means, so that case is rejected here rather than guessed at by the agent.
+ * Exactly one declared port lets a rung's {@code portName} stay absent, resolving to that sole
+ * port.
  */
 public record VesselSpec(
     List<String> args,
@@ -61,6 +62,9 @@ public record VesselSpec(
     if (declaredPorts == 0) {
       requireNoPortDependentProbe(probes.liveness(), "liveness");
       requireNoPortDependentProbe(probes.readiness(), "readiness");
+    } else {
+      requireResolvablePort(probes.liveness(), "liveness", declaredPorts, env);
+      requireResolvablePort(probes.readiness(), "readiness", declaredPorts, env);
     }
   }
 
@@ -73,11 +77,53 @@ public record VesselSpec(
     }
   }
 
+  /**
+   * Once at least one port is declared, a probe rung naming a specific one must actually name a
+   * real {@code {port: ...}} entry; a rung naming none is only resolvable when there's exactly one
+   * candidate for it to mean.
+   */
+  private static void requireResolvablePort(
+      Optional<VesselProbeSpec> probe,
+      String which,
+      long declaredPorts,
+      Map<String, VesselEnvValue> env) {
+    if (probe.isEmpty()) {
+      return;
+    }
+    Optional<String> portName = probe.get().portName();
+    if (portName.isPresent()) {
+      if (!(env.get(portName.get()) instanceof VesselEnvValue.PortAllocation)) {
+        throw new IllegalArgumentException(
+            which
+                + " probe names port '"
+                + portName.get()
+                + "', which is not a declared {port: ...} env entry");
+      }
+      return;
+    }
+    if (declaredPorts > 1) {
+      throw new IllegalArgumentException(
+          which
+              + " probe must name a port -- more than one {port: ...} env entry is declared, so"
+              + " which one to dial is ambiguous without naming it");
+    }
+  }
+
   /** The first declared port's env-var name, in {@link #env}'s own iteration order, if any. */
   public Optional<String> firstDeclaredPortName() {
     return env.entrySet().stream()
         .filter(e -> e.getValue() instanceof VesselEnvValue.PortAllocation)
         .map(Map.Entry::getKey)
         .findFirst();
+  }
+
+  /**
+   * The declared port env-var name {@code probe} should be dialed against: its own named port when
+   * it declares one, otherwise the sole declared port. The compact constructor above already
+   * rejects an unnamed rung once more than one port is declared, so a caller here never has to
+   * guess between multiple candidates the way {@link #firstDeclaredPortName()} alone would.
+   */
+  public Optional<String> declaredPortNameFor(VesselProbeSpec probe) {
+    return probe.portName().isPresent() ? probe.portName() : firstDeclaredPortName();
   }
 }
