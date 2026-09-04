@@ -103,10 +103,14 @@ caller the identical unauthenticated identity — there is no peer identity for 
 there is no way, not even after the fact, to distinguish a legitimate co-tenant from an uninvited
 caller reaching into someone else's tenant. Rather than quietly allowing shared multi-tenant use
 under those conditions, `POST`/`PUT /tenants/{id}` refuses to create a second real tenant while
-running in plaintext: neither the reserved `gimle-system` tenant nor `default` (both above) counts
-toward the limit — both are seeded automatically regardless of transport — but the first
-operator-created tenant claims the one slot plaintext allows, and every subsequent *new* tenant id
-is rejected with `403` until the cluster moves to mTLS. An update to an already-existing tenant
+running in plaintext: no tenant the platform seeds for itself counts toward the limit — neither the
+reserved `gimle-system` tenant nor `default` (both above), nor Hilmir's own `gimle-hilmir`
+release-ledger tenant, whose all-zero quota exists only to hold [release
+bookkeeping](../reference/hilmir-reference.md) rows and which the first `hilmir deploy` creates
+without anyone asking for it. The exemption applies on both sides of the check: a platform-seeded
+tenant neither consumes the slot nor is refused because an operator's tenant already holds it.
+The first operator-created tenant claims the one slot plaintext allows, and every subsequent *new*
+operator tenant id is rejected with `403` until the cluster moves to mTLS. An update to an already-existing tenant
 (adjusting its own quota, for
 example) is always permitted regardless of transport — the guard only ever blocks the creation of a
 genuinely new tenant identity. Real multi-tenancy requires mTLS, where a real peer identity exists
