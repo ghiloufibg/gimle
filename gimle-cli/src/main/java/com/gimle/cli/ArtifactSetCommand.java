@@ -38,8 +38,13 @@ import java.util.zip.ZipOutputStream;
  * byte is pushed, then each member is pushed in the manifest's own order through the existing
  * single-artifact path. A mid-way failure leaves every already-pushed member valid and immutable --
  * nothing to roll back -- and re-applying the identical manifest resumes from the failure point,
- * since an already-pushed member simply comes back {@code IDENTICAL}. That resume property is what
- * makes deterministic bundle zipping (sorted entries, zeroed timestamps -- see {@link
+ * since an already-pushed member simply comes back {@code IDENTICAL}. An entry that cannot be read
+ * locally at all (a missing file, a jar with no module descriptor) follows the same rule rather
+ * than a stricter one: it costs itself, the rest of the set publishes, and the command still fails
+ * naming every entry it could not make sense of. A digest or kind <em>conflict</em> is the one
+ * thing that still stops everything -- it means the manifest disagrees with what is already
+ * published, which no amount of partial progress resolves. That resume property is what makes
+ * deterministic bundle zipping (sorted entries, zeroed timestamps -- see {@link
  * #zipDirectoryDeterministically}) load-bearing rather than cosmetic: re-zipping an unchanged
  * directory must reproduce the identical digest, or a re-apply would spuriously conflict.
  */
@@ -60,7 +65,8 @@ public final class ArtifactSetCommand {
     byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
     ArtifactSetManifest manifest = ArtifactSetManifestParser.parse(file, manifestBytes);
 
-    List<ResolvedMember> members = resolveMembers(manifest);
+    Resolution resolution = resolveMembers(manifest);
+    List<ResolvedMember> members = resolution.members();
     preflight(members);
 
     List<Map<String, Object>> rows = new ArrayList<>();
@@ -86,7 +92,25 @@ public final class ArtifactSetCommand {
       }
     }
     OutputFormat.printList(output, rows, out);
+    // Reported only now, with every publishable member already pushed. An entry naming a file that
+    // isn't there is one entry's problem; refusing the whole manifest for it would hold back
+    // members that are perfectly publishable and that a push-phase failure at the same position
+    // would have published, since publishing here is explicitly not a transaction.
+    if (!resolution.failures().isEmpty()) {
+      throw CliException.invalidInput(
+          members.size()
+              + " of "
+              + manifest.modules().size()
+              + " pushed; not publishable: "
+              + String.join("; ", resolution.failures()));
+    }
   }
+
+  /**
+   * What {@link #resolveMembers} could and could not make sense of. Failures are collected rather
+   * than thrown so one unreadable entry costs only itself.
+   */
+  private record Resolution(List<ResolvedMember> members, List<String> failures) {}
 
   /**
    * A manifest entry resolved to the coordinate and the exact file that will be uploaded -- for a
@@ -101,16 +125,23 @@ public final class ArtifactSetCommand {
       Optional<String> tenantId,
       ArtifactKind kind) {}
 
-  private List<ResolvedMember> resolveMembers(ArtifactSetManifest manifest) {
+  private Resolution resolveMembers(ArtifactSetManifest manifest) {
     List<ResolvedMember> members = new ArrayList<>();
+    List<String> failures = new ArrayList<>();
     Map<String, Path> seenCoordinates = new LinkedHashMap<>();
     for (ArtifactSetEntry entry : manifest.modules()) {
-      ResolvedMember member =
-          switch (entry) {
-            case ArtifactSetEntry.Module module -> resolveModule(module);
-            case ArtifactSetEntry.Vessel vessel -> resolveVessel(vessel);
-            case ArtifactSetEntry.Bundle bundle -> resolveBundle(bundle);
-          };
+      ResolvedMember member;
+      try {
+        member =
+            switch (entry) {
+              case ArtifactSetEntry.Module module -> resolveModule(module);
+              case ArtifactSetEntry.Vessel vessel -> resolveVessel(vessel);
+              case ArtifactSetEntry.Bundle bundle -> resolveBundle(bundle);
+            };
+      } catch (CliException e) {
+        failures.add(entry.artifact() + ": " + e.getMessage());
+        continue;
+      }
       String coordinate = member.moduleId() + ":" + member.version();
       Path previous = seenCoordinates.putIfAbsent(coordinate, entry.artifact());
       if (previous != null) {
@@ -125,7 +156,7 @@ public final class ArtifactSetCommand {
       }
       members.add(member);
     }
-    return members;
+    return new Resolution(members, failures);
   }
 
   private static ResolvedMember resolveModule(ArtifactSetEntry.Module module) {
@@ -134,7 +165,13 @@ public final class ArtifactSetCommand {
       artifact = ModuleArtifactReader.read(module.artifact());
     } catch (RuntimeException e) {
       throw new CliException(
-          "not a pushable module artifact: " + module.artifact() + ": " + e.getMessage(), e);
+          "not a pushable module artifact: "
+              + module.artifact()
+              + ": "
+              + e.getMessage()
+              + " -- a jar carrying no gimle-module.yaml is a kind: vessel entry, which names its"
+              + " own coordinate instead of reading one",
+          e);
     }
     return new ResolvedMember(
         module.artifact(),

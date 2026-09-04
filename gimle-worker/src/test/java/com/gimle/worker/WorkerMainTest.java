@@ -7,6 +7,7 @@ import com.gimle.core.exception.GimleLifecycleException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleState;
 import java.time.Instant;
@@ -14,11 +15,14 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * JOURNEY-2a regression coverage: {@code WorkerMain#instanceEventFor}'s {@code TransitionFailed}
- * case used to report only {@code GimleLifecycleException.hookFailed}'s own generic wrapper message
- * ("lifecycle hook 'onStart' threw an exception") as its {@code detail} -- the module's own real,
- * well-typed exception (naming exactly which config key is missing, say) was swallowed entirely,
- * reaching neither {@code gimle logs}, {@code gimle events}, nor any API surface.
+ * Covers what an instance's own durable timeline says about a failure. {@code
+ * WorkerMain#instanceEventFor}'s {@code TransitionFailed} case used to report only {@code
+ * GimleLifecycleException.hookFailed}'s own generic wrapper message ("lifecycle hook 'onStart'
+ * threw an exception") as its {@code detail} -- the module's own real, well-typed exception (naming
+ * exactly which config key is missing, say) was swallowed entirely, reaching neither {@code gimle
+ * logs}, {@code gimle events}, nor any API surface -- and its own message read "transition ACTIVE
+ * -> FAILED failed" for an instance that had reached FAILED exactly as intended. A liveness-driven
+ * restart, meanwhile, wrote no entry naming itself at all.
  */
 class WorkerMainTest {
 
@@ -77,5 +81,37 @@ class WorkerMainTest {
 
     assertEquals(
         illegalTransition.getClass().getName() + ": " + illegalTransition.getMessage(), detail);
+  }
+
+  @Test
+  void transition_failed_message_names_the_transition_rather_than_reading_failed_to_fail() {
+    LifecycleEvent.TransitionFailed event =
+        new LifecycleEvent.TransitionFailed(
+            ID,
+            ModuleState.ACTIVE,
+            ModuleState.FAILED,
+            new IllegalStateException("restart budget exhausted"),
+            Instant.now());
+
+    InstanceEvent instanceEvent = WorkerMain.instanceEventFor(event, IDENTITY);
+
+    assertEquals("could not transition from ACTIVE to FAILED", instanceEvent.message());
+  }
+
+  @Test
+  void a_liveness_driven_restart_is_recorded_as_its_own_kind_naming_the_failure_count() {
+    InstanceEvent event = WorkerMain.livenessFailureEventFor(IDENTITY, 3);
+
+    assertEquals(InstanceEventKind.LIVENESS_FAILED, event.kind());
+    assertEquals("greeter", event.deploymentName());
+    assertEquals(0, event.instanceIndex());
+    assertEquals("liveness probe failed 3 times in a row; restarting module", event.message());
+  }
+
+  @Test
+  void a_single_liveness_failure_is_not_pluralized() {
+    assertEquals(
+        "liveness probe failed 1 time in a row; restarting module",
+        WorkerMain.livenessFailureEventFor(IDENTITY, 1).message());
   }
 }

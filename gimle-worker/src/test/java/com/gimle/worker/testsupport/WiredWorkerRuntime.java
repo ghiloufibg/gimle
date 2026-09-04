@@ -35,6 +35,9 @@ public final class WiredWorkerRuntime {
   /** One {@link WorkerRuntime.HealthReportSink#report} call, captured for a test to assert on. */
   public record HealthUpdate(ModuleId id, boolean alive, boolean ready) {}
 
+  /** One {@link WorkerRuntime.LivenessRestartSink#restartTriggered} call, likewise captured. */
+  public record LivenessRestart(ModuleId id, int consecutiveFailures) {}
+
   public record Result(
       ModuleRegistry registry,
       ModuleController controller,
@@ -42,7 +45,8 @@ public final class WiredWorkerRuntime {
       ServiceRegistry serviceRegistry,
       ModuleId id,
       List<LifecycleEvent> events,
-      List<HealthUpdate> healthUpdates) {}
+      List<HealthUpdate> healthUpdates,
+      List<LivenessRestart> livenessRestarts) {}
 
   /** A fast probe cadence, so a test that isn't about probe timing itself never waits on one. */
   private static final Duration DEFAULT_PROBE_INTERVAL = Duration.ofMillis(20);
@@ -92,6 +96,7 @@ public final class WiredWorkerRuntime {
     ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
     List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
     List<HealthUpdate> healthUpdates = new CopyOnWriteArrayList<>();
+    List<LivenessRestart> livenessRestarts = new CopyOnWriteArrayList<>();
 
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
@@ -128,12 +133,22 @@ public final class WiredWorkerRuntime {
             stableUptimeThreshold.orElse(WorkerRuntime.DEFAULT_STABLE_UPTIME_THRESHOLD),
             identityRegistry,
             onInstanceUninstalled,
-            healthReportSink);
+            healthReportSink,
+            (moduleId, consecutiveFailures) ->
+                livenessRestarts.add(new LivenessRestart(moduleId, consecutiveFailures)));
     runtimeRef.set(runtime);
 
     controller.resolve(id);
     controller.start(id);
 
-    return new Result(registry, controller, runtime, serviceRegistry, id, events, healthUpdates);
+    return new Result(
+        registry,
+        controller,
+        runtime,
+        serviceRegistry,
+        id,
+        events,
+        healthUpdates,
+        livenessRestarts);
   }
 }

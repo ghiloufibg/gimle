@@ -763,12 +763,46 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   /**
-   * Tries the cached preferred leader first (if any), then every configured endpoint; on {@link
-   * StoreRpc.NotLeader} with a non-blank hint, makes one direct follow-up attempt against that
-   * exact address before moving on. The first endpoint to answer with anything other than {@code
-   * NotLeader} becomes the new cached preferred leader.
+   * How long a caller keeps looking for a leader before giving up. "No node is leader right now" is
+   * transient by construction -- a cluster that has just started, or has just lost its leader,
+   * elects one within an election timeout -- so a single pass over the endpoints turns every
+   * election into a user-visible failure, including the one at the moment a cluster comes up.
+   */
+  private static final Duration LEADER_SEARCH_TIMEOUT = Duration.ofSeconds(10);
+
+  private static final Duration LEADER_SEARCH_RETRY_INTERVAL = Duration.ofMillis(100);
+
+  /**
+   * Keeps trying every endpoint until one answers as leader or {@link #LEADER_SEARCH_TIMEOUT}
+   * expires. Each pass is {@link #sendLeaderOnlyOnce}.
    */
   private StoreRpc.Response sendLeaderOnly(String operationName, StoreRpc.Request request) {
+    long deadlineNanos = System.nanoTime() + LEADER_SEARCH_TIMEOUT.toNanos();
+    while (true) {
+      StoreRpc.Response response = sendLeaderOnlyOnce(request);
+      if (response != null) {
+        return response;
+      }
+      if (System.nanoTime() - deadlineNanos >= 0) {
+        throw GimleRaftException.storeUnreachable(operationName);
+      }
+      try {
+        Thread.sleep(LEADER_SEARCH_RETRY_INTERVAL);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw GimleRaftException.storeUnreachable(operationName);
+      }
+    }
+  }
+
+  /**
+   * One pass: the cached preferred leader first (if any), then every configured endpoint; on {@link
+   * StoreRpc.NotLeader} with a non-blank hint, makes one direct follow-up attempt against that
+   * exact address before moving on. The first endpoint to answer with anything other than {@code
+   * NotLeader} becomes the new cached preferred leader. {@code null} means no endpoint answered as
+   * leader this pass -- either unreachable or all still followers.
+   */
+  private StoreRpc.Response sendLeaderOnlyOnce(StoreRpc.Request request) {
     SocketAddress cached = preferredLeader.get();
     if (cached != null) {
       StoreRpc.Response response = tryOnce(cached, request);
@@ -799,7 +833,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         return followed;
       }
     }
-    throw GimleRaftException.storeUnreachable(operationName);
+    return null;
   }
 
   /** One direct retry against a {@link StoreRpc.NotLeader} hint's address. */

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 829,
+    "totalRequirements": 841,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 699,
-    "releaseReadinessPercent": 15.7
+    "notCoveredByAutomatedTest": 711,
+    "releaseReadinessPercent": 15.5
   },
   "items": [
     {
@@ -9121,6 +9121,138 @@
       "category": "Raft Consensus",
       "feature": "Linearizable reads via a Raft read index, replacing round-robin replica reads",
       "step": "Given a 3-node store cluster holding a tenant, When the leader is partitioned from the majority and the majority elects a new leader and deletes that tenant, Then the partitioned node refuses a read of it rather than answering from its own still-present copy. Given a healthy store leader that has just committed a write, When a read index is established, Then a majority has confirmed the node still leads and the state machine has applied through the returned index before the store is read.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-830",
+      "module": "gimle-worker",
+      "category": "Instance Lifecycle Events",
+      "feature": "An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause",
+      "step": "Given an instance whose liveness probe begins failing, When it fails enough consecutive times to trigger a module-tier restart, Then the instance's timeline carries a LIVENESS_FAILED entry naming how many failures in a row caused it. Given a module that fails a lifecycle transition, When its TRANSITION_FAILED event is recorded, Then the message names the transition that could not be made rather than restating both ends of it around the word failed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-831",
+      "module": "gimle-controlplane",
+      "category": "Scheduling",
+      "feature": "An unplaced workload reports the scheduler's own refusal in its own status",
+      "step": "Given a deployment whose replicas the scheduler cannot place, When an operator reads the deployment, Then its status names the scheduler's own refusal alongside the unplaced count. Given a deployment admitted moments ago that no reconciler tick has refused yet, When an operator reads it, Then it reports an unplaced count with no reason attached.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-832",
+      "module": "gimle-agent",
+      "category": "Logging",
+      "feature": "Instance logs located by deployment name and index rather than by a composed supervision key",
+      "step": "Given a tenant-scoped instance running on a node, When an operator reads its logs by deployment name and index, Then the node answers with that instance's own log lines. Given a Tier 1 instance packed onto a sibling instance's worker, When its logs are read by name, Then they are served from the worker directory that actually holds them.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-833",
+      "module": "gimle-controlplane",
+      "category": "Admission Control",
+      "feature": "A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses",
+      "step": "Given a manifest whose schema the parser refuses, When it is submitted with dryRun=true, Then the response is a verdict whose manifest check failed carrying the parser's own message, not a bare error. Given a manifest naming a kind no KindDefinition defines, When apply --dry-run is run against it, Then the CLI reports the unknown kind rather than that dry run is unsupported for it.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-834",
+      "module": "gimle-controlplane",
+      "category": "PKI and Bootstrap",
+      "feature": "A CSR submission answers 400 naming the field it is missing, never an opaque 500",
+      "step": "Given a CSR submission with an empty or non-object body, When it is posted, Then the control plane answers 400 saying the body must be a JSON object. Given a CSR submission missing its purpose field, When it is posted, Then the control plane answers 400 naming that field rather than 500.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-835",
+      "module": "gimle-controlplane",
+      "category": "Network Policy",
+      "feature": "A NetworkPolicy's own owning tenant is validated to exist",
+      "step": "Given a NetworkPolicy whose tenantId names no existing tenant, When it is posted, Then the control plane answers 400 naming that tenant and stores nothing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-836",
+      "module": "gimle-fafnir",
+      "category": "Secrets",
+      "feature": "A SecretMap's members are unreadable through the flat secrets path",
+      "step": "Given a SecretMap member stored under its reserved key, When it is read through the flat /secrets path, Then the request is refused and directed to /secretmaps.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-837",
+      "module": "gimle-andvari",
+      "category": "Artifact Registry",
+      "feature": "The Maven-shaped repository surface answers HEAD on every path it answers GET on",
+      "step": "Given a jar and its .pom published under a Maven coordinate, When a client HEADs either of them, the server-computed checksum, or maven-metadata.xml, Then each answers 200 with no body rather than 405.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-838",
+      "module": "gimle-controlplane",
+      "category": "Scheduling",
+      "feature": "Placement failure reported against the nodes the operator's own labels actually named",
+      "step": "Given one node carrying the required label and several without it, When that node is cordoned, Then placement reports the cordon rather than unsatisfied labels. Given one node carrying the required label and several without it, When that node has too little free capacity, Then placement reports the capacity shortfall against that node.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-839",
+      "module": "gimle-cli",
+      "category": "Artifact Registry",
+      "feature": "An ArtifactSet publishes every member it can read and reports the ones it could not",
+      "step": "Given an ArtifactSet whose second of three entries names a file that does not exist, When it is applied, Then the other two are published and the command fails naming the entry it could not read.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-840",
+      "module": "gimle-module",
+      "category": "Logging",
+      "feature": "A module's own background and config-callback logging carries its instance identity",
+      "step": "Given a module logging from its own onConfigChange callback, When a config value changes, Then the line lands in that instance's APPLICATION log rather than the worker's platform log. Given a gateway instance whose gateway.routes value is malformed, When the reload tick reads it, Then the rejection is reported once in that instance's own log and the previous route table is kept.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-841",
+      "module": "gimle-console",
+      "category": "Web Console",
+      "feature": "The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name",
+      "step": "Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

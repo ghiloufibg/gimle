@@ -39,6 +39,7 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -420,7 +421,16 @@ public final class WorkerMain {
             // an instance's declared readiness probe runs for real but its result never leaves
             // this worker.
             (id, alive, ready) ->
-                sendQuietly(channel, new ControlMessage.HealthReport(id, alive, ready)));
+                sendQuietly(channel, new ControlMessage.HealthReport(id, alive, ready)),
+            (id, consecutiveFailures) ->
+                identityRegistry
+                    .lookup(id)
+                    .ifPresent(
+                        identity ->
+                            sendQuietly(
+                                channel,
+                                new ControlMessage.InstanceEventOccurred(
+                                    livenessFailureEventFor(identity, consecutiveFailures)))));
     runtimeRef.set(runtime);
     return new ControllerAndRuntime(controller, runtime);
   }
@@ -708,11 +718,18 @@ public final class WorkerMain {
       case ControlMessage.InstallModule m -> {
         try {
           ModuleArtifact artifact = ModuleArtifactReader.read(Path.of(m.artifactPath()));
-          ModuleId id = registry.register(artifact);
+          // Registered before the module is, not after: registering the artifact is what emits
+          // the INSTALLED lifecycle event, and an event arriving before this instance has an
+          // identity has no deployment/index to attach to, so it was dropped -- which is why an
+          // instance's own timeline opened at RESOLVED and never showed the install at all. The
+          // artifact already carries the id the registry will hand back, so nothing has to be
+          // installed first to learn it.
           if (!m.deploymentName().isBlank()) {
             identityRegistry.register(
-                id, new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
+                artifact.id(),
+                new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
           }
+          ModuleId id = registry.register(artifact);
           channel.send(new ControlMessage.ModuleStateChanged(id, "INSTALLED"));
           channel.send(new ControlMessage.Ack(m.correlationId()));
         } catch (RuntimeException e) {
@@ -928,7 +945,10 @@ public final class WorkerMain {
               identity.deploymentName(),
               identity.instanceIndex(),
               InstanceEventKind.TRANSITION_FAILED,
-              "transition " + failed.from() + " -> " + failed.to() + " failed",
+              // Names the transition that could not be made, rather than restating both ends of
+              // it around the word "failed" -- the old wording read "transition ACTIVE -> FAILED
+              // failed" for an instance that had in fact reached FAILED exactly as intended.
+              "could not transition from " + failed.from() + " to " + failed.to(),
               Optional.of(transitionFailureDetail(failed.cause())),
               occurredAtEpochMilli);
       case LifecycleEvent.Completed ignored ->
@@ -940,6 +960,27 @@ public final class WorkerMain {
               "job run completed successfully",
               occurredAtEpochMilli);
     };
+  }
+
+  /**
+   * The durable timeline entry recording that a liveness probe, not an operator, is what caused the
+   * restart about to happen. Deliberately not derived from a {@link LifecycleEvent}: at the moment
+   * it is minted no transition has occurred yet -- the restart's own STOPPING/UNINSTALLED/INSTALLED
+   * /ACTIVE run follows and is recorded through {@link #instanceEventFor} the ordinary way, and on
+   * its own that run reads exactly like a hand-driven stop and redeploy.
+   */
+  // Package-visible for the same reason instanceEventFor is: a pure mapping worth testing directly.
+  static InstanceEvent livenessFailureEventFor(InstanceIdentity identity, int consecutiveFailures) {
+    return new InstanceEvent(
+        UUID.randomUUID().toString(),
+        identity.deploymentName(),
+        identity.instanceIndex(),
+        InstanceEventKind.LIVENESS_FAILED,
+        "liveness probe failed "
+            + consecutiveFailures
+            + (consecutiveFailures == 1 ? " time" : " times")
+            + " in a row; restarting module",
+        Instant.now().toEpochMilli());
   }
 
   /**

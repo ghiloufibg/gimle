@@ -175,11 +175,11 @@ class AgentLogServerTest {
         new AgentLogServer(
             logRoot,
             0,
-            java.util.function.Function.identity(),
+            (tenantId, name, index) -> name + "#" + index,
             null,
             Set::of,
-            requested ->
-                requested.equals(key)
+            (tenantId, name, index) ->
+                (name + "#" + index).equals(key)
                     ? endpoint
                     : java.util.Optional.<InstanceFabricEndpoint>empty());
     server.start();
@@ -308,7 +308,7 @@ class AgentLogServerTest {
         new AgentLogServer(
             logRoot,
             0,
-            java.util.function.Function.identity(),
+            (tenantId, name, index) -> name + "#" + index,
             volumeManager,
             () -> Set.of(AgentLogServer.volumeKey(java.util.Optional.empty(), "sessions", 0)));
     server.start();
@@ -357,7 +357,7 @@ class AgentLogServerTest {
     Files.writeString(tenanted.resolve("live.db"), "12345");
     server =
         new AgentLogServer(
-            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+            logRoot, 0, (tenantId, name, index) -> name + "#" + index, volumeManager, Set::of);
     server.start();
 
     // Addressing the wrong tenant (or none) is a no-op that says so: the status stays 200 because
@@ -394,7 +394,7 @@ class AgentLogServerTest {
     Files.writeString(untenanted.resolve("old.db"), "123");
     server =
         new AgentLogServer(
-            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+            logRoot, 0, (tenantId, name, index) -> name + "#" + index, volumeManager, Set::of);
     server.start();
 
     assertEquals(200, delete("/volumes/sessions/0?tenant=").statusCode());
@@ -415,7 +415,7 @@ class AgentLogServerTest {
         java.util.Optional.empty(), "sessions", 0, "data", new VolumeRequest(64));
     server =
         new AgentLogServer(
-            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+            logRoot, 0, (tenantId, name, index) -> name + "#" + index, volumeManager, Set::of);
     server.start();
 
     HttpResponse<String> first = delete("/volumes/sessions/0");

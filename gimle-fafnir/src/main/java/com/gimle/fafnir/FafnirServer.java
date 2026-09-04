@@ -564,6 +564,14 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 400, "missing key");
         return;
       }
+      // Nothing on this flat path -- neither the key itself nor either of its sub-resources --
+      // answers for a SecretMap-owned key: it authorizes under ResourceKind.SECRET, while a
+      // SecretMap is deliberately its own grantable kind, so "may read flat secrets" must not
+      // reach a SecretMap's members by any route here. Its own /secretmaps/* surface serves them.
+      if (SecretMapCodec.isSecretMapKey(key)) {
+        respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
+        return;
+      }
       // GET /secrets/{tenantId}/{key}/versions -- list the key's stored version numbers.
       // POST /secrets/{tenantId}/{key}/undelete[?version=N] -- clear the soft-delete flag,
       // reserved action segments checked before the general key path below, the same pattern
@@ -595,9 +603,7 @@ public final class FafnirServer implements AutoCloseable {
         return;
       }
       // GET/PUT/DELETE /secrets/{tenantId}/{key}[?version=N|destroy=true] -- read, write, or
-      // (soft- or, with ?destroy=true, hard-) delete a single secret. PUT/DELETE reject a
-      // SecretMap-owned key outright -- see #handleSecretMaps's own javadoc for why mutation, but
-      // not read, is blocked on this flat path.
+      // (soft- or, with ?destroy=true, hard-) delete a single secret.
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (authorizeSecrets(
@@ -606,10 +612,6 @@ public final class FafnirServer implements AutoCloseable {
           }
         }
         case "PUT" -> {
-          if (SecretMapCodec.isSecretMapKey(key)) {
-            respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
-            return;
-          }
           // Audits deferred to the handler: a write's audit entry names the version it produced,
           // and that number doesn't exist yet at the point authorization is decided.
           if (authorizeSecrets(
@@ -618,10 +620,6 @@ public final class FafnirServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (SecretMapCodec.isSecretMapKey(key)) {
-            respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
-            return;
-          }
           // Audits deferred to the handler: a soft delete and a hard destroy (?destroy=true) both
           // authorize under the same Verb.DELETE, but only the handler knows which one this
           // request actually was -- and the trail must tell them apart (see #handleDeleteSecret).

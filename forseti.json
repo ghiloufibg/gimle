@@ -875,11 +875,12 @@
       "objective": "In a scratch module, exercise the `ModuleContext` downward API: instance identity, config key enumeration, named `dataDirectory(name)` volumes, and a config-change subscription; then change and delete a config key while it runs.",
       "oracle": "Identity matches what `gimle get instances` shows; enumeration lists exactly the delivered keys; each named volume is distinct and durable; the subscription fires on change and the deleted key is retracted from the running instance.",
       "requirements": [
+        "GIMLE-053",
         "GIMLE-616",
         "GIMLE-617",
         "GIMLE-630",
         "GIMLE-738",
-        "GIMLE-053"
+        "GIMLE-840"
       ]
     },
     {
@@ -1018,12 +1019,13 @@
       "objective": "Deploy a module whose liveness probe starts failing after it is serving, with a short declared interval/threshold; let it fail repeatedly.",
       "oracle": "Module-tier restart happens without operator action, is visible as a legible event, and repeated failure escalates with backoff until the budget is exhausted and the instance is marked FAILED — never a silent hot loop.",
       "requirements": [
-        "GIMLE-089",
+        "GIMLE-008",
         "GIMLE-036",
         "GIMLE-088",
+        "GIMLE-089",
+        "GIMLE-113",
         "GIMLE-725",
-        "GIMLE-008",
-        "GIMLE-113"
+        "GIMLE-830"
       ]
     },
     {
@@ -1221,7 +1223,8 @@
       "objective": "`apply -f` an ArtifactSet bundling several workload kinds under per-module tenant tags, with one member deliberately broken.",
       "oracle": "Healthy members come up together; the failure is reported against that member by name, not the whole bundle opaquely.",
       "requirements": [
-        "GIMLE-577"
+        "GIMLE-577",
+        "GIMLE-839"
       ]
     },
     {
@@ -1283,7 +1286,9 @@
       "requirements": [
         "GIMLE-106",
         "GIMLE-744",
-        "GIMLE-783"
+        "GIMLE-783",
+        "GIMLE-831",
+        "GIMLE-838"
       ]
     },
     {
@@ -1295,12 +1300,13 @@
       "objective": "`cordon` a node carrying running instances, deploy more, `uncordon`; repeat from the console's node controls.",
       "oracle": "Nothing new lands while cordoned, existing instances are untouched (cordon is not drain), the node's page shows the flag and its capacity bars.",
       "requirements": [
-        "GIMLE-376",
+        "GIMLE-132",
         "GIMLE-161",
         "GIMLE-213",
-        "GIMLE-715",
+        "GIMLE-376",
         "GIMLE-445",
-        "GIMLE-132"
+        "GIMLE-715",
+        "GIMLE-838"
       ]
     },
     {
@@ -1402,7 +1408,8 @@
       "requirements": [
         "GIMLE-110",
         "GIMLE-746",
-        "GIMLE-786"
+        "GIMLE-786",
+        "GIMLE-832"
       ]
     },
     {
@@ -1470,7 +1477,6 @@
       "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist. Then declare the same routes again as an `Ingress` resource instead of gateway.routes config, including one deliberately malformed route and one colliding with a config-declared path; re-submit the Ingress with a stale expectedVersion.",
       "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. The console's Gateway screen lists the same table it was given, names the route resolving to nothing and the rejected duplicate line, and never claims a FABRIC target resolves; its sidebar entry sits under an Edge group. An Ingress-declared route behaves identically to the same route declared in config; the malformed one is refused at submission naming the field, not accepted and silently unmatched; the config-declared route wins the collision; the stale re-submit is refused rather than overwriting.",
       "requirements": [
-        "GIMLE-570",
         "GIMLE-356",
         "GIMLE-357",
         "GIMLE-358",
@@ -1480,14 +1486,17 @@
         "GIMLE-364",
         "GIMLE-366",
         "GIMLE-367",
-        "GIMLE-684",
+        "GIMLE-570",
         "GIMLE-679",
+        "GIMLE-684",
         "GIMLE-773",
         "GIMLE-775",
         "GIMLE-776",
         "GIMLE-777",
         "GIMLE-778",
-        "GIMLE-785"
+        "GIMLE-785",
+        "GIMLE-840",
+        "GIMLE-841"
       ]
     },
     {
@@ -1514,18 +1523,19 @@
       "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the instance directly, at the address `GET /instances/{name}/{index}/fabric-endpoint` reports; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
       "oracle": "Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree.",
       "requirements": [
-        "GIMLE-579",
+        "GIMLE-192",
+        "GIMLE-567",
         "GIMLE-572",
         "GIMLE-574",
+        "GIMLE-579",
+        "GIMLE-587",
         "GIMLE-623",
         "GIMLE-730",
         "GIMLE-731",
         "GIMLE-732",
-        "GIMLE-192",
-        "GIMLE-567",
-        "GIMLE-587",
         "GIMLE-780",
-        "GIMLE-791"
+        "GIMLE-791",
+        "GIMLE-835"
       ]
     },
     {
@@ -1849,6 +1859,8 @@
       "objective": "ConfigMap and SecretMap from `--from-literal` and `--from-file`; reference both from a deployment with a colliding key; `secretmap rollback`, `secretmap replace`, a batch write with one bad entry; plain Config versions and rollback; console ConfigMaps/SecretMaps screens with History.",
       "oracle": "Collision is rejected at admission; only referenced maps are delivered; rollback restores exactly the prior key set; replace is atomic; partial batch failure is signalled in HTTP status and exit code; Config history/rollback behaves like Secrets; screens agree with the CLI.",
       "requirements": [
+        "GIMLE-379",
+        "GIMLE-453",
         "GIMLE-581",
         "GIMLE-582",
         "GIMLE-583",
@@ -1864,10 +1876,9 @@
         "GIMLE-595",
         "GIMLE-596",
         "GIMLE-651",
-        "GIMLE-677",
         "GIMLE-673",
-        "GIMLE-453",
-        "GIMLE-379"
+        "GIMLE-677",
+        "GIMLE-836"
       ]
     },
     {
@@ -1896,16 +1907,17 @@
       "objective": "`cert token create`, join a node, `cert request`/`status`/`approve`; request a CSR claiming the operator group and one with a SAN it cannot prove; revoke a certificate and use it; hammer the CSR endpoint.",
       "oracle": "Approval-gated flow works end to end and is audited; the self-declared group is overwritten server-side; the unprovable SAN is refused; the revoked certificate is denied everywhere; the bootstrap endpoint rate-limits. (Renewal-banner timing is unit-cited, not waited out.)",
       "requirements": [
-        "GIMLE-387",
         "GIMLE-034",
         "GIMLE-071",
         "GIMLE-072",
-        "GIMLE-259",
         "GIMLE-258",
+        "GIMLE-259",
+        "GIMLE-387",
         "GIMLE-624",
         "GIMLE-702",
+        "GIMLE-704",
         "GIMLE-743",
-        "GIMLE-704"
+        "GIMLE-834"
       ]
     },
     {
@@ -2076,7 +2088,8 @@
         "GIMLE-306",
         "GIMLE-307",
         "GIMLE-308",
-        "GIMLE-473"
+        "GIMLE-473",
+        "GIMLE-837"
       ]
     },
     {
@@ -2115,14 +2128,15 @@
       "objective": "`gimle logs <instance> --follow` under fresh traffic; filter by `--category`, level threshold and text; page backwards with the cursor; `-o json`; then the console's Log explorer.",
       "oracle": "Lines arrive live; APPLICATION vs PLATFORM categorisation is real; filters filter rather than relabel; paging is stable; instance logs are kept per instance on the node.",
       "requirements": [
-        "GIMLE-382",
-        "GIMLE-026",
         "GIMLE-019",
         "GIMLE-023",
+        "GIMLE-026",
+        "GIMLE-127",
+        "GIMLE-382",
+        "GIMLE-451",
         "GIMLE-737",
         "GIMLE-762",
-        "GIMLE-451",
-        "GIMLE-127"
+        "GIMLE-832"
       ]
     },
     {
@@ -2278,9 +2292,10 @@
       "oracle": "The timeline is complete and ordered; the webhook fires once on crossing and once on resolve; the firing endpoint reports known=false before the rule ever crosses, known=true/firing=true once it fires, and known=true/firing=false once it resolves -- the same answer regardless of which control-plane replica answers or whether one just restarted.",
       "requirements": [
         "GIMLE-377",
-        "GIMLE-753",
         "GIMLE-711",
-        "GIMLE-790"
+        "GIMLE-753",
+        "GIMLE-790",
+        "GIMLE-830"
       ]
     },
     {
@@ -2407,14 +2422,15 @@
       "objective": "Feed `apply -f` a typo'd field, a missing required field, valid YAML of no Gimlé kind, `request > limit`, a malformed quantity, an anti-affinity DaemonSet — for every workload kind.",
       "oracle": "Distinct, specific, client-side or admission errors — never a stack trace; each kind's parser names the offending field.",
       "requirements": [
+        "GIMLE-003",
+        "GIMLE-005",
+        "GIMLE-059",
         "GIMLE-172",
         "GIMLE-173",
         "GIMLE-174",
         "GIMLE-175",
         "GIMLE-176",
-        "GIMLE-003",
-        "GIMLE-005",
-        "GIMLE-059"
+        "GIMLE-833"
       ]
     },
     {

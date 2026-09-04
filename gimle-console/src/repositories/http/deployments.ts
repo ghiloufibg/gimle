@@ -50,6 +50,7 @@ interface RawDeployment {
   };
   instances: RawDeploymentInstance[];
   unplacedCount: number;
+  unplacedReason?: string;
   quotaViolating: boolean;
   limitRangeViolating: boolean;
   limitRangeViolationReason?: string;
@@ -82,6 +83,7 @@ function mapDeployment(raw: RawDeployment): Deployment {
         : UNOBSERVED,
     })),
     unplacedCount: raw.unplacedCount,
+    unplacedReason: raw.unplacedReason,
     quotaViolating: raw.quotaViolating,
     limitRangeViolating: raw.limitRangeViolating,
     limitRangeViolationReason: raw.limitRangeViolationReason,

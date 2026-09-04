@@ -68,6 +68,12 @@ export interface Deployment {
   spec: DeploymentSpec;
   instances: DeploymentInstance[];
   unplacedCount: number;
+  /**
+   * The scheduler's own words for why a replica is sitting unplaced. Set only once a reconciler
+   * tick has actually refused an index -- a deployment admitted moments ago is unplaced without
+   * having been refused anything yet.
+   */
+  unplacedReason?: string;
   quotaViolating: boolean;
   limitRangeViolating: boolean;
   /** Set only when limitRangeViolating -- which bound (min/max, request/limit) is failing. */
@@ -230,6 +236,8 @@ export interface StatefulSet {
   spec: StatefulSetSpec;
   instances: StatefulSetInstance[];
   unplacedCount: number;
+  /** See `Deployment.unplacedReason`. */
+  unplacedReason?: string;
 }
 
 export interface Node {
@@ -930,7 +938,10 @@ export interface SealingKeyRetirement {
  * Instance lifecycle events
  * ------------------------------------------------------------------------ */
 
-/** One value per lifecycle transition an instance's own timeline can record. */
+/**
+ * One value per entry an instance's own timeline can record: the lifecycle transitions, plus
+ * `LIVENESS_FAILED`, which records why the restart around it happened rather than a transition.
+ */
 export type InstanceEventKind =
   | "INSTALLED"
   | "RESOLVED"
@@ -939,7 +950,8 @@ export type InstanceEventKind =
   | "STOPPING"
   | "UNINSTALLED"
   | "TRANSITION_FAILED"
-  | "COMPLETED";
+  | "COMPLETED"
+  | "LIVENESS_FAILED";
 
 /**
  * One durable entry in a single instance's lifecycle timeline -- distinct from the cross-resource

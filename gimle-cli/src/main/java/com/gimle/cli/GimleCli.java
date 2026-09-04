@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -343,7 +344,7 @@ public final class GimleCli {
     ManifestFiles.resetStdinCache();
     Path file = ManifestFiles.requireFileFlag(args);
     String kind = ManifestFiles.extractKind(file);
-    rejectUnsupportedDryRun(args, kind);
+    rejectUnsupportedDryRun(args, kind, client);
     switch (kind) {
       case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args, err);
       case "Job" -> new JobsCommand(client, output, out).apply(args, err);
@@ -376,9 +377,18 @@ public final class GimleCli {
    * rather than silently ignored -- a flag that quietly does nothing on some kinds is exactly how
    * an operator ends up believing a manifest was previewed when it never was.
    */
-  private static void rejectUnsupportedDryRun(List<String> args, String kind) {
+  private static void rejectUnsupportedDryRun(
+      List<String> args, String kind, ControlPlaneClient client) {
     if (!DryRun.requested(args) || DRY_RUN_KINDS.contains(kind)) {
       return;
+    }
+    // Whether the kind exists at all is decided before whether it can be previewed. A kind this
+    // CLI doesn't know may still be a defined custom kind, and one that isn't defined anywhere has
+    // a different problem entirely -- answering "--dry-run is not supported for kind Frobnicator"
+    // for a kind that does not exist gives an operator a worse answer, and a different exit code,
+    // than dropping the flag would have given for the identical file.
+    if (!BUILT_IN_APPLY_KINDS.contains(kind)) {
+      CustomResourceCommand.requireDefinedKind(client, kind);
     }
     throw new CliException(
         "--dry-run is not supported for kind "
@@ -1005,6 +1015,25 @@ public final class GimleCli {
   /** The manifest kinds {@code apply --dry-run} can preview -- see {@link DryRun}. */
   private static final List<String> DRY_RUN_KINDS =
       List.of("Deployment", "Job", "CronJob", "DaemonSet", "StatefulSet");
+
+  /** Every {@code kind:} {@link #handleApply}'s own switch below names, previewable or not. */
+  private static final Set<String> BUILT_IN_APPLY_KINDS =
+      Set.of(
+          "Deployment",
+          "Job",
+          "CronJob",
+          "DaemonSet",
+          "StatefulSet",
+          "ArtifactSet",
+          "KindDefinition",
+          "Service",
+          "NetworkPolicy",
+          "Ingress",
+          "Tenant",
+          "LimitRange",
+          "Role",
+          "RoleBinding",
+          "Account");
 
   private static final String APPLY_USAGE =
       """

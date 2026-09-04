@@ -378,10 +378,8 @@ public final class AgentMain {
         new AgentLogServer(
             logRoot,
             0,
-            key -> {
-              SupervisedInstance instance = supervised.get(key);
-              return instance != null && instance.workerKey != null ? instance.workerKey : key;
-            },
+            (tenantId, deploymentName, instanceIndex) ->
+                workerDirectoryKey(supervised, tenantId, deploymentName, instanceIndex),
             volumeManager,
             () ->
                 supervised.values().stream()
@@ -396,8 +394,9 @@ public final class AgentMain {
             // Read live per request rather than snapshotted: an instance's fabric address only
             // exists once its worker's Hello handshake lands, so a lookup a moment after placement
             // must see the address the moment it arrives, not a copy taken before it did.
-            key -> {
-              SupervisedInstance instance = supervised.get(key);
+            (tenantId, deploymentName, instanceIndex) -> {
+              SupervisedInstance instance =
+                  findSupervised(supervised, tenantId, deploymentName, instanceIndex);
               if (instance == null) {
                 return Optional.empty();
               }
@@ -4123,6 +4122,59 @@ public final class AgentMain {
       metrics.close();
       traces.close();
     }
+  }
+
+  /**
+   * The {@code workers/<key>} subdirectory holding the log files of the instance a request names.
+   * For an instance with its own worker JVM that is the key this agent filed it under; for a Tier 1
+   * instance density-packed onto an already-running worker it is the key of whichever instance that
+   * worker was spawned for, since no worker was ever spawned under this one's own name.
+   *
+   * <p>An instance this node doesn't supervise falls back to the key it would have had, which names
+   * a directory that does not exist -- an empty log page, which is the honest answer, rather than a
+   * path pointing at some other instance's files.
+   */
+  static String workerDirectoryKey(
+      Map<String, SupervisedInstance> supervised,
+      Optional<String> tenantId,
+      String deploymentName,
+      int instanceIndex) {
+    SupervisedInstance instance =
+        findSupervised(supervised, tenantId, deploymentName, instanceIndex);
+    if (instance == null) {
+      return instanceKey(tenantId, deploymentName, instanceIndex);
+    }
+    return instance.workerKey != null ? instance.workerKey : instanceKey(instance.assigned);
+  }
+
+  /**
+   * The instance this node supervises under {@code deploymentName} at {@code instanceIndex}, or
+   * {@code null} if it hosts none. A declared {@code tenantId} addresses exactly one supervision
+   * key; an absent one means the caller did not say -- which is the ordinary case for an HTTP
+   * caller naming a workload the only way it knows it, by name -- and is answered by scanning what
+   * this node actually hosts rather than by guessing at a key. The scan is over a single node's
+   * live instances, and only a same-name-same-index collision between two tenants on one node can
+   * make it ambiguous, which is exactly what declaring the tenant resolves.
+   *
+   * <p>Not {@code supervised.get(deploymentName + "#" + instanceIndex)}: the supervision key is
+   * tenant-scoped and its shape is this class's own business, so a caller composing one by hand
+   * silently stops matching the moment that shape changes.
+   */
+  private static SupervisedInstance findSupervised(
+      Map<String, SupervisedInstance> supervised,
+      Optional<String> tenantId,
+      String deploymentName,
+      int instanceIndex) {
+    if (tenantId.isPresent()) {
+      return supervised.get(instanceKey(tenantId, deploymentName, instanceIndex));
+    }
+    return supervised.values().stream()
+        .filter(
+            instance ->
+                instance.assigned.deploymentName().equals(deploymentName)
+                    && instance.assigned.instanceIndex() == instanceIndex)
+        .findFirst()
+        .orElse(null);
   }
 
   static String instanceKey(AssignedInstance assigned) {

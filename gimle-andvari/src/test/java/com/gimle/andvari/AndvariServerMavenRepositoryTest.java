@@ -146,6 +146,29 @@ class AndvariServerMavenRepositoryTest {
 
   @Test
   @Timeout(10)
+  void every_maven_path_answers_head_the_same_way_it_answers_get() throws Exception {
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.jar",
+            "v1".getBytes(StandardCharsets.UTF_8)));
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.pom",
+            "<project/>".getBytes(StandardCharsets.UTF_8)));
+
+    // A resolving Maven client HEADs a .pom exactly as it HEADs the jar; answering 405 for one
+    // shape and 200 for the other reads to that client as a broken repository.
+    assertEquals(200, send(head("/repository/com/gimle/app/1.0.0/app-1.0.0.jar")).statusCode());
+    assertEquals(200, send(head("/repository/com/gimle/app/1.0.0/app-1.0.0.pom")).statusCode());
+    assertEquals(
+        200, send(head("/repository/com/gimle/app/1.0.0/app-1.0.0.jar.sha256")).statusCode());
+    assertEquals(200, send(head("/repository/com/gimle/app/maven-metadata.xml")).statusCode());
+    assertEquals(
+        404, send(head("/repository/com/gimle/app/1.0.0/app-1.0.0-sources.jar")).statusCode());
+  }
+
+  @Test
+  @Timeout(10)
   void maven_metadata_lists_every_pushed_version_and_names_the_latest() throws Exception {
     send(
         put(
@@ -238,6 +261,12 @@ class AndvariServerMavenRepositoryTest {
 
   private HttpRequest get(String path) {
     return HttpRequest.newBuilder(uri(path)).GET().build();
+  }
+
+  private HttpRequest head(String path) {
+    return HttpRequest.newBuilder(uri(path))
+        .method("HEAD", HttpRequest.BodyPublishers.noBody())
+        .build();
   }
 
   private HttpRequest put(String path, byte[] body) {

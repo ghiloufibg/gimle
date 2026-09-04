@@ -216,6 +216,12 @@ public final class DeploymentsCommand {
             status.get("quotaViolating"),
             status.get("limitRangeViolating"),
             status.get("instances")));
+    // Only present when a replica is genuinely stuck and the scheduler has already recorded why,
+    // so a healthy fleet's table never grows a column of dashes: the union-of-keys table renders
+    // this one only for the deployments that actually have something to say.
+    if (status.get("unplacedReason") instanceof String reason) {
+      row.put("reason", reason);
+    }
     return row;
   }
 

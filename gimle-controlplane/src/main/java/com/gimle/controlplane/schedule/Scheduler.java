@@ -30,10 +30,10 @@ import java.util.stream.Collectors;
  * requested, this preference is always in effect for {@code TIER_2} and always soft: it yields to
  * real capacity pressure rather than blocking placement.
  *
- * <p>Cordoning is deliberately just an exclusion filter, evaluated right after the tier filter and
- * before every other constraint: it never evicts an instance already running on a cordoned node,
- * only keeps new placements off it. Preemption is out of scope -- cordoning is a binary "don't
- * schedule here" flag, nothing more.
+ * <p>Cordoning is deliberately just an exclusion filter, evaluated after the label and tier filters
+ * and before every other constraint: it never evicts an instance already running on a cordoned
+ * node, only keeps new placements off it. Preemption is out of scope -- cordoning is a binary
+ * "don't schedule here" flag, nothing more.
  *
  * <p>{@link #eligibleNodes} is the same five-step eligibility filter {@link #place} applies,
  * extracted so a caller that wants "every survivor" rather than "one pick" -- {@code
@@ -165,12 +165,25 @@ public final class Scheduler {
       throw GimleSchedulingException.noNodesRegistered(deploymentName, instanceIndex);
     }
 
+    // Required labels are filtered first, ahead of every other constraint, because they are the
+    // only one that names *which* nodes the operator meant. Every later stage then reports against
+    // that named subset, so its message describes the nodes actually under consideration. Filtering
+    // labels last -- the previous order -- meant a single labelled node excluded by a cordon, a
+    // taint, or a capacity shortfall left only unlabelled survivors, and placement reported
+    // "required labels unsatisfied" listing nodes that were never candidates at all, naming the
+    // same wrong cause whatever had genuinely excluded the one node the operator asked for.
+    List<NodeCandidate> labelEligible = filterByLabels(candidates, requiredNodeLabels);
+    if (labelEligible.isEmpty()) {
+      throw GimleSchedulingException.requiredLabelsUnsatisfied(
+          deploymentName, instanceIndex, requiredNodeLabels, labelsByNode(candidates));
+    }
+
     // Tier is the one filter whose failure no capacity change can fix, so it reports itself rather
     // than falling through to the capacity shortfall below with an empty candidate set.
-    List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
+    List<NodeCandidate> tierEligible = filterByTier(tier, labelEligible);
     if (tierEligible.isEmpty()) {
       throw GimleSchedulingException.noNodeSupportsTier(
-          deploymentName, instanceIndex, tier, supportedTiersByNode(candidates));
+          deploymentName, instanceIndex, tier, supportedTiersByNode(labelEligible));
     }
 
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
@@ -191,16 +204,10 @@ public final class Scheduler {
           deploymentName, instanceIndex, conflictingTaintsByNode(affinityEligible, tenantId));
     }
 
-    List<NodeCandidate> labelEligible = filterByLabels(taintEligible, requiredNodeLabels);
-    if (labelEligible.isEmpty()) {
-      throw GimleSchedulingException.requiredLabelsUnsatisfied(
-          deploymentName, instanceIndex, requiredNodeLabels, labelsByNode(taintEligible));
-    }
-
     long requiredMemory = resourceRequest.memoryBytes();
     long requiredCpu = resourceRequest.cpuMillicores();
 
-    return labelEligible.stream()
+    return taintEligible.stream()
         .sorted(placementRanking(tier, tenantId))
         .filter(c -> c.freeMemoryBytes() >= requiredMemory && c.freeCpuMillicores() >= requiredCpu)
         .findFirst()
@@ -212,7 +219,7 @@ public final class Scheduler {
                     instanceIndex,
                     tier,
                     resourceRequest,
-                    freeCapacityOf(labelEligible)));
+                    freeCapacityOf(taintEligible)));
   }
 
   /**

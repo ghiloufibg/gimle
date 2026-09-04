@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 829,
+  "requirementCount": 841,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -14398,6 +14398,196 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ],
       "otherTestCoverage": "RaftClusterTest (a_leader_cut_off_from_the_majority_refuses_a_read_rather_than_answer_from_stale_state, a_read_index_from_a_healthy_leader_covers_the_write_it_just_committed), StoreNodeTest (a_non_leader_refuses_a_read_rather_than_answering_from_its_own_replica, a_non_leader_still_answers_status_for_itself)"
+    },
+    {
+      "id": "GIMLE-830",
+      "module": "gimle-worker",
+      "feature": "An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause",
+      "category": "Instance Lifecycle Events",
+      "status": "New",
+      "statusNote": "an instance timeline used to open at RESOLVED with no INSTALLED entry, read \"transition ACTIVE -> FAILED failed\", and recorded a liveness-driven restart as an ordinary stop/start indistinguishable from a manual one",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by WorkerMainTest/WorkerRuntimeTest, but no Holmgang Cucumber .feature scenario deploys a module whose liveness probe fails and asserts the resulting LIVENESS_FAILED entry on the instance's own timeline through the real API. To close: add a scenario that deploys a module with a failing liveness probe and reads GET /events for that instance.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceEventKind.java` (`LIVENESS_FAILED`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`InstallModule` identity ordering, `instanceEventFor`, `livenessFailureEventFor`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`LivenessRestartSink`, `onLivenessResult`)",
+        "`gimle-console/src/lib/instance-events.ts`, `gimle-console/src/types/index.ts`"
+      ],
+      "otherTestCoverage": "WorkerMainTest, WorkerRuntimeTest"
+    },
+    {
+      "id": "GIMLE-831",
+      "module": "gimle-controlplane",
+      "feature": "An unplaced workload reports the scheduler's own refusal in its own status",
+      "category": "Scheduling",
+      "status": "New",
+      "statusNote": "a stuck-unplaced workload's rejection reason lived only in the control plane's own server log, repeated every tick, and never in the workload's own API response",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by ApiServerUnplacedReasonTest against a real store, but no Holmgang Cucumber .feature scenario submits an unplaceable workload and asserts the reason surfaces through the real API. To close: add a scenario deploying a workload no node can host and asserting unplacedReason on its status.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`unplacedReason`, `deploymentStatus`, `statefulSetStatus`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `StatefulSetsCommand.java`",
+        "`gimle-console/src/addons/applications/kinds/replicated.ts`, `gimle-console/src/repositories/http/deployments.ts`"
+      ],
+      "otherTestCoverage": "ApiServerUnplacedReasonTest"
+    },
+    {
+      "id": "GIMLE-832",
+      "module": "gimle-agent",
+      "feature": "Instance logs located by deployment name and index rather than by a composed supervision key",
+      "category": "Logging",
+      "status": "New",
+      "statusNote": "an instance's log directory was addressed by a hand-composed deploymentName#instanceIndex key that stopped matching once supervision keys became tenant-scoped, and never matched a density-packed Tier 1 instance at all",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by WorkerDirectoryKeyTest and AgentLogServerTest, but no Holmgang Cucumber .feature scenario reads a tenant-scoped or density-packed instance's logs end to end through the control plane's proxy. To close: add a scenario deploying a tenant-scoped module and asserting gimle logs instance/... returns its lines.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`InstanceLookup`, `declaredTenant`, `handleInstanceLogs`, `handleFabricEndpoint`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervised`)"
+      ],
+      "otherTestCoverage": "WorkerDirectoryKeyTest, AgentLogServerTest"
+    },
+    {
+      "id": "GIMLE-833",
+      "module": "gimle-controlplane",
+      "feature": "A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses",
+      "category": "Admission Control",
+      "status": "New",
+      "statusNote": "a dry run answered a bare error, not a verdict, for a manifest the parser refused, and refused the flag for an unrecognized kind before checking whether the kind existed at all",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario drives apply --dry-run against a schema-invalid manifest or an undefined kind. To close: add a scenario submitting both and asserting the verdict shape and exit code.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`dispatchResourceRequest`'s PUT parse guard)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`rejectUnsupportedDryRun`, `BUILT_IN_APPLY_KINDS`), `CustomResourceCommand.java` (`requireDefinedKind`)"
+      ],
+      "otherTestCoverage": "ApiServerDryRunTest, GimleCliTest"
+    },
+    {
+      "id": "GIMLE-834",
+      "module": "gimle-controlplane",
+      "feature": "A CSR submission answers 400 naming the field it is missing, never an opaque 500",
+      "category": "PKI and Bootstrap",
+      "status": "New",
+      "statusNote": "a malformed or empty CSR body reached a raw runtime exception and answered an opaque 500 instead of a 400 naming the missing field",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario posts a malformed CSR body. To close: add a scenario posting an empty body to /bootstrap/csr and asserting a 400 that names the field.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBootstrapCsrSubmit`, `csrSubmissionFromJson`, `requiredCsrPurpose`, `requiredCsrField`, `optionalCsrField`)"
+      ],
+      "otherTestCoverage": "ApiServerTlsTest"
+    },
+    {
+      "id": "GIMLE-835",
+      "module": "gimle-controlplane",
+      "feature": "A NetworkPolicy's own owning tenant is validated to exist",
+      "category": "Network Policy",
+      "status": "New",
+      "statusNote": "a NetworkPolicy's own owning tenant was never validated to exist even though the tenants its allow list named correctly were",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by ApiServerNetworkPoliciesTest, but no Holmgang Cucumber .feature scenario posts a policy for a nonexistent tenant. To close: add a scenario asserting the 400.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`rejectUnknownOwningTenant`, `handlePostNetworkPolicy`)"
+      ],
+      "otherTestCoverage": "ApiServerNetworkPoliciesTest"
+    },
+    {
+      "id": "GIMLE-836",
+      "module": "gimle-fafnir",
+      "feature": "A SecretMap's members are unreadable through the flat secrets path",
+      "category": "Secrets",
+      "status": "New",
+      "statusNote": "a flat secret get could read a value stored under a SecretMap-owned key even though flat set/delete against the same key were correctly refused, bypassing the separate SECRETMAP grant",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario reads a SecretMap member through the flat secrets path. To close: add a scenario asserting the refusal.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSecrets`'s SecretMap-key guard)"
+      ],
+      "otherTestCoverage": "FafnirServerSecretMapTest, ApiServerSecretMapTest"
+    },
+    {
+      "id": "GIMLE-837",
+      "module": "gimle-andvari",
+      "feature": "The Maven-shaped repository surface answers HEAD on every path it answers GET on",
+      "category": "Artifact Registry",
+      "status": "New",
+      "statusNote": "the Maven surface answered 405 on HEAD for .pom sidecars, the server-computed checksum and maven-metadata.xml, while HEAD of the jar worked",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by AndvariServerMavenRepositoryTest, but no Holmgang Cucumber .feature scenario drives a real mvn resolve against Andvari. To close: add a scenario resolving a published coordinate through the Maven surface.",
+      "sourceLocations": [
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleRepositoryFile`, `handleRepositorySidecar`, `handleRepositoryChecksum`, `handleRepositoryMetadata`, `isHead`, `respondNotFoundOrHeaders`, `respondTextOrHeaders`)"
+      ],
+      "otherTestCoverage": "AndvariServerMavenRepositoryTest"
+    },
+    {
+      "id": "GIMLE-838",
+      "module": "gimle-controlplane",
+      "feature": "Placement failure reported against the nodes the operator's own labels actually named",
+      "category": "Scheduling",
+      "status": "Modified",
+      "statusNote": "required node labels are now the first eligibility filter rather than the last, so a labelled node excluded by a cordon, a taint or capacity is reported as such instead of as unsatisfied labels; which nodes are eligible is unchanged",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by SchedulerTest/SchedulerDiagnosticsTest, but no Holmgang Cucumber .feature scenario cordons or taints a labelled node and asserts the reported cause. To close: add a scenario asserting the failure names the excluded labelled node.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`place`'s filter order)"
+      ],
+      "otherTestCoverage": "SchedulerTest, SchedulerDiagnosticsTest"
+    },
+    {
+      "id": "GIMLE-839",
+      "module": "gimle-cli",
+      "feature": "An ArtifactSet publishes every member it can read and reports the ones it could not",
+      "category": "Artifact Registry",
+      "status": "New",
+      "statusNote": "one member failing a local pushability check aborted the whole ArtifactSet, including valid members ordered before it, unlike a push-phase failure at the same position",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario applies an ArtifactSet with an unreadable member. To close: add a scenario asserting partial publication and the naming of the failed entry.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java` (`apply`, `Resolution`, `resolveMembers`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactCommand.java` (`push`'s not-a-module message)"
+      ],
+      "otherTestCoverage": "ArtifactSetCommandTest"
+    },
+    {
+      "id": "GIMLE-840",
+      "module": "gimle-module",
+      "feature": "A module's own background and config-callback logging carries its instance identity",
+      "category": "Logging",
+      "status": "New",
+      "statusNote": "onConfigChange callback logging was miscategorized as PLATFORM instead of the instance's APPLICATION log, and the gateway's own route-reload thread had the same gap, so a rejected route table was invisible to an operator watching that instance",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber .feature scenario asserts the log category of a config callback or a rejected gateway reload. To close: add a scenario writing a malformed gateway.routes and asserting the rejection appears in the gateway instance's own APPLICATION log.",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java` (`notifyConfigChange`, `instanceMdcTags`)",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `rejectedRoutesConfig`)"
+      ],
+      "otherTestCoverage": "ConfigRelayTest, GatewayHooksRouteReloadTest"
+    },
+    {
+      "id": "GIMLE-841",
+      "module": "gimle-console",
+      "feature": "The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name",
+      "category": "Web Console",
+      "status": "New",
+      "statusNote": "the console's Gateway screen only recognized a DaemonSet literally named gimle-gateway, so a differently-named DaemonSet running the identical module was invisible to it",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Vitest-covered only; the console's Playwright suite does not exercise a renamed gateway DaemonSet, and Holmgang has no Cucumber scenario for the console. To close: add a Playwright case against a cluster whose gateway DaemonSet carries a non-default name.",
+      "sourceLocations": [
+        "`gimle-console/src/addons/gateway/store.ts` (`GATEWAY_MODULE_ID`, `fetchGatewayDaemonSet`, `daemonSetName`)",
+        "`gimle-console/src/addons/gateway/screen.tsx`"
+      ],
+      "otherTestCoverage": "gimle-console/src/addons/gateway/store.test.ts"
     }
   ]
 }

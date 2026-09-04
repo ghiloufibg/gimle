@@ -43,6 +43,7 @@ interface RawStatefulSet {
   };
   instances: RawStatefulSetInstance[];
   unplacedCount: number;
+  unplacedReason?: string;
 }
 
 const UNOBSERVED: StatefulSetInstance["observation"] = {
@@ -71,6 +72,7 @@ function mapStatefulSet(raw: RawStatefulSet): StatefulSet {
         : UNOBSERVED,
     })),
     unplacedCount: raw.unplacedCount,
+    unplacedReason: raw.unplacedReason,
   };
 }
 

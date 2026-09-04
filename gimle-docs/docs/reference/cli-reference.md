@@ -180,6 +180,7 @@ gimle seal value <plaintext> --public-key <path> --tenant <id> --name <name> --k
 gimle seal rotate-key
 gimle seal retire-key <keyId>
 gimle artifact push <jar> [--tenant <id>]
+gimle artifact push <jar> [--tenant <id>] --vessel --name <moduleId> --version <version>
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
 gimle artifact delete <moduleId> <version>
@@ -552,7 +553,8 @@ reserved-tenant veto -- so `gimle apply --dry-run` drops into a pipeline as a ga
 status means exactly what the unguarded `gimle apply` after it would mean.
 
 **Placement is advisory.** No submission is ever *rejected* for being unschedulable: an unplaceable
-replica simply waits for room, which is what `unplacedCount` reports on the deployment afterwards.
+replica simply waits for room, which is what `unplacedCount` -- and, once a reconciler tick has
+actually refused an index, `unplacedReason` -- reports on the deployment afterwards.
 So a forecast of unplaceable replicas prints as a `warning:` line on stderr and leaves the exit
 code at `0` -- the manifest really would be accepted.
 
@@ -863,6 +865,10 @@ gimle get statefulsets orders-statefulset --server 127.0.0.1:8080
 
 # Push one jar, tagged with its owning tenant
 gimle artifact push target/orders-service-1.0.0.jar --tenant orders-platform --server 127.0.0.1:8080
+
+# A vessel jar carries no gimle-module.yaml, so there is no descriptor to read a coordinate from --
+# name it explicitly instead
+gimle artifact push target/legacy-report-runner.jar --vessel --name report-runner --version 2.1.0 --server 127.0.0.1:8080
 
 # Push a whole multi-jar app in one command instead of one `artifact push` per jar
 gimle apply -f artifactset.yaml --server 127.0.0.1:8080

@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +40,7 @@ import java.util.stream.Collectors;
 import javax.net.ssl.SSLParameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
  * The gateway module's own lifecycle hooks: reads its route configuration and listen port from
@@ -117,6 +119,11 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   // enough, and every read of either one sees the last write under that same monitor.
   private String appliedRoutesConfig;
   private Set<String> registeredPaths = Set.of();
+
+  // The fingerprint of the last route configuration this instance refused, so the refusal is
+  // reported once rather than on every reload tick for as long as it stays refused. Cleared the
+  // moment any configuration parses, so a value that breaks again is reported again.
+  private String rejectedRoutesConfig;
 
   // Same synchronized-access discipline as appliedRoutesConfig/registeredPaths above. tlsContext is
   // null for a plaintext listener (nothing to reload) and otherwise fixed once onStart sets it --
@@ -200,14 +207,24 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     routeReloadScheduler =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-gateway-route-reload").unstarted(r));
+    // Captured on the onStart thread, which the platform has already tagged with this instance's
+    // identity, and re-applied on every tick below. A thread this module starts for itself carries
+    // none of that, so without it every line this loop logs -- including the one saying a route
+    // table was rejected -- landed in the worker's shared platform log instead of this instance's
+    // own, where an operator watching the gateway they just reconfigured would actually see it.
+    Map<String, String> instanceTags = MDC.getCopyOfContextMap();
     routeReloadScheduler.scheduleAtFixedRate(
-        () -> reloadRoutesSafely(ctx),
+        () -> reloadRoutesSafely(ctx, instanceTags),
         routeReloadInterval.toMillis(),
         routeReloadInterval.toMillis(),
         TimeUnit.MILLISECONDS);
   }
 
-  private void reloadRoutesSafely(ModuleContext ctx) {
+  private void reloadRoutesSafely(ModuleContext ctx, Map<String, String> instanceTags) {
+    Map<String, String> previous = MDC.getCopyOfContextMap();
+    if (instanceTags != null) {
+      MDC.setContextMap(instanceTags);
+    }
     try {
       reloadRoutesIfChanged(ctx);
     } catch (RuntimeException e) {
@@ -216,6 +233,12 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
               + " table: {}",
           e.getMessage(),
           e);
+    } finally {
+      if (previous == null) {
+        MDC.clear();
+      } else {
+        MDC.setContextMap(previous);
+      }
     }
   }
 
@@ -342,11 +365,20 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
         }
       }
     } catch (GatewayConfigException e) {
-      log.warn(
-          "gimle-gateway rejected a gateway.routes update, keeping the previous route table: {}",
-          e.getMessage());
+      // Warned once per distinct bad value, not once per tick: this method is level-triggered and
+      // re-reads the same rejected config every few seconds for as long as it stays broken, which
+      // would bury the instance's own log under one repeated line. The fingerprint is remembered
+      // rather than folded into appliedRoutesConfig so that a later edit back to the same broken
+      // value warns again -- it is news the second time too.
+      if (!fingerprint.equals(rejectedRoutesConfig)) {
+        rejectedRoutesConfig = fingerprint;
+        log.warn(
+            "gimle-gateway rejected a gateway.routes update, keeping the previous route table: {}",
+            e.getMessage());
+      }
       return;
     }
+    rejectedRoutesConfig = null;
     Set<String> newPaths = distinctPaths(newRoutes);
     for (String path : newPaths) {
       if (!registeredPaths.contains(path)) {

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { routePathDisplay, routeTarget } from "@/addons/gateway/routes-config";
 import {
   GATEWAY_CONFIG_TENANT,
-  GATEWAY_DAEMONSET_NAME,
+  GATEWAY_MODULE_ID,
   GATEWAY_ROUTES_KEY,
   readyInstances,
   useGatewayStore,
@@ -63,6 +63,7 @@ export function GatewayPage() {
     listenPort,
     instances,
     deployed,
+    daemonSetName,
     loading,
     loaded,
     error,
@@ -143,8 +144,8 @@ export function GatewayPage() {
 
       {loaded && !deployed && (
         <div className="mb-4 rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          No <span className="font-mono">{GATEWAY_DAEMONSET_NAME}</span> DaemonSet is deployed on
-          this cluster. The route table below, if any, is configured but unserved.
+          No DaemonSet on this cluster runs <span className="font-mono">{GATEWAY_MODULE_ID}</span>{" "}
+          (whatever it is named). The route table below, if any, is configured but unserved.
         </div>
       )}
 
@@ -228,7 +229,7 @@ export function GatewayPage() {
         title="Instances"
         aside={
           <span className="font-mono text-[10px] text-muted-foreground">
-            {GATEWAY_DAEMONSET_NAME}
+            {daemonSetName ?? GATEWAY_MODULE_ID}
           </span>
         }
       >

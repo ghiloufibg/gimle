@@ -38,15 +38,15 @@ final class SupervisedInstance {
   final ModuleDescriptor descriptor;
 
   /**
-   * The {@code deploymentName#instanceIndex} key of the worker JVM actually hosting this instance
-   * -- its own key for an instance that got a freshly-spawned worker, but a <em>different</em>
-   * already-supervised instance's key when {@code AgentMain#installIntoExistingWorker} packed this
-   * one onto an existing Tier 1 worker for density instead of spawning a new JVM. {@code
-   * AgentLogServer} needs this to find the right {@code workers/<workerKey>/} directory on disk --
-   * without it, a log request for a density-packed instance would look under a directory keyed by
-   * that instance's own name/index, which was never created since no worker was ever spawned for it
-   * specifically. {@code null} for the handful of unit tests that construct a {@link
-   * SupervisedInstance} directly with no real worker behind it at all.
+   * The supervision key of the worker JVM actually hosting this instance -- its own key for an
+   * instance that got a freshly-spawned worker, but a <em>different</em> already-supervised
+   * instance's key when {@code AgentMain#installIntoExistingWorker} packed this one onto an
+   * existing Tier 1 worker for density instead of spawning a new JVM. {@code AgentLogServer} needs
+   * this to find the right {@code workers/<workerKey>/} directory on disk -- without it, a log
+   * request for a density-packed instance would look under a directory keyed by that instance's own
+   * name/index, which was never created since no worker was ever spawned for it specifically.
+   * {@code null} for the handful of unit tests that construct a {@link SupervisedInstance} directly
+   * with no real worker behind it at all.
    */
   final String workerKey;
 

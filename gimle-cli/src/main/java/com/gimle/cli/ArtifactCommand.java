@@ -73,7 +73,17 @@ public final class ArtifactCommand {
       try {
         artifact = ModuleArtifactReader.read(jar);
       } catch (RuntimeException e) {
-        throw new CliException("not a pushable module artifact: " + e.getMessage(), e);
+        // Names the escape hatch, because "not a pushable module artifact" is exactly what a
+        // perfectly good vessel jar looks like from here -- it has no gimle-module.yaml because it
+        // is not a module, and an operator holding one has no way to guess that a flag exists for
+        // it from a message describing only what the jar isn't.
+        throw new CliException(
+            "not a pushable module artifact: "
+                + e.getMessage()
+                + " -- a jar carrying no gimle-module.yaml is pushed with --vessel --name"
+                + " <moduleId> --version <version>, which supplies the coordinate the descriptor"
+                + " would otherwise have named",
+            e);
       }
       moduleId = artifact.id().name();
       version = artifact.id().version().toString();

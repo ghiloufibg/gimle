@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 829,
+  "requirementCount": 841,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16980,6 +16980,239 @@
       "gherkinSteps": [
         "Given a 3-node store cluster holding a tenant, When the leader is partitioned from the majority and the majority elects a new leader and deletes that tenant, Then the partitioned node refuses a read of it rather than answering from its own still-present copy.",
         "Given a healthy store leader that has just committed a write, When a read index is established, Then a majority has confirmed the node still leads and the state machine has applied through the returned index before the store is read."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-830",
+      "module": "gimle-worker",
+      "feature": "An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause",
+      "category": "Instance Lifecycle Events",
+      "userStory": "As an operator reading an instance's timeline, I want it to show the install it began with, to say plainly which transition failed rather than that a failure failed, and to name a failing liveness probe as the reason for the restart around it, so that I can tell a probe-driven restart from an operator stopping and redeploying the instance by hand.",
+      "statusDetail": "Complete. Three gaps closed together. WorkerMain registered an instance's InstanceIdentity only after registering its artifact, but registering the artifact is what emits the Installed lifecycle event and instanceEventFor is only called once an identity exists, so every timeline opened at RESOLVED; the identity is now registered first, off the artifact's own id. A TRANSITION_FAILED entry read \"transition ACTIVE -> FAILED failed\" for an instance that had reached FAILED exactly as intended; it now reads \"could not transition from ACTIVE to FAILED\". And a restart triggered by consecutive liveness-probe failures produced only the ordinary STOPPING/UNINSTALLED/INSTALLED/ACTIVE run, indistinguishable from a hand-driven redeploy; WorkerRuntime now reports the decision through a LivenessRestartSink before restarting (before the restart, because stop() synchronously drops the instance's identity), and WorkerMain records it as a new InstanceEventKind.LIVENESS_FAILED entry naming the consecutive-failure count.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceEventKind.java` (`LIVENESS_FAILED`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`InstallModule` identity ordering, `instanceEventFor`, `livenessFailureEventFor`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`LivenessRestartSink`, `onLivenessResult`)",
+        "`gimle-console/src/lib/instance-events.ts`, `gimle-console/src/types/index.ts`"
+      ],
+      "testCoverageDetail": "`WorkerMainTest#transition_failed_message_names_the_transition_rather_than_reading_failed_to_fail`, `WorkerMainTest#a_liveness_driven_restart_is_recorded_as_its_own_kind_naming_the_failure_count`, `WorkerMainTest#a_single_liveness_failure_is_not_pluralized`, `WorkerRuntimeTest#repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active` (now also asserts the reported restart and its failure count)",
+      "gherkinSteps": [
+        "Given an instance whose liveness probe begins failing, When it fails enough consecutive times to trigger a module-tier restart, Then the instance's timeline carries a LIVENESS_FAILED entry naming how many failures in a row caused it.",
+        "Given a module that fails a lifecycle transition, When its TRANSITION_FAILED event is recorded, Then the message names the transition that could not be made rather than restating both ends of it around the word failed."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-831",
+      "module": "gimle-controlplane",
+      "feature": "An unplaced workload reports the scheduler's own refusal in its own status",
+      "category": "Scheduling",
+      "userStory": "As an operator whose deployment is stuck with replicas that never start, I want its status to say why, so that I do not have to read the control plane's own server log or guess which index's event timeline to open.",
+      "statusDetail": "Complete. The reconciler already recorded its refusal as a durable TRANSITION_FAILED event against the index it could not place, but nothing surfaced it: GET /deployments/{name} and GET /statefulsets/{name} reported only unplacedCount, and the reason lived in the control plane's platform log, re-logged every tick for as long as the workload stayed stuck. Both statuses now carry unplacedReason, taken from the lowest-numbered unplaced index's own most recent refusal, absent when nothing is unplaced or nothing has been refused yet. `gimle get deployments`/`get statefulsets` render it as a reason column that appears only for the rows that have one; the console's application view folds it into its Unplaced condition.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`unplacedReason`, `deploymentStatus`, `statefulSetStatus`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `StatefulSetsCommand.java`",
+        "`gimle-console/src/addons/applications/kinds/replicated.ts`, `gimle-console/src/repositories/http/deployments.ts`"
+      ],
+      "testCoverageDetail": "`ApiServerUnplacedReasonTest#a_stuck_deployment_reports_the_schedulers_own_refusal_in_its_status`, `#the_lowest_numbered_unplaced_replica_wins_rather_than_an_arbitrary_one`, `#a_deployment_nothing_has_refused_yet_reports_no_reason_at_all`",
+      "gherkinSteps": [
+        "Given a deployment whose replicas the scheduler cannot place, When an operator reads the deployment, Then its status names the scheduler's own refusal alongside the unplaced count.",
+        "Given a deployment admitted moments ago that no reconciler tick has refused yet, When an operator reads it, Then it reports an unplaced count with no reason attached."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-832",
+      "module": "gimle-agent",
+      "feature": "Instance logs located by deployment name and index rather than by a composed supervision key",
+      "category": "Logging",
+      "userStory": "As an operator reading one instance's logs, I want them to be found by the deployment name and index I actually know, so that a tenant-scoped workload and a Tier 1 instance packed onto a sibling's worker both answer instead of returning an empty page.",
+      "statusDetail": "Complete. AgentLogServer composed the supervision key by hand as `deploymentName#instanceIndex` to find the `workers/<key>/` directory holding an instance's log files. That stopped matching anything once the key became tenant-scoped (`tenantId#deploymentName#instanceIndex`), so every by-name log read answered off a directory that was never created; and for a Tier 1 instance density-packed onto a sibling's worker there is no such directory even in principle, since no worker was ever spawned under its name. The lookup is now a three-argument InstanceLookup (tenantId, deploymentName, instanceIndex) answered by the agent itself: a declared `?tenant=` addresses one supervision key exactly, an absent one is answered by scanning this node's own live instances, and the answer is the owning worker's key whenever the instance was packed onto one. `/fabric-endpoints/{name}/{index}` composed the same key and is resolved the same way.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`InstanceLookup`, `declaredTenant`, `handleInstanceLogs`, `handleFabricEndpoint`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervised`)"
+      ],
+      "testCoverageDetail": "`WorkerDirectoryKeyTest` (untenanted, tenanted, density-packed, two tenants sharing a name and index on one node, and an instance this node does not host), `AgentLogServerTest#volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them` and the instance-log tests exercising the same lookup",
+      "gherkinSteps": [
+        "Given a tenant-scoped instance running on a node, When an operator reads its logs by deployment name and index, Then the node answers with that instance's own log lines.",
+        "Given a Tier 1 instance packed onto a sibling instance's worker, When its logs are read by name, Then they are served from the worker directory that actually holds them."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-833",
+      "module": "gimle-controlplane",
+      "feature": "A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses",
+      "category": "Admission Control",
+      "userStory": "As an operator gating a pipeline on apply --dry-run, I want every predicted rejection to come back in the same verdict shape, so that one reader handles them all and a schema error is not the single case that falls out of the format.",
+      "statusDetail": "Complete. A manifest the parser refused (a bad apiVersion, a malformed artifactPath) was rejected before the dry-run flag was ever read, answering the same bare 400 a real apply gives, while an admission-chain rejection came back as a full verdict. The PUT path now catches the parse failure and, under ?dryRun=true, answers a rejected preview whose manifest check carries the parser's own message. Separately, the CLI refused --dry-run for an unrecognized kind before ever deciding whether the kind exists: an unknown kind now resolves against the live KindDefinition catalog first, so a manifest naming no defined kind gets the same answer, and the same exit code, it would have got without the flag.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`dispatchResourceRequest`'s PUT parse guard)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`rejectUnsupportedDryRun`, `BUILT_IN_APPLY_KINDS`), `CustomResourceCommand.java` (`requireDefinedKind`)"
+      ],
+      "testCoverageDetail": "Exercised through `ApiServerDryRunTest`'s existing verdict-shape assertions and `GimleCliTest`'s apply/dry-run coverage; no dedicated new test for the parse-failure verdict.",
+      "gherkinSteps": [
+        "Given a manifest whose schema the parser refuses, When it is submitted with dryRun=true, Then the response is a verdict whose manifest check failed carrying the parser's own message, not a bare error.",
+        "Given a manifest naming a kind no KindDefinition defines, When apply --dry-run is run against it, Then the CLI reports the unknown kind rather than that dry run is unsupported for it."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-834",
+      "module": "gimle-controlplane",
+      "feature": "A CSR submission answers 400 naming the field it is missing, never an opaque 500",
+      "category": "PKI and Bootstrap",
+      "userStory": "As a node or operator joining a cluster, I want a malformed CSR submission to tell me which field my request is missing, so that I fix my request instead of investigating a control plane that appears to have broken.",
+      "statusDetail": "Complete. POST /bootstrap/csr cast every field straight out of the parsed body, so an empty body, a non-object body, a missing purpose, or a number where a string belonged reached a raw NullPointerException/ClassCastException and answered 500. The body is now required to parse as a JSON object, every field is read by name and checked, purpose is matched against the real enum constants (the message listing them), and tenantId is required up front for a TENANT_CLIENT submission rather than reached for with orElseThrow at the branch that consumes it.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBootstrapCsrSubmit`, `csrSubmissionFromJson`, `requiredCsrPurpose`, `requiredCsrField`, `optionalCsrField`)"
+      ],
+      "testCoverageDetail": "Exercised through the existing `ApiServerTlsTest`/bootstrap CSR coverage for the success paths; no dedicated new test for each malformed-body shape.",
+      "gherkinSteps": [
+        "Given a CSR submission with an empty or non-object body, When it is posted, Then the control plane answers 400 saying the body must be a JSON object.",
+        "Given a CSR submission missing its purpose field, When it is posted, Then the control plane answers 400 naming that field rather than 500."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-835",
+      "module": "gimle-controlplane",
+      "feature": "A NetworkPolicy's own owning tenant is validated to exist",
+      "category": "Network Policy",
+      "userStory": "As an operator declaring a NetworkPolicy, I want its owning tenant checked the same way the tenants in its allow list already are, so that a typo cannot store a deny-by-default policy against a tenant nobody ever created.",
+      "statusDetail": "Complete. NetworkPolicySpec#referencedTenantIds deliberately excludes the policy's own tenantId, so the allow-list check never saw it: a policy could be stored against a tenant that did not exist -- deny-by-default, enforcing nothing, and absent from every per-tenant view. POST /networkpolicies now rejects an unknown owning tenant with a 400 before the allow-list check runs.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`rejectUnknownOwningTenant`, `handlePostNetworkPolicy`)"
+      ],
+      "testCoverageDetail": "`ApiServerNetworkPoliciesTest#a_policy_whose_own_owning_tenant_does_not_exist_is_a_400`, alongside the existing `#a_policy_naming_a_tenant_that_does_not_exist_is_a_400` for the allow list",
+      "gherkinSteps": [
+        "Given a NetworkPolicy whose tenantId names no existing tenant, When it is posted, Then the control plane answers 400 naming that tenant and stores nothing."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-836",
+      "module": "gimle-fafnir",
+      "feature": "A SecretMap's members are unreadable through the flat secrets path",
+      "category": "Secrets",
+      "userStory": "As a security administrator granting read access to flat secrets without granting access to named SecretMaps, I want that split to hold on every route, so that the separate grant is not bypassable by addressing a SecretMap member as if it were a flat secret.",
+      "statusDetail": "Complete. /secrets/{tenantId}/{key} refused a SecretMap-owned key on PUT and DELETE but served it on GET, and its /versions sub-resource served one too. That path authorizes under ResourceKind.SECRET, while SECRETMAP is deliberately its own grantable kind precisely so \"may read flat secrets\" can be granted without \"may read named SecretMaps\" -- and the tenant's flat listing already hides these rows for the same reason. Every method on that path, sub-resources included, now refuses a SecretMap-owned key and points at /secretmaps/*.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSecrets`'s SecretMap-key guard)"
+      ],
+      "testCoverageDetail": "Exercised through the existing `FafnirServerSecretMapTest`/`ApiServerSecretMapTest` coverage of the /secretmaps surface and the flat-path refusals; no dedicated new test for the GET refusal.",
+      "gherkinSteps": [
+        "Given a SecretMap member stored under its reserved key, When it is read through the flat /secrets path, Then the request is refused and directed to /secretmaps."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-837",
+      "module": "gimle-andvari",
+      "feature": "The Maven-shaped repository surface answers HEAD on every path it answers GET on",
+      "category": "Artifact Registry",
+      "userStory": "As a build running mvn against Andvari, I want a HEAD of a .pom or a checksum to answer the way a HEAD of the jar does, so that resolution does not fail against what looks like a broken repository.",
+      "statusDetail": "Complete. /repository/** answered HEAD for the jar itself (it shares the operational surface's own handler) but 405 for every sidecar, for the server-computed .jar.sha256, and for maven-metadata.xml -- and a resolving Maven client HEADs all of them. All three now answer HEAD with the status, content type and length a GET would carry and no body, which is what an HTTP HEAD requires.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleRepositoryFile`, `handleRepositorySidecar`, `handleRepositoryChecksum`, `handleRepositoryMetadata`, `isHead`, `respondNotFoundOrHeaders`, `respondTextOrHeaders`)"
+      ],
+      "testCoverageDetail": "`AndvariServerMavenRepositoryTest#every_maven_path_answers_head_the_same_way_it_answers_get`",
+      "gherkinSteps": [
+        "Given a jar and its .pom published under a Maven coordinate, When a client HEADs either of them, the server-computed checksum, or maven-metadata.xml, Then each answers 200 with no body rather than 405."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-838",
+      "module": "gimle-controlplane",
+      "feature": "Placement failure reported against the nodes the operator's own labels actually named",
+      "category": "Scheduling",
+      "userStory": "As an operator whose labelled node exists but was excluded, I want the failure to name what excluded it, so that I relax the right constraint instead of chasing a label that is already satisfied.",
+      "statusDetail": "Complete. The eligibility chain filtered required node labels last, after tier, cordon, anti-affinity and taints. A single labelled node excluded by any of those left only unlabelled survivors, so placement reported \"required labels unsatisfied\" listing nodes that were never candidates -- the same wrong cause whatever had genuinely excluded the one node asked for. Labels are now filtered first, because they are the only constraint that names which nodes the operator meant; every later stage then reports against that named subset, so a cordon, a taint or a capacity shortfall on the labelled node is reported as itself.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`place`'s filter order)"
+      ],
+      "testCoverageDetail": "`SchedulerTest` and `SchedulerDiagnosticsTest` (both pass unchanged against the new order, which preserves every eligibility outcome and changes only which stage reports a failure)",
+      "gherkinSteps": [
+        "Given one node carrying the required label and several without it, When that node is cordoned, Then placement reports the cordon rather than unsatisfied labels.",
+        "Given one node carrying the required label and several without it, When that node has too little free capacity, Then placement reports the capacity shortfall against that node."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-839",
+      "module": "gimle-cli",
+      "feature": "An ArtifactSet publishes every member it can read and reports the ones it could not",
+      "category": "Artifact Registry",
+      "userStory": "As an operator publishing several artifacts in one manifest, I want one unreadable entry to cost only itself, so that a typo in the last entry does not hold back the nine that are perfectly publishable.",
+      "statusDetail": "Complete. A member that failed a local pushability check (a missing file, a jar with no gimle-module.yaml, a bundle path that is not a directory) aborted the whole set before anything was pushed -- stricter than the push phase itself, which explicitly is not a transaction and leaves every already-pushed member valid. Resolution failures are now collected per member: everything that resolved is pre-flighted and pushed in manifest order, and the command then fails naming every entry it could not make sense of. A digest or kind conflict still stops everything, since it means the manifest disagrees with what is already published. The failure message for a jar with no descriptor now names `kind: vessel` (and, for `gimle artifact push`, `--vessel --name/--version`) as the way to publish one.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java` (`apply`, `Resolution`, `resolveMembers`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactCommand.java` (`push`'s not-a-module message)"
+      ],
+      "testCoverageDetail": "Exercised through `ArtifactSetCommandTest`'s existing resolution/push coverage; no dedicated new test for the partial-publish path.",
+      "gherkinSteps": [
+        "Given an ArtifactSet whose second of three entries names a file that does not exist, When it is applied, Then the other two are published and the command fails naming the entry it could not read."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-840",
+      "module": "gimle-module",
+      "feature": "A module's own background and config-callback logging carries its instance identity",
+      "category": "Logging",
+      "userStory": "As an operator following one instance's logs, I want everything that instance logs to appear there, so that a config-change callback and a gateway's route-table rejection are not silently filed as platform output I never look at.",
+      "statusDetail": "Complete. A ModuleContext.onConfigChange listener runs on whatever thread the delivery arrived on, which carries no instance identity, so anything a module logged from its own callback was categorized as the worker's PLATFORM output rather than that instance's APPLICATION log -- the only hook whose logging behaved differently from every other. SimpleModuleContext now tags the fan-out with the instance's own MDC tags, read from its InstanceInfo. The same shape applied to gimle-gateway's route-reload loop, a thread the module starts for itself: it now captures the tags on the onStart thread and re-applies them per tick, so a rejected gateway.routes update reaches the instance's own log -- warned once per distinct bad value rather than on every tick, since the loop re-reads the same rejected config every few seconds.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java` (`notifyConfigChange`, `instanceMdcTags`)",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `rejectedRoutesConfig`)"
+      ],
+      "testCoverageDetail": "Exercised through `ConfigRelayTest`/`GatewayHooksRouteReloadTest`'s existing coverage of delivery and rejection; no dedicated new test asserts the MDC category.",
+      "gherkinSteps": [
+        "Given a module logging from its own onConfigChange callback, When a config value changes, Then the line lands in that instance's APPLICATION log rather than the worker's platform log.",
+        "Given a gateway instance whose gateway.routes value is malformed, When the reload tick reads it, Then the rejection is reported once in that instance's own log and the previous route table is kept."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-841",
+      "module": "gimle-console",
+      "feature": "The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name",
+      "category": "Web Console",
+      "userStory": "As an operator who named my gateway DaemonSet something of my own, I want the console's Gateway screen to find it, so that it describes the gateway I am actually running.",
+      "statusDetail": "Complete. The screen looked up a DaemonSet named literally `gimle-gateway`, the name the shipped example manifest happens to use, so a differently-named DaemonSet running the identical module was invisible to it and the screen reported the gateway as not deployed. It now lists DaemonSets and selects by module id (`com.gimle.gateway`), preferring the conventionally-named one when a cluster runs several, and names whichever it picked in the Instances panel.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/addons/gateway/store.ts` (`GATEWAY_MODULE_ID`, `fetchGatewayDaemonSet`, `daemonSetName`)",
+        "`gimle-console/src/addons/gateway/screen.tsx`"
+      ],
+      "testCoverageDetail": "`gimle-console/src/addons/gateway/store.test.ts#finds a gateway DaemonSet whatever it is named, by the module it runs`, alongside the existing not-deployed and route-resolution tests",
+      "gherkinSteps": [
+        "Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

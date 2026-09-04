@@ -64,6 +64,7 @@ public final class WorkerRuntime {
   private final InstanceIdentityRegistry identityRegistry;
   private final Consumer<InstanceIdentity> onInstanceUninstalled;
   private final HealthReportSink healthReportSink;
+  private final LivenessRestartSink livenessRestartSink;
 
   private final Map<ModuleId, BoundedModuleScheduler> schedulers = new ConcurrentHashMap<>();
   private final Map<ModuleId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
@@ -99,7 +100,8 @@ public final class WorkerRuntime {
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         new InstanceIdentityRegistry(),
         identity -> {},
-        (id, alive, ready) -> {});
+        (id, alive, ready) -> {},
+        (id, consecutiveFailures) -> {});
   }
 
   /**
@@ -131,7 +133,8 @@ public final class WorkerRuntime {
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         identityRegistry,
         onInstanceUninstalled,
-        (id, alive, ready) -> {});
+        (id, alive, ready) -> {},
+        (id, consecutiveFailures) -> {});
   }
 
   /**
@@ -165,7 +168,8 @@ public final class WorkerRuntime {
         stableUptimeThreshold,
         identityRegistry,
         onInstanceUninstalled,
-        (id, alive, ready) -> {});
+        (id, alive, ready) -> {},
+        (id, consecutiveFailures) -> {});
   }
 
   /**
@@ -187,7 +191,8 @@ public final class WorkerRuntime {
       Duration stableUptimeThreshold,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled,
-      HealthReportSink healthReportSink) {
+      HealthReportSink healthReportSink,
+      LivenessRestartSink livenessRestartSink) {
     this.controller = controller;
     this.registry = registry;
     this.serviceRegistry = serviceRegistry;
@@ -200,6 +205,7 @@ public final class WorkerRuntime {
     this.identityRegistry = identityRegistry;
     this.onInstanceUninstalled = onInstanceUninstalled;
     this.healthReportSink = healthReportSink;
+    this.livenessRestartSink = livenessRestartSink;
   }
 
   /**
@@ -211,6 +217,19 @@ public final class WorkerRuntime {
   @FunctionalInterface
   public interface HealthReportSink {
     void report(ModuleId id, boolean alive, boolean ready);
+  }
+
+  /**
+   * Notified at the moment a run of consecutive liveness-probe failures has actually triggered a
+   * module-tier restart of {@code id}. Distinct from {@link HealthReportSink}, which reports what
+   * every probe tick currently reads: this fires once per restart decision, so a caller (only
+   * {@code WorkerMain} in production) can record the cause as its own durable timeline entry. The
+   * restart's own STOPPING/UNINSTALLED/INSTALLED/ACTIVE run is reported the ordinary way and,
+   * without this, is indistinguishable from an operator stopping and redeploying the instance.
+   */
+  @FunctionalInterface
+  public interface LivenessRestartSink {
+    void restartTriggered(ModuleId id, int consecutiveFailures);
   }
 
   /**
@@ -461,9 +480,9 @@ public final class WorkerRuntime {
       serviceRegistry.markUnready(id);
     }
     // "alive" here is always true: this tick only ran because the module is still ACTIVE with a
-    // live probe loop -- a genuine liveness failure is reported through the existing
-    // ModuleStateChanged("FAILED") path once restartModule's own budget is exhausted, not through
-    // this sink, so it isn't duplicated or raced against here.
+    // live probe loop. A genuine liveness failure travels its own two routes -- livenessRestartSink
+    // when it triggers a restart, and ModuleStateChanged("FAILED") once restartModule's own budget
+    // is exhausted -- never this one, so it isn't duplicated or raced against here.
     healthReportSink.report(id, true, ready);
   }
 
@@ -480,6 +499,10 @@ public final class WorkerRuntime {
       return;
     }
     consecutiveLivenessFailures.get(id).set(0);
+    // Reported before the restart rather than after: restartModule's own stop() synchronously
+    // reaches onUninstalled(), which drops this module's identity, so a sink that looked the
+    // identity up afterwards would have nothing left to attach the event to.
+    livenessRestartSink.restartTriggered(id, failures);
     restartModule(id);
   }
 

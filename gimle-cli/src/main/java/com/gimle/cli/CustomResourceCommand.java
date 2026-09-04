@@ -253,6 +253,30 @@ public final class CustomResourceCommand {
     return current;
   }
 
+  /**
+   * Fails with the control plane's own "unknown kind" wording when {@code kind} names no defined
+   * KindDefinition. The server already says this on every route that takes a kind; this exists so a
+   * check that runs entirely client-side, before any request is sent, can give the same answer
+   * instead of a differently-worded one about its own concerns.
+   */
+  static void requireDefinedKind(ControlPlaneClient client, String kind) {
+    List<String> defined =
+        client.getList("/kinddefinitions").stream()
+            .map(definition -> String.valueOf(definition.get("kindName")))
+            .sorted()
+            .toList();
+    if (defined.contains(kind)) {
+      return;
+    }
+    throw CliException.invalidInput(
+        "unknown kind '"
+            + kind
+            + "' -- no KindDefinition with that name; "
+            + (defined.isEmpty()
+                ? "no kinds are defined yet"
+                : "defined kinds: " + String.join(", ", defined)));
+  }
+
   private List<Map<String, Object>> catalog() {
     if (cachedCatalog == null) {
       cachedCatalog = client.getList("/kinddefinitions");

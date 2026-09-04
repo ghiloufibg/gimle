@@ -198,6 +198,13 @@ class WorkerRuntimeTest {
     assertEquals(
         Optional.of("hello from provider"),
         f.serviceRegistry().lookup(Greeter.class).map(Greeter::greet));
+
+    // The restart cycle above is, on its own, exactly what an operator-driven stop and redeploy
+    // produces -- so a failing liveness probe must also say so out loud, or nothing on the
+    // instance's own timeline ever explains why the instance went away.
+    assertFalse(f.livenessRestarts().isEmpty());
+    assertEquals(f.id(), f.livenessRestarts().get(0).id());
+    assertEquals(2, f.livenessRestarts().get(0).consecutiveFailures());
   }
 
   /** Shared plumbing for the two restart-budget tests below -- only the tracked bits differ. */

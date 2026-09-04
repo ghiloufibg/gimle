@@ -61,10 +61,12 @@ class ApiServerNetworkPoliciesTest {
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
-    // A policy's allow list is validated against the real tenant registry, so the tenants these
-    // scenarios name have to exist before a policy may name them.
+    // Both a policy's own owning tenant and every tenant its allow list names are validated against
+    // the real tenant registry, so every tenant these scenarios name has to exist first.
     for (String tenantId :
         List.of(
+            "acme",
+            "globex",
             "partner-tenant",
             "partner-a",
             "partner-b",
@@ -340,6 +342,21 @@ class ApiServerNetworkPoliciesTest {
     assertEquals(400, response.statusCode());
     assertTrue(response.body().contains("no-such-tenant"), response.body());
     assertEquals(404, get("/networkpolicies/typo?tenant=acme").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_policy_whose_own_owning_tenant_does_not_exist_is_a_400() throws Exception {
+    // The owning tenant used to be the one tenant a policy could name without it being checked --
+    // referencedTenantIds excludes it by design -- so a policy could be stored against a tenant
+    // nobody ever created: deny-by-default, enforcing nothing, and absent from every per-tenant
+    // view of the cluster.
+    HttpResponse<String> response =
+        post("/networkpolicies", tenantWidePolicyJson("orphan", "no-such-tenant", "partner-a"));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("no-such-tenant"), response.body());
+    assertEquals(404, get("/networkpolicies/orphan?tenant=no-such-tenant").statusCode());
   }
 
   /**

@@ -28,6 +28,8 @@ interface ReplicatedFacts {
   /** `null` for a DaemonSet, which is never short of a number it was asked for. */
   desiredReplicas: number | null;
   unplacedCount: number;
+  /** The scheduler's own refusal, where the kind's status reports one. */
+  unplacedReason?: string;
   requiredNodeLabels: string[];
   quotaViolating: boolean;
   limitRangeViolating: boolean;
@@ -55,10 +57,13 @@ function conditionsOf(w: ReplicatedFacts): ApplicationCondition[] {
   }
   if (w.unplacedCount > 0) {
     const plural = w.unplacedCount === 1 ? "replica has" : "replicas have";
+    // The scheduler's own refusal when it has recorded one -- "no feasible placement" alone tells
+    // an operator nothing about which constraint to relax.
+    const why = w.unplacedReason ? `: ${w.unplacedReason}` : "";
     out.push({
       severity: "bad",
       type: "Unplaced",
-      message: `${w.unplacedCount} ${plural} no feasible placement on any node`,
+      message: `${w.unplacedCount} ${plural} no feasible placement on any node${why}`,
     });
   }
   if (w.desiredReplicas !== null && w.unplacedCount === 0) {
@@ -179,6 +184,7 @@ export function fromDeployment(d: Deployment, services: readonly Service[]): App
       artifactPath: d.spec.artifactPath,
       desiredReplicas: d.spec.replicas,
       unplacedCount: d.unplacedCount,
+      unplacedReason: d.unplacedReason,
       requiredNodeLabels: [],
       quotaViolating: d.quotaViolating,
       limitRangeViolating: d.limitRangeViolating,
@@ -199,6 +205,7 @@ export function fromStatefulSet(s: StatefulSet, services: readonly Service[]): A
       artifactPath: s.spec.artifactPath,
       desiredReplicas: s.spec.replicas,
       unplacedCount: s.unplacedCount,
+      unplacedReason: s.unplacedReason,
       requiredNodeLabels: [],
       // A StatefulSet's own status carries neither flag; admission still enforces both, so this is
       // "not reported here", and the Deployments/Tenants screens remain where a violation shows.

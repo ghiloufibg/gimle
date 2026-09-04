@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
@@ -82,6 +85,13 @@ class ApiServerNetworkPoliciesAuthzTest {
             InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
         ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
+      // A policy's own owning tenant must exist before it may be declared, exactly as the tenants
+      // its allow list names must.
+      inProcessStore
+          .client()
+          .propose(
+              new StateMutation.PutTenant(
+                  new Tenant("acme", new ResourceQuota(1024L * 1024, 1000, 5))));
       String baseUrl = "https://localhost:" + server.port();
       HttpClient operatorClient = mutualTlsClient(ca, "O=gimle:operators,CN=root-operator");
 

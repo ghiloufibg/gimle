@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/repositories", () => ({
   configRepo: { fetchPage: vi.fn() },
-  daemonSetsRepo: { fetchOne: vi.fn() },
+  daemonSetsRepo: { fetchPage: vi.fn() },
   servicesRepo: { fetchAll: vi.fn(), fetchEndpoints: vi.fn() },
   endpointsRepo: { fetch: vi.fn() },
 }));
@@ -16,10 +16,10 @@ function configEntry(key: string, value: string): ConfigEntry {
   return { tenantId: "gimle-system", key, value, encrypted: false };
 }
 
-function daemonSet(ready: boolean): DaemonSet {
+function daemonSet(ready: boolean, name = "gimle-gateway"): DaemonSet {
   return {
     spec: {
-      name: "gimle-gateway",
+      name,
       moduleId: { name: "com.gimle.gateway", version: "1.0.0" },
       artifactPath: "gimle-gateway.jar",
       placement: { requiredNodeLabels: ["edge"] },
@@ -49,7 +49,10 @@ function seed(routes: string) {
     items: [configEntry(GATEWAY_ROUTES_KEY, routes), configEntry(GATEWAY_PORT_KEY, "8090")],
     nextCursor: null,
   });
-  vi.mocked(daemonSetsRepo.fetchOne).mockResolvedValue(daemonSet(true));
+  vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({
+    items: [daemonSet(true)],
+    nextCursor: null,
+  });
   vi.mocked(servicesRepo.fetchAll).mockResolvedValue([
     { name: "orders-api", tenantId: "acme", deploymentNames: ["orders"], port: 8080 },
     { name: "reports-api", tenantId: "acme", deploymentNames: ["reports"], port: 8080 },
@@ -65,6 +68,7 @@ describe("useGatewayStore", () => {
       listenPort: null,
       instances: [],
       deployed: false,
+      daemonSetName: null,
       loading: false,
       loaded: false,
       error: null,
@@ -179,7 +183,7 @@ describe("useGatewayStore", () => {
       port: 8080,
       endpoints: [],
     });
-    vi.mocked(daemonSetsRepo.fetchOne).mockRejectedValue(new ApiError(404, "not found"));
+    vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({ items: [], nextCursor: null });
 
     await useGatewayStore.getState().load();
 
@@ -192,7 +196,10 @@ describe("useGatewayStore", () => {
 
   it("reports a missing gateway.routes key rather than an empty table", async () => {
     vi.mocked(configRepo.fetchPage).mockResolvedValue({ items: [], nextCursor: null });
-    vi.mocked(daemonSetsRepo.fetchOne).mockResolvedValue(daemonSet(true));
+    vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({
+      items: [daemonSet(true)],
+      nextCursor: null,
+    });
     vi.mocked(servicesRepo.fetchAll).mockResolvedValue([]);
 
     await useGatewayStore.getState().load();
@@ -242,5 +249,25 @@ describe("useGatewayStore", () => {
     expect(rows[1].resolution).toEqual({ status: "live", endpointCount: 1 });
     // Both rows share one read rather than issuing the same request twice every poll.
     expect(servicesRepo.fetchEndpoints).toHaveBeenCalledTimes(1);
+  });
+
+  it("finds a gateway DaemonSet whatever it is named, by the module it runs", async () => {
+    seed("SERVICE /api/orders orders-api\n");
+    vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
+      name: "orders-api",
+      port: 8080,
+      endpoints: [{ host: "10.0.0.1", port: 8080 }],
+    });
+    vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({
+      items: [daemonSet(true, "edge-ingress")],
+      nextCursor: null,
+    });
+
+    await useGatewayStore.getState().load();
+
+    const { deployed, daemonSetName, instances } = useGatewayStore.getState();
+    expect(deployed).toBe(true);
+    expect(daemonSetName).toBe("edge-ingress");
+    expect(instances).toHaveLength(1);
   });
 });

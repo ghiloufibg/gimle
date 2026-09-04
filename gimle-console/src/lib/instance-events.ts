@@ -12,17 +12,20 @@ export const INSTANCE_EVENT_PAGE = 10;
 export type EventTone = "ok" | "warn" | "bad" | "info" | "muted";
 
 /**
- * A transition's tone. `TRANSITION_FAILED` is the only failure kind an instance timeline records,
- * and it is the whole point of this panel -- it is deliberately the only one tinted `bad`, so
- * scanning a long timeline for "what went wrong" is a matter of spotting the one red row.
+ * An entry's tone. `TRANSITION_FAILED` and `LIVENESS_FAILED` are the only two failure kinds an
+ * instance timeline records, and they are the whole point of this panel -- they are deliberately
+ * the only ones tinted `bad`, so scanning a long timeline for "what went wrong" is a matter of
+ * spotting the red rows.
  *
  * `UNINSTALLED` is `muted` rather than `bad` here, unlike the lifecycle-state badge that renders a
  * live instance's current state: in a timeline it is an ordinary terminal transition of a
- * deliberate teardown, not evidence of a problem.
+ * deliberate teardown, not evidence of a problem -- including when it is one step of the restart a
+ * `LIVENESS_FAILED` row just above it explains.
  */
 export function eventKindTone(kind: InstanceEventKind): EventTone {
   switch (kind) {
     case "TRANSITION_FAILED":
+    case "LIVENESS_FAILED":
       return "bad";
     case "ACTIVE":
     case "COMPLETED":
@@ -66,7 +69,11 @@ export function boundTimeline(
   return { visible: events.slice(0, pageSize), hiddenCount: events.length - pageSize };
 }
 
-/** How many failed transitions the whole timeline holds, bound or not -- the panel's headline. */
+/**
+ * How many failed transitions the whole timeline holds, bound or not -- the panel's headline.
+ * `LIVENESS_FAILED` is deliberately not counted: it records the cause of the restart that follows
+ * it, not a transition that could not be made.
+ */
 export function failureCount(events: InstanceEvent[]): number {
   return events.filter((e) => e.kind === "TRANSITION_FAILED").length;
 }

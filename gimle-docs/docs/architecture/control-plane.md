@@ -511,7 +511,11 @@ instead of silently re-granting a full restart budget to an already-flapping ins
 
 Every lifecycle transition a worker drives (`INSTALLED`/`RESOLVED`/`STARTING`/`ACTIVE`/`STOPPING`/
 `UNINSTALLED`/a failed transition with its cause) is durably recorded per-instance, not just relayed
-as a fire-and-forget `ModuleStateChanged` notification the way it always has been. The worker builds
+as a fire-and-forget `ModuleStateChanged` notification the way it always has been. One entry kind
+records a cause rather than a transition: `LIVENESS_FAILED`, written the moment a run of consecutive
+liveness-probe failures triggers a module-tier restart. Without it the restart's own
+`STOPPING`/`UNINSTALLED`/`INSTALLED`/`ACTIVE` run reads exactly like an operator stopping and
+redeploying the instance by hand. The worker builds
 an `InstanceEvent`, its agent forwards it to the control plane
 (`POST /nodes/{id}/events`), and it lands in `gimle-mimir`'s state store as an
 `AppendInstanceEvent` mutation — the store's first many-per-key resource kind (every other resource
@@ -527,7 +531,9 @@ changed what, cluster-wide) — both are real, both live in `gimle-mimir`, but a
 mechanisms: this one is per-instance timeline data scoped and capped per instance, `AuditEvent` is a
 cluster-wide trail with a single retention cap and no natural per-key scope. A `TRANSITION_FAILED`
 event's `causeSummary` is deliberately just an exception's class name plus message, not a full stack
-trace, to keep each event's footprint small.
+trace, to keep each event's footprint small; its message names the transition that could not be made
+("could not transition from ACTIVE to FAILED"), never restating both ends of it around the word
+"failed".
 
 ## What the control plane deliberately doesn't do
 

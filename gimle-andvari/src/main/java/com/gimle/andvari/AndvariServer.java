@@ -692,7 +692,8 @@ public final class AndvariServer implements AutoCloseable {
       return;
     }
     if (file.fileName().equals(jarFileName + ".sha256")
-        && "GET".equals(exchange.getRequestMethod())) {
+        && ("GET".equals(exchange.getRequestMethod())
+            || "HEAD".equals(exchange.getRequestMethod()))) {
       handleRepositoryChecksum(exchange, moduleId, version, target);
       return;
     }
@@ -706,23 +707,31 @@ public final class AndvariServer implements AutoCloseable {
     }
     Optional<StoredArtifact> meta = artifactStore.meta(moduleId, version);
     if (meta.isEmpty()) {
-      respond(exchange, 404, "no artifact stored for " + target);
+      respondNotFoundOrHeaders(exchange, "no artifact stored for " + target);
       return;
     }
-    respond(exchange, 200, meta.get().sha256());
+    respondTextOrHeaders(exchange, meta.get().sha256());
   }
 
   private void handleRepositorySidecar(
       HttpExchange exchange, String moduleId, String version, String fileName, String target)
       throws IOException {
     switch (exchange.getRequestMethod()) {
-      case "GET" -> {
+      // HEAD alongside GET, not 405: a Maven client HEADs a .pom (and every other sidecar) before
+      // fetching it, exactly as it HEADs the jar, and answering "method not allowed" for one file
+      // shape while allowing it for another reads to that client as a broken repository.
+      case "GET", "HEAD" -> {
         if (!authorizeArtifacts(exchange, Verb.READ, target, moduleId, version)) {
           return;
         }
         Optional<byte[]> sidecar = artifactStore.sidecar(moduleId, version, fileName);
         if (sidecar.isEmpty()) {
-          respond(exchange, 404, "no " + fileName + " stored for " + target);
+          respondNotFoundOrHeaders(exchange, "no " + fileName + " stored for " + target);
+          return;
+        }
+        if (isHead(exchange)) {
+          exchange.getResponseHeaders().add("Content-Type", sidecarContentType(fileName));
+          exchange.sendResponseHeaders(200, sidecar.get().length);
           return;
         }
         respondBytes(exchange, 200, sidecarContentType(fileName), sidecar.get());
@@ -762,7 +771,7 @@ public final class AndvariServer implements AutoCloseable {
       respond(exchange, 200, "maven-metadata.xml is server-generated; upload discarded");
       return;
     }
-    if (!"GET".equals(exchange.getRequestMethod())) {
+    if (!"GET".equals(exchange.getRequestMethod()) && !isHead(exchange)) {
       respond(exchange, 405, "method not allowed");
       return;
     }
@@ -778,19 +787,24 @@ public final class AndvariServer implements AutoCloseable {
             .filter(stored -> stored.kind() == ArtifactKind.JAR)
             .toList();
     if (versions.isEmpty()) {
-      respond(exchange, 404, "no versions stored for " + metadataFile.moduleId());
+      respondNotFoundOrHeaders(exchange, "no versions stored for " + metadataFile.moduleId());
       return;
     }
     byte[] xml = generateMavenMetadataXml(metadataFile, versions).getBytes(StandardCharsets.UTF_8);
     if (metadataFile.fileName().equals(MAVEN_METADATA_FILE)) {
+      if (isHead(exchange)) {
+        exchange.getResponseHeaders().add("Content-Type", "application/xml; charset=utf-8");
+        exchange.sendResponseHeaders(200, xml.length);
+        return;
+      }
       respondBytes(exchange, 200, "application/xml; charset=utf-8", xml);
       return;
     }
     if (metadataFile.fileName().equals(MAVEN_METADATA_FILE + ".sha256")) {
-      respond(exchange, 200, sha256Hex(xml));
+      respondTextOrHeaders(exchange, sha256Hex(xml));
       return;
     }
-    respond(exchange, 404, "unsupported metadata file: " + metadataFile.fileName());
+    respondNotFoundOrHeaders(exchange, "unsupported metadata file: " + metadataFile.fileName());
   }
 
   /**
@@ -1331,6 +1345,33 @@ public final class AndvariServer implements AutoCloseable {
         status,
         "application/json; charset=utf-8",
         Json.write(value).getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static boolean isHead(HttpExchange exchange) {
+    return "HEAD".equals(exchange.getRequestMethod());
+  }
+
+  /**
+   * A 404 with the explanatory body a GET gets, or bare headers for a HEAD -- an HTTP response to a
+   * HEAD carries no body whatever its status, and writing one desynchronizes the connection.
+   */
+  private static void respondNotFoundOrHeaders(HttpExchange exchange, String body)
+      throws IOException {
+    if (isHead(exchange)) {
+      exchange.sendResponseHeaders(404, -1);
+      return;
+    }
+    respond(exchange, 404, body);
+  }
+
+  /** {@link #respond}'s 200 for a GET; its length and content type alone for a HEAD. */
+  private static void respondTextOrHeaders(HttpExchange exchange, String body) throws IOException {
+    if (!isHead(exchange)) {
+      respond(exchange, 200, body);
+      return;
+    }
+    exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
+    exchange.sendResponseHeaders(200, body.getBytes(StandardCharsets.UTF_8).length);
   }
 
   private static void respondBytes(

@@ -10,8 +10,16 @@ import {
   type GatewayRouteError,
 } from "@/addons/gateway/routes-config";
 
-/** The DaemonSet the gateway module is deployed as, and the tenant its config keys live under --
- * both fixed by gimle-gateway's own shipped manifest, not per-cluster settings. */
+/**
+ * The module a gateway DaemonSet runs, and the tenant its config keys live under -- both fixed by
+ * gimle-gateway's own shipped manifest, not per-cluster settings.
+ *
+ * The module id, not a DaemonSet name, is what identifies a gateway here: the shipped example
+ * manifest happens to name its DaemonSet `gimle-gateway`, but nothing requires that, and an
+ * operator who named theirs anything else was running a gateway this screen could not see at all.
+ * `GATEWAY_DAEMONSET_NAME` remains only as the tie-break when several DaemonSets run the module.
+ */
+export const GATEWAY_MODULE_ID = "com.gimle.gateway";
 export const GATEWAY_DAEMONSET_NAME = "gimle-gateway";
 export const GATEWAY_CONFIG_TENANT = "gimle-system";
 export const GATEWAY_ROUTES_KEY = "gateway.routes";
@@ -47,8 +55,10 @@ interface State {
   routesConfigured: boolean | null;
   listenPort: string | null;
   instances: DaemonSetInstance[];
-  /** False when no `gimle-gateway` DaemonSet is deployed -- the gateway is an optional extension. */
+  /** False when no DaemonSet runs the gateway module -- the gateway is an optional extension. */
   deployed: boolean;
+  /** The name of the DaemonSet this screen is describing; null when none runs the module. */
+  daemonSetName: string | null;
   loading: boolean;
   loaded: boolean;
   error: string | null;
@@ -100,7 +110,16 @@ async function resolveRoute(
 }
 
 async function readGateway(): Promise<
-  Pick<State, "rows" | "parseErrors" | "routesConfigured" | "listenPort" | "instances" | "deployed">
+  Pick<
+    State,
+    | "rows"
+    | "parseErrors"
+    | "routesConfigured"
+    | "listenPort"
+    | "instances"
+    | "deployed"
+    | "daemonSetName"
+  >
 > {
   const config = await configRepo.fetchPage({
     tenantId: GATEWAY_CONFIG_TENANT,
@@ -143,14 +162,23 @@ async function readGateway(): Promise<
     listenPort,
     instances: daemonSet?.instances ?? [],
     deployed: daemonSet !== null,
+    daemonSetName: daemonSet?.spec.name ?? null,
   };
 }
 
-/** A 404 here means "the gateway extension isn't deployed on this cluster", which is a state to
- * show, not an error to report. Anything else is a real failure and propagates. */
+/**
+ * Whichever deployed DaemonSet runs the gateway module, found by module id rather than by name. A
+ * cluster running two of them (say one per edge zone) is a real shape, so the conventionally-named
+ * one wins the tie and the first found otherwise; the screen names whichever it picked.
+ *
+ * <p>A 404 means the gateway extension isn't deployed on this cluster, which is a state to show,
+ * not an error to report. Anything else is a real failure and propagates.
+ */
 async function fetchGatewayDaemonSet(): Promise<DaemonSet | null> {
   try {
-    return await daemonSetsRepo.fetchOne(GATEWAY_DAEMONSET_NAME);
+    const page = await daemonSetsRepo.fetchPage({ cursor: null, pageSize: 500 });
+    const running = page.items.filter((d) => d.spec.moduleId.name === GATEWAY_MODULE_ID);
+    return running.find((d) => d.spec.name === GATEWAY_DAEMONSET_NAME) ?? running[0] ?? null;
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null;
     throw e;
@@ -164,6 +192,7 @@ export const useGatewayStore = create<State>((set, get) => ({
   listenPort: null,
   instances: [],
   deployed: false,
+  daemonSetName: null,
   loading: false,
   loaded: false,
   error: null,

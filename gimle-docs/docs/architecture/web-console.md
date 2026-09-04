@@ -299,11 +299,14 @@ absolute and relative time it occurred.
 
 Two details worth stating outright:
 
-- **The kinds are visually distinguished, and `TRANSITION_FAILED` is the only one tinted as a
-  failure.** It is what the panel exists to surface, so scanning a long timeline for "what went
-  wrong" is a matter of spotting the one red row. `UNINSTALLED` is deliberately *not* tinted as a
-  failure here, unlike the badge showing a live instance's current lifecycle state: in a timeline it
-  is the ordinary terminal transition of a deliberate teardown.
+- **The kinds are visually distinguished, and only `TRANSITION_FAILED` and `LIVENESS_FAILED` are
+  tinted as failures.** They are what the panel exists to surface, so scanning a long timeline for
+  "what went wrong" is a matter of spotting the red rows. `UNINSTALLED` is deliberately *not* tinted
+  as a failure here, unlike the badge showing a live instance's current lifecycle state: in a
+  timeline it is the ordinary terminal transition of a deliberate teardown -- including when it is
+  one step of the restart a `LIVENESS_FAILED` row just above it explains. The panel's own headline
+  counts failed *transitions* only, so a `LIVENESS_FAILED` row is not double-counted alongside the
+  restart it caused.
 - **The panel bounds itself; the API does not.** `GET /events` has no `limit` parameter of its own
   (unlike `GET /audit`) — it returns the instance's whole retained timeline — so, exactly as the CLI
   does for `gimle events --limit`, the console truncates the already-newest-first response

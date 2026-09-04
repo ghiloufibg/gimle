@@ -844,6 +844,18 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-827 | The terminal view browses a tenant's own config and secret holdings | New | Not Covered | — |
 | GIMLE-828 | The terminal view reads a config key's, ConfigMap's or secret's revision history | New | Not Covered | — |
 | GIMLE-829 | Linearizable reads via a Raft read index, replacing round-robin replica reads | New | Not Covered | — |
+| GIMLE-830 | An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause | New | Not Covered | — |
+| GIMLE-831 | An unplaced workload reports the scheduler's own refusal in its own status | New | Not Covered | — |
+| GIMLE-832 | Instance logs located by deployment name and index rather than by a composed supervision key | New | Not Covered | — |
+| GIMLE-833 | A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses | New | Not Covered | — |
+| GIMLE-834 | A CSR submission answers 400 naming the field it is missing, never an opaque 500 | New | Not Covered | — |
+| GIMLE-835 | A NetworkPolicy's own owning tenant is validated to exist | New | Not Covered | — |
+| GIMLE-836 | A SecretMap's members are unreadable through the flat secrets path | New | Not Covered | — |
+| GIMLE-837 | The Maven-shaped repository surface answers HEAD on every path it answers GET on | New | Not Covered | — |
+| GIMLE-838 | Placement failure reported against the nodes the operator's own labels actually named | Modified | Not Covered | — |
+| GIMLE-839 | An ArtifactSet publishes every member it can read and reports the ones it could not | New | Not Covered | — |
+| GIMLE-840 | A module's own background and config-callback logging carries its instance identity | New | Not Covered | — |
+| GIMLE-841 | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1636,6 +1648,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: HealthProbesTest (9 new, every validation failure); ModuleDescriptorParserTest (8 added, including zero/negative/non-numeric for each field); WorkerRuntimeProbeTimingTest (5 new, real dynamically-loaded fixture modules through a real ModuleController/WorkerRuntime: a declared timeoutSeconds keeps a 400ms readiness check ready against a 100ms worker default while the same check without it is cut off; declared vs default failureThreshold; a declared long intervalSeconds suppresses fast-cadence probing).
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`, `gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java`, `gimle-worker/src/main/java/com/gimle/worker/{WorkerRuntime,WorkerMain}.java`
 
+#### GIMLE-840 — A module's own background and config-callback logging carries its instance identity
+
+- **Category**: Logging
+- **Status**: New  _(onConfigChange callback logging was miscategorized as PLATFORM instead of the instance's APPLICATION log, and the gateway's own route-reload thread had the same gap, so a rejected route table was invisible to an operator watching that instance)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario asserts the log category of a config callback or a rejected gateway reload. To close: add a scenario writing a malformed gateway.routes and asserting the rejection appears in the gateway instance's own APPLICATION log.
+- **Other test coverage (non-Holmgang, informational only)**: ConfigRelayTest, GatewayHooksRouteReloadTest
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java` (`notifyConfigChange`, `instanceMdcTags`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `rejectedRoutesConfig`)
+
 ### gimle-os
 
 #### GIMLE-064 — Pluggable resource-limiter abstraction
@@ -2061,6 +2082,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `ProbeLoopTest#a_handful_of_permanently_hung_keys_do_not_starve_ticking_for_another_key` -- confirmed failing against the pre-fix shared-pool code, passing after the fix. Every pre-existing TestScheduler-driven test in the file re-verified unaffected.
 - **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/ProbeLoop.java` (`tickerFor`, `start`, `stop`, `close`)
+
+#### GIMLE-830 — An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause
+
+- **Category**: Instance Lifecycle Events
+- **Status**: New  _(an instance timeline used to open at RESOLVED with no INSTALLED entry, read "transition ACTIVE -> FAILED failed", and recorded a liveness-driven restart as an ordinary stop/start indistinguishable from a manual one)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by WorkerMainTest/WorkerRuntimeTest, but no Holmgang Cucumber .feature scenario deploys a module whose liveness probe fails and asserts the resulting LIVENESS_FAILED entry on the instance's own timeline through the real API. To close: add a scenario that deploys a module with a failing liveness probe and reads GET /events for that instance.
+- **Other test coverage (non-Holmgang, informational only)**: WorkerMainTest, WorkerRuntimeTest
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceEventKind.java` (`LIVENESS_FAILED`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`InstallModule` identity ordering, `instanceEventFor`, `livenessFailureEventFor`), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`LivenessRestartSink`, `onLivenessResult`), `gimle-console/src/lib/instance-events.ts`, `gimle-console/src/types/index.ts`
 
 ### gimle-agent
 
@@ -2624,6 +2654,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.
 - **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)
+
+#### GIMLE-832 — Instance logs located by deployment name and index rather than by a composed supervision key
+
+- **Category**: Logging
+- **Status**: New  _(an instance's log directory was addressed by a hand-composed deploymentName#instanceIndex key that stopped matching once supervision keys became tenant-scoped, and never matched a density-packed Tier 1 instance at all)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by WorkerDirectoryKeyTest and AgentLogServerTest, but no Holmgang Cucumber .feature scenario reads a tenant-scoped or density-packed instance's logs end to end through the control plane's proxy. To close: add a scenario deploying a tenant-scoped module and asserting gimle logs instance/... returns its lines.
+- **Other test coverage (non-Holmgang, informational only)**: WorkerDirectoryKeyTest, AgentLogServerTest
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`InstanceLookup`, `declaredTenant`, `handleInstanceLogs`, `handleFabricEndpoint`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervised`)
 
 ### gimle-mimir
 
@@ -4836,6 +4875,51 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)
 
+#### GIMLE-831 — An unplaced workload reports the scheduler's own refusal in its own status
+
+- **Category**: Scheduling
+- **Status**: New  _(a stuck-unplaced workload's rejection reason lived only in the control plane's own server log, repeated every tick, and never in the workload's own API response)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by ApiServerUnplacedReasonTest against a real store, but no Holmgang Cucumber .feature scenario submits an unplaceable workload and asserts the reason surfaces through the real API. To close: add a scenario deploying a workload no node can host and asserting unplacedReason on its status.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerUnplacedReasonTest
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`unplacedReason`, `deploymentStatus`, `statefulSetStatus`), `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `StatefulSetsCommand.java`, `gimle-console/src/addons/applications/kinds/replicated.ts`, `gimle-console/src/repositories/http/deployments.ts`
+
+#### GIMLE-833 — A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses
+
+- **Category**: Admission Control
+- **Status**: New  _(a dry run answered a bare error, not a verdict, for a manifest the parser refused, and refused the flag for an unrecognized kind before checking whether the kind existed at all)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario drives apply --dry-run against a schema-invalid manifest or an undefined kind. To close: add a scenario submitting both and asserting the verdict shape and exit code.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerDryRunTest, GimleCliTest
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`dispatchResourceRequest`'s PUT parse guard), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`rejectUnsupportedDryRun`, `BUILT_IN_APPLY_KINDS`), `CustomResourceCommand.java` (`requireDefinedKind`)
+
+#### GIMLE-834 — A CSR submission answers 400 naming the field it is missing, never an opaque 500
+
+- **Category**: PKI and Bootstrap
+- **Status**: New  _(a malformed or empty CSR body reached a raw runtime exception and answered an opaque 500 instead of a 400 naming the missing field)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario posts a malformed CSR body. To close: add a scenario posting an empty body to /bootstrap/csr and asserting a 400 that names the field.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerTlsTest
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBootstrapCsrSubmit`, `csrSubmissionFromJson`, `requiredCsrPurpose`, `requiredCsrField`, `optionalCsrField`)
+
+#### GIMLE-835 — A NetworkPolicy's own owning tenant is validated to exist
+
+- **Category**: Network Policy
+- **Status**: New  _(a NetworkPolicy's own owning tenant was never validated to exist even though the tenants its allow list named correctly were)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by ApiServerNetworkPoliciesTest, but no Holmgang Cucumber .feature scenario posts a policy for a nonexistent tenant. To close: add a scenario asserting the 400.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerNetworkPoliciesTest
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`rejectUnknownOwningTenant`, `handlePostNetworkPolicy`)
+
+#### GIMLE-838 — Placement failure reported against the nodes the operator's own labels actually named
+
+- **Category**: Scheduling
+- **Status**: Modified  _(required node labels are now the first eligibility filter rather than the last, so a labelled node excluded by a cordon, a taint or capacity is reported as such instead of as unsatisfied labels; which nodes are eligible is unchanged)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by SchedulerTest/SchedulerDiagnosticsTest, but no Holmgang Cucumber .feature scenario cordons or taints a labelled node and asserts the reported cause. To close: add a scenario asserting the failure names the excluded labelled node.
+- **Other test coverage (non-Holmgang, informational only)**: SchedulerTest, SchedulerDiagnosticsTest
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`place`'s filter order)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -5161,6 +5245,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: SecretStoreTest (2); FafnirServerTest (2); FafnirSecretsAuthzTest (the bulk read runs its own authorizer check and forbids an ungranted caller; is allowed for a caller holding SECRET read; a node is forbidden the bulk read even with an active assignment while keeping its single-key read); SecretCommandTest (5, including owner-only file mode, refusal to overwrite, and a soft-deleted secret omitted).
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/{SecretValue}.java` (new), `.../SecretStore.java` (`getMany`), `.../FafnirServer.java` (`handleExportSecrets`, `authorizeSecretsBulkRead`), `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`export`, `import`)
 
+#### GIMLE-836 — A SecretMap's members are unreadable through the flat secrets path
+
+- **Category**: Secrets
+- **Status**: New  _(a flat secret get could read a value stored under a SecretMap-owned key even though flat set/delete against the same key were correctly refused, bypassing the separate SECRETMAP grant)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario reads a SecretMap member through the flat secrets path. To close: add a scenario asserting the refusal.
+- **Other test coverage (non-Holmgang, informational only)**: FafnirServerSecretMapTest, ApiServerSecretMapTest
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSecrets`'s SecretMap-key guard)
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -5384,6 +5477,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Cucumber scenario exercises the bundle path yet -- registry-deploy.feature covers only the single-jar coordinate flow. The end-to-end proof today is BundleVesselIT in gimle-smoke-tests (real subprocess cluster, real proxy push, real agent unpack, ACTIVE), which per this file's own coverage rule does not count as Covered. Closing the gap means a bundle-deploy.feature mirroring registry-deploy.feature: push a kind: bundle ArtifactSet entry through ClusterApi, deploy it coordinate-only as a vessel, assert ACTIVE via Heimdall.
 - **Other test coverage (non-Holmgang, informational only)**: `ArtifactStoreBundleTest`/`AndvariServerBundleTest`/`AndvariPeerSyncTest` (registry), `ArtifactPullCacheTest` (agent-side unpack), `ArtifactResolverTest` (metadata-only resolution), `AgentBundleLaunchTest` (launch command/workdir), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest`/`ArtifactSetMojoTest` (publishing surface), and `BundleVesselIT` in gimle-smoke-tests (real-cluster end to end)
 - **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java`, `gimle-module/src/main/java/com/gimle/module/artifact/ArtifactPullCache.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`
+
+#### GIMLE-837 — The Maven-shaped repository surface answers HEAD on every path it answers GET on
+
+- **Category**: Artifact Registry
+- **Status**: New  _(the Maven surface answered 405 on HEAD for .pom sidecars, the server-computed checksum and maven-metadata.xml, while HEAD of the jar worked)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by AndvariServerMavenRepositoryTest, but no Holmgang Cucumber .feature scenario drives a real mvn resolve against Andvari. To close: add a scenario resolving a published coordinate through the Maven surface.
+- **Other test coverage (non-Holmgang, informational only)**: AndvariServerMavenRepositoryTest
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleRepositoryFile`, `handleRepositorySidecar`, `handleRepositoryChecksum`, `handleRepositoryMetadata`, `isHead`, `respondNotFoundOrHeaders`, `respondTextOrHeaders`)
 
 ### gimle-muninn
 
@@ -6358,6 +6460,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: CliExtensionSeamTest asserts structurally that no mutating method appears on ClusterReader.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`, `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`
 
+#### GIMLE-839 — An ArtifactSet publishes every member it can read and reports the ones it could not
+
+- **Category**: Artifact Registry
+- **Status**: New  _(one member failing a local pushability check aborted the whole ArtifactSet, including valid members ordered before it, unlike a push-phase failure at the same position)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber .feature scenario applies an ArtifactSet with an unreadable member. To close: add a scenario asserting partial publication and the naming of the failed entry.
+- **Other test coverage (non-Holmgang, informational only)**: ArtifactSetCommandTest
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java` (`apply`, `Resolution`, `resolveMembers`), `gimle-cli/src/main/java/com/gimle/cli/ArtifactCommand.java` (`push`'s not-a-module message)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -7317,6 +7428,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Cucumber scenario drives the Topology screen against a real cluster returning instances out of order; coverage today is a pure-function Vitest suite only.
 - **Other test coverage (non-Holmgang, informational only)**: `lib/topology.test.ts` -- see requirements-matrix.json for detail
 - **Source location(s)**: `gimle-console/src/lib/topology.ts`, `gimle-console/src/routes/topology.tsx`
+
+#### GIMLE-841 — The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name
+
+- **Category**: Web Console
+- **Status**: New  _(the console's Gateway screen only recognized a DaemonSet literally named gimle-gateway, so a differently-named DaemonSet running the identical module was invisible to it)_
+- **Coverage**: Not Covered
+- **Gap note**: Vitest-covered only; the console's Playwright suite does not exercise a renamed gateway DaemonSet, and Holmgang has no Cucumber scenario for the console. To close: add a Playwright case against a cluster whose gateway DaemonSet carries a non-default name.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-console/src/addons/gateway/store.test.ts
+- **Source location(s)**: `gimle-console/src/addons/gateway/store.ts` (`GATEWAY_MODULE_ID`, `fetchGatewayDaemonSet`, `daemonSetName`), `gimle-console/src/addons/gateway/screen.tsx`
 
 ### gimle-fafnir-console
 
@@ -8700,7 +8820,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**699 of 829 requirements are Not Covered.**
+**711 of 841 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8714,6 +8834,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-245 | gimle-controlplane | Admission chain extension point | Admission / Internal-Infra | `AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated` |
 | GIMLE-658 | gimle-controlplane | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`. |
 | GIMLE-607 | gimle-controlplane | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name. |
+| GIMLE-833 | gimle-controlplane | A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses | Admission Control | ApiServerDryRunTest, GimleCliTest |
 | GIMLE-652 | gimle-mimir | Deleting a Workload Clears Its Revision History | Application Platform | `StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset) |
 | GIMLE-297 | gimle-andvari | Immutable, content-addressed artifact store | Artifact Registry | `ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent` |
 | GIMLE-299 | gimle-andvari | Size-limited streaming upload rejection | Artifact Registry | Implicit in `ArtifactStoreTest`'s put-path coverage |
@@ -8721,6 +8842,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-308 | gimle-andvari | Generated `maven-metadata.xml` (never stored, always fresh) | Artifact Registry | `AndvariServerMavenRepositoryTest` — `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically` |
 | GIMLE-577 | gimle-andvari | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Artifact Registry | `ArtifactStoreTest` (tenant round-trip through `meta.json`, untenanted-to-tenanted backfill exactly once, a further tenant swap still conflicts); `AndvariServerTest` (tenant header round-trip on HEAD/GET/PUT, catalog listing includes `tenantId`); `AndvariServerTlsTest` (tenant-scoped RBAC grants, a push cannot claim a tenant the caller holds no permission for, reads/deletes check the stored tenant not a caller claim); `ArtifactSetManifestParserTest` (`tenant:`/`modules:` grouping, push-order preservation, duplicate-path rejection across tenants and against `modules`); `ArtifactSetCommandTest` (real end-to-end `gimle apply` against a real in-process `AndvariServer`: multi-tenant push, pre-flight digest-conflict abort before any push, idempotent resume on re-apply); `ArtifactSetMojoTest` (per-submodule tenant-property override, generated manifest content); `ArtifactSetCommandTest` (admission cross-check: a mismatched tenantId rejected with 400 naming both tenants, a matching tenantId admitted, an untenanted workload against a tenanted coordinate skips the check) |
 | GIMLE-608 | gimle-andvari | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Artifact Registry | `ArtifactStoreBundleTest`/`AndvariServerBundleTest`/`AndvariPeerSyncTest` (registry), `ArtifactPullCacheTest` (agent-side unpack), `ArtifactResolverTest` (metadata-only resolution), `AgentBundleLaunchTest` (launch command/workdir), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest`/`ArtifactSetMojoTest` (publishing surface), and `BundleVesselIT` in gimle-smoke-tests (real-cluster end to end) |
+| GIMLE-837 | gimle-andvari | The Maven-shaped repository surface answers HEAD on every path it answers GET on | Artifact Registry | AndvariServerMavenRepositoryTest |
+| GIMLE-839 | gimle-cli | An ArtifactSet publishes every member it can read and reports the ones it could not | Artifact Registry | ArtifactSetCommandTest |
 | GIMLE-306 | gimle-andvari | Maven-2-shaped `/repository/**` interop surface | Artifact Registry / API Server | `AndvariServerMavenRepositoryTest` — `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable` |
 | GIMLE-265 | gimle-controlplane | `/artifacts/*` streaming proxy to Andvari | Artifact Registry / Internal-Infra | `AndvariClientTest`; end-to-end in `gimle-smoke-tests/AndvariRegistryIT` |
 | GIMLE-266 | gimle-controlplane | Andvari-client multi-endpoint failover with rotation | Artifact Registry / Internal-Infra | `AndvariClientTest` — `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable` |
@@ -8916,6 +9039,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-088 | gimle-worker | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | `ProbeLoopTest#a_passing_check_reports_true_repeatedly`, `#a_failing_check_reports_false`, `#a_check_that_throws_is_reported_as_a_failure_not_propagated`, `#a_check_that_hangs_past_its_timeout_is_reported_as_a_failure`, `#no_tick_fires_before_the_initial_delay_elapses`, `#after_the_initial_delay_ticks_settle_onto_the_ordinary_interval`, `#stop_halts_further_invocations_of_that_key`, `#two_keys_are_scheduled_independently`, `#the_production_constructor_still_schedules_on_a_real_ticker` |
 | GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | NONE recorded in the baseline |
 | GIMLE-798 | gimle-agent | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`. |
+| GIMLE-830 | gimle-worker | An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause | Instance Lifecycle Events | WorkerMainTest, WorkerRuntimeTest |
 | GIMLE-080 | gimle-worker | Newline-delimited control-channel wire protocol (worker side) | Internal-Infra | `ControlChannelClientTest#a_sent_message_is_received_intact_on_the_other_end`, `#receive_returns_empty_once_the_peer_closes_the_connection` |
 | GIMLE-099 | gimle-worker | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-124 | gimle-agent | Periodic certificate rotation check and hot-swap of outbound HttpClient | Internal-Infra | NONE recorded in the baseline |
@@ -9020,6 +9144,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-321 | gimle-muninn | Node/instance log read with cursor paging | Logging | `MuninnServerLogsIngestTest`, `MuninnDayFileStoreTest#read_after_and_read_older_round_trip_through_a_snapshot_into_a_fresh_store` |
 | GIMLE-322 | gimle-muninn | `follow=true` rejection on Muninn reads | Logging | `MuninnServerLogsIngestTest#follow_true_is_rejected_since_muninn_only_serves_shipped_history` |
 | GIMLE-343 | gimle-observability | Periodic log-file shipping to Muninn | Logging | `MuninnShipperTest#a_successful_tick_ships_new_log_lines_and_advances_the_cursor`, `#a_failed_tick_does_not_advance_the_cursor_and_retries_next_tick` |
+| GIMLE-832 | gimle-agent | Instance logs located by deployment name and index rather than by a composed supervision key | Logging | WorkerDirectoryKeyTest, AgentLogServerTest |
+| GIMLE-840 | gimle-module | A module's own background and config-callback logging carries its instance identity | Logging | ConfigRelayTest, GatewayHooksRouteReloadTest |
 | GIMLE-323 | gimle-muninn | Metrics ingest | Metrics | `MuninnServerMetricsIngestTest#an_ingested_counter_and_timer_batch_round_trips_with_measurements_intact`, `#an_ingested_timer_with_percentiles_round_trips_the_percentiles_map` |
 | GIMLE-324 | gimle-muninn | Metrics read | Metrics | `MuninnServerMetricsIngestTest` |
 | GIMLE-352 | gimle-observability | Per-process tagged Micrometer metrics wrappers | Metrics | `AgentMetricsTest`, `ApiServerMetricsTest`, `WorkerMetricsTest`, `StoreMetricsTest`, `FafnirMetricsTest` (e.g. `#record_request_increments_count_and_records_latency`, `#request_latency_timer_publishes_percentiles_for_muninn_shipping`, `#error_counter_is_not_created_when_no_error_ever_recorded`, `#different_endpoints_and_verbs_are_tagged_independently`) |
@@ -9065,6 +9191,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-675 | gimle-controlplane | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`. |
 | GIMLE-654 | gimle-mimir | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide` |
 | GIMLE-655 | gimle-os | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume` |
+| GIMLE-835 | gimle-controlplane | A NetworkPolicy's own owning tenant is validated to exist | Network Policy | ApiServerNetworkPoliciesTest |
 | GIMLE-679 | gimle-gateway | Gateway route table reloads on a config change without a restart | Networking | `GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`. |
 | GIMLE-748 | gimle-agent | A closed Bifrost service listener never serves one more connection | Networking | BifrostProxyTest.a_service_disappearing_from_the_source_closes_its_listener, verified over twelve consecutive runs with no surefire flakes. |
 | GIMLE-782 | gimle-agent | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing). Regression (M63): UdpServiceListenerTest#binds_at_a_specific_address_already_sharing_its_port_with_a_wildcard_socket, BifrostProxyTest#a_udp_service_binds_despite_a_wildcard_socket_already_holding_its_port. |
@@ -9131,6 +9258,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-075 | gimle-pki | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | NONE recorded in the baseline |
 | GIMLE-074 | gimle-pki | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | PKI / Internal-Infra | exercised indirectly throughout CertificateAuthorityTest (`generated_leaf_certificate_is_readable_by_openssl`, `certificate_survives_a_keystore_round_trip`); NONE dedicated PemTest |
 | GIMLE-078 | gimle-pki | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | NONE recorded in the baseline |
+| GIMLE-834 | gimle-controlplane | A CSR submission answers 400 naming the field it is missing, never an opaque 500 | PKI and Bootstrap | ApiServerTlsTest |
 | GIMLE-560 | gimle-dist | Standalone CLI distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-561 | gimle-dist | Standalone Hilmir bootstrap-tool distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-562 | gimle-dist | Cluster-machine platform distribution archive | Packaging | NONE recorded in the baseline |
@@ -9213,8 +9341,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-218 | gimle-controlplane | DaemonSet eligible-node enumeration (`eligibleNodes`) | Scheduling | `SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node` |
 | GIMLE-744 | gimle-controlplane | Placement and quota failures name the resource dimension, the numbers and the shortfall | Scheduling | SchedulerDiagnosticsTest (new, 16 -- one per distinct elimination cause, asserting the exact wording and numbers, which is the deliverable here rather than incidental); TenantQuotaPluginTest (2 updated to the full new text, 4 added); ResourceSpecTest (new, 5, formatter/parser round trip). |
 | GIMLE-783 | gimle-controlplane | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | New SchedulerPreemptionTest covers all ten decisions as a pure function over synthetic candidates: a higher-priority workload evicting a lower one, equal priority never being a victim, higher priority never being a victim, nothing evicted when evicting everything still would not fit, lowest-priority victims taken first, the node needing fewest evictions winning, a node with room needing no victims, an ineligible (cordoned) node never preempted however low its residents rank, multiple victims taken when one does not free enough, and CPU pressure alone being sufficient to preempt. |
+| GIMLE-831 | gimle-controlplane | An unplaced workload reports the scheduler's own refusal in its own status | Scheduling | ApiServerUnplacedReasonTest |
+| GIMLE-838 | gimle-controlplane | Placement failure reported against the nodes the operator's own labels actually named | Scheduling | SchedulerTest, SchedulerDiagnosticsTest |
 | GIMLE-215 | gimle-controlplane | Tier 2/3 node-level tenant isolation | Scheduling / Multi-tenancy | `SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant` |
 | GIMLE-217 | gimle-controlplane | StatefulSet sticky node placement | Scheduling / Orchestration | `SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone` |
+| GIMLE-836 | gimle-fafnir | A SecretMap's members are unreadable through the flat secrets path | Secrets | FafnirServerSecretMapTest, ApiServerSecretMapTest |
 | GIMLE-677 | gimle-fafnir | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`. |
 | GIMLE-671 | gimle-fafnir | A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version | Secrets / Fafnir | `SecretStoreTest` covers undelete restoring the current version, restoring an explicit older version without touching the newer version's own data, undeleting a never-written key (empty), undeleting a hard-deleted secret (empty, not revived), and rejecting an unknown version number. `FafnirServerTest`/`FafnirServerSealTest` cover the HTTP route and the highestVersion wire-shape change. Full gimle-fafnir/gimle-cli/gimle-controlplane suites re-verified. |
 | GIMLE-588 | gimle-fafnir | SecretMap store and `/secretmaps/*` API | Secrets Management | `SecretMapCodecTest`, `SecretMapStoreTest` (including a concurrency regression test mirroring `ConfigMapStoreTest`'s own), `FafnirServerSecretMapTest` (HTTP-level CRUD, authz, and reserved-prefix rejection). |
@@ -9310,6 +9441,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-743 | gimle-controlplane | The unauthenticated CSR bootstrap endpoint is rate limited | Transport Security | RequestRateLimiterTest (8): burst, refusal with a retry instant, no lockout extension, refill, capacity cap, 200 distinct keys admitted while one is exhausted, exact admission count under 64 concurrent virtual threads, argument validation. BootstrapCsrRateLimitTest (4), including the explicit legitimate-fleet case: 50 simultaneous submissions from one address at shipped defaults, all accepted. |
 | GIMLE-799 | gimle-gateway | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`. |
 | GIMLE-703 | gimle-mimir | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Upgrade path | RaftCodecTest#rejects_an_unrecognized_rpc_version_before_decoding_the_tag and #rejects_an_unrecognized_snapshot_version; StoreCodecTest#rejects_an_unrecognized_version_before_decoding_the_tag -- each forges a frame carrying an out-of-range version byte and asserts GimleCodecException naming both the declared and max-supported version, decoded before any tag/field is touched. Full gimle-mimir module suite (500+ pre-existing cases across both codecs) re-verified against the new framing. |
+| GIMLE-841 | gimle-console | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | Web Console | gimle-console/src/addons/gateway/store.test.ts |
 | GIMLE-435 | gimle-console | Operator session login / logout | Web Console / Auth | `src/stores/useAuthStore.test.ts` — "a successful login sets status authenticated and clears any previous error", "login failure surfaces a generic error and leaves status unauthenticated" |
 | GIMLE-436 | gimle-console | Session bootstrap & 401 handling | Web Console / Auth | `useAuthStore.test.ts` — "init() only calls session() once even if invoked twice", "handleUnauthorized clears principal and sets status unauthenticated" |
 | GIMLE-461 | gimle-fafnir-console | Vault operator login/logout (session-cookie auth) | Web Console / Auth | `src/stores/useAuthStore.test.ts` |

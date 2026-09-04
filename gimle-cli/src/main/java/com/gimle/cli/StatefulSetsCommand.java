@@ -183,6 +183,11 @@ public final class StatefulSetsCommand {
         status.get("instances") instanceof List<?> instances ? instances.size() : 0;
     row.put("replicas", placedInstances + "/" + desiredReplicas);
     row.put("health", healthOf(intValue(status.get("unplacedCount")), status.get("instances")));
+    // See DeploymentsCommand#humanize: rendered only for a set that really is stuck with a
+    // recorded reason, so the column is absent entirely from a healthy listing.
+    if (status.get("unplacedReason") instanceof String reason) {
+      row.put("reason", reason);
+    }
     return row;
   }
 

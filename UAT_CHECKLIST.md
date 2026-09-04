@@ -6,31 +6,31 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 829
+- **Total requirements**: 841
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 699
-- **Release-readiness (automated coverage)**: 15.7%
+- **Not covered by automated test**: 711
+- **Release-readiness (automated coverage)**: 15.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 52 | 14 | 38 | 26.9% |
-| gimle-module | 27 | 12 | 15 | 44.4% |
+| gimle-module | 28 | 12 | 16 | 42.9% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
-| gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 61 | 6 | 55 | 9.8% |
+| gimle-worker | 25 | 2 | 23 | 8.0% |
+| gimle-agent | 62 | 6 | 56 | 9.7% |
 | gimle-mimir | 70 | 36 | 34 | 51.4% |
 | gimle-fabric | 42 | 1 | 41 | 2.4% |
-| gimle-controlplane | 119 | 17 | 102 | 14.3% |
-| gimle-fafnir | 33 | 11 | 22 | 33.3% |
-| gimle-andvari | 24 | 2 | 22 | 8.3% |
+| gimle-controlplane | 124 | 17 | 107 | 13.7% |
+| gimle-fafnir | 34 | 11 | 23 | 32.4% |
+| gimle-andvari | 25 | 2 | 23 | 8.0% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
-| gimle-cli | 43 | 0 | 43 | 0.0% |
+| gimle-cli | 44 | 0 | 44 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 57 | 0 | 57 | 0.0% |
+| gimle-console | 58 | 0 | 58 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 9 | 0 | 9 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -243,6 +243,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up. Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation. | Yes |
 
+#### Logging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-840 | A module's own background and config-callback logging carries its instance identity | Given a module logging from its own onConfigChange callback, When a config value changes, Then the line lands in that instance's APPLICATION log rather than the worker's platform log. Given a gateway instance whose gateway.routes value is malformed, When the reload tick reads it, Then the rejection is reported once in that instance's own log and the previous route table is kept. | No |
+
 #### Module System
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -403,6 +409,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-088 | Liveness/readiness probe loop with timeout and initial-delay | Given a module declares health.liveness/readiness classes and an initialDelaySeconds When ProbeLoop.start schedules the check Then no tick fires before initialDelay elapses, and subsequent ticks settle onto the ordinary interval And a check that hangs past its timeout, or throws, is reported as a failed check, never propagated | No |
+
+#### Instance Lifecycle Events
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-830 | An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause | Given an instance whose liveness probe begins failing, When it fails enough consecutive times to trigger a module-tier restart, Then the instance's timeline carries a LIVENESS_FAILED entry naming how many failures in a row caused it. Given a module that fails a lifecycle transition, When its TRANSITION_FAILED event is recorded, Then the message names the transition that could not be made rather than restating both ends of it around the word failed. | No |
 
 #### Internal-Infra
 
@@ -575,6 +587,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-746 | Tier-1 worker density is an operator-configurable, validated knob | Given an agent configured with a Tier-1 density of one When two Tier-1 modules are assigned to it Then they are not packed into the same worker And an agent configured with a zero or non-numeric density fails at startup | No |
+
+#### Logging
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-832 | Instance logs located by deployment name and index rather than by a composed supervision key | Given a tenant-scoped instance running on a node, When an operator reads its logs by deployment name and index, Then the node answers with that instance's own log lines. Given a Tier 1 instance packed onto a sibling instance's worker, When its logs are read by name, Then they are served from the worker directory that actually holds them. | No |
 
 #### Multi-tenancy / Scheduling
 
@@ -1084,6 +1102,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Given a manifest declaring module.name/module.version and a resolvable artifact whose own gimle-module.yaml declares a different module identity; When the manifest is submitted; Then admission is rejected with a 400 naming both the declared and actual identity. Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected. Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction. Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check. | No |
+| [ ] | GIMLE-833 | A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses | Given a manifest whose schema the parser refuses, When it is submitted with dryRun=true, Then the response is a verdict whose manifest check failed carrying the parser's own message, not a bare error. Given a manifest naming a kind no KindDefinition defines, When apply --dry-run is run against it, Then the CLI reports the unknown kind rather than that dry run is unsupported for it. | No |
 
 #### Artifact Registry / Internal-Infra
 
@@ -1227,6 +1246,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
 
+#### Network Policy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-835 | A NetworkPolicy's own owning tenant is validated to exist | Given a NetworkPolicy whose tenantId names no existing tenant, When it is posted, Then the control plane answers 400 naming that tenant and stores nothing. | No |
+
 #### Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1258,6 +1283,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-242 | Reconciler-leader election via non-replicated lease | Given multiple ApiServer replicas share one store cluster; When each replica's leaseTick runs; Then only the lease-holder executes the reconcile tick. | No |
+
+#### PKI and Bootstrap
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-834 | A CSR submission answers 400 naming the field it is missing, never an opaque 500 | Given a CSR submission with an empty or non-object body, When it is posted, Then the control plane answers 400 saying the body must be a JSON object. Given a CSR submission missing its purpose field, When it is posted, Then the control plane answers 400 naming that field rather than 500. | No |
 
 #### Reconcilers / self-healing
 
@@ -1350,6 +1381,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-218 | DaemonSet eligible-node enumeration (`eligibleNodes`) | Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick. | No |
 | [ ] | GIMLE-744 | Placement and quota failures name the resource dimension, the numbers and the shortfall | Given a deployment requesting more memory than any node has free When placement is attempted Then the failure names memory, the shortfall, and the roomiest candidate node And a tier that no node supports says so instead of reporting a capacity shortfall | No |
 | [ ] | GIMLE-783 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted | No |
+| [ ] | GIMLE-831 | An unplaced workload reports the scheduler's own refusal in its own status | Given a deployment whose replicas the scheduler cannot place, When an operator reads the deployment, Then its status names the scheduler's own refusal alongside the unplaced count. Given a deployment admitted moments ago that no reconciler tick has refused yet, When an operator reads it, Then it reports an unplaced count with no reason attached. | No |
+| [ ] | GIMLE-838 | Placement failure reported against the nodes the operator's own labels actually named | Given one node carrying the required label and several without it, When that node is cordoned, Then placement reports the cordon rather than unsatisfied labels. Given one node carrying the required label and several without it, When that node has too little free capacity, Then placement reports the capacity shortfall against that node. | No |
 
 #### Scheduling / Multi-tenancy
 
@@ -1508,6 +1541,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-294 | Muninn metrics/traces shipping | Given -Dgimle.fafnir.muninnEndpoint is set; When FafnirMain starts; Then a MuninnShipper periodically ships this replica's metrics and traces. | No |
 
+#### Secrets
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-836 | A SecretMap's members are unreadable through the flat secrets path | Given a SecretMap member stored under its reserved key, When it is read through the flat /secrets path, Then the request is refused and directed to /secretmaps. | No |
+
 #### Secrets / CLI parity
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1578,6 +1617,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-308 | Generated `maven-metadata.xml` (never stored, always fresh) | Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release. | No |
 | [ ] | GIMLE-577 | Multi-jar publish with per-module tenant tagging (`kind: ArtifactSet`) | Given an ArtifactSet manifest naming several module jars grouped under two different tenants, When "gimle apply -f" is run once, Then every jar is pushed and tagged with its own tenant, and a pre-existing digest conflict on any one coordinate aborts the whole set -- touching nothing -- before a single byte is pushed. | No |
 | [ ] | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE. Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409. Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission. | No |
+| [ ] | GIMLE-837 | The Maven-shaped repository surface answers HEAD on every path it answers GET on | Given a jar and its .pom published under a Maven coordinate, When a client HEADs either of them, the server-computed checksum, or maven-metadata.xml, Then each answers 200 with no body rather than 405. | No |
 
 #### Artifact Registry / API Server
 
@@ -1792,6 +1832,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ### gimle-cli
 
+#### Artifact Registry
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-839 | An ArtifactSet publishes every member it can read and reports the ones it could not | Given an ArtifactSet whose second of three entries names a file that does not exist, When it is applied, Then the other two are published and the command fails naming the entry it could not read. | No |
+
 #### CLI
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2002,6 +2048,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-774 | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | Given a Service declared for tenant `acme` with no ready backing instance When an operator opens the console's Skald DNS screen Then `<service>.acme.svc.gimle.local` is listed with zero A records and named as having no ready instance And a tracked responder's directory age and consecutive poll failures are shown from the gauges it ships to Muninn | No |
+
+#### Web Console
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-841 | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet. | No |
 
 #### Web Console / Auth
 

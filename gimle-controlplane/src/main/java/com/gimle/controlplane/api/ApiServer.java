@@ -197,6 +197,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
+import java.util.stream.Collectors;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -1155,7 +1156,26 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          ParsedManifest parsed = ManifestParser.parse(exchange.getRequestBody());
+          ParsedManifest parsed;
+          try {
+            parsed = ManifestParser.parse(exchange.getRequestBody());
+          } catch (GimleManifestException | IllegalArgumentException e) {
+            // A preview answers in the verdict shape whatever the outcome -- that is the whole
+            // point of a gate a pipeline can read one way. A manifest the parser refuses used to
+            // be the single rejection it reported as a bare error instead, so the one class of
+            // problem an operator most wants a preview for was the one it could not preview.
+            if (!isDryRun(exchange)) {
+              throw e;
+            }
+            respondRejectedPreview(
+                exchange,
+                manifestKindLabel(manifestType),
+                name,
+                Optional.empty(),
+                400,
+                List.of(PreviewCheck.failed("manifest", String.valueOf(e.getMessage()))));
+            return;
+          }
           WorkloadSpec submitted = parsed.spec();
           Optional<String> submittedTenant = submitted.tenantId();
           // Deferred audit: requireAuthorizedForWrite (unlike requireAuthorized) records nothing
@@ -2807,7 +2827,8 @@ public final class ApiServer implements AutoCloseable {
               serviceInterfaceNames,
               allowedCallerTenantIds,
               allowedCalleeTenantIds);
-      if (rejectUnknownAllowListTenants(exchange, spec.referencedTenantIds())) {
+      if (rejectUnknownOwningTenant(exchange, tenantId)
+          || rejectUnknownAllowListTenants(exchange, spec.referencedTenantIds())) {
         return;
       }
       respondNetworkPolicyWrite(exchange, networkPolicyRegistry.put(spec, expectedVersion));
@@ -2890,6 +2911,21 @@ public final class ApiServer implements AutoCloseable {
    * #networkPolicyToJson}) and logged when the tenant is deleted -- never by retroactively voiding
    * a stored policy, which would silently widen it at the exact moment a tenant disappeared.
    */
+  /**
+   * The tenant a policy declares itself to belong to must exist, exactly as the tenants it names in
+   * its allow list already must. {@link NetworkPolicySpec#referencedTenantIds} deliberately
+   * excludes the owning tenant, so without this a policy could be stored against a tenant that was
+   * never created -- deny-by-default, enforced for nobody, and invisible on every per-tenant view.
+   */
+  private boolean rejectUnknownOwningTenant(HttpExchange exchange, String tenantId)
+      throws IOException {
+    if (knownTenantIds().contains(tenantId)) {
+      return false;
+    }
+    respond(exchange, 400, "no such tenant: " + tenantId);
+    return true;
+  }
+
   private boolean rejectUnknownAllowListTenants(HttpExchange exchange, Set<String> referenced)
       throws IOException {
     if (referenced.isEmpty()) {
@@ -3986,6 +4022,8 @@ public final class ApiServer implements AutoCloseable {
     status.put("spec", specMap);
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
+    unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
+        .ifPresent(reason -> status.put("unplacedReason", reason));
     return status;
   }
 
@@ -3997,6 +4035,38 @@ public final class ApiServer implements AutoCloseable {
             obs.deploymentName().equals(assignment.statefulSetName())
                 && obs.instanceIndex() == assignment.instanceIndex()
                 && obs.tenantId().equals(assignment.tenantId()));
+  }
+
+  /**
+   * Why one of this workload's replicas is currently sitting unplaced, in the scheduler's own
+   * words. The reconciler already records its refusal as a durable {@code TRANSITION_FAILED} event
+   * against the index it could not place; without surfacing it here, reading that reason meant
+   * either querying the index's own event timeline (which an operator has no reason to suspect
+   * exists for a replica that never started) or reading the control plane's own server log, where
+   * it is re-logged every tick for as long as the deployment stays stuck.
+   *
+   * <p>Indices are walked in order and the first refusal wins, so a partially-placed workload
+   * reports the lowest-numbered replica's reason rather than an arbitrary one. Absent when nothing
+   * is unplaced, and also when an index is unplaced for a reason no reconciler tick has recorded
+   * yet -- a deployment admitted moments ago has genuinely not been refused anything.
+   */
+  private Optional<String> unplacedReason(
+      Optional<String> tenantId, String name, int replicas, List<Map<String, Object>> instances) {
+    if (instances.size() >= replicas) {
+      return Optional.empty();
+    }
+    Set<Object> placed =
+        instances.stream().map(i -> i.get("instanceIndex")).collect(Collectors.toSet());
+    for (int index = 0; index < replicas; index++) {
+      if (placed.contains(index)) {
+        continue;
+      }
+      List<InstanceEvent> events = storeClient.listInstanceEvents(tenantId, name, index);
+      if (!events.isEmpty() && events.get(0).kind() == InstanceEventKind.TRANSITION_FAILED) {
+        return Optional.of(events.get(0).message());
+      }
+    }
+    return Optional.empty();
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -4025,6 +4095,8 @@ public final class ApiServer implements AutoCloseable {
     status.put("spec", specMap);
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
+    unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
+        .ifPresent(reason -> status.put("unplacedReason", reason));
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.tenantId(), spec.name()));
     // Present only once the autoscaler has actually moved this deployment -- what its own
     // stabilization windows are measured against, so an operator can see why a scale decision is
@@ -9224,8 +9296,19 @@ public final class ApiServer implements AutoCloseable {
         respondThrottled(exchange, retryAt.get());
         return;
       }
-      CsrSubmission submission =
-          csrSubmissionFromJson(Json.asObject(Json.parse(readBody(exchange))));
+      Map<String, Object> body;
+      try {
+        Object parsed = Json.parse(readBody(exchange));
+        if (!(parsed instanceof Map<?, ?>)) {
+          respond(exchange, 400, "request body must be a JSON object");
+          return;
+        }
+        body = Json.asObject(parsed);
+      } catch (IllegalArgumentException e) {
+        respond(exchange, 400, "request body is not valid JSON: " + e.getMessage());
+        return;
+      }
+      CsrSubmission submission = csrSubmissionFromJson(body);
       PKCS10CertificationRequest csr = Pem.decodeCsr(submission.csrPem());
 
       // Checked before the rotation branch: a TENANT_CLIENT submission is authenticated by the
@@ -9634,12 +9717,59 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Every field is read by name and checked here rather than cast straight out of the map: a body
+   * missing {@code purpose}, or carrying a number where a string belongs, used to reach a raw
+   * {@code NullPointerException}/{@code ClassCastException} and answer 500 -- telling a caller that
+   * this process had broken, when in fact its own request was incomplete and it was never told
+   * which field.
+   */
   private static CsrSubmission csrSubmissionFromJson(Map<String, Object> json) {
-    CsrPurpose purpose = CsrPurpose.valueOf((String) json.get("purpose"));
-    String csrPem = (String) json.get("csrPem");
-    Optional<String> bootstrapToken = Optional.ofNullable((String) json.get("bootstrapToken"));
-    Optional<String> tenantId = Optional.ofNullable((String) json.get("tenantId"));
+    CsrPurpose purpose = requiredCsrPurpose(json);
+    String csrPem = requiredCsrField(json, "csrPem");
+    Optional<String> bootstrapToken = optionalCsrField(json, "bootstrapToken");
+    Optional<String> tenantId = optionalCsrField(json, "tenantId");
+    // Checked here rather than at the branch that consumes it: that branch reaches for the value
+    // with orElseThrow, which is a 500 for what is plainly a malformed request.
+    if (purpose == CsrPurpose.TENANT_CLIENT && tenantId.isEmpty()) {
+      throw new IllegalArgumentException(
+          "'tenantId' is required for a " + CsrPurpose.TENANT_CLIENT + " submission");
+    }
     return new CsrSubmission(purpose, csrPem, bootstrapToken, tenantId);
+  }
+
+  private static CsrPurpose requiredCsrPurpose(Map<String, Object> json) {
+    String raw = requiredCsrField(json, "purpose");
+    for (CsrPurpose purpose : CsrPurpose.values()) {
+      if (purpose.name().equals(raw)) {
+        return purpose;
+      }
+    }
+    throw new IllegalArgumentException(
+        "'purpose' must be one of "
+            + Arrays.stream(CsrPurpose.values()).map(Enum::name).collect(Collectors.joining(", "))
+            + ", got: "
+            + raw);
+  }
+
+  private static String requiredCsrField(Map<String, Object> json, String field) {
+    Object value = json.get(field);
+    if (!(value instanceof String text) || text.isBlank()) {
+      throw new IllegalArgumentException(
+          "'" + field + "' is required and must be a non-blank string");
+    }
+    return text;
+  }
+
+  private static Optional<String> optionalCsrField(Map<String, Object> json, String field) {
+    Object value = json.get(field);
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof String text)) {
+      throw new IllegalArgumentException("'" + field + "' must be a string if present");
+    }
+    return Optional.of(text);
   }
 
   private static Map<String, Object> csrResultToJson(CsrResult result) {

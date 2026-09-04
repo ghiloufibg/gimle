@@ -1,5 +1,6 @@
 package com.gimle.module.lifecycle;
 
+import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleId;
 import java.nio.file.Path;
 import java.util.List;
@@ -210,14 +211,44 @@ public final class SimpleModuleContext implements ModuleContext {
    * that triggered this is unaffected.
    */
   void notifyConfigChange(final ConfigChange change) {
+    // Tagged here, not by whoever delivered the change: a listener runs on whatever thread the
+    // delivery arrived on, which carries no instance identity at all, so anything the module logged
+    // from its own callback used to be categorized as this worker's PLATFORM output rather than
+    // this instance's own APPLICATION log -- the one place an operator looks for it, and the only
+    // hook whose logging behaved differently from every other.
+    final Map<String, String> tags = instanceMdcTags();
     for (Consumer<ConfigChange> listener : configListeners) {
       try {
-        listener.accept(change);
-      } catch (RuntimeException e) {
+        InstanceMdcContext.runTagged(
+            tags,
+            () -> {
+              listener.accept(change);
+              return null;
+            });
+      } catch (Exception e) {
         log.warn(
             "config change listener for {} failed on key {}: {}", id, change.key(), e.getMessage());
       }
     }
+  }
+
+  /**
+   * This instance's own logging tags, or empty for a context with no instance identity registered
+   * (a plain unit-test context, or a module installed before its identity landed) -- the same
+   * "degrade, don't fail" posture every other identity read here takes.
+   */
+  private Map<String, String> instanceMdcTags() {
+    return instanceInfo
+        .get()
+        .map(
+            info ->
+                InstanceMdcContext.tagsFor(
+                    info.deploymentName(),
+                    info.instanceIndex(),
+                    id.name(),
+                    id.version().toString(),
+                    info.tenantId().orElse(null)))
+        .orElse(Map.of());
   }
 
   @Override

@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -56,18 +55,34 @@ final class AgentLogServer implements AutoCloseable {
 
   private final Path logRoot;
   private final HttpServer server;
-  private final Function<String, String> workerKeyResolver;
+  private final InstanceLookup<String> workerKeyResolver;
   private final VolumeManager volumeManager;
   private final Supplier<Set<String>> inUseVolumeKeys;
-  private final Function<String, Optional<InstanceFabricEndpoint>> fabricEndpointResolver;
+  private final InstanceLookup<Optional<InstanceFabricEndpoint>> fabricEndpointResolver;
 
-  /** No density-aware resolution -- every {@code deploymentName#instanceIndex} maps to itself. */
+  /**
+   * Answers something about one instance this agent supervises, named the only way an HTTP caller
+   * can name it: by deployment name and index, plus the tenant when -- and only when -- the caller
+   * declared one. The triple is deliberately not pre-joined into a key string by the caller: the
+   * key an agent files an instance under is its own private business (it has changed shape once
+   * already, which silently broke every by-name lookup here), and an absent tenant is a real,
+   * answerable request ("whoever on this node owns that name at that index"), not a key that can be
+   * built at all.
+   */
+  @FunctionalInterface
+  interface InstanceLookup<T> {
+    T resolve(Optional<String> tenantId, String deploymentName, int instanceIndex);
+  }
+
+  /**
+   * No density-aware resolution -- every instance's logs live under its own bare name and index.
+   */
   AgentLogServer(Path logRoot, int port) throws IOException {
-    this(logRoot, port, Function.identity());
+    this(logRoot, port, (tenantId, name, index) -> name + "#" + index);
   }
 
   /** No volume surface -- {@code /volumes} routes answer 404 until one is wired. */
-  AgentLogServer(Path logRoot, int port, Function<String, String> workerKeyResolver)
+  AgentLogServer(Path logRoot, int port, InstanceLookup<String> workerKeyResolver)
       throws IOException {
     this(logRoot, port, workerKeyResolver, null, Set::of);
   }
@@ -76,21 +91,25 @@ final class AgentLogServer implements AutoCloseable {
   AgentLogServer(
       Path logRoot,
       int port,
-      Function<String, String> workerKeyResolver,
+      InstanceLookup<String> workerKeyResolver,
       VolumeManager volumeManager,
       Supplier<Set<String>> inUseVolumeKeys)
       throws IOException {
-    this(logRoot, port, workerKeyResolver, volumeManager, inUseVolumeKeys, key -> Optional.empty());
+    this(
+        logRoot,
+        port,
+        workerKeyResolver,
+        volumeManager,
+        inUseVolumeKeys,
+        (tenantId, name, index) -> Optional.empty());
   }
 
   /**
-   * {@code workerKeyResolver} maps a requested instance's own {@code deploymentName#instanceIndex}
-   * to the worker directory actually hosting it -- ordinarily itself, but a different key when
-   * {@code AgentMain} packed that instance onto an already-running Tier 1 worker for density
-   * instead of spawning a dedicated one for it (see {@code SupervisedInstance#workerKey}). Without
-   * this, a log request for a density-packed instance would look under a {@code workers/}
-   * subdirectory that was never created, since no worker was ever spawned under that instance's own
-   * name.
+   * {@code workerKeyResolver} names the {@code workers/<key>} subdirectory actually holding a
+   * requested instance's log files. That is not something this class can derive on its own: the key
+   * is whatever {@code AgentMain} filed the instance under, and for a Tier 1 density-packed
+   * instance it is another instance's key entirely, since no worker was ever spawned under this
+   * one's own name (see {@code SupervisedInstance#workerKey}).
    *
    * <p>{@code volumeManager} (nullable: no volume surface) backs the {@code /volumes} inventory and
    * destroy routes; {@code inUseVolumeKeys} answers which {@code statefulSet#index} volumes a
@@ -100,10 +119,10 @@ final class AgentLogServer implements AutoCloseable {
   AgentLogServer(
       Path logRoot,
       int port,
-      Function<String, String> workerKeyResolver,
+      InstanceLookup<String> workerKeyResolver,
       VolumeManager volumeManager,
       Supplier<Set<String>> inUseVolumeKeys,
-      Function<String, Optional<InstanceFabricEndpoint>> fabricEndpointResolver)
+      InstanceLookup<Optional<InstanceFabricEndpoint>> fabricEndpointResolver)
       throws IOException {
     this.logRoot = logRoot;
     this.workerKeyResolver = workerKeyResolver;
@@ -293,7 +312,8 @@ final class AgentLogServer implements AutoCloseable {
       int instanceIndex = Integer.parseInt(parts[1]);
 
       String key = deploymentName + "#" + instanceIndex;
-      Optional<InstanceFabricEndpoint> supervised = fabricEndpointResolver.apply(key);
+      Optional<InstanceFabricEndpoint> supervised =
+          fabricEndpointResolver.resolve(declaredTenant(exchange), deploymentName, instanceIndex);
       if (supervised.isEmpty()) {
         respond(exchange, 404, "no instance " + key + " supervised on this node");
         return;
@@ -361,13 +381,7 @@ final class AgentLogServer implements AutoCloseable {
         }
         String statefulSetName = segments[0];
         int instanceIndex = Integer.parseInt(segments[1]);
-        // The owning tenant, if any, travels as ?tenant=<id> rather than a third path segment --
-        // the same convention the control plane's own tenant-scoped routes use. Omitted means the
-        // untenanted namespace, distinct from every real tenant id; so does an explicitly blank
-        // ?tenant=, which is how a caller spells "untenanted" when it must send the parameter at
-        // all. A tenant id is never blank, so the two spellings can't collide.
-        Optional<String> tenantId =
-            Optional.ofNullable(parseQuery(exchange).get("tenant")).filter(t -> !t.isBlank());
+        Optional<String> tenantId = declaredTenant(exchange);
         if (inUseVolumeKeys.get().contains(volumeKey(tenantId, statefulSetName, instanceIndex))) {
           respond(
               exchange,
@@ -439,20 +453,27 @@ final class AgentLogServer implements AutoCloseable {
       }
       String subPath = parts.length == 3 ? parts[2] : null;
 
-      // AgentMain's per-worker key (workers/<key>/), vs. InstanceSiftingFileAppender's own
-      // dash-joined key for the sifted file itself (see gimle-core's InstanceSiftingFileAppender)
-      // -- both derived from the same deploymentName/instanceIndex, but not the same separator.
-      // Resolved through workerKeyResolver, not used verbatim: a Tier 1 density-packed instance's
-      // own key names no worker directory of its own at all (see that field's own javadoc).
-      String workerKey = workerKeyResolver.apply(deploymentName + "#" + instanceIndex);
+      Map<String, String> query = parseQuery(exchange);
+
+      // Two different keys are in play, both derived from the same deploymentName/instanceIndex
+      // but neither derivable from the other: the worker directory AgentMain filed this instance
+      // under (workers/<key>/), answered by workerKeyResolver because only the agent knows it --
+      // a Tier 1 density-packed instance's logs live under the key of whichever instance's worker
+      // it was packed onto -- and InstanceSiftingFileAppender's own dash-joined filename for the
+      // sifted file inside it, which is fixed and built here.
+      String workerKey =
+          workerKeyResolver.resolve(declaredTenant(exchange), deploymentName, instanceIndex);
       Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
+      if (!isWithinRoot(workerLogRoot, logRoot)) {
+        respond(exchange, 400, "invalid log path");
+        return;
+      }
 
       if (subPath != null && subPath.startsWith("crashdumps")) {
         handleCrashDumps(exchange, workerLogRoot, subPath);
         return;
       }
 
-      Map<String, String> query = parseQuery(exchange);
       String category = query.getOrDefault("category", "APPLICATION");
       boolean follow = "true".equals(query.get("follow"));
       String cursor = query.get("cursor");
@@ -491,6 +512,22 @@ final class AgentLogServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The owning tenant a request declared, if any. It travels as {@code ?tenant=<id>} rather than an
+   * extra path segment -- the same convention the control plane's own tenant-scoped routes use.
+   * Omitted means the untenanted namespace, distinct from every real tenant id; so does an
+   * explicitly blank {@code ?tenant=}, which is how a caller spells "untenanted" when it must send
+   * the parameter at all. A tenant id is never blank, so the two spellings can't collide.
+   *
+   * <p>Absent is also what a caller that simply doesn't know the owning tenant sends -- an operator
+   * reading one deployment's logs by name knows the name, not the namespace -- so a lookup taking
+   * this must treat empty as "unspecified", not as a filter, and resolve the name across whatever
+   * this node actually hosts.
+   */
+  private static Optional<String> declaredTenant(HttpExchange exchange) {
+    return Optional.ofNullable(parseQuery(exchange).get("tenant")).filter(t -> !t.isBlank());
   }
 
   /**
