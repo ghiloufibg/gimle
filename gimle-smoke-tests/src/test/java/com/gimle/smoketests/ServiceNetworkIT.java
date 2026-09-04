@@ -11,6 +11,7 @@ import com.gimle.testkit.PortLease;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -209,27 +210,21 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
    * {@code SkaldMain}'s own poll cycle against the control plane runs on a fixed interval
    * independent of when the queried Service's endpoint actually resolved.
    */
-  private static byte[] awaitDnsAnswer(int dnsPort, String dottedName, Duration overallTimeout)
-      throws IOException {
-    long deadlineNanos = System.nanoTime() + overallTimeout.toNanos();
-    byte[] last;
-    do {
-      last = queryOverUdp(dnsPort, dottedName, Duration.ofSeconds(5));
-      if ((unsignedShort(last, 2) & 0xF) == DnsCodec.RCODE_NOERROR && unsignedShort(last, 6) > 0) {
-        return last;
-      }
-      try {
-        Thread.sleep(500);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new AssertionError("interrupted while awaiting a real skald DNS answer", e);
-      }
-    } while (System.nanoTime() < deadlineNanos);
-    throw new AssertionError(
-        "skald never answered NOERROR with a live record for "
-            + dottedName
-            + " within "
-            + overallTimeout);
+  private static byte[] awaitDnsAnswer(int dnsPort, String dottedName, Duration overallTimeout) {
+    byte[][] last = new byte[1][];
+    Await.until(
+        () -> {
+          try {
+            last[0] = queryOverUdp(dnsPort, dottedName, Duration.ofSeconds(5));
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
+          return (unsignedShort(last[0], 2) & 0xF) == DnsCodec.RCODE_NOERROR
+              && unsignedShort(last[0], 6) > 0;
+        },
+        overallTimeout,
+        "skald never answered NOERROR with a live record for " + dottedName);
+    return last[0];
   }
 
   /** Reimplements {@code LoopbackAddressAllocator#allocate}'s own hash-derived address exactly. */
