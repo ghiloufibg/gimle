@@ -128,9 +128,11 @@ public final class AndvariServer implements AutoCloseable {
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
   // 500 MiB -- generous enough for a module jar with bundled dependencies, small enough that one
-  // misbehaving or malicious pusher can't fill a node's disk with a single request. Checked while
-  // streaming (see ArtifactStore.SizeLimitedInputStream), not against a client-declared
-  // Content-Length, since chunked transfer encoding means that header isn't always even present.
+  // misbehaving or malicious pusher can't fill a node's disk with a single request. Enforced two
+  // ways: a fast upfront rejection in handleUpload when a declared Content-Length already exceeds
+  // it (never even opens the request body), and, since chunked transfer encoding means that header
+  // isn't always present (or a sender could simply lie), the real backstop -- checked while
+  // streaming regardless (see ArtifactStore.SizeLimitedInputStream).
   private static final long DEFAULT_MAX_ARTIFACT_BYTES = 500L * 1024 * 1024;
 
   private final StoreClient storeClient;
@@ -545,6 +547,28 @@ public final class AndvariServer implements AutoCloseable {
     }
     if (!authorizeArtifacts(
         exchange, Verb.WRITE, moduleId + ":" + version, moduleId, version, requestedTenant)) {
+      return;
+    }
+    // A declared Content-Length far over the cap is refused before the request body is ever
+    // touched -- for a push whose excess is large, letting the existing streaming check (below)
+    // read up to the limit and throw is not itself slow, but com.sun.net.httpserver's own
+    // request-body stream drains any *unread remainder* off the socket synchronously once closed,
+    // so it can offer the same connection back for reuse; for hundreds of MB of unread excess,
+    // that drain is what previously made the caller see no response at all. Chunked transfer
+    // encoding means this header isn't always present -- when it's absent (or lies), the streaming
+    // check below is still the real enforcement; this is purely a fast path for the common case of
+    // a sender that already knows its own size, which a real module-jar push always does.
+    Optional<Long> declaredContentLength = parseContentLength(exchange);
+    if (declaredContentLength.isPresent()
+        && declaredContentLength.get() > artifactStore.maxArtifactBytes()) {
+      respond(
+          exchange,
+          413,
+          "declared Content-Length "
+              + declaredContentLength.get()
+              + " exceeds the maximum allowed artifact size of "
+              + artifactStore.maxArtifactBytes()
+              + " bytes");
       return;
     }
     String pushedBy = resolvePrincipal(exchange).map(Principal::name).orElse("anonymous");
@@ -1228,6 +1252,24 @@ public final class AndvariServer implements AutoCloseable {
   private static Optional<String> firstHeader(HttpExchange exchange, String name) {
     List<String> values = exchange.getRequestHeaders().get(name);
     return values == null || values.isEmpty() ? Optional.empty() : Optional.of(values.get(0));
+  }
+
+  /**
+   * The request's own declared {@code Content-Length}, when present and well-formed -- absent for
+   * chunked transfer encoding (the header simply isn't sent) or a malformed value, in which case
+   * the caller falls back to whatever check doesn't depend on it, rather than treating either as an
+   * error in its own right.
+   */
+  private static Optional<Long> parseContentLength(HttpExchange exchange) {
+    return firstHeader(exchange, "Content-Length")
+        .flatMap(
+            value -> {
+              try {
+                return Optional.of(Long.parseLong(value.trim()));
+              } catch (NumberFormatException e) {
+                return Optional.empty();
+              }
+            });
   }
 
   private static List<String> splitHeader(HttpExchange exchange, String name) {

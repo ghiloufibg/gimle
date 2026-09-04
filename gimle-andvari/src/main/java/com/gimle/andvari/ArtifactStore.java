@@ -117,6 +117,15 @@ public final class ArtifactStore {
   }
 
   /**
+   * The cap {@link #put} enforces while streaming -- exposed so a caller (namely {@code
+   * AndvariServer}) can reject a declared-oversized push against the same number before ever
+   * opening the request body, rather than duplicating it.
+   */
+  public long maxArtifactBytes() {
+    return maxArtifactBytes;
+  }
+
+  /**
    * Deletes everything already sitting in {@code tmpRoot} at construction time. {@link #put} and
    * {@link #putSidecar} both stream into a temp file there before an atomic rename into place,
    * cleaning up their own temp file in a {@code finally} block -- but a hard process kill (OOM,

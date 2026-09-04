@@ -194,6 +194,57 @@ class AndvariServerTest {
   }
 
   @Test
+  @Timeout(15)
+  void
+      a_push_declaring_a_content_length_far_over_the_limit_is_refused_before_the_body_is_ever_sent()
+          throws Exception {
+    // Regression: a push far over the cap used to never resolve at all -- the streaming check
+    // fires as soon as enough bytes are read to exceed it, but the handler then closed the request
+    // stream before responding, and com.sun.net.httpserver's own request-body stream drains any
+    // *unread* remainder off the socket synchronously on close, so it can offer the connection back
+    // for reuse. For hundreds of MB of unread excess, that drain is what made the caller see no
+    // response at all. Driven over a raw Socket, sending only the request line and headers and
+    // never a single body byte, so this actually proves the upfront Content-Length check rejects
+    // before ever opening the request body -- not merely that the existing streaming check is fast.
+    System.setProperty("gimle.andvari.maxArtifactBytes", "1000");
+    try (InProcessStore cappedStore = InProcessStore.start(tempDir.resolve("far-over-cap-store"));
+        AndvariServer cappedServer =
+            new AndvariServer(cappedStore.client(), 0, tempDir.resolve("far-over-cap-data"))) {
+      cappedServer.start();
+
+      try (java.net.Socket socket = new java.net.Socket("127.0.0.1", cappedServer.port())) {
+        socket.setSoTimeout(10_000);
+        java.io.OutputStream out = socket.getOutputStream();
+        // Declares a body far larger than the 1000-byte cap -- and, unlike a real push, never
+        // actually sends a single byte of it. The point under test is that the response arrives
+        // anyway, proving the check ran before the (never-sent) body was ever waited on.
+        long declaredContentLength = 600_000_000L;
+        String requestLine =
+            "PUT /artifacts/com.example.slowpush/1.0.0 HTTP/1.1\r\n"
+                + "Host: 127.0.0.1\r\n"
+                + "Content-Length: "
+                + declaredContentLength
+                + "\r\n"
+                + "Connection: close\r\n"
+                + "\r\n";
+        out.write(requestLine.getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        java.io.BufferedReader in =
+            new java.io.BufferedReader(
+                new java.io.InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+        String statusLine = in.readLine();
+
+        assertTrue(
+            statusLine != null && statusLine.contains("413"),
+            "expected a prompt 413 status line, got: " + statusLine);
+      }
+    } finally {
+      System.clearProperty("gimle.andvari.maxArtifactBytes");
+    }
+  }
+
+  @Test
   @Timeout(10)
   void the_catalog_and_version_listing_reflect_pushed_artifacts() throws Exception {
     send(put("/artifacts/com.example.app/1.0.0", "v1".getBytes(StandardCharsets.UTF_8)));
