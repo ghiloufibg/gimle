@@ -100,10 +100,10 @@ public final class RunController {
   private static final Set<String> STANDALONE_KINDS =
       Set.of("Service", "NetworkPolicy", "LimitRange");
 
-  /** How long a shutdown waits for a run's own worker to unwind before tearing down under it. */
   /** How long a readiness probe's answer is reused before the next snapshot re-asks. */
   private static final Duration READINESS_CACHE = Duration.ofSeconds(2);
 
+  /** How long a shutdown waits for a run's own worker to unwind before tearing down under it. */
   private static final Duration SHUTDOWN_WORKER_GRACE = Duration.ofSeconds(10);
 
   private final ClusterStore clusters;
@@ -198,6 +198,39 @@ public final class RunController {
     }
   }
 
+  /**
+   * Thrown for a 409: this cluster still has a run this process is tracking, live or failed-but-
+   * not-torn-down. Two callers throw it for two different reasons -- deleting the cluster
+   * connection out from under a run used to succeed silently, leaving the real process tree running
+   * with no cluster record and no run pointing at it; and starting a different blueprint against a
+   * cluster another blueprint still owns used to silently steal it, leaving the original
+   * blueprint's own tracking reading idle while its processes kept running -- so the message is
+   * built by each call site rather than hardcoded here.
+   */
+  public static final class ClusterInUseException extends RuntimeException {
+    public ClusterInUseException(String message) {
+      super(message);
+    }
+  }
+
+  /**
+   * Refuses to proceed while {@code clusterId} still has a non-idle run -- see {@link
+   * ClusterInUseException}. {@code idle} is the only status safe to build over: every other status
+   * either has a live process tree or (for a run this controller itself failed mid-transition) may
+   * still have one, and this process is the only thing that remembers where.
+   */
+  public synchronized void requireNoLiveRun(String clusterId) {
+    ActiveRun run = runsByCluster.get(clusterId);
+    if (run != null && run.status != RunStatus.IDLE) {
+      throw new ClusterInUseException(
+          "cluster "
+              + clusterId
+              + " has a run this process is tracking ("
+              + run.id
+              + ") -- stop it before deleting the cluster");
+    }
+  }
+
   /** {@code {lines, nextCursor}}, the public shape of a log page -- see {@link #log}. */
   public record LogPage(List<String> lines, int nextCursor) {}
 
@@ -210,6 +243,26 @@ public final class RunController {
     // Scoped to the cluster: a run elsewhere is none of this one's business.
     if (existing != null && existing.status.isInFlight()) {
       throw new RunInProgressException(existing.id);
+    }
+    // A stable RUNNING (or FAILED-but-not-torn-down) run is not "in flight" by the check above,
+    // so a second blueprint targeting the same already-owned cluster used to sail straight through
+    // it and silently take over: runsByCluster.put below would replace the original blueprint's
+    // own ActiveRun, and recordOwningBlueprint would overwrite the .owner file, leaving the
+    // original blueprint reading idle while its own processes kept running, orphaned and
+    // unreachable from its own Runner page. The same blueprint re-running its own cluster (a
+    // normal redeploy) is unaffected: blueprintId then equals the existing run's own.
+    if (existing != null
+        && existing.status != RunStatus.IDLE
+        && existing.blueprintId.isPresent()
+        && !existing.blueprintId.equals(blueprintId)) {
+      throw new ClusterInUseException(
+          "cluster "
+              + clusterId
+              + " already has a run ("
+              + existing.id
+              + ") owned by blueprint "
+              + existing.blueprintId.get()
+              + " -- stop it before running a different blueprint against this cluster");
     }
     if (clusters.get(clusterId).isEmpty()) {
       throw new NotFoundException("no such cluster: " + clusterId);
@@ -431,6 +484,13 @@ public final class RunController {
         clusters.recordAppliedTopology(run.clusterId, topologyFile.content());
       } else {
         run.log.append("topology unchanged -- deploying onto the running cluster without a reboot");
+        // Reported the same way a fresh boot's processes are: this branch changes nothing about
+        // the platform tree, but leaving it empty here answered every reader -- the run API, the
+        // console's own readiness view -- as if a perfectly healthy, already-running cluster had
+        // no processes at all, and the readiness re-probe this run object otherwise supports had
+        // nothing to re-probe.
+        run.processes =
+            processInfos(MachineLauncher.recordedProcesses(runtime.dataRoot()), topology);
       }
 
       requireNotCancelled(run);
@@ -724,6 +784,23 @@ public final class RunController {
 
   private void applyNetworkPolicy(
       ControlPlaneApi api, RenderedFile manifest, Map<?, ?> mapping, ActiveRun run) {
+    Map<String, Object> body = networkPolicyBody(manifest, mapping);
+    api.postJson("/networkpolicies", Json.write(body));
+    run.log.append("applied networkpolicy " + body.get("name"));
+  }
+
+  /**
+   * The {@code POST /networkpolicies} body for one rendered manifest -- pulled out of {@link
+   * #applyNetworkPolicy} so this exact mapping is directly testable without a control plane.
+   * Presence, not emptiness, is what the manifest actually means: the console renders
+   * allowedCallerTenantIds/allowedCalleeTenantIds even as {@code []} to declare a real
+   * deny-in-that-direction policy, and dropping a present-but-empty list here collapsed it into
+   * "direction not restricted at all" -- the one shape the control plane refuses outright ("a
+   * network policy must restrict at least one direction"). deploymentNames staying keyed on
+   * presence too is what the manifest already omits when it means "the whole tenant" rather than
+   * "none".
+   */
+  static Map<String, Object> networkPolicyBody(RenderedFile manifest, Map<?, ?> mapping) {
     String name = requireName(manifest, mapping, "NetworkPolicy", "'name'");
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("name", name);
@@ -735,13 +812,11 @@ public final class RunController {
     body.put("tenantId", tenant);
     for (String key :
         List.of("deploymentNames", "allowedCallerTenantIds", "allowedCalleeTenantIds")) {
-      List<String> values = stringList(mapping.get(key));
-      if (!values.isEmpty()) {
-        body.put(key, values);
+      if (mapping.containsKey(key)) {
+        body.put(key, stringList(mapping.get(key)));
       }
     }
-    api.postJson("/networkpolicies", Json.write(body));
-    run.log.append("applied networkpolicy " + name);
+    return body;
   }
 
   private static String requireName(

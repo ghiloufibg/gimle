@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 916,
+    "totalRequirements": 921,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 786,
-    "releaseReadinessPercent": 14.2
+    "notCoveredByAutomatedTest": 791,
+    "releaseReadinessPercent": 14.1
   },
   "items": [
     {
@@ -10078,6 +10078,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Ivaldi console shows which blueprints and clusters are actually running",
       "step": "Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner. Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's. Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-918",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A run's applied NetworkPolicy keeps a present-but-empty allow list",
+      "step": "Given a blueprint whose NetworkPolicy declares an empty allowedCallerTenantIds, When I run it, Then the policy applies successfully and the control plane stores the empty allow list.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-919",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Deleting a cluster connection with a run still tracked is refused",
+      "step": "Given a cluster with a run this Ivaldi is tracking, When I delete that cluster connection, Then the delete is refused with 409 and the cluster connection still exists.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-920",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A different blueprint cannot silently claim a cluster another blueprint still owns",
+      "step": "Given a cluster with a settled run owned by blueprint A, When blueprint B starts a run against the same cluster, Then the start is refused and blueprint A's own run tracking is unchanged. Given a cluster with a settled run owned by blueprint A, When blueprint A starts a run against the same cluster again, Then it proceeds as an ordinary redeploy.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-921",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Creating a blueprint at an id already taken is refused, not silently re-minted",
+      "step": "Given a blueprint already saved at id X, When I POST a create request whose body also names id X, Then the request is refused with 409 and the original document is unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-922",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A redeploy onto an already-running cluster still reports its live processes",
+      "step": "Given a cluster already running an unchanged topology, When I redeploy the same blueprint, Then the run's processes list still names every live process.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -303,6 +303,37 @@ class RunControllerTest {
   }
 
   /**
+   * A settled (not in-flight) run against one cluster never blocked a second start there at all --
+   * only {@code isInFlight()} was checked -- so a different blueprint pointed at an already-owned
+   * cluster silently took it over: the original blueprint's own tracking flipped to idle while its
+   * real process tree (if it had ever booted one) kept running, orphaned.
+   */
+  @Test
+  void a_different_blueprint_cannot_claim_a_cluster_another_blueprint_still_owns() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    assertThrows(
+        RunController.ClusterInUseException.class,
+        () -> controller.start("c1", Optional.of("bp-two"), filesMissingTheirJar(), Map.of()));
+    // Refused before anything about the original run changed.
+    assertEquals("bp-one", controller.clusterSnapshotJson("c1").get("blueprintId"));
+  }
+
+  /** The same blueprint re-running its own cluster -- an ordinary redeploy -- is unaffected. */
+  @Test
+  void the_same_blueprint_can_always_rerun_its_own_cluster() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+
+    assertEquals("bp-one", awaitSettled().get("blueprintId"));
+  }
+
+  /**
    * The blueprint that applied a topology is recorded beside it, so a cluster recovered after a
    * restart still belongs to something -- adopted with no blueprint it could be stopped but never
    * shown as running anywhere.
@@ -315,6 +346,56 @@ class RunControllerTest {
     awaitSettled();
 
     assertEquals(Optional.of("bp-one"), clusters.owningBlueprint("c1"));
+  }
+
+  /**
+   * The control plane treats a present-but-empty allow-list as a real "deny this direction" policy,
+   * distinct from the direction not being restricted at all -- so dropping it here just because it
+   * happened to be empty silently turned "deny all cross-tenant callers" into "no restriction
+   * whatsoever" once it reached the wire.
+   */
+  @Test
+  void network_policy_body_keeps_a_present_but_empty_allow_list() {
+    RenderedFile manifest = new RenderedFile("manifests/05-networkpolicy-deny.yaml", "");
+    Map<String, Object> mapping =
+        Map.of("name", "deny-all", "tenantId", "acme", "allowedCallerTenantIds", List.of());
+
+    Map<String, Object> body = RunController.networkPolicyBody(manifest, mapping);
+
+    assertTrue(body.containsKey("allowedCallerTenantIds"), body.toString());
+    assertEquals(List.of(), body.get("allowedCallerTenantIds"));
+  }
+
+  @Test
+  void network_policy_body_omits_a_direction_the_manifest_never_declared() {
+    RenderedFile manifest = new RenderedFile("manifests/05-networkpolicy-open.yaml", "");
+    Map<String, Object> mapping = Map.of("name", "open", "tenantId", "acme");
+
+    Map<String, Object> body = RunController.networkPolicyBody(manifest, mapping);
+
+    assertTrue(
+        !body.containsKey("allowedCallerTenantIds") && !body.containsKey("deploymentNames"),
+        body.toString());
+  }
+
+  @Test
+  void network_policy_body_carries_a_non_empty_allow_list_through_unchanged() {
+    RenderedFile manifest = new RenderedFile("manifests/05-networkpolicy-scoped.yaml", "");
+    Map<String, Object> mapping =
+        Map.of(
+            "name",
+            "scoped",
+            "tenantId",
+            "acme",
+            "allowedCallerTenantIds",
+            List.of("billing"),
+            "deploymentNames",
+            List.of("api"));
+
+    Map<String, Object> body = RunController.networkPolicyBody(manifest, mapping);
+
+    assertEquals(List.of("billing"), body.get("allowedCallerTenantIds"));
+    assertEquals(List.of("api"), body.get("deploymentNames"));
   }
 
   private Map<String, Object> awaitSettled() {

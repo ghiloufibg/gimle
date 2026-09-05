@@ -89,12 +89,27 @@ public final class BlueprintStore {
   public BlueprintSummary create(String rawJson) {
     Map<String, Object> json = parseObject(rawJson);
     requireBlueprintShape(json);
+    Optional<String> requested = requestedId(json);
+    if (requested.isPresent() && Files.exists(fileFor(requested.get()))) {
+      // Minting a fresh id here instead used to look like success while silently disagreeing with
+      // the caller: a re-POST of the exact same document -- a retry, or re-importing a zip whose
+      // id was already on disk -- came back with a different id than the one it asked for, leaving
+      // two records where the caller believed there was one. The client asked for this specific
+      // id; only it can decide whether that's a retry-of-the-same-thing (PUT) or a genuine rename.
+      throw new IdAlreadyExistsException(requested.get());
+    }
     String id =
-        requestedId(json)
-            .orElseGet(() -> mintId(String.valueOf(json.getOrDefault("name", "blueprint"))));
+        requested.orElseGet(() -> mintId(String.valueOf(json.getOrDefault("name", "blueprint"))));
     Map<String, Object> stamped = withId(json, id);
     write(id, Json.write(stamped));
     return summaryOf(id, stamped);
+  }
+
+  /** Thrown for a 409: {@code create} was asked for an id a blueprint already occupies. */
+  public static final class IdAlreadyExistsException extends RuntimeException {
+    public IdAlreadyExistsException(String id) {
+      super("a blueprint with id '" + id + "' already exists -- PUT to update it in place");
+    }
   }
 
   /** Replaces (or creates) the blueprint at {@code id}, stamping {@code id} into the body. */
@@ -214,12 +229,16 @@ public final class BlueprintStore {
     }
   }
 
+  /**
+   * The body's own {@code id}, when present and well-formed -- existence is {@code create}'s own
+   * concern.
+   */
   private Optional<String> requestedId(Map<String, Object> json) {
     Object raw = json.get("id");
     if (!(raw instanceof String id) || !ID_PATTERN.matcher(id).matches()) {
       return Optional.empty();
     }
-    return Files.exists(fileFor(id)) ? Optional.empty() : Optional.of(id);
+    return Optional.of(id);
   }
 
   private static Map<String, Object> withId(Map<String, Object> json, String id) {

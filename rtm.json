@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 917,
+  "requirementCount": 922,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15856,6 +15856,83 @@
         "`gimle-ivaldi-console/src/components/ivaldi/{ClusterPicker,DesignerCanvas,Inspector,ProblemsDrawer}.tsx`",
         "`gimle-ivaldi-console/src/stores/{useClustersStore,useBlueprintStore}.ts`",
         "`gimle-ivaldi-console/src/lib/{effective,problemView,canvasBridge}.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-918",
+      "module": "gimle-ivaldi",
+      "feature": "A run's applied NetworkPolicy keeps a present-but-empty allow list",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController.applyNetworkPolicy copied deploymentNames/allowedCallerTenantIds/allowedCalleeTenantIds into the POST /networkpolicies body only when the rendered value was non-empty, conflating 'the manifest declares this direction as empty' (a real, intentional deny-all-in-that-direction policy per NetworkPolicySpec's own Optional<Set<String>> semantics) with 'the manifest never declared this key ",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`network_policy_body_keeps_a_present_but_empty_allow_list`, `network_policy_body_omits_a_direction_the_manifest_never_declared`, `network_policy_body_carries_a_non_empty_allow_list_through_unchanged`); manually verified end to end against a real booted cluster -- a deny-all NetworkPolicy applied successfully and GET /networkpolicies on the real control plane confirmed `allowedCallerTenantIds: []` stored, where it previously failed the whole run with the platform's own rejection message.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyNetworkPolicy`, `networkPolicyBody`)"
+      ]
+    },
+    {
+      "id": "GIMLE-919",
+      "module": "gimle-ivaldi",
+      "feature": "Deleting a cluster connection with a run still tracked is refused",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "IvaldiServer's DELETE /api/clusters/{id} called ClusterStore.delete(id) directly, with no interaction with RunController at all -- a cluster with a genuinely running (or FAILED, still-alive) 7-process cluster could be deleted with zero warning, leaving its OS processes orphaned: no cluster record to reach them through, no run pointing at them, and no path back from the UI. RunController.requireNoL",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`IvaldiServerTest.java` (`deleting_a_cluster_with_a_run_still_tracked_is_refused` -- a real HTTP DELETE against a real IvaldiServer with a settled-but-tracked run returns 409 and the cluster survives).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`ClusterInUseException`, `requireNoLiveRun`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneCluster` DELETE, `handleClusters` catch chain)"
+      ]
+    },
+    {
+      "id": "GIMLE-920",
+      "module": "gimle-ivaldi",
+      "feature": "A different blueprint cannot silently claim a cluster another blueprint still owns",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController.start only refused a second start against a cluster while the existing run there was isInFlight() (mid-transition) -- a stable RUNNING run, or a FAILED-but-not-torn-down one, is not in flight, so a second, different blueprint targeting the same already-owned cluster sailed straight through the guard: runsByCluster.put replaced the original blueprint's own ActiveRun entry and recordOw",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`a_different_blueprint_cannot_claim_a_cluster_another_blueprint_still_owns`, `the_same_blueprint_can_always_rerun_its_own_cluster`).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`start`)"
+      ]
+    },
+    {
+      "id": "GIMLE-921",
+      "module": "gimle-ivaldi",
+      "feature": "Creating a blueprint at an id already taken is refused, not silently re-minted",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "BlueprintStore.create honored the request body's own well-formed id only when no file already existed at that id, otherwise silently falling back to minting a fresh id from the name field -- so a retried or re-imported create for an id already on disk came back with a different id than the one requested, producing exactly the divergent-duplicate-record failure mode this class's own create() javado",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`BlueprintStoreTest.java` (`refuses_a_second_create_for_an_id_already_taken_rather_than_minting_an_unrelated_one`, replacing the old test that asserted the previous silent-duplication behavior).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/blueprint/BlueprintStore.java` (`create`, `IdAlreadyExistsException`, `requestedId`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleBlueprints` catch chain)"
+      ]
+    },
+    {
+      "id": "GIMLE-922",
+      "module": "gimle-ivaldi",
+      "feature": "A redeploy onto an already-running cluster still reports its live processes",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController.execute only populated run.processes inside the if (reboot) branch, from the records MachineLauncher.up itself had just spawned; the no-reboot branch ('topology unchanged -- deploying onto the running cluster without a reboot') left run.processes at its empty default, so a run reported status running with processes: [] even though the cluster's process tree was fully alive and health",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario, and no automated test at all yet -- verified manually against a live cluster only.",
+      "otherTestCoverage": "Manually verified against a real booted cluster (a fresh boot's processes[] populated correctly; confirmed by direct code reading that the no-reboot branch previously had no equivalent assignment). Not covered by an added automated test: RunControllerTest's own scope is explicitly the fast, no-real-boot contract (see its class javadoc) -- exercising a genuine reboot-then-redeploy-without-reboot sequence needs a real multi-process cluster fixture, the same boundary every other in-process-vs-real-cluster pair in this repo draws.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, the no-reboot branch)"
       ]
     }
   ]

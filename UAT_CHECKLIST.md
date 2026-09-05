@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 916
+- **Total requirements**: 921
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 786
-- **Release-readiness (automated coverage)**: 14.2%
+- **Not covered by automated test**: 791
+- **Release-readiness (automated coverage)**: 14.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -43,7 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 4 | 0 | 4 | 0.0% |
+| gimle-ivaldi | 9 | 0 | 9 | 0.0% |
 | gimle-ivaldi-console | 3 | 0 | 3 | 0.0% |
 
 ## Checklist
@@ -2572,6 +2572,11 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved. | No |
 | [ ] | GIMLE-912 | Ivaldi tracks every run it started, and stops them all on shutdown | Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id. Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run. Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped. | No |
+| [ ] | GIMLE-918 | A run's applied NetworkPolicy keeps a present-but-empty allow list | Given a blueprint whose NetworkPolicy declares an empty allowedCallerTenantIds, When I run it, Then the policy applies successfully and the control plane stores the empty allow list. | No |
+| [ ] | GIMLE-919 | Deleting a cluster connection with a run still tracked is refused | Given a cluster with a run this Ivaldi is tracking, When I delete that cluster connection, Then the delete is refused with 409 and the cluster connection still exists. | No |
+| [ ] | GIMLE-920 | A different blueprint cannot silently claim a cluster another blueprint still owns | Given a cluster with a settled run owned by blueprint A, When blueprint B starts a run against the same cluster, Then the start is refused and blueprint A's own run tracking is unchanged. Given a cluster with a settled run owned by blueprint A, When blueprint A starts a run against the same cluster again, Then it proceeds as an ordinary redeploy. | No |
+| [ ] | GIMLE-921 | Creating a blueprint at an id already taken is refused, not silently re-minted | Given a blueprint already saved at id X, When I POST a create request whose body also names id X, Then the request is refused with 409 and the original document is unchanged. | No |
+| [ ] | GIMLE-922 | A redeploy onto an already-running cluster still reports its live processes | Given a cluster already running an unchanged topology, When I redeploy the same blueprint, Then the run's processes list still names every live process. | No |
 
 ### gimle-ivaldi-console
 

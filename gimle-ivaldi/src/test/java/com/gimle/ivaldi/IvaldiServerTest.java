@@ -9,6 +9,7 @@ import com.gimle.core.protocol.Json;
 import com.gimle.ivaldi.blueprint.BlueprintStore;
 import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.run.RunController;
+import com.gimle.ivaldi.validate.RenderedFile;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ class IvaldiServerTest {
   @TempDir Path tempDir;
 
   private IvaldiServer server;
+  private RunController runs;
   private final HttpClient client = HttpClient.newHttpClient();
   private String baseUrl;
 
@@ -42,7 +45,7 @@ class IvaldiServerTest {
   void setUp() throws Exception {
     BlueprintStore store = new BlueprintStore(tempDir.resolve("blueprints"));
     ClusterStore clusters = new ClusterStore(tempDir.resolve("clusters"));
-    RunController runs = new RunController(clusters, tempDir);
+    runs = new RunController(clusters, tempDir);
     server = new IvaldiServer(store, clusters, runs, InetAddress.getLoopbackAddress(), 0);
     server.start();
     baseUrl = "http://127.0.0.1:" + server.port();
@@ -205,6 +208,39 @@ class IvaldiServerTest {
     HttpResponse<String> deleted = delete("/api/clusters/" + id);
     assertEquals(200, deleted.statusCode());
     assertEquals(404, get("/api/clusters/" + id).statusCode());
+  }
+
+  /**
+   * Deleting a cluster used to succeed unconditionally, leaving a live (or failed-but-not-torn-
+   * down) run's real process tree with no cluster record and no run pointing at it -- an orphan
+   * neither Stop nor a restart's own adoption could ever find again.
+   */
+  @Test
+  @Timeout(10)
+  void deleting_a_cluster_with_a_run_still_tracked_is_refused() throws Exception {
+    HttpResponse<String> created =
+        post("/api/clusters", "{\"name\":\"busy\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+    // No bundle.yaml in the file set fails the run fast, off idle but never touching a real
+    // process -- exactly the "settled but still tracked" state this guard exists for.
+    runs.start(
+        id, Optional.empty(), List.of(new RenderedFile("topology.yaml", "name: t")), Map.of());
+    awaitOffIdle(id);
+
+    HttpResponse<String> deleted = delete("/api/clusters/" + id);
+
+    assertEquals(409, deleted.statusCode());
+    assertEquals(200, get("/api/clusters/" + id).statusCode());
+  }
+
+  private void awaitOffIdle(String clusterId) throws InterruptedException {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      if (!"idle".equals(runs.clusterSnapshotJson(clusterId).get("status"))) {
+        return;
+      }
+      Thread.sleep(25);
+    }
+    throw new IllegalStateException("run against " + clusterId + " never left idle");
   }
 
   @Test

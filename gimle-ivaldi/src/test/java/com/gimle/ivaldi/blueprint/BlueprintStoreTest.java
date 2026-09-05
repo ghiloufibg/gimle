@@ -64,14 +64,16 @@ class BlueprintStoreTest {
 
   /** A POST is a create: reusing an id must never silently replace the blueprint already there. */
   @Test
-  void mints_a_fresh_id_rather_than_overwriting_when_the_requested_one_is_taken() {
+  void refuses_a_second_create_for_an_id_already_taken_rather_than_minting_an_unrelated_one() {
     BlueprintSummary first =
         store.create("{\"id\":\"taken\",\"name\":\"first\",\"nodes\":[],\"edges\":[]}");
-    BlueprintSummary second =
-        store.create("{\"id\":\"taken\",\"name\":\"second\",\"nodes\":[],\"edges\":[]}");
 
     assertEquals("taken", first.id());
-    assertNotEquals("taken", second.id());
+    assertThrows(
+        BlueprintStore.IdAlreadyExistsException.class,
+        () -> store.create("{\"id\":\"taken\",\"name\":\"second\",\"nodes\":[],\"edges\":[]}"));
+    // Untouched: the caller asked to create something with an id that's already spoken for, not
+    // to replace what's there -- the original document survives exactly as it was.
     assertEquals(
         "first",
         store.list().stream().filter(b -> b.id().equals("taken")).findFirst().orElseThrow().name());

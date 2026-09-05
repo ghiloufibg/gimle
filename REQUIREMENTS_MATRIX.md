@@ -927,6 +927,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-915 | Service endpoint resolution reports why a backing instance was excluded | Networking / Service discovery | Complete | Yes |
 | GIMLE-916 | Topology faults name the section they were read from | Deployment / Validation | Complete | Yes |
 | GIMLE-917 | Ivaldi console shows which blueprints and clusters are actually running | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-918 | A run's applied NetworkPolicy keeps a present-but-empty allow list | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-919 | Deleting a cluster connection with a run still tracked is refused | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-920 | A different blueprint cannot silently claim a cluster another blueprint still owns | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-921 | Creating a blueprint at an id already taken is refused, not silently re-minted | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-922 | A redeploy onto an already-running cluster still reports its live processes | Developer tooling / Internal-Infra | Complete | No |
 
 ## Detailed Requirements
 
@@ -13980,6 +13985,72 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id.
   Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run.
   Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped.
+  ```
+
+#### GIMLE-918 — A run's applied NetworkPolicy keeps a present-but-empty allow list
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator whose blueprint declares a deny-all-cross-tenant NetworkPolicy (an explicit empty allow list), I want that policy to actually apply to the cluster, not be silently dropped into a shape the control plane rejects.
+- **Status**: RunController.applyNetworkPolicy copied deploymentNames/allowedCallerTenantIds/allowedCalleeTenantIds into the POST /networkpolicies body only when the rendered value was non-empty, conflating 'the manifest declares this direction as empty' (a real, intentional deny-all-in-that-direction policy per NetworkPolicySpec's own Optional<Set<String>> semantics) with 'the manifest never declared this key at all'. A blueprint's own deny-all NetworkPolicy -- allowedCallerTenantIds: [] -- therefore reached the control plane with the key missing entirely, which the control plane correctly refuses ('a network policy must restrict at least one direction'), always after the full platform had already booted. The check is now keyed on the manifest key's presence (Map.containsKey), matching how deploymentNames already behaved when omitted (meaning 'the whole tenant', not 'none') while allowedCallerTenantIds/allowedCalleeTenantIds's own present-but-empty case is now preserved through to the wire. The body construction was pulled into a standalone RunController.networkPolicyBody(RenderedFile, Map) so this exact mapping is unit-testable without a live control plane.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyNetworkPolicy`, `networkPolicyBody`)
+- **Test coverage**: `RunControllerTest.java` (`network_policy_body_keeps_a_present_but_empty_allow_list`, `network_policy_body_omits_a_direction_the_manifest_never_declared`, `network_policy_body_carries_a_non_empty_allow_list_through_unchanged`); manually verified end to end against a real booted cluster -- a deny-all NetworkPolicy applied successfully and GET /networkpolicies on the real control plane confirmed `allowedCallerTenantIds: []` stored, where it previously failed the whole run with the platform's own rejection message.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint whose NetworkPolicy declares an empty allowedCallerTenantIds, When I run it, Then the policy applies successfully and the control plane stores the empty allow list.
+  ```
+
+#### GIMLE-919 — Deleting a cluster connection with a run still tracked is refused
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator, I want Ivaldi to refuse deleting a cluster connection that still has a live (or failed-but-not-torn-down) run, rather than silently discarding the connection and leaving the real process tree running with no way to find or stop it again.
+- **Status**: IvaldiServer's DELETE /api/clusters/{id} called ClusterStore.delete(id) directly, with no interaction with RunController at all -- a cluster with a genuinely running (or FAILED, still-alive) 7-process cluster could be deleted with zero warning, leaving its OS processes orphaned: no cluster record to reach them through, no run pointing at them, and no path back from the UI. RunController.requireNoLiveRun(clusterId) now refuses (a new ClusterInUseException, mapped to 409) whenever this process is tracking a non-idle run for that cluster; IvaldiServer's DELETE handler calls it before ClusterStore.delete. idle is the only status considered safe: every other status either has a live process tree, or (a run this controller itself failed mid-transition) may still have one.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`ClusterInUseException`, `requireNoLiveRun`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneCluster` DELETE, `handleClusters` catch chain)
+- **Test coverage**: `IvaldiServerTest.java` (`deleting_a_cluster_with_a_run_still_tracked_is_refused` -- a real HTTP DELETE against a real IvaldiServer with a settled-but-tracked run returns 409 and the cluster survives).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with a run this Ivaldi is tracking, When I delete that cluster connection, Then the delete is refused with 409 and the cluster connection still exists.
+  ```
+
+#### GIMLE-920 — A different blueprint cannot silently claim a cluster another blueprint still owns
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator running several blueprints, I want Ivaldi to refuse starting a run against a cluster that a different blueprint's own run already owns and hasn't been stopped, rather than silently taking it over.
+- **Status**: RunController.start only refused a second start against a cluster while the existing run there was isInFlight() (mid-transition) -- a stable RUNNING run, or a FAILED-but-not-torn-down one, is not in flight, so a second, different blueprint targeting the same already-owned cluster sailed straight through the guard: runsByCluster.put replaced the original blueprint's own ActiveRun entry and recordOwningBlueprint overwrote the cluster's .owner file, leaving the original blueprint's own tracking read back as idle while its real process tree kept running, invisible and unstoppable from its own Runner page. start now additionally refuses (ClusterInUseException, 409) whenever the existing tracked run for that cluster is non-idle and owned by a different, known blueprint. The same blueprint re-running its own cluster (an ordinary redeploy) is unaffected, since its own blueprintId matches the existing run's.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`start`)
+- **Test coverage**: `RunControllerTest.java` (`a_different_blueprint_cannot_claim_a_cluster_another_blueprint_still_owns`, `the_same_blueprint_can_always_rerun_its_own_cluster`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with a settled run owned by blueprint A, When blueprint B starts a run against the same cluster, Then the start is refused and blueprint A's own run tracking is unchanged.
+  Given a cluster with a settled run owned by blueprint A, When blueprint A starts a run against the same cluster again, Then it proceeds as an ordinary redeploy.
+  ```
+
+#### GIMLE-921 — Creating a blueprint at an id already taken is refused, not silently re-minted
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a caller of POST /api/blueprints (the console's own Import, or a scripted re-seed), I want a create request for an id that already exists to fail clearly, rather than silently succeeding under a different, unrelated id.
+- **Status**: BlueprintStore.create honored the request body's own well-formed id only when no file already existed at that id, otherwise silently falling back to minting a fresh id from the name field -- so a retried or re-imported create for an id already on disk came back with a different id than the one requested, producing exactly the divergent-duplicate-record failure mode this class's own create() javadoc already describes avoiding for the normal path. create now throws a new IdAlreadyExistsException (mapped to 409) when the requested id is well-formed but already occupied, leaving the existing document untouched; PUT remains the update-in-place verb for that id, matching the class's already-established create-vs-save split. An id that is missing, malformed, or free is unaffected.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/blueprint/BlueprintStore.java` (`create`, `IdAlreadyExistsException`, `requestedId`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleBlueprints` catch chain)
+- **Test coverage**: `BlueprintStoreTest.java` (`refuses_a_second_create_for_an_id_already_taken_rather_than_minting_an_unrelated_one`, replacing the old test that asserted the previous silent-duplication behavior).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint already saved at id X, When I POST a create request whose body also names id X, Then the request is refused with 409 and the original document is unchanged.
+  ```
+
+#### GIMLE-922 — A redeploy onto an already-running cluster still reports its live processes
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator watching a cluster whose topology hasn't changed since its last run, I want the run's process list to keep reflecting the real, live processes, not go empty just because this particular run skipped rebooting.
+- **Status**: RunController.execute only populated run.processes inside the if (reboot) branch, from the records MachineLauncher.up itself had just spawned; the no-reboot branch ('topology unchanged -- deploying onto the running cluster without a reboot') left run.processes at its empty default, so a run reported status running with processes: [] even though the cluster's process tree was fully alive and healthy -- and the live readiness re-probe this run object otherwise supports (RunController.refreshedProcesses) had nothing to re-probe. The no-reboot branch now populates run.processes the same way, from MachineLauncher.recordedProcesses(runtime.dataRoot()) against the already-running tree.
+- **Confidence**: Medium
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, the no-reboot branch)
+- **Test coverage**: Manually verified against a real booted cluster (a fresh boot's processes[] populated correctly; confirmed by direct code reading that the no-reboot branch previously had no equivalent assignment). Not covered by an added automated test: RunControllerTest's own scope is explicitly the fast, no-real-boot contract (see its class javadoc) -- exercising a genuine reboot-then-redeploy-without-reboot sequence needs a real multi-process cluster fixture, the same boundary every other in-process-vs-real-cluster pair in this repo draws.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster already running an unchanged topology, When I redeploy the same blueprint, Then the run's processes list still names every live process.
   ```
 
 ### gimle-ivaldi-console
