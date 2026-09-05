@@ -205,3 +205,45 @@ describe("application rules the two tiers used to disagree on", () => {
     expect(codes).toContain("QUOTA_NOT_POSITIVE");
   });
 });
+
+describe("faults the designer used to ship silently", () => {
+  it("resolves a Service's typed target against a DaemonSet, as its own edge rule already does", () => {
+    const bp = clone(ordersPlatform!);
+    const daemon = structuredClone(bp.nodes.find((n) => n.kind === "deployment")!);
+    daemon.id = "w-daemon";
+    daemon.kind = "daemonSet";
+    daemon.data = { ...daemon.data, name: "collector" };
+    bp.nodes.push(daemon);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    bp.edges = bp.edges.filter((e) => e.source !== service.id);
+    service.data = { ...service.data, deploymentNames: ["collector"] };
+
+    expect(codesOf(bp)).not.toContain("SERVICE_TARGET_MISSING");
+  });
+
+  it("reports a tenant-scoped resource declared twice, which silently overwrites at apply time", () => {
+    const bp = clone(ordersPlatform!);
+    const config = bp.nodes.find((n) => n.kind === "configEntry")!;
+    const twin = structuredClone(config);
+    twin.id = "c-twin";
+    bp.nodes.push(twin);
+    bp.edges = [
+      ...bp.edges,
+      ...bp.edges.filter((e) => e.source === config.id).map((e) => ({ ...e, id: "e-twin", source: twin.id })),
+    ];
+
+    expect(codesOf(bp)).toContain("CONFIG_DUPLICATE");
+  });
+
+  it("warns that a second fafnir replica's key file is dropped, rather than dropping it silently", () => {
+    const bp = clone(ordersPlatform!);
+    const fafnir = bp.nodes.find((n) => n.kind === "fafnir")!;
+    (fafnir.data as { keyFile?: string }).keyFile = "/keys/a.key";
+    const second = structuredClone(fafnir);
+    second.id = "r-fafnir-2";
+    (second.data as { keyFile?: string }).keyFile = "/keys/different.key";
+    bp.nodes.push(second);
+
+    expect(codesOf(bp)).toContain("FAFNIR_KEYFILE_PER_ROLE");
+  });
+});

@@ -200,7 +200,11 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
     if (d.placement.antiAffinity) pl.antiAffinity = true;
     if (d.placement.requiredLabels?.length)
       pl.requiredLabels = [...d.placement.requiredLabels].sort();
-    doc.placement = pl;
+    // A CronJob's placement applies to the Jobs it spawns, so it lives under jobTemplate -- at the
+    // top level the parser does not recognise the field and drops it, which made two inspector
+    // controls that visibly changed the file change nothing in the cluster.
+    if (node.kind === "cronJob") (doc.jobTemplate as Record<string, unknown>).placement = pl;
+    else doc.placement = pl;
   }
   if (d.autoscale && node.kind === "deployment") doc.autoscale = { ...d.autoscale };
   // Deliberately no `resources` here. A module's request/limit lives in its own gimle-module.yaml
@@ -299,8 +303,15 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
       content: yml({
         kind: "LimitRange",
         name: tenantId,
-        minRequest: { memory: d.min.memory, cpu: d.min.cpu },
-        maxRequest: { memory: d.max.memory, cpu: d.max.cpu },
+        // A bound block is emitted only when both of its halves are filled in: the platform reads
+        // a present block as complete and refuses one carrying a blank, so a half-filled bound
+        // rendered a manifest that could never be applied.
+        ...(d.min?.memory?.trim() && d.min?.cpu?.trim()
+          ? { minRequest: { memory: d.min.memory, cpu: d.min.cpu } }
+          : {}),
+        ...(d.max?.memory?.trim() && d.max?.cpu?.trim()
+          ? { maxRequest: { memory: d.max.memory, cpu: d.max.cpu } }
+          : {}),
       }),
     });
   }

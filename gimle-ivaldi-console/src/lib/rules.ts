@@ -102,6 +102,24 @@ export function validateTopology(bp: Blueprint): Problem[] {
     seenNodeId.add(nodeId);
   }
 
+  // topology.yaml carries one fafnir keyFile for the whole role, so a second replica naming a
+  // different file has that value dropped -- and it is the field deciding whether that replica can
+  // decrypt anything.
+  const keyFiles = new Set(
+    nodesOf(bp, "fafnir")
+      .map((n) => (n.data as RoleData).keyFile?.trim())
+      .filter((f): f is string => Boolean(f)),
+  );
+  if (keyFiles.size > 1)
+    for (const n of nodesOf(bp, "fafnir").slice(1))
+      p.push(
+        warn(
+          "FAFNIR_KEYFILE_PER_ROLE",
+          `The key file is one setting for the whole fafnir role, not per replica -- every replica will use "${[...keyFiles][0]}".`,
+          n.id,
+        ),
+      );
+
   // topology.yaml carries one jvm flag list per role, not per replica, so two replicas of a role
   // with different flags cannot both be expressed -- the renderer unions them rather than dropping
   // either, and this says so before the user wonders why the file disagrees with the canvas.
@@ -290,7 +308,7 @@ function validateApplication(bp: Blueprint): Problem[] {
         workloads.find(
           (w) =>
             (w.data as WorkloadData).name === name &&
-            (w.kind === "deployment" || w.kind === "statefulSet"),
+            (w.kind === "deployment" || w.kind === "statefulSet" || w.kind === "daemonSet"),
         ),
       )
       .filter((n): n is BlueprintNode => Boolean(n));
@@ -299,7 +317,7 @@ function validateApplication(bp: Blueprint): Problem[] {
       p.push(
         err(
           "SERVICE_TARGET_MISSING",
-          "Service fronts no existing deployment or statefulSet.",
+          "Service fronts no existing deployment, statefulSet or daemonSet.",
           s.id,
         ),
       );
@@ -337,6 +355,18 @@ function validateApplication(bp: Blueprint): Problem[] {
           ),
         );
     const restricts = bp.edges.filter((e) => e.kind === "restricts" && e.source === np.id);
+    const policyTenant = tenantIdOf(bp, np);
+    for (const edge of restricts) {
+      const target = bp.nodes.find((n) => n.id === edge.target);
+      if (target && tenantIdOf(bp, target) !== policyTenant)
+        p.push(
+          err(
+            "POLICY_CROSS_TENANT",
+            `Policy "${d.name}" restricts a workload in a different tenant.`,
+            np.id,
+          ),
+        );
+    }
     // A NetworkPolicy node always restricts ingress -- an empty allowed-caller list is the
     // deny-every-caller policy, which the renderer emits as an explicit empty list -- so the only
     // thing left to check is that the policy scopes something.
@@ -613,6 +643,44 @@ function validateApplication(bp: Blueprint): Problem[] {
       ),
     );
   }
+
+  // Every tenant-scoped resource the platform keys by (tenant, name): a second one silently
+  // overwrote the first at apply time, with nothing said anywhere.
+  const duplicatesOf = (
+    kind: string,
+    code: string,
+    label: string,
+    nameOf: (node: BlueprintNode) => string | undefined,
+  ) => {
+    const seen = new Map<string, BlueprintNode[]>();
+    for (const n of nodesOf(bp, kind)) {
+      const name = nameOf(n)?.trim();
+      if (!name) continue;
+      const key = `${tenantIdOf(bp, n) ?? ""}/${name}`;
+      seen.set(key, [...(seen.get(key) ?? []), n]);
+    }
+    for (const [, group] of seen)
+      if (group.length > 1)
+        for (const n of group)
+          p.push(err(code, `${label} "${nameOf(n)}" is declared twice in the same tenant.`, n.id));
+  };
+  duplicatesOf("service", "SERVICE_DUPLICATE", "Service", (n) => (n.data as ServiceData).name);
+  duplicatesOf(
+    "networkPolicy",
+    "POLICY_DUPLICATE",
+    "Network policy",
+    (n) => (n.data as NetworkPolicyData).name,
+  );
+  duplicatesOf(
+    "configEntry",
+    "CONFIG_DUPLICATE",
+    "Config key",
+    (n) => (n.data as ConfigEntryData).key,
+  );
+  duplicatesOf("secret", "SECRET_DUPLICATE", "Secret key", (n) => (n.data as SecretData).key);
+  duplicatesOf("limitRange", "LIMITRANGE_DUPLICATE", "Limit range for tenant", (n) =>
+    tenantIdOf(bp, n),
+  );
 
   for (const c of nodesOf(bp, "configEntry")) {
     const d = c.data as ConfigEntryData;

@@ -44,6 +44,11 @@ function article(label: string): string {
   return `${/^[aeiou]/i.test(label) ? "An" : "A"} ${label}`;
 }
 
+/** The same, mid-sentence: the article lowercases, the kind's own label does not. */
+function lowerArticle(label: string): string {
+  return `${/^[aeiou]/i.test(label) ? "an" : "a"} ${label}`;
+}
+
 function revalidate(bp: Blueprint | null) {
   useValidationStore.getState().recompute(bp);
 }
@@ -137,7 +142,9 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       if (!kind)
         return {
           ok: false,
-          reason: `${article(KIND_LABELS[s.kind])} cannot connect to ${article(KIND_LABELS[t.kind]).toLowerCase()}.`,
+          // Only the article is lowercased: lowercasing the whole label destroyed the kind's own
+          // spelling, so one sentence read "A DaemonSet cannot connect to a daemonset."
+          reason: `${article(KIND_LABELS[s.kind])} cannot connect to ${lowerArticle(KIND_LABELS[t.kind])}.`,
         };
       if (bp.edges.some((e) => e.source === source && e.target === target && e.kind === kind))
         return { ok: false, reason: "That link already exists." };
