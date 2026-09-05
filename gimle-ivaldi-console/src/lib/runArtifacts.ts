@@ -21,9 +21,13 @@ export function artifactsFromLog(log: RunLogLine[]): PushedArtifact[] {
   const out: PushedArtifact[] = [];
   const seen = new Set<string>();
   for (const line of log) {
-    const text = line.text.trim();
-    if (!text.toLowerCase().startsWith(PREFIX)) continue;
-    const rest = text.slice(PREFIX.length).trim();
+    // The backend stamps every line "[<instant>] ", so the marker is looked for anywhere in the
+    // line rather than at its start -- anchoring at the start matched nothing at all, and the
+    // panel stayed on its empty state for the whole life of a running cluster.
+    const text = line.text;
+    const marker = text.toLowerCase().indexOf(PREFIX);
+    if (marker < 0) continue;
+    const rest = text.slice(marker + PREFIX.length).trim();
     const [coords, ...pathParts] = rest.split(" from ");
     if (!coords) continue;
     const at = coords.lastIndexOf("@");

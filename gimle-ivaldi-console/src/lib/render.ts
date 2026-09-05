@@ -13,10 +13,12 @@ import {
   type ServiceData,
   type StoreData,
   type TenantData,
+  machineNameOf,
+  tenantIdOf,
   type WorkloadData,
 } from "./blueprint";
 import { DEFAULT_PORTS } from "./ports";
-import { machineNameOf, nodesOf, tenantIdOf } from "./rules";
+import { nodesOf } from "./rules";
 
 export interface RenderedFile {
   path: string;
@@ -185,7 +187,14 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
     }
     if (node.kind === "deployment" || node.kind === "statefulSet") doc.replicas = d.replicas ?? 1;
   }
-  if (jar && d.artifact.source === "jar") doc.artifactPath = d.artifact.path;
+  // A CronJob carries its module inside jobTemplate, and its parser knows no top-level
+  // artifactPath: emitted there the field was silently ignored, so the rendered manifest was not
+  // self-contained and worked only because the run had separately pushed the jar to the registry.
+  if (jar && d.artifact.source === "jar") {
+    if (node.kind === "cronJob")
+      (doc.jobTemplate as Record<string, unknown>).artifactPath = d.artifact.path;
+    else doc.artifactPath = d.artifact.path;
+  }
   if (d.placement && (d.placement.antiAffinity || d.placement.requiredLabels?.length)) {
     const pl: Record<string, unknown> = {};
     if (d.placement.antiAffinity) pl.antiAffinity = true;
@@ -271,8 +280,12 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     };
     const deployments = [...new Set([...(d.deploymentNames ?? []), ...restricted])].sort();
     if (deployments.length) doc.deploymentNames = deployments;
-    const allowed = [...new Set([...(d.allowedCallerTenantIds ?? []), ...callers])].sort();
-    if (allowed.length) doc.allowedCallerTenantIds = allowed;
+    // Always emitted, empty included: an empty allowed-caller list is the deny-every-cross-tenant
+    // -caller policy, and the platform requires a policy to restrict at least one direction --
+    // omitting the key turned that deliberate deny-all into a document the cluster refuses.
+    doc.allowedCallerTenantIds = [
+      ...new Set([...(d.allowedCallerTenantIds ?? []), ...callers]),
+    ].sort();
     files.push({ path, content: yml(doc) });
   }
 

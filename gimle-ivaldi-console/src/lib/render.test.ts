@@ -246,3 +246,23 @@ describe("renderFiles, on input the file formats cannot take verbatim", () => {
     expect(bundle.tenants[0].isolationPosture).toBe("DENY_BY_DEFAULT");
   });
 });
+
+describe("a jar-sourced CronJob", () => {
+  it("carries its artifact inside jobTemplate, which is the only place its parser reads", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const cron = bp.nodes.find((n) => n.kind === "cronJob")!;
+    (cron.data as { artifact: { source: string; path: string } }).artifact = {
+      source: "jar",
+      path: "/tmp/report.jar",
+    };
+    const files = renderFiles(bp);
+    const manifest = files.find((f) => kindOf(f) === "CronJob")!;
+    const doc = parse(manifest.content) as {
+      artifactPath?: string;
+      jobTemplate: { artifactPath?: string };
+    };
+
+    expect(doc.jobTemplate.artifactPath).toBe("/tmp/report.jar");
+    expect(doc).not.toHaveProperty("artifactPath");
+  });
+});

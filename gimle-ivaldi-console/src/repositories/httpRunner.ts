@@ -72,7 +72,7 @@ function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
     endpoints.push({ label: "Fafnir vault", url: `${scheme}://${host}:${fafnirPort}/console` });
   const muninnPort = topology.muninn?.replicas?.[0]?.port ?? DEFAULT_PORTS.muninn;
   if (topology.muninn?.replicas?.length)
-    endpoints.push({ label: "Muninn", url: `${scheme}://${host}:${muninnPort}` });
+    endpoints.push({ label: "Muninn", url: `${scheme}://${host}:${muninnPort}/status` });
   const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORTS.andvari;
   if (topology.andvari?.replicas?.length)
     endpoints.push({
@@ -196,6 +196,7 @@ export class HttpRunnerClient implements RunnerClient {
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];
+    let endpointsSettled = false;
     let cursor = 0;
     let seq = 0;
     let stopped = false;
@@ -226,10 +227,15 @@ export class HttpRunnerClient implements RunnerClient {
         }
         const raw = (await snapshotRes.json()) as RawRunSnapshot;
         if (raw.id && raw.id !== runId) return; // a later run superseded this one
-        if (endpoints.length === 0 && raw.clusterId) {
-          endpoints = await this.fetchEndpoints(raw.clusterId);
-        }
         const status = mapStatus(raw.status);
+        // Re-read until the run settles, rather than caching the first answer: that first poll
+        // lands during the boot, when the cluster still holds its *previous* applied topology, so
+        // caching then pinned the old scheme and host -- every link dead after a
+        // plaintext-to-mTLS switch.
+        if (raw.clusterId && (endpoints.length === 0 || !endpointsSettled)) {
+          endpoints = await this.fetchEndpoints(raw.clusterId);
+          endpointsSettled = status === "running" || status === "failed";
+        }
         const phase = currentPhaseFor(status);
         if (phase) steps = markCurrentPhase(steps, phase);
         if (status === "running" || status === "failed") steps = finalizeSteps(steps, status);

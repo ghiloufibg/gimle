@@ -16,6 +16,7 @@ import com.gimle.hilmir.release.ReleaseLedger;
 import com.gimle.hilmir.release.ReleaseMeta;
 import com.gimle.hilmir.release.ReleaseReconciler;
 import com.gimle.hilmir.release.RenderedBundle;
+import com.gimle.hilmir.release.RenderedSecretEntry;
 import com.gimle.hilmir.release.ResourceRef;
 import com.gimle.hilmir.release.ValueOverrides;
 import com.gimle.hilmir.topology.Topology;
@@ -253,7 +254,7 @@ public final class RunController {
       RenderedFile topologyFile = requireFile(files, "topology.yaml");
       RenderedFile bundleFile = requireFile(files, "bundle.yaml");
       Topology topology = TopologyParser.parse(streamOf(topologyFile));
-      String machine = topology.machines().get(0).name();
+      String machine = requireSingleMachine(topology);
       ResolvedRuntime runtime = resolveRuntime(topology);
 
       // Resolved before the boot below, not after it: a cluster connection with no usable control
@@ -348,7 +349,8 @@ public final class RunController {
           values.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).toList();
       Map<String, String> merged =
           ValueOverrides.merge(bundle.values(), Optional.empty(), setFlags);
-      RenderedBundle rendered = BundleRenderer.render(bundle, merged, workspace);
+      RenderedBundle rendered =
+          dropUnsuppliedSecrets(BundleRenderer.render(bundle, merged, workspace), run);
 
       Optional<ReleaseMeta> meta = ReleaseLedger.readMeta(api, rendered.name());
       int revision;
@@ -801,6 +803,60 @@ public final class RunController {
               + " Declared host(s): "
               + String.join(", ", hostnames));
     }
+  }
+
+  /**
+   * A run boots one machine, on this host. A multi-machine topology is a design to download and
+   * hand to {@code hilmir up} once per machine, not something this process can bring up: booting
+   * only the first left every workload on the others unplaced while the run reported success, and a
+   * second machine's processes would in any case overwrite the first's run ledger, which is keyed
+   * by data root alone.
+   */
+  private static String requireSingleMachine(Topology topology) {
+    if (topology.machines().size() > 1) {
+      throw new RunFailedException(
+          "this blueprint declares "
+              + topology.machines().size()
+              + " machines ("
+              + topology.machines().stream().map(m -> m.name()).collect(Collectors.joining(", "))
+              + ") and a run boots one. Download the zip and run 'hilmir up' once per machine,"
+              + " or design a single-machine cluster to run from here.");
+    }
+    return topology.machines().get(0).name();
+  }
+
+  /**
+   * Drops any secret whose value resolved to empty, leaving whatever the vault already holds.
+   *
+   * <p>A secret's value is typed per run and deliberately never stored, so re-running after an
+   * unrelated edit arrives with the field blank. Applying that blank overwrote a real credential
+   * with an empty string at a new version, silently: the running instances kept the old value in
+   * memory, so nothing looked wrong until the next instance start. An empty secret is never
+   * something anyone means to store.
+   */
+  private static RenderedBundle dropUnsuppliedSecrets(RenderedBundle rendered, ActiveRun run) {
+    List<RenderedSecretEntry> supplied =
+        rendered.secrets().stream().filter(s -> !s.value().isEmpty()).toList();
+    for (RenderedSecretEntry skipped : rendered.secrets()) {
+      if (skipped.value().isEmpty()) {
+        run.log.append(
+            "no value supplied for secret "
+                + skipped.tenant()
+                + "/"
+                + skipped.key()
+                + " -- leaving whatever the vault already holds");
+      }
+    }
+    if (supplied.size() == rendered.secrets().size()) {
+      return rendered;
+    }
+    return new RenderedBundle(
+        rendered.name(),
+        rendered.version(),
+        rendered.tenants(),
+        rendered.config(),
+        supplied,
+        rendered.workloads());
   }
 
   private static ResolvedRuntime resolveRuntime(Topology topology) {

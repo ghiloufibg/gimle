@@ -5,6 +5,8 @@ import {
   type BlueprintNode,
   type ConfigEntryData,
   type LimitRangeData,
+  machineNameOf,
+  tenantIdOf,
   type MachineData,
   type NetworkPolicyData,
   type Problem,
@@ -16,7 +18,7 @@ import {
   type WorkloadData,
 } from "./blueprint";
 import { portConflicts } from "./ports";
-import { parseCpu, parseMemory } from "./units";
+import { isValidCpu, isValidMemory, parseCpu, parseMemory } from "./units";
 
 const err = (code: string, message: string, nodeId?: string): Problem => ({
   code,
@@ -43,28 +45,6 @@ export function nodesOf(bp: Blueprint, kind: string): BlueprintNode[] {
 
 export function machineNames(bp: Blueprint): string[] {
   return nodesOf(bp, "machine").map((n) => (n.data as MachineData).name);
-}
-
-/**
- * The tenant a node belongs to. An edge wins over the node's own tenantId field: the edge is a
- * live link to the tenant node, so it survives that tenant being renamed, while the text field is
- * a copy taken when it was typed. Without that precedence, renaming a tenant left every node
- * still drawn as belonging to it rendering the old id -- and inconsistently, since a node with no
- * text field of its own did follow the rename.
- */
-export function tenantIdOf(bp: Blueprint, node: BlueprintNode): string | undefined {
-  const edge = bp.edges.find((e) => e.kind === "belongsTo" && e.source === node.id);
-  const tenant = edge ? bp.nodes.find((n) => n.id === edge.target) : undefined;
-  if (tenant) return (tenant.data as TenantData).id;
-  return (node.data as { tenantId?: string }).tenantId || undefined;
-}
-
-/** The machine a platform role is placed on, with the same edge-wins-over-text-field rule. */
-export function machineNameOf(bp: Blueprint, node: BlueprintNode): string | undefined {
-  const edge = bp.edges.find((e) => e.kind === "placedOn" && e.source === node.id);
-  const machine = edge ? bp.nodes.find((n) => n.id === edge.target) : undefined;
-  if (machine) return (machine.data as MachineData).name;
-  return (node.data as { machine?: string }).machine || undefined;
 }
 
 export function workloadNodes(bp: Blueprint): BlueprintNode[] {
@@ -163,7 +143,7 @@ export function validateTopology(bp: Blueprint): Problem[] {
   const groupBy = (kind: string) => {
     const byMachine = new Map<string, BlueprintNode[]>();
     for (const n of nodesOf(bp, kind)) {
-      const m = (n.data as { machine?: string }).machine ?? "";
+      const m = machineNameOf(bp, n) ?? "";
       byMachine.set(m, [...(byMachine.get(m) ?? []), n]);
     }
     return byMachine;
@@ -185,6 +165,11 @@ export function validateTopology(bp: Blueprint): Problem[] {
   };
   colocated("store", "REPLICAS_COLOCATED", "store replicas");
   colocated("controlPlane", "REPLICAS_COLOCATED", "control plane replicas");
+  // Every replicated role, not just the two most obvious: a second Fafnir, Muninn or Andvari on
+  // one machine is the same single point of failure, and the server-side pass already said so.
+  colocated("fafnir", "REPLICAS_COLOCATED", "fafnir replicas");
+  colocated("muninn", "REPLICAS_COLOCATED", "muninn replicas");
+  colocated("andvari", "REPLICAS_COLOCATED", "andvari replicas");
   colocated("agent", "AGENTS_COLOCATED", "agents");
 
   if (bp.transport === "mtls") {
@@ -192,7 +177,9 @@ export function validateTopology(bp: Blueprint): Problem[] {
       p.push(err("MTLS_NO_MATERIAL_DIR", "mTLS transport requires a TLS material directory."));
     for (const m of machines) {
       const host = (m.data as MachineData).host;
-      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host))
+      // Both families: the PKI mints DNS-only subject alternative names, so any IP literal fails
+      // hostname verification. A hostname never contains a colon, so that alone identifies IPv6.
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":"))
         p.push(
           err(
             "MTLS_IP_LITERAL_HOST",
@@ -238,7 +225,7 @@ function instanceCount(node: BlueprintNode, agentCount: number): number {
 function validateApplication(bp: Blueprint): Problem[] {
   const p: Problem[] = [];
   const tenants = nodesOf(bp, "tenant");
-  const tenantIds = tenants.map((t) => (t.data as TenantData).id);
+  const declaredTenantIds = tenants.map((t) => (t.data as TenantData).id);
   const agents = nodesOf(bp, "agent");
   const agentLabels = new Set(agents.flatMap((a) => (a.data as AgentData).labels ?? []));
   const workloads = workloadNodes(bp);
@@ -247,14 +234,29 @@ function validateApplication(bp: Blueprint): Problem[] {
   for (const w of workloads) {
     const d = w.data as WorkloadData;
     if (!d.name?.trim()) p.push(err("WORKLOAD_NAME_BLANK", "Workload name is blank.", w.id));
-    else seenNames.set(d.name, (seenNames.get(d.name) ?? 0) + 1);
-    if (!d.module?.name?.trim() || !d.module?.version?.trim())
-      p.push(err("MODULE_COORDINATE_BLANK", "Module name and version are required.", w.id));
+    else {
+      const key = `${tenantIdOf(bp, w) ?? ""}/${d.name}`;
+      seenNames.set(key, (seenNames.get(key) ?? 0) + 1);
+    }
+    // Named separately: one message for two different blanks left the user guessing which.
+    if (!d.module?.name?.trim())
+      p.push(err("MODULE_COORDINATE_BLANK", "Module name is required.", w.id));
+    if (!d.module?.version?.trim())
+      p.push(err("MODULE_COORDINATE_BLANK", "Module version is required.", w.id));
   }
+  // Scoped by tenant, because the platform keys a workload by (tenant, name): the same app
+  // deployed for two tenants is the ordinary case, not a collision.
   for (const w of workloads) {
     const d = w.data as WorkloadData;
-    if (d.name && (seenNames.get(d.name) ?? 0) > 1)
-      p.push(err("WORKLOAD_NAME_DUPLICATE", `Workload name "${d.name}" is used twice.`, w.id));
+    const key = `${tenantIdOf(bp, w) ?? ""}/${d.name}`;
+    if (d.name && (seenNames.get(key) ?? 0) > 1)
+      p.push(
+        err(
+          "WORKLOAD_NAME_DUPLICATE",
+          `Workload name "${d.name}" is used twice in tenant "${tenantIdOf(bp, w) ?? "default"}".`,
+          w.id,
+        ),
+      );
   }
 
   const tenantScoped = bp.nodes.filter((n) =>
@@ -273,7 +275,7 @@ function validateApplication(bp: Blueprint): Problem[] {
   );
   for (const n of tenantScoped) {
     const tid = tenantIdOf(bp, n);
-    if (!tid || !tenantIds.includes(tid))
+    if (!tid || !declaredTenantIds.includes(tid))
       p.push(err("TENANT_UNKNOWN", "Resource does not belong to a known tenant.", n.id));
   }
 
@@ -326,7 +328,7 @@ function validateApplication(bp: Blueprint): Problem[] {
       .map((n) => (n.data as TenantData).id);
     const callers = [...(d.allowedCallerTenantIds ?? []), ...edgeCallers];
     for (const c of callers)
-      if (!tenantIds.includes(c))
+      if (!declaredTenantIds.includes(c))
         p.push(
           err(
             "POLICY_ALLOWED_TENANT_UNKNOWN",
@@ -335,9 +337,16 @@ function validateApplication(bp: Blueprint): Problem[] {
           ),
         );
     const restricts = bp.edges.filter((e) => e.kind === "restricts" && e.source === np.id);
-    if ((d.deploymentNames ?? []).length === 0 && restricts.length === 0 && callers.length === 0)
+    // A NetworkPolicy node always restricts ingress -- an empty allowed-caller list is the
+    // deny-every-caller policy, which the renderer emits as an explicit empty list -- so the only
+    // thing left to check is that the policy scopes something.
+    if ((d.deploymentNames ?? []).length === 0 && restricts.length === 0)
       p.push(
-        err("POLICY_NO_DIRECTION", "Policy names neither deployments nor allowed callers.", np.id),
+        info(
+          "POLICY_TENANT_WIDE",
+          "Policy names no deployment, so it applies to every workload in its tenant.",
+          np.id,
+        ),
       );
   }
 
@@ -387,6 +396,24 @@ function validateApplication(bp: Blueprint): Problem[] {
       if (!CONCURRENCY.includes(d.concurrencyPolicy ?? ""))
         p.push(
           err("CRON_POLICY_INVALID", "Concurrency policy must be Allow, Forbid or Replace.", w.id),
+        );
+    }
+    for (const [field, value, valid] of [
+      ["request memory", d.resources?.request.memory, isValidMemory],
+      ["request cpu", d.resources?.request.cpu, isValidCpu],
+      ["limit memory", d.resources?.limit.memory, isValidMemory],
+      ["limit cpu", d.resources?.limit.cpu, isValidCpu],
+    ] as const) {
+      // An unparseable quantity silently became NaN, which compares false against every bound --
+      // so a one-character typo printed "NaN" at the operator and switched the quota and
+      // limit-range rules off without a word.
+      if (value?.trim() && !valid(value))
+        p.push(
+          err(
+            "INVALID_QUANTITY",
+            `${field} "${value}" is not a valid quantity -- use e.g. 64Mi, 1Gi, 500m, 2.`,
+            w.id,
+          ),
         );
     }
     const reqMem = parseMemory(d.resources?.request.memory);
@@ -444,6 +471,40 @@ function validateApplication(bp: Blueprint): Problem[] {
       minCpu: d.min?.cpu?.trim() ? parseCpu(d.min.cpu) : undefined,
       maxCpu: d.max?.cpu?.trim() ? parseCpu(d.max.cpu) : undefined,
     };
+    for (const [field, value, valid] of [
+      ["min memory", d.min?.memory, isValidMemory],
+      ["min cpu", d.min?.cpu, isValidCpu],
+      ["max memory", d.max?.memory, isValidMemory],
+      ["max cpu", d.max?.cpu, isValidCpu],
+    ] as const) {
+      if (value?.trim() && !valid(value))
+        p.push(
+          err(
+            "INVALID_QUANTITY",
+            `Limit range ${field} "${value}" is not a valid quantity -- use e.g. 64Mi, 500m.`,
+            lr.id,
+          ),
+        );
+    }
+    // Checked on the limit range itself, before any workload is measured against it: an inverted
+    // range no request can ever satisfy was reported as a violation by each deployment, sending
+    // the operator to fix a value that was never the problem.
+    if (bounds.minMem !== undefined && bounds.maxMem !== undefined && bounds.minMem > bounds.maxMem)
+      p.push(
+        err(
+          "LIMITRANGE_INVERTED",
+          `Minimum memory (${d.min.memory}) exceeds the maximum (${d.max.memory}); no request can satisfy this range.`,
+          lr.id,
+        ),
+      );
+    if (bounds.minCpu !== undefined && bounds.maxCpu !== undefined && bounds.minCpu > bounds.maxCpu)
+      p.push(
+        err(
+          "LIMITRANGE_INVERTED",
+          `Minimum cpu (${d.min.cpu}) exceeds the maximum (${d.max.cpu}); no request can satisfy this range.`,
+          lr.id,
+        ),
+      );
     if (Object.values(bounds).every((b) => b === undefined)) {
       p.push(
         info(
@@ -479,13 +540,32 @@ function validateApplication(bp: Blueprint): Problem[] {
   // The control plane refuses a second operator tenant under plaintext -- it has no caller
   // identity to tell them apart -- so a design that can never deploy should say so while it is
   // being drawn, not only once Validate is pressed.
-  if (bp.transport !== "mtls" && tenants.length > 1)
-    for (const t of tenants.slice(1))
+  const tenantIds = new Map<string, string[]>();
+  for (const t of tenants) {
+    const id = (t.data as TenantData).id?.trim() ?? "";
+    if (!id) {
+      p.push(err("TENANT_ID_BLANK", "Tenant id is blank.", t.id));
+      continue;
+    }
+    tenantIds.set(id, [...(tenantIds.get(id) ?? []), t.id]);
+  }
+  // Two tenant nodes carrying one id is a duplicate, not multi-tenancy: counting nodes rather
+  // than ids told the operator to switch to mTLS, which silenced the message and left the real
+  // fault -- one tenant declared twice, the second silently overwriting the first -- in place.
+  for (const [id, nodeIds] of tenantIds)
+    if (nodeIds.length > 1)
+      for (const nodeId of nodeIds)
+        p.push(
+          err("TENANT_DUPLICATE", `Tenant id "${id}" is declared ${nodeIds.length} times.`, nodeId),
+        );
+
+  if (bp.transport !== "mtls" && tenantIds.size > 1)
+    for (const [, nodeIds] of [...tenantIds].slice(1))
       p.push(
         err(
           "PLAINTEXT_MULTI_TENANT",
-          `Plaintext transport permits only one tenant; this design declares ${tenants.length}. Switch the topology to mTLS for real multi-tenancy.`,
-          t.id,
+          `Plaintext transport permits only one tenant; this design declares ${tenantIds.size}. Switch the topology to mTLS for real multi-tenancy.`,
+          nodeIds[0],
         ),
       );
 
@@ -536,7 +616,7 @@ function validateApplication(bp: Blueprint): Problem[] {
 
   for (const c of nodesOf(bp, "configEntry")) {
     const d = c.data as ConfigEntryData;
-    if (!d.key?.trim()) p.push(err("WORKLOAD_NAME_BLANK", "Config entry key is blank.", c.id));
+    if (!d.key?.trim()) p.push(err("CONFIG_KEY_BLANK", "Config entry key is blank.", c.id));
   }
 
   // A port that is unset, or outside what any process can bind, is its own fault -- reporting it

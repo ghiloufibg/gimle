@@ -414,3 +414,25 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     updatedAt: new Date().toISOString(),
   };
 }
+
+/**
+ * The tenant a node belongs to. An edge wins over the node's own tenantId field: the edge is a
+ * live link to the tenant node, so it survives that tenant being renamed, while the text field is
+ * a copy taken when it was typed. Without that precedence, renaming a tenant left every node
+ * still drawn as belonging to it rendering the old id -- and inconsistently, since a node with no
+ * text field of its own did follow the rename.
+ */
+export function tenantIdOf(bp: Blueprint, node: BlueprintNode): string | undefined {
+  const edge = bp.edges.find((e) => e.kind === "belongsTo" && e.source === node.id);
+  const tenant = edge ? bp.nodes.find((n) => n.id === edge.target) : undefined;
+  if (tenant) return (tenant.data as TenantData).id;
+  return (node.data as { tenantId?: string }).tenantId || undefined;
+}
+
+/** The machine a platform role is placed on, with the same edge-wins-over-text-field rule. */
+export function machineNameOf(bp: Blueprint, node: BlueprintNode): string | undefined {
+  const edge = bp.edges.find((e) => e.kind === "placedOn" && e.source === node.id);
+  const machine = edge ? bp.nodes.find((n) => n.id === edge.target) : undefined;
+  if (machine) return (machine.data as MachineData).name;
+  return (node.data as { machine?: string }).machine || undefined;
+}

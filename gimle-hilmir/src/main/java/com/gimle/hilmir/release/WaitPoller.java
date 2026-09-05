@@ -89,9 +89,26 @@ final class WaitPoller {
     }
   }
 
+  /**
+   * Ready means the deployment is at its declared size with every replica ACTIVE and nothing left
+   * unplaced -- not merely that the instances which happen to exist right now are ACTIVE.
+   *
+   * <p>Between applying a spec and the reconciler acting on it, the instance list is still the
+   * previous one: a scale-up or a version rollout satisfied the old test immediately, so the wait
+   * returned before the new replicas existed at all, and every caller that treats it as the
+   * completion signal reported success on a deployment that had not started converging.
+   */
   private static boolean instancesAllActive(Map<String, Object> status) {
     Object instancesRaw = status.get("instances");
     if (!(instancesRaw instanceof List<?> instances) || instances.isEmpty()) {
+      return false;
+    }
+    if (status.get("unplacedCount") instanceof Number unplaced && unplaced.intValue() > 0) {
+      return false;
+    }
+    if (status.get("spec") instanceof Map<?, ?> spec
+        && spec.get("replicas") instanceof Number replicas
+        && instances.size() != replicas.intValue()) {
       return false;
     }
     for (Object instanceRaw : instances) {
@@ -112,7 +129,8 @@ final class WaitPoller {
    */
   private static void awaitJobTerminal(
       ControlPlaneApi api, String path, RenderedWorkload workload, PrintStream out) {
-    long deadlineNanos = System.nanoTime() + TIMEOUT.toNanos();
+    Duration timeout = timeout();
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (true) {
       Object phase = api.getObject(path).get("phase");
       if ("SUCCEEDED".equals(phase)) {
@@ -131,7 +149,7 @@ final class WaitPoller {
       if (System.nanoTime() > deadlineNanos) {
         throw new HilmirException(
             "timed out after "
-                + TIMEOUT
+                + timeout
                 + " waiting for "
                 + workload.kind()
                 + " "

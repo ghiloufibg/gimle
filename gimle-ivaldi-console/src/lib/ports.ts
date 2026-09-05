@@ -1,3 +1,4 @@
+import { machineNameOf } from "./blueprint";
 import type { Blueprint, BlueprintNode, NodeKind } from "./blueprint";
 import type { AgentData, RoleData, StoreData } from "./blueprint";
 
@@ -18,15 +19,21 @@ export interface PortClaim {
   what: string;
 }
 
-export function machineOf(node: BlueprintNode): string {
-  const d = node.data as { machine?: string };
-  return d.machine ?? "";
+/**
+ * The machine a node sits on, resolved the same single way everything else resolves it -- through
+ * the placedOn edge, falling back to the node's own text field. Reading the text field directly
+ * here made the port and colocation rules disagree with the rendered topology.yaml the moment the
+ * two diverged: three blocking errors about a cluster that did not exist, and silence about a real
+ * conflict that did.
+ */
+export function machineOf(bp: Blueprint, node: BlueprintNode): string {
+  return machineNameOf(bp, node) ?? "";
 }
 
 export function portClaims(bp: Blueprint): PortClaim[] {
   const claims: PortClaim[] = [];
   for (const n of bp.nodes) {
-    const machine = machineOf(n);
+    const machine = machineOf(bp, n);
     if (n.kind === "store") {
       const d = n.data as StoreData;
       claims.push({ nodeId: n.id, machine, port: d.raftPort, what: "store raft" });

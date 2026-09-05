@@ -1231,6 +1231,7 @@ public final class AgentMain {
           settings.keyFile(),
           Pem.encodePrivateKey(keyPair.getPrivate()),
           StandardCharsets.US_ASCII);
+      restrictToOwner(settings.keyFile());
       Files.writeString(settings.certFile(), issuedPem, StandardCharsets.US_ASCII);
       return new RotationOutcome(
           buildHttpClient(), monitor.rotated(Pem.decodeCertificate(issuedPem)));
