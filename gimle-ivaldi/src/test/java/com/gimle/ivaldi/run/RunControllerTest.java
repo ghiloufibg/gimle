@@ -1,6 +1,7 @@
 package com.gimle.ivaldi.run;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -89,23 +90,7 @@ class RunControllerTest {
   @Test
   void a_workload_naming_a_jar_that_is_not_there_fails_before_anything_is_touched() {
     clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
-    List<RenderedFile> files =
-        List.of(
-            new RenderedFile("topology.yaml", TOPOLOGY),
-            new RenderedFile("bundle.yaml", BUNDLE),
-            new RenderedFile(
-                "manifests/01-app.yaml",
-                """
-                kind: Deployment
-                name: app
-                replicas: 1
-                module:
-                  name: com.example.app
-                  version: 1.0.0
-                artifactPath: /nowhere/does-not-exist.jar
-                """));
-
-    controller.start("c1", Optional.empty(), files, Map.of());
+    controller.start("c1", Optional.empty(), filesMissingTheirJar(), Map.of());
     Map<String, Object> snapshot = awaitSettled();
 
     assertEquals("failed", snapshot.get("status"));
@@ -241,6 +226,11 @@ class RunControllerTest {
     assertEquals("failed", awaitSettled().get("status"));
   }
 
+  /**
+   * A manifest carries no artifact path of its own -- the jar backing its module coordinate is
+   * recorded in the file set's own {@code ivaldi.artifacts.yaml}, which is what a run reads to
+   * decide what to push.
+   */
   private List<RenderedFile> filesMissingTheirJar() {
     return List.of(
         new RenderedFile("topology.yaml", TOPOLOGY),
@@ -248,14 +238,83 @@ class RunControllerTest {
         new RenderedFile(
             "manifests/01-app.yaml",
             """
+            apiVersion: v1
             kind: Deployment
             name: app
             replicas: 1
             module:
               name: com.example.app
               version: 1.0.0
-            artifactPath: /nowhere/does-not-exist.jar
+            """),
+        new RenderedFile(
+            "ivaldi.artifacts.yaml",
+            """
+            artifacts:
+              - manifest: manifests/01-app.yaml
+                module: com.example.app
+                version: 1.0.0
+                path: /nowhere/does-not-exist.jar
             """));
+  }
+
+  /**
+   * A run is a property of the cluster it targets, not of the process. Holding one globally meant
+   * starting a second abandoned the first with no way to reach it, and every blueprint's Runner
+   * rendered whichever run happened to be current.
+   */
+  @Test
+  void two_clusters_each_hold_their_own_run() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    clusters.save("c2", "{\"name\":\"two\",\"controlPlaneUrl\":\"http://127.0.0.1:8081\"}");
+
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+    controller.start("c2", Optional.of("bp-two"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    assertEquals(2, controller.allSnapshotsJson().size());
+    assertEquals("c1", controller.clusterSnapshotJson("c1").get("clusterId"));
+    assertEquals("c2", controller.clusterSnapshotJson("c2").get("clusterId"));
+  }
+
+  @Test
+  void a_blueprint_sees_only_its_own_run() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    assertEquals("c1", controller.blueprintSnapshotJson("bp-one").get("clusterId"));
+    // a blueprint that has never run must not be handed someone else's cluster
+    Map<String, Object> other = controller.blueprintSnapshotJson("bp-never-run");
+    assertEquals("idle", other.get("status"));
+    assertNull(other.get("clusterId"));
+  }
+
+  @Test
+  void a_run_in_flight_blocks_only_its_own_cluster() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    clusters.save("c2", "{\"name\":\"two\",\"controlPlaneUrl\":\"http://127.0.0.1:8081\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    // a settled run never blocks anything, and a different cluster is always free
+    controller.start("c2", Optional.of("bp-two"), filesMissingTheirJar(), Map.of());
+    assertEquals("c2", awaitSettled().get("clusterId"));
+  }
+
+  /**
+   * The blueprint that applied a topology is recorded beside it, so a cluster recovered after a
+   * restart still belongs to something -- adopted with no blueprint it could be stopped but never
+   * shown as running anywhere.
+   */
+  @Test
+  void starting_a_run_records_which_blueprint_owns_the_cluster() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    assertEquals(Optional.of("bp-one"), clusters.owningBlueprint("c1"));
   }
 
   private Map<String, Object> awaitSettled() {

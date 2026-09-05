@@ -926,6 +926,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | New | Not Covered | — |
 | GIMLE-910 | Ivaldi web console: blueprint designer canvas | New | Not Covered | — |
 | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Modified | Not Covered | — |
+| GIMLE-912 | Ivaldi tracks every run it started, and stops them all on shutdown | New | Not Covered | — |
+| GIMLE-913 | Rendered workloads resolve through the artifact registry, not a local path | New | Not Covered | — |
+| GIMLE-914 | Release upgrade prunes config and secret keys the new bundle drops | New | Not Covered | — |
+| GIMLE-915 | Service endpoint resolution reports why a backing instance was excluded | New | Not Covered | — |
+| GIMLE-916 | Topology faults name the section they were read from | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5341,6 +5346,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`; `HistoryCommandTest` asserts the limit travels as a query parameter
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (history proxy query forwarding), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`run`)
 
+#### GIMLE-915 — Service endpoint resolution reports why a backing instance was excluded
+
+- **Category**: Networking / Service discovery
+- **Status**: New  _(GET /services/{name}/endpoints now returns the exclusions ServiceEndpointResolver has always computed and ApiServer previously discarded: one human-readable line per backing instance deliberately left out because no port on it could be chosen -- a targetPort matching nothing the instance reports, or several reported ports with no targetPort naming one. A Service fronting a healthy deployment whose)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerServicesTest.java` -- a ready instance reporting no port yields an empty endpoint list plus one exclusion naming the deployment; the existing endpoint-shape contract tests still pass unchanged.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`serviceEndpointsToJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/service/{ServiceEndpointResolution,ServiceEndpointResolver}.java`
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -7332,6 +7346,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Holmgang stops processes through its own harness rather than the hilmir CLI. To close: drive `hilmir stop` against a booted multi-role machine.
 - **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest` (6 cases: the required flags, the role/id exclusivity, a rejected non-role and the WORKER role, a clean error with no ledger, and the usage line); `MachineLauncherStopIntegrationTest#stop_kills_only_the_named_role_and_drops_only_its_ledger_entry`, `#stop_by_id_picks_one_of_two_co_located_replicas_of_the_same_role`, `#stop_leaves_the_ledger_ready_for_a_later_up_to_respawn_just_that_process`; `RunLedgerTest` (3 cases); `RemoteDispatchTest#stop_carries_the_role_or_id_selector_through_to_the_remote_verb`
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runStop`, `parseStoppableRole`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`stop`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunLedger.java` (single-entry removal), `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`stop`)
+
+#### GIMLE-914 — Release upgrade prunes config and secret keys the new bundle drops
+
+- **Category**: Deployment / Release management
+- **Status**: New  _(ReleaseReconciler.computeKeyPrune returns the tenant-scoped keys (KeyRef) the previous revision applied that the new bundle no longer declares, and upgradeExisting deletes them from both the config store and the vault after every apply -- so a key this revision moved between the two is written under its new home before the old one is taken away. UpgradeOutcome reports them as prunedKeys, surfaced )_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `UpgradeCommandTest.java` -- an upgrade deletes the secret and the config key the new bundle drops, and leaves every key both revisions declare untouched.
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/{KeyRef,ReleaseReconciler,BundleApplier}.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/release/UpgradeCommand.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/sync/SyncCommand.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`computeKeyPrune` against the declaring bundle)
+
+#### GIMLE-916 — Topology faults name the section they were read from
+
+- **Category**: Deployment / Validation
+- **Status**: New  _(TopologyParser wraps every list-entry and section parse in a context prefix, so a rejection reads 'controlPlane.replicas[1]: missing or blank required field: machine' rather than naming a field that repeats across six roles. TopologyValidator's Finding gained an optional resource naming the topology section a rule fired on (store, controlPlane, fafnir, muninn, andvari, agents, machines, tls); it i)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `TopologyParserTest.java` -- a rejected field names the replica and the agent entry it was read from; `TopologyValidatorTest.java` and `FileSetValidatorTest.java` continue to pass against the unchanged codes, which remain the stable part of both contracts.
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java` (`at`), `gimle-hilmir/src/main/java/com/gimle/hilmir/validate/{Finding,TopologyValidator}.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/{Finding,FileSetValidator}.java`
 
 ### gimle-maven-plugin
 
@@ -9509,6 +9541,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`, `gimle-ivaldi-console/src/repositories/{httpClusters,httpRunner,index}.ts`, `gimle-ivaldi-console/src/lib/runPhases.ts`
 
+#### GIMLE-912 — Ivaldi tracks every run it started, and stops them all on shutdown
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(RunController keeps a run per cluster (runsByCluster) instead of one current field, so a second deployment onto another cluster no longer abandons the first. IvaldiServer exposes the collection: GET /api/runs, GET /api/runs/for-blueprint/{id}, and GET|DELETE /api/runs/for-cluster/{id}, alongside the existing /api/runs/current (now 'most recently started'). Which blueprint applied a cluster's topol)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `RunControllerTest.java` (two clusters each hold their own run; a blueprint sees only its own run; an in-flight run blocks only its own cluster; starting a run records the owning blueprint); `ClusterStoreTest.java` (owner round-trip, cleared with the applied topology); `IvaldiServerTest.java` (the collection and per-cluster/per-blueprint routes over real HTTP); `MachineLauncherIsRunningTest.java` (an exited pid is not running; a live process with no readiness port is running on its pid alone; a live process whose declared port is closed is not).
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`runsByCluster`, `stopCluster`, `stopAll`, `refreshedProcesses`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java` (`owningBlueprint`/`recordOwningBlueprint`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`/api/runs`, `/api/runs/for-blueprint/{id}`, `/api/runs/for-cluster/{id}`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiMain.java` (shutdown hook), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`isRunning`)
+
 ### gimle-ivaldi-console
 
 #### GIMLE-910 — Ivaldi web console: blueprint designer canvas
@@ -9520,11 +9561,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts`, `rules.golden.test.ts` in gimle-ivaldi-console's own Vitest suite; `TopologyTierAgreementTest.java` in gimle-ivaldi's own JUnit suite
 - **Source location(s)**: `gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`, `gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`, `gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`, `gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`limitRangeManifests`/`applyLimitRange`), `gimle-ivaldi/src/test/java/com/gimle/ivaldi/validate/TopologyTierAgreementTest.java`
 
+#### GIMLE-913 — Rendered workloads resolve through the artifact registry, not a local path
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(render.ts no longer emits the platform's deprecated artifactPath on any workload -- that field resolves against the reading process's own working directory, so a manifest carrying it can only be applied from the machine that wrote it, and it made the registry push both the run and the generated README perform dead weight. Every workload is now rendered as apiVersion v1 with a bare module coordinat)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `render.test.ts` (every workload manifest is v1 with no artifactPath; a jar-sourced workload's jar appears in ivaldi.artifacts.yaml instead; the sidecar is omitted entirely for an all-registry file set); `FileSetValidatorTest.java` (NO_ANDVARI_FOR_JAR fires off the sidecar and clears once andvari is declared); `RunControllerTest.java` (a workload whose sidecar names a jar that is not there fails in the validate phase, before anything is booted).
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/render.ts` (`workloadDoc`, the `ivaldi.artifacts.yaml` emit), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/JarArtifact.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`jarArtifacts`, `pushArtifact`, `requireJarArtifactsReadable`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireRegistryForJarArtifacts`)
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**781 of 911 requirements are Not Covered.**
+**786 of 916 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9728,9 +9778,13 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
 | GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
+| GIMLE-914 | gimle-hilmir | Release upgrade prunes config and secret keys the new bundle drops | Deployment / Release management | `UpgradeCommandTest.java` -- an upgrade deletes the secret and the config key the new bundle drops, and leaves every key both revisions declare untouched. |
+| GIMLE-916 | gimle-hilmir | Topology faults name the section they were read from | Deployment / Validation | `TopologyParserTest.java` -- a rejected field names the replica and the agent entry it was read from; `TopologyValidatorTest.java` and `FileSetValidatorTest.java` continue to pass against the unchanged codes, which remain the stable part of both contracts. |
 | GIMLE-908 | gimle-maven-plugin | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server |
 | GIMLE-910 | gimle-ivaldi-console | Ivaldi web console: blueprint designer canvas | Developer tooling / Internal-Infra | `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts`, `rules.golden.test.ts` in gimle-ivaldi-console's own Vitest suite; `TopologyTierAgreementTest.java` in gimle-ivaldi's own JUnit suite |
 | GIMLE-911 | gimle-ivaldi | Ivaldi run engine: cluster connections and running a Blueprint in-process | Developer tooling / Internal-Infra | `ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite |
+| GIMLE-912 | gimle-ivaldi | Ivaldi tracks every run it started, and stops them all on shutdown | Developer tooling / Internal-Infra | `RunControllerTest.java` (two clusters each hold their own run; a blueprint sees only its own run; an in-flight run blocks only its own cluster; starting a run records the owning blueprint); `ClusterStoreTest.java` (owner round-trip, cleared with the applied topology); `IvaldiServerTest.java` (the collection and per-cluster/per-blueprint routes over real HTTP); `MachineLauncherIsRunningTest.java` (an exited pid is not running; a live process with no readiness port is running on its pid alone; a live process whose declared port is closed is not). |
+| GIMLE-913 | gimle-ivaldi-console | Rendered workloads resolve through the artifact registry, not a local path | Developer tooling / Internal-Infra | `render.test.ts` (every workload manifest is v1 with no artifactPath; a jar-sourced workload's jar appears in ivaldi.artifacts.yaml instead; the sidecar is omitted entirely for an all-registry file set); `FileSetValidatorTest.java` (NO_ANDVARI_FOR_JAR fires off the sidecar and clears once andvari is declared); `RunControllerTest.java` (a workload whose sidecar names a jar that is not there fails in the validate phase, before anything is booted). |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |
@@ -9934,6 +9988,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-852 | gimle-controlplane | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | Networking | `ApiServerServicesTest#a_service_declaring_no_tenant_fronts_a_deployment_that_declared_none_either` |
 | GIMLE-676 | gimle-fabric | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`. |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
+| GIMLE-915 | gimle-controlplane | Service endpoint resolution reports why a backing instance was excluded | Networking / Service discovery | `ApiServerServicesTest.java` -- a ready instance reporting no port yields an empty endpoint list plus one exclusion naming the deployment; the existing endpoint-shape contract tests still pass unchanged. |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
 | GIMLE-628 | gimle-controlplane | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers) |
 | GIMLE-776 | gimle-controlplane | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Networking / Services | ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. ApiServerServicesTest also gained delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing).; `ServiceReconcilerTest#a_service_fronting_a_daemonset_resolves_its_endpoints`, `#a_service_fronting_a_statefulset_resolves_its_endpoints` |

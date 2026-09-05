@@ -49,6 +49,7 @@ import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.service.ServiceAdvisories;
 import com.gimle.controlplane.service.ServiceEndpoint;
+import com.gimle.controlplane.service.ServiceEndpointResolution;
 import com.gimle.controlplane.service.ServiceEndpointResolver;
 import com.gimle.controlplane.service.ServiceRegistry;
 import com.gimle.controlplane.tenant.TenantUsage;
@@ -2512,9 +2513,9 @@ public final class ApiServer implements AutoCloseable {
     spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
     map.put("protocol", spec.protocol().name());
+    ServiceEndpointResolution resolution = ServiceEndpointResolver.resolve(storeClient, spec);
     List<Map<String, Object>> endpoints = new ArrayList<>();
-    for (ServiceEndpoint endpoint :
-        ServiceEndpointResolver.resolve(storeClient, spec).endpoints()) {
+    for (ServiceEndpoint endpoint : resolution.endpoints()) {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("host", endpoint.host());
       entry.put("port", endpoint.port());
@@ -2522,6 +2523,9 @@ public final class ApiServer implements AutoCloseable {
       endpoints.add(entry);
     }
     map.put("endpoints", endpoints);
+    // The resolver already knows why it left a backing instance out; without this an empty
+    // endpoint list is indistinguishable from "no replicas yet" to every reader of this API.
+    map.put("exclusions", resolution.exclusions());
     return map;
   }
 

@@ -469,7 +469,13 @@ secret set`'s own wire convention), then every workload manifest (its `kind:` fi
 control-plane URL prefix, mirroring `gimle apply`'s own dispatch) — and records this as revision 1.
 `upgrade` requires an existing release, applies the new bundle's full state the same way, then
 **prunes**: any workload the *previous* revision applied that the new bundle no longer declares gets
-deleted, matching Helm's own upgrade semantics.
+deleted, matching Helm's own upgrade semantics. Config and secret keys are pruned the same way and
+reported separately as `prunedKeys` — a key the release stopped declaring is deleted from the config
+store and from the vault. This matters beyond tidiness: a config lookup falls back to the vault for
+the same key, so renaming a secret used to leave the old one live, silently answering reads meant
+for a config entry the operator could see. Key pruning runs after every apply, so a key this
+revision moved between the config store and the vault is written under its new home before the old
+one is taken away.
 
 `--dry-run` renders (and, for `upgrade`, computes the prune list against the release's existing
 ledger state) and prints the plan without applying anything — for `deploy`, that means no

@@ -462,6 +462,58 @@ class ApiServerServicesTest {
     assertEquals(38451L, Json.asObject(endpoints.get(0)).get("port"));
   }
 
+  /**
+   * A hosted module that reports no port can never back a Service, and the resolver has always
+   * known that -- it just threw the reason away, leaving an empty endpoint list indistinguishable
+   * from "no replicas scheduled yet" to everything downstream of this API.
+   */
+  @Test
+  @Timeout(10)
+  void endpoints_route_states_why_a_ready_instance_reporting_no_port_backs_nothing()
+      throws Exception {
+    ModuleId moduleId = new ModuleId("com.acme.orders", Version.parse("1.0.0"));
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(serviceJson("orders", "orders-service", 8080)))
+            .build());
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    "orders-service", 0, "node-1", moduleId, "/artifacts/orders.jar")));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutNodeRegistration(
+                new NodeRegistration(
+                    "node-1", new NodeCapabilities(Set.of()), Optional.of("10.0.0.5:9101"))));
+    inProcessStore
+        .client()
+        .putHeartbeat(
+            new NodeHeartbeat(
+                "node-1",
+                new ResourceUsageSnapshot(0, 0, 0, 0),
+                List.of(
+                    InstanceObservation.builder(
+                            "orders-service", 0, moduleId, "ACTIVE", true, true)
+                        .build())));
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertTrue(Json.asArray(body.get("endpoints")).isEmpty(), response.body());
+    List<Object> exclusions = Json.asArray(body.get("exclusions"));
+    assertEquals(1, exclusions.size(), response.body());
+    assertTrue(String.valueOf(exclusions.get(0)).contains("orders-service"), response.body());
+  }
+
   @Test
   @Timeout(10)
   void endpoints_route_for_an_unknown_service_is_404() throws Exception {

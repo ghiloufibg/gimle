@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 910
+- **Total requirements**: 915
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 780
-- **Release-readiness (automated coverage)**: 14.3%
+- **Not covered by automated test**: 785
+- **Release-readiness (automated coverage)**: 14.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,14 +21,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 70 | 6 | 64 | 8.6% |
 | gimle-mimir | 73 | 36 | 37 | 49.3% |
 | gimle-fabric | 44 | 1 | 43 | 2.3% |
-| gimle-controlplane | 143 | 17 | 126 | 11.9% |
+| gimle-controlplane | 144 | 17 | 127 | 11.8% |
 | gimle-fafnir | 35 | 11 | 24 | 31.4% |
 | gimle-andvari | 26 | 2 | 24 | 7.7% |
 | gimle-muninn | 25 | 0 | 25 | 0.0% |
 | gimle-observability | 21 | 1 | 20 | 4.8% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
 | gimle-cli | 49 | 0 | 49 | 0.0% |
-| gimle-hilmir | 38 | 0 | 38 | 0.0% |
+| gimle-hilmir | 40 | 0 | 40 | 0.0% |
 | gimle-maven-plugin | 20 | 0 | 20 | 0.0% |
 | gimle-console | 62 | 0 | 62 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
@@ -43,8 +43,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 3 | 0 | 3 | 0.0% |
-| gimle-ivaldi-console | 1 | 0 | 1 | 0.0% |
+| gimle-ivaldi | 4 | 0 | 4 | 0.0% |
+| gimle-ivaldi-console | 2 | 0 | 2 | 0.0% |
 
 ## Checklist
 
@@ -1290,6 +1290,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-785 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting | No |
 | [ ] | GIMLE-852 | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | Given a Deployment applied with no tenantId, running and reporting a port When a Service naming that deployment is created with no tenantId either Then `GET /services/{name}/endpoints` reports that deployment's live endpoints | No |
 
+#### Networking / Service discovery
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-915 | Service endpoint resolution reports why a backing instance was excluded | Given a Service fronting a ready instance that reports no port, When I read its endpoints, Then the response is 200 with an empty endpoints array and an exclusion stating why. | No |
+
 #### Networking / Services
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1995,6 +2001,18 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | Given no other arguments, When hilmir is run with -h or --help as the verb, Then it prints the full usage text and exits 0 rather than the unknown-verb error. Given the enable or disable verb, When -h/--help appears as the extension name (e.g. hilmir enable -h), Then the scoped ENABLE_USAGE/DISABLE_USAGE text is printed and exits 0 rather than "unknown extension: -h". Given the enable gateway or disable gateway subcommand, When -h/--help appears anywhere in its own arguments (e.g. hilmir enable gateway -h), Then the scoped usage text is printed and exits 0 without requiring --server or reaching the extension's own flag parser. | No |
 
+#### Deployment / Release management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-914 | Release upgrade prunes config and secret keys the new bundle drops | Given a deployed release declaring a secret, When I upgrade it to a bundle that renames that secret, Then the old key is deleted from the vault and the new one is written. Given a deployed release, When I upgrade it to a bundle declaring the same keys, Then no key is deleted. | No |
+
+#### Deployment / Validation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-916 | Topology faults name the section they were read from | Given a topology whose second control-plane replica omits its machine, When I validate it, Then the error names controlPlane.replicas[1]. | No |
+
 #### Internal/Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2553,6 +2571,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved. | No |
+| [ ] | GIMLE-912 | Ivaldi tracks every run it started, and stops them all on shutdown | Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id. Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run. Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped. | No |
 
 ### gimle-ivaldi-console
 
@@ -2561,3 +2580,4 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-910 | Ivaldi web console: blueprint designer canvas | Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh. | No |
+| [ ] | GIMLE-913 | Rendered workloads resolve through the artifact registry, not a local path | Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar. Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster. | No |

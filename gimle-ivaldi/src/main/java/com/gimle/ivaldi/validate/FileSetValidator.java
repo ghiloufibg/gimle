@@ -1,5 +1,6 @@
 package com.gimle.ivaldi.validate;
 
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.hilmir.release.Bundle;
 import com.gimle.hilmir.release.BundleParser;
@@ -8,6 +9,7 @@ import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.topology.Transport;
 import com.gimle.hilmir.validate.TopologyValidator;
+import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ParsedManifest;
@@ -36,10 +38,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * the authoritative check for the bytes it is given: it never re-derives them from a Blueprint's
  * node/edge graph, which stays the console's own concern.
  *
- * <p>Every other file in a rendered set ({@code values.example.yaml}, {@code README.md}, {@code
- * ivaldi.blueprint.json}) has nothing here to check against and is silently skipped.
+ * <p>{@code ivaldi.artifacts.yaml} is read too, though not as a platform document: it is Ivaldi's
+ * own record of which local jar backs each manifest's module coordinate, and a topology with no
+ * Andvari replica to push those jars to cannot host them. Every other file in a rendered set
+ * ({@code values.example.yaml}, {@code README.md}, {@code ivaldi.blueprint.json}) has nothing here
+ * to check against and is silently skipped.
  */
 public final class FileSetValidator {
+
+  private static final String SIDECAR_PATH = "ivaldi.artifacts.yaml";
 
   private static final Set<String> WORKLOAD_KINDS =
       Set.of("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob");
@@ -86,27 +93,22 @@ public final class FileSetValidator {
    */
   private static void requireRegistryForJarArtifacts(
       Topology topology, List<RenderedFile> files, List<Finding> findings) {
-    if (!topology.andvari().replicas().isEmpty()) {
+    List<JarArtifact> jars;
+    try {
+      jars = JarArtifact.readFrom(files);
+    } catch (IllegalArgumentException malformed) {
+      findings.add(Finding.error("ARTIFACTS_INVALID", malformed.getMessage(), SIDECAR_PATH));
       return;
     }
-    for (RenderedFile file : files) {
-      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
-        continue;
-      }
-      Map<?, ?> root;
-      try {
-        root = readMapping(file.content());
-      } catch (RuntimeException alreadyReported) {
-        continue;
-      }
-      if (root.get("artifactPath") instanceof String path && !path.isBlank()) {
+    if (topology.andvari().replicas().isEmpty()) {
+      for (JarArtifact jar : jars) {
         findings.add(
             Finding.error(
                 "NO_ANDVARI_FOR_JAR",
                 "this workload is sourced from a local jar, which the run pushes to the cluster's"
                     + " own artifact registry, but the topology declares no andvari replica to"
                     + " push it to",
-                file.path()));
+                jar.manifestPath()));
       }
     }
   }
@@ -155,7 +157,8 @@ public final class FileSetValidator {
           rule.severity() == com.gimle.hilmir.validate.Severity.ERROR
               ? Finding.Severity.ERROR
               : Finding.Severity.WARNING;
-      findings.add(new Finding(rule.code(), severity, rule.message(), file.path()));
+      findings.add(
+          new Finding(rule.code(), severity, rule.message(), file.path(), rule.resource()));
     }
     return Optional.of(topology);
   }
@@ -184,19 +187,25 @@ public final class FileSetValidator {
       return;
     }
     String kindName = String.valueOf(kind);
+    // A manifest holds exactly one resource, so every finding it produces is about that resource
+    // -- attributed once here rather than at each of the dozen places one is raised below.
+    List<Finding> own = new ArrayList<>();
     if (WORKLOAD_KINDS.contains(kindName)) {
-      validateWorkload(file, findings);
+      validateWorkload(file, own);
     } else if ("Service".equals(kindName)) {
-      validateService(file, root, findings);
+      validateService(file, root, own);
     } else if ("NetworkPolicy".equals(kindName)) {
-      validateNetworkPolicy(file, root, findings);
+      validateNetworkPolicy(file, root, own);
     } else if ("LimitRange".equals(kindName)) {
-      validateLimitRange(file, root, findings);
+      validateLimitRange(file, root, own);
     } else {
-      findings.add(
+      own.add(
           Finding.error(
               "MANIFEST_UNKNOWN_KIND", "unrecognized manifest kind: " + kindName, file.path()));
     }
+    Object resourceName = root.get("name");
+    String resource = kindName + "/" + (resourceName == null ? "" : resourceName);
+    own.forEach(finding -> findings.add(finding.about(resource)));
   }
 
   private static void validateWorkload(RenderedFile file, List<Finding> findings) {
@@ -253,9 +262,12 @@ public final class FileSetValidator {
   }
 
   /**
-   * A LimitRange's four bound blocks are each optional, but a block that is present needs both its
-   * {@code memory} and its {@code cpu} -- the same all-or-nothing rule {@code gimle apply -f}
-   * enforces on the identical document.
+   * Built as the platform's own {@link LimitRangeSpec}, not shape-tested.
+   *
+   * <p>A shape test passed three documents the platform refuses outright -- a blank quantity, an
+   * unparseable one, and a minimum above its maximum -- so the run reached {@code PUT /limitranges}
+   * and failed there, after the whole cluster had already booted, which is the failure this pass
+   * exists to pre-empt. The record's own constructor already enforces every one of those rules.
    */
   private static void validateLimitRange(
       RenderedFile file, Map<?, ?> root, List<Finding> findings) {
@@ -266,30 +278,46 @@ public final class FileSetValidator {
               "LIMITRANGE_INVALID", "limit range has no tenant 'name' field", file.path()));
       return;
     }
-    boolean anyBound = false;
-    for (String key : List.of("minRequest", "maxRequest", "minLimit", "maxLimit")) {
-      Object bound = root.get(key);
-      if (bound == null) {
-        continue;
-      }
-      anyBound = true;
-      if (!(bound instanceof Map<?, ?> pair)
-          || pair.get("memory") == null
-          || pair.get("cpu") == null) {
+    try {
+      Optional<ResourceSpec> minRequest = bound(root, "minRequest");
+      Optional<ResourceSpec> maxRequest = bound(root, "maxRequest");
+      Optional<ResourceSpec> minLimit = bound(root, "minLimit");
+      Optional<ResourceSpec> maxLimit = bound(root, "maxLimit");
+      if (minRequest.isEmpty()
+          && maxRequest.isEmpty()
+          && minLimit.isEmpty()
+          && maxLimit.isEmpty()) {
         findings.add(
-            Finding.error(
-                "LIMITRANGE_INVALID",
-                "limit range '" + key + "' requires both 'memory' and 'cpu'",
+            Finding.warning(
+                "LIMITRANGE_NO_BOUNDS",
+                "limit range for tenant '"
+                    + tenantId
+                    + "' declares no bounds and constrains nothing",
                 file.path()));
+        return;
       }
+      new LimitRangeSpec(tenantId, minRequest, maxRequest, minLimit, maxLimit);
+    } catch (IllegalArgumentException e) {
+      findings.add(Finding.error("LIMITRANGE_INVALID", messageOf(e), file.path()));
     }
-    if (!anyBound) {
-      findings.add(
-          Finding.warning(
-              "LIMITRANGE_NO_BOUNDS",
-              "limit range for tenant '" + tenantId + "' declares no bounds and constrains nothing",
-              file.path()));
+  }
+
+  /** One bound block, which the platform reads as complete once present: both halves required. */
+  private static Optional<ResourceSpec> bound(Map<?, ?> root, String key) {
+    Object value = root.get(key);
+    if (value == null) {
+      return Optional.empty();
     }
+    if (!(value instanceof Map<?, ?> pair)) {
+      throw new IllegalArgumentException("limit range '" + key + "' must be a mapping");
+    }
+    Object memory = pair.get("memory");
+    Object cpu = pair.get("cpu");
+    if (memory == null || cpu == null) {
+      throw new IllegalArgumentException(
+          "limit range '" + key + "' requires both 'memory' and 'cpu'");
+    }
+    return Optional.of(new ResourceSpec(String.valueOf(memory), String.valueOf(cpu)));
   }
 
   // ---- shared YAML plumbing ----

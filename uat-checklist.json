@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 910,
+    "totalRequirements": 915,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 780,
-    "releaseReadinessPercent": 14.3
+    "notCoveredByAutomatedTest": 785,
+    "releaseReadinessPercent": 14.2
   },
   "items": [
     {
@@ -10012,6 +10012,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
       "step": "Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-912",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Ivaldi tracks every run it started, and stops them all on shutdown",
+      "step": "Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id. Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run. Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-913",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Rendered workloads resolve through the artifact registry, not a local path",
+      "step": "Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar. Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-914",
+      "module": "gimle-hilmir",
+      "category": "Deployment / Release management",
+      "feature": "Release upgrade prunes config and secret keys the new bundle drops",
+      "step": "Given a deployed release declaring a secret, When I upgrade it to a bundle that renames that secret, Then the old key is deleted from the vault and the new one is written. Given a deployed release, When I upgrade it to a bundle declaring the same keys, Then no key is deleted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-915",
+      "module": "gimle-controlplane",
+      "category": "Networking / Service discovery",
+      "feature": "Service endpoint resolution reports why a backing instance was excluded",
+      "step": "Given a Service fronting a ready instance that reports no port, When I read its endpoints, Then the response is 200 with an empty endpoints array and an exclusion stating why.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-916",
+      "module": "gimle-hilmir",
+      "category": "Deployment / Validation",
+      "feature": "Topology faults name the section they were read from",
+      "step": "Given a topology whose second control-plane replica omits its machine, When I validate it, Then the error names controlPlane.replicas[1].",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -129,9 +129,17 @@ like every other reconciler in this codebase — each tick recomputes a Service'
 from scratch off the current store snapshot rather than diffing against the last tick, so an empty
 store, a mid-rollout store, and a fully-converged store all take the same code path. `ApiServer`
 exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (returning
-`{"name","port","targetPort","sessionAffinity","protocol","endpoints":[{"host","port","nodeId"}]}`,
+`{"name","port","targetPort","sessionAffinity","protocol","endpoints":[{"host","port","nodeId"}],"exclusions":[]}`,
 with `targetPort` present only when the Service declared one), RBAC-gated via
 `ResourceKind.SERVICE`.
+
+`exclusions` carries one human-readable line per backing instance the resolver deliberately left
+out because no port on it could be chosen — a `targetPort` matching nothing the instance reports,
+or several reported ports with no `targetPort` naming one. Without it, a Service fronting a healthy
+deployment whose module never reports a port returned an empty `endpoints` array indistinguishable
+from "no replicas scheduled yet", and nothing at any layer said why. An instance simply not ready,
+or on a node with no registered address, is not an exclusion: those are ordinary transient states
+every reconcile already expects.
 
 `GET /services/{name}/endpoints`, and the plain `GET`/`DELETE /services/{name}` routes alongside it,
 resolve a Service addressed by bare name to its own tenant when the caller gives no `?tenant=` of

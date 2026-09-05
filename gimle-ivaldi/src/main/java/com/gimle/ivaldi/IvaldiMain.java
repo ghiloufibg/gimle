@@ -108,7 +108,21 @@ public final class IvaldiMain {
       log.info("no bundled web console found on the classpath; /console disabled");
     }
 
-    Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(server::close));
+    // Stops serving first, so nothing can start another run while the teardown is under way, then
+    // tears down every cluster this process launched. A run's process tree is a child of nothing
+    // and outlives Ivaldi by design, so without this a Ctrl+C left whole clusters running, holding
+    // their ports, with no supervisor and nothing left that knew how to stop them. A kill -9 runs
+    // no hook at all -- that case is what startup adoption is for.
+    Runtime.getRuntime()
+        .addShutdownHook(
+            Thread.ofPlatform()
+                .name("gimle-ivaldi-shutdown")
+                .unstarted(
+                    () -> {
+                      server.close();
+                      log.info("stopping every cluster this Ivaldi launched");
+                      runs.stopAll();
+                    }));
   }
 
   /**

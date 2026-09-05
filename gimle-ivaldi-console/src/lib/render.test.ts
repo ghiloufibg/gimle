@@ -71,7 +71,7 @@ describe("renderFiles", () => {
     expect((topology.agents as unknown[]).length).toBe(2);
   });
 
-  it("renders a registry-sourced workload manifest with apiVersion, and a jar-sourced one without", () => {
+  it("renders every workload manifest as v1, with no deprecated local artifactPath", () => {
     const files = renderFiles(ordersPlatform!);
     const deployment = parse(
       fileNamed(files, "manifests/02-web-ui-deployment.yaml").content,
@@ -247,8 +247,8 @@ describe("renderFiles, on input the file formats cannot take verbatim", () => {
   });
 });
 
-describe("a jar-sourced CronJob", () => {
-  it("carries its artifact inside jobTemplate, which is the only place its parser reads", () => {
+describe("a jar-sourced workload", () => {
+  it("keeps its jar out of the manifest and records it in ivaldi.artifacts.yaml instead", () => {
     const bp = structuredClone(ordersPlatform!);
     const cron = bp.nodes.find((n) => n.kind === "cronJob")!;
     (cron.data as { artifact: { source: string; path: string } }).artifact = {
@@ -262,7 +262,39 @@ describe("a jar-sourced CronJob", () => {
       jobTemplate: { artifactPath?: string };
     };
 
-    expect(doc.jobTemplate.artifactPath).toBe("/tmp/report.jar");
     expect(doc).not.toHaveProperty("artifactPath");
+    expect(doc.jobTemplate).not.toHaveProperty("artifactPath");
+
+    const sidecar = parse(fileNamed(files, "ivaldi.artifacts.yaml").content) as {
+      artifacts: Array<{ manifest: string; path: string }>;
+    };
+    const entry = sidecar.artifacts.find((a) => a.manifest === manifest.path)!;
+    expect(entry.path).toBe("/tmp/report.jar");
+  });
+
+  it("omits the sidecar entirely for a file set whose workloads all come from the registry", () => {
+    const bp = structuredClone(ordersPlatform!);
+    for (const node of bp.nodes) {
+      const data = node.data as { artifact?: { source: string } };
+      if (data.artifact?.source === "jar") data.artifact = { source: "registry" } as never;
+    }
+    expect(renderFiles(bp).some((f) => f.path === "ivaldi.artifacts.yaml")).toBe(false);
+  });
+});
+
+describe("the release a blueprint deploys under", () => {
+  it("is named after the blueprint's id, so a rename does not fork its history", () => {
+    const bp = structuredClone(ordersPlatform!);
+    bp.id = "bp-orders";
+    const before = parse(renderFiles(bp).find((f) => f.path === "bundle.yaml")!.content) as {
+      name: string;
+    };
+    bp.name = "orders-platform-renamed";
+    const after = parse(renderFiles(bp).find((f) => f.path === "bundle.yaml")!.content) as {
+      name: string;
+    };
+
+    expect(before.name).toBe("bp-orders");
+    expect(after.name).toBe(before.name);
   });
 });

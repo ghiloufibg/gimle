@@ -40,6 +40,7 @@ public final class ClusterStore {
   private static final int MAX_ID_MINT_ATTEMPTS = 20;
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final String TOPOLOGY_SUFFIX = ".topology.yaml";
+  private static final String OWNER_SUFFIX = ".owner";
 
   private final Path root;
 
@@ -142,9 +143,37 @@ public final class ClusterStore {
     requireValidId(id);
     try {
       Files.deleteIfExists(topologyFileFor(id));
+      Files.deleteIfExists(ownerFileFor(id));
     } catch (IOException e) {
       throw new UncheckedIOException("failed clearing applied topology for cluster " + id, e);
     }
+  }
+
+  /**
+   * The blueprint whose run last applied a topology to this cluster.
+   *
+   * <p>Recorded beside that topology because it is the only durable link between the two: run state
+   * lives in memory, so after a restart a recovered cluster could be re-adopted but not attributed
+   * to anything, and no screen can show a blueprint as running without knowing which cluster is its
+   * own.
+   */
+  public Optional<String> owningBlueprint(String id) {
+    requireValidId(id);
+    Path file = ownerFileFor(id);
+    if (!Files.exists(file)) {
+      return Optional.empty();
+    }
+    try {
+      String owner = Files.readString(file, StandardCharsets.UTF_8).trim();
+      return owner.isBlank() ? Optional.empty() : Optional.of(owner);
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed reading owning blueprint for cluster " + id, e);
+    }
+  }
+
+  public void recordOwningBlueprint(String id, String blueprintId) {
+    requireValidId(id);
+    write(ownerFileFor(id), blueprintId);
   }
 
   private static void write(Path target, String content) {
@@ -213,6 +242,10 @@ public final class ClusterStore {
 
   private Path topologyFileFor(String id) {
     return root.resolve(id + TOPOLOGY_SUFFIX);
+  }
+
+  private Path ownerFileFor(String id) {
+    return root.resolve(id + OWNER_SUFFIX);
   }
 
   /** {@code Path#getFileName()} is only ever null for a root path, never for a directory entry. */

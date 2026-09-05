@@ -427,12 +427,21 @@ class FileSetValidatorTest {
 
   private static final String JAR_WORKLOAD =
       """
+      apiVersion: v1
       kind: Deployment
       name: hello
       tenantId: examples
       module: {name: com.gimle.examples.hello, version: 1.0.0}
       replicas: 1
-      artifactPath: /tmp/hello-module.jar
+      """;
+
+  private static final String JAR_SIDECAR =
+      """
+      artifacts:
+        - manifest: manifests/01-hello.yaml
+          module: com.gimle.examples.hello
+          version: 1.0.0
+          path: /tmp/hello-module.jar
       """;
 
   /**
@@ -446,6 +455,7 @@ class FileSetValidatorTest {
         FileSetValidator.validate(
             List.of(
                 file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file("ivaldi.artifacts.yaml", JAR_SIDECAR),
                 file("manifests/01-hello.yaml", JAR_WORKLOAD)));
 
     Finding jarFinding =
@@ -463,6 +473,7 @@ class FileSetValidatorTest {
         FileSetValidator.validate(
             List.of(
                 file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", JAR_SIDECAR),
                 file("manifests/01-hello.yaml", JAR_WORKLOAD)));
 
     assertFalse(codes(findings).contains("NO_ANDVARI_FOR_JAR"), findings.toString());
@@ -550,5 +561,49 @@ class FileSetValidatorTest {
                 file("bundle.yaml", bundleWithTenants("examples", "other"))));
 
     assertFalse(codes(findings).contains("PLAINTEXT_MULTI_TENANT"), findings.toString());
+  }
+
+  /**
+   * The limit range is built as the platform's own record, not shape-tested: a shape test passed
+   * three documents the cluster refuses, so the run failed at PUT /limitranges after the whole
+   * platform had already booted.
+   */
+  @Test
+  void a_limit_range_the_platform_would_refuse_is_refused_here() {
+    String header = "kind: LimitRange\nname: acme\n";
+
+    assertTrue(
+        codesOf(header + "minRequest: {memory: \"\", cpu: \"\"}\n").contains("LIMITRANGE_INVALID"),
+        "a blank quantity");
+    assertTrue(
+        codesOf(header + "minRequest: {memory: banana, cpu: 10m}\n").contains("LIMITRANGE_INVALID"),
+        "an unparseable quantity");
+    assertTrue(
+        codesOf(
+                header
+                    + "minRequest: {memory: 512Mi, cpu: 900m}\n"
+                    + "maxRequest: {memory: 32Mi, cpu: 10m}\n")
+            .contains("LIMITRANGE_INVALID"),
+        "a minimum above its maximum");
+    assertTrue(
+        codesOf(header + "minRequest: {memory: 32Mi}\n").contains("LIMITRANGE_INVALID"),
+        "a bound missing one half");
+  }
+
+  @Test
+  void a_well_formed_limit_range_passes_and_an_unbounded_one_only_warns() {
+    String valid =
+        "kind: LimitRange\nname: acme\nminRequest: {memory: 32Mi, cpu: 10m}\n"
+            + "maxRequest: {memory: 512Mi, cpu: 1000m}\n";
+
+    assertFalse(codesOf(valid).contains("LIMITRANGE_INVALID"));
+    assertTrue(codesOf("kind: LimitRange\nname: acme\n").contains("LIMITRANGE_NO_BOUNDS"));
+  }
+
+  private static List<String> codesOf(String manifest) {
+    return FileSetValidator.validate(List.of(new RenderedFile("manifests/01-lr.yaml", manifest)))
+        .stream()
+        .map(Finding::code)
+        .toList();
   }
 }

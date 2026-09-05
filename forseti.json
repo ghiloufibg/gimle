@@ -602,8 +602,8 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Stand Fleet up from a hand-written five-machine `topology.yaml` using only the platform archive's own docs: `hilmir validate` (fix every ERROR it names), `hilmir plan`, one `hilmir up --machine` per machine in an out-of-dependency order.",
-      "oracle": "`validate`'s findings are specific and actionable; `up` on a machine whose prerequisites live elsewhere blocks then proceeds rather than racing; `hilmir status` on each machine matches reality; the density knob and log-format flag set in `jvm:` are honoured; every process answers its operator health signal.",
+      "objective": "Stand Fleet up from a hand-written five-machine `topology.yaml` using only the platform archive's own docs: `hilmir validate` (fix every ERROR it names), `hilmir plan`, one `hilmir up --machine` per machine in an out-of-dependency order. Include one deliberately broken replica entry -- a second control-plane replica with no machine -- before fixing it.",
+      "oracle": "`validate`'s findings are specific and actionable; `up` on a machine whose prerequisites live elsewhere blocks then proceeds rather than racing; `hilmir status` on each machine matches reality; the density knob and log-format flag set in `jvm:` are honoured; every process answers its operator health signal. The parser's rejection names the entry it read (controlPlane.replicas[1]), not a bare field name that repeats across every role.",
       "requirements": [
         "GIMLE-021",
         "GIMLE-390",
@@ -615,7 +615,8 @@
         "GIMLE-887",
         "GIMLE-888",
         "GIMLE-890",
-        "GIMLE-891"
+        "GIMLE-891",
+        "GIMLE-916"
       ]
     },
     {
@@ -731,8 +732,8 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Release-bundle lifecycle: `hilmir deploy` a bundle with `${values.*}` templating and `--wait`; `releases`/`release-status`; `hilmir upgrade` with a resource removed from the bundle; `hilmir rollback`; `hilmir undeploy`; then `hilmir sync --prune --watch` a GitOps directory and edit files under it.",
-      "oracle": "Templating precedence matches the docs; `--wait` returns only once workloads are ready; upgrade prunes exactly the dropped resource; rollback restores the prior revision; sync converges on each edit and prunes on delete.",
+      "objective": "Release-bundle lifecycle: `hilmir deploy` a bundle with `${values.*}` templating and `--wait`; `releases`/`release-status`; `hilmir upgrade` with a resource removed from the bundle and a secret renamed (the old key dropped, a new one declared); `hilmir rollback`; `hilmir undeploy`; then `hilmir sync --prune --watch` a GitOps directory and edit files under it.",
+      "oracle": "Templating precedence matches the docs; `--wait` returns only once workloads are ready; upgrade prunes exactly the dropped resource, and reports the dropped secret and config keys as prunedKeys -- reading the old secret key afterwards is a miss, not a stale value shadowing a config entry of the same name; rollback restores the prior revision; sync converges on each edit and prunes on delete.",
       "requirements": [
         "GIMLE-398",
         "GIMLE-399",
@@ -745,7 +746,8 @@
         "GIMLE-406",
         "GIMLE-407",
         "GIMLE-408",
-        "GIMLE-851"
+        "GIMLE-851",
+        "GIMLE-914"
       ]
     },
     {
@@ -1467,8 +1469,8 @@
         "midgard",
         "fleet"
       ],
-      "objective": "Create a Service fronting a three-replica deployment (and one fronting a hosted module that calls `reportPort`); scale up and down; declare then omit `targetPort`; create a second Service overlapping the first; drive it from the console's Networking screen too.",
-      "oracle": "`service endpoints` tracks live replicas exactly; a hosted module's reported port resolves; `targetPort` is authoritative when declared and absent when not; the overlap is announced as a warning; CLI and console agree.",
+      "objective": "Create a Service fronting a three-replica deployment (and one fronting a hosted module that calls `reportPort`); scale up and down; declare then omit `targetPort`; create a second Service overlapping the first; drive it from the console's Networking screen too. Also front a deployment whose module never reports a port at all, and read its endpoints.",
+      "oracle": "`service endpoints` tracks live replicas exactly; a hosted module's reported port resolves; `targetPort` is authoritative when declared and absent when not; the overlap is announced as a warning; CLI and console agree. The Service backed by a module that reports no port returns 200 with an empty endpoints array and a stated exclusion naming that deployment, rather than an empty list indistinguishable from 'no replicas scheduled yet'.",
       "requirements": [
         "GIMLE-566",
         "GIMLE-571",
@@ -1478,7 +1480,8 @@
         "GIMLE-729",
         "GIMLE-800",
         "GIMLE-802",
-        "GIMLE-852"
+        "GIMLE-852",
+        "GIMLE-915"
       ]
     },
     {
@@ -2675,14 +2678,16 @@
       "environments": [
         "forge"
       ],
-      "objective": "`mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`. POST /api/clusters (a local, no-auth connection); POST /api/runs against it with a topology naming no agents and a bundle with one tenant; confirm the run reaches `failed` or `running` rather than hanging, and that /api/clusters/{id}/topology reflects whatever the run actually applied.",
-      "oracle": "The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent. The run's terminal status and GET /api/runs/{id}/log both name the same outcome; the cluster's own /topology reads back exactly the topology.yaml the run submitted once it reaches running, and stays null if the run never got that far.",
+      "objective": "`mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`. POST /api/clusters (a local, no-auth connection); POST /api/runs against it with a topology naming no agents and a bundle with one tenant; confirm the run reaches `failed` or `running` rather than hanging, and that /api/clusters/{id}/topology reflects whatever the run actually applied. Then, with that run still tracked, POST a second /api/clusters and a second /api/runs against it; read GET /api/runs, GET /api/runs/for-cluster/{id} and GET /api/runs/for-blueprint/{id}; export the blueprint's file set and inspect its manifests and ivaldi.artifacts.yaml.",
+      "oracle": "The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent. The run's terminal status and GET /api/runs/{id}/log both name the same outcome; the cluster's own /topology reads back exactly the topology.yaml the run submitted once it reaches running, and stays null if the run never got that far. Starting the second run leaves the first reachable by its own cluster id; /api/runs lists both; for-blueprint returns only the run its own blueprint started, and an idle shape for a blueprint that has never run. No exported manifest carries artifactPath -- every workload is apiVersion v1 with a bare module coordinate -- and each jar-sourced workload is named once in ivaldi.artifacts.yaml, which is absent entirely when nothing is jar-sourced.",
       "requirements": [
         "GIMLE-906",
         "GIMLE-907",
         "GIMLE-908",
         "GIMLE-910",
-        "GIMLE-911"
+        "GIMLE-911",
+        "GIMLE-912",
+        "GIMLE-913"
       ]
     }
   ]

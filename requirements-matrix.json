@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 911,
+  "requirementCount": 916,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -18772,6 +18772,113 @@
         "Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved."
       ],
       "statusSummary": "Partial",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-912",
+      "module": "gimle-ivaldi",
+      "feature": "Ivaldi tracks every run it started, and stops them all on shutdown",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator running several blueprints, I want Ivaldi to track each cluster's own run separately, to tell me which blueprint owns which cluster, and to take down everything it started when I stop it -- rather than holding one global run slot and leaving process trees behind.",
+      "statusDetail": "RunController keeps a run per cluster (runsByCluster) instead of one current field, so a second deployment onto another cluster no longer abandons the first. IvaldiServer exposes the collection: GET /api/runs, GET /api/runs/for-blueprint/{id}, and GET|DELETE /api/runs/for-cluster/{id}, alongside the existing /api/runs/current (now 'most recently started'). Which blueprint applied a cluster's topology is persisted beside that topology as an <id>.owner file in ClusterStore, so restart adoption re-attaches a live cluster to the blueprint that owns it rather than to nothing. IvaldiMain's shutdown hook closes the server and then calls RunController.stopAll(), tearing down every cluster this instance launched; restart adoption remains the fallback for a kill -9 that can run no hook. A run's process readiness is re-probed on every snapshot read (MachineLauncher.isRunning: pid liveness plus, for a kind that declares one, a connect to its readiness port), cached for two seconds so a polling console does not open a socket per process per request -- previously readiness was captured once at boot and a process killed from outside stayed 'ready' forever.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`runsByCluster`, `stopCluster`, `stopAll`, `refreshedProcesses`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java` (`owningBlueprint`/`recordOwningBlueprint`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`/api/runs`, `/api/runs/for-blueprint/{id}`, `/api/runs/for-cluster/{id}`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiMain.java` (shutdown hook)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`isRunning`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest.java` (two clusters each hold their own run; a blueprint sees only its own run; an in-flight run blocks only its own cluster; starting a run records the owning blueprint); `ClusterStoreTest.java` (owner round-trip, cleared with the applied topology); `IvaldiServerTest.java` (the collection and per-cluster/per-blueprint routes over real HTTP); `MachineLauncherIsRunningTest.java` (an exited pid is not running; a live process with no readiness port is running on its pid alone; a live process whose declared port is closed is not).",
+      "gherkinSteps": [
+        "Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id.",
+        "Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run.",
+        "Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-913",
+      "module": "gimle-ivaldi-console",
+      "feature": "Rendered workloads resolve through the artifact registry, not a local path",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As a developer exporting a blueprint, I want its manifests to be applicable from any machine, so the jars a run pushes to the registry are what the cluster actually resolves.",
+      "statusDetail": "render.ts no longer emits the platform's deprecated artifactPath on any workload -- that field resolves against the reading process's own working directory, so a manifest carrying it can only be applied from the machine that wrote it, and it made the registry push both the run and the generated README perform dead weight. Every workload is now rendered as apiVersion v1 with a bare module coordinate, which ArtifactReference resolves from Andvari. Which local jar backs which manifest is recorded in a new ivaldi.artifacts.yaml sidecar Ivaldi owns: JarArtifact.readFrom reads it, RunController pushes from it (and pre-checks every jar is readable before anything is torn down), and FileSetValidator's NO_ANDVARI_FOR_JAR rule is computed from it.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/render.ts` (`workloadDoc`, the `ivaldi.artifacts.yaml` emit)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/JarArtifact.java`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`jarArtifacts`, `pushArtifact`, `requireJarArtifactsReadable`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireRegistryForJarArtifacts`)"
+      ],
+      "testCoverageDetail": "`render.test.ts` (every workload manifest is v1 with no artifactPath; a jar-sourced workload's jar appears in ivaldi.artifacts.yaml instead; the sidecar is omitted entirely for an all-registry file set); `FileSetValidatorTest.java` (NO_ANDVARI_FOR_JAR fires off the sidecar and clears once andvari is declared); `RunControllerTest.java` (a workload whose sidecar names a jar that is not there fails in the validate phase, before anything is booted).",
+      "gherkinSteps": [
+        "Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar.",
+        "Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-914",
+      "module": "gimle-hilmir",
+      "feature": "Release upgrade prunes config and secret keys the new bundle drops",
+      "category": "Deployment / Release management",
+      "userStory": "As an operator upgrading a release, I want a config entry or secret the new bundle no longer declares to be removed, so a renamed secret does not stay behind answering reads meant for something else.",
+      "statusDetail": "ReleaseReconciler.computeKeyPrune returns the tenant-scoped keys (KeyRef) the previous revision applied that the new bundle no longer declares, and upgradeExisting deletes them from both the config store and the vault after every apply -- so a key this revision moved between the two is written under its new home before the old one is taken away. UpgradeOutcome reports them as prunedKeys, surfaced by both `hilmir upgrade` and `hilmir sync`. Computed against the bundle as declared rather than as applied: Ivaldi withholds a secret whose value the operator did not re-enter, and pruning that would destroy exactly the vault value withholding it was meant to preserve. This closes a real defect -- a config lookup falls back to the vault for the same key, so renaming a secret left the old one live and silently shadowing a config entry the operator could see.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/{KeyRef,ReleaseReconciler,BundleApplier}.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/UpgradeCommand.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/sync/SyncCommand.java`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`computeKeyPrune` against the declaring bundle)"
+      ],
+      "testCoverageDetail": "`UpgradeCommandTest.java` -- an upgrade deletes the secret and the config key the new bundle drops, and leaves every key both revisions declare untouched.",
+      "gherkinSteps": [
+        "Given a deployed release declaring a secret, When I upgrade it to a bundle that renames that secret, Then the old key is deleted from the vault and the new one is written.",
+        "Given a deployed release, When I upgrade it to a bundle declaring the same keys, Then no key is deleted."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-915",
+      "module": "gimle-controlplane",
+      "feature": "Service endpoint resolution reports why a backing instance was excluded",
+      "category": "Networking / Service discovery",
+      "userStory": "As an operator whose Service resolves to nothing, I want the API to tell me why, instead of returning an empty list indistinguishable from 'no replicas yet'.",
+      "statusDetail": "GET /services/{name}/endpoints now returns the exclusions ServiceEndpointResolver has always computed and ApiServer previously discarded: one human-readable line per backing instance deliberately left out because no port on it could be chosen -- a targetPort matching nothing the instance reports, or several reported ports with no targetPort naming one. A Service fronting a healthy deployment whose hosted module never reports a port previously resolved to zero endpoints forever with nothing saying so at any layer. An instance simply not ready, or on a node with no registered address, is not an exclusion.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`serviceEndpointsToJson`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/{ServiceEndpointResolution,ServiceEndpointResolver}.java`"
+      ],
+      "testCoverageDetail": "`ApiServerServicesTest.java` -- a ready instance reporting no port yields an empty endpoint list plus one exclusion naming the deployment; the existing endpoint-shape contract tests still pass unchanged.",
+      "gherkinSteps": [
+        "Given a Service fronting a ready instance that reports no port, When I read its endpoints, Then the response is 200 with an empty endpoints array and an exclusion stating why."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-916",
+      "module": "gimle-hilmir",
+      "feature": "Topology faults name the section they were read from",
+      "category": "Deployment / Validation",
+      "userStory": "As an operator fixing a topology, I want a rejected field and a validator finding to name which role or replica they are about, so I can go and fix it instead of searching the document.",
+      "statusDetail": "TopologyParser wraps every list-entry and section parse in a context prefix, so a rejection reads 'controlPlane.replicas[1]: missing or blank required field: machine' rather than naming a field that repeats across six roles. TopologyValidator's Finding gained an optional resource naming the topology section a rule fired on (store, controlPlane, fafnir, muninn, andvari, agents, machines, tls); it is deliberately empty for a rule about no single section, such as a port claimed by two different roles. Ivaldi's own tier-2 Finding carries that resource through, and additionally attributes every manifest finding to that manifest's own Kind/name -- previously a finding named only a file, and topology.yaml holds every role, so a rule that fired on one of them pointed at all of them.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java` (`at`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/validate/{Finding,TopologyValidator}.java`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/{Finding,FileSetValidator}.java`"
+      ],
+      "testCoverageDetail": "`TopologyParserTest.java` -- a rejected field names the replica and the agent entry it was read from; `TopologyValidatorTest.java` and `FileSetValidatorTest.java` continue to pass against the unchanged codes, which remain the stable part of both contracts.",
+      "gherkinSteps": [
+        "Given a topology whose second control-plane replica omits its machine, When I validate it, Then the error names controlPlane.replicas[1]."
+      ],
+      "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
     }
   ]

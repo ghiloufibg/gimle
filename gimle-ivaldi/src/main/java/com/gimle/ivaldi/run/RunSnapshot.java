@@ -24,11 +24,25 @@ record RunSnapshot(
     String startedAt,
     String updatedAt) {
 
-  record ProcessInfo(String role, String address, boolean ready) {
+  /**
+   * One process this run launched. {@code address} is what an operator can reach the process on,
+   * which for a node agent is its declared UDP gossip address rather than anything connectable --
+   * so the launcher's own {@code readinessAddress} ("" for a kind with no port-based signal) is
+   * kept alongside it, and is what a readiness re-check actually probes. It is not serialized: a
+   * client reads {@code ready}, never re-derives it.
+   */
+  record ProcessInfo(
+      String role, String address, long pid, String readinessAddress, boolean ready) {
+
+    ProcessInfo withReady(boolean value) {
+      return new ProcessInfo(role, address, pid, readinessAddress, value);
+    }
+
     Map<String, Object> toJsonMap() {
       Map<String, Object> map = new LinkedHashMap<>();
       map.put("role", role);
       map.put("address", address);
+      map.put("pid", pid);
       map.put("ready", ready);
       return map;
     }

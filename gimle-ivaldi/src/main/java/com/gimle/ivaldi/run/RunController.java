@@ -12,6 +12,7 @@ import com.gimle.hilmir.release.Bundle;
 import com.gimle.hilmir.release.BundleParser;
 import com.gimle.hilmir.release.BundleRenderer;
 import com.gimle.hilmir.release.ControlPlaneApi;
+import com.gimle.hilmir.release.KeyRef;
 import com.gimle.hilmir.release.ReleaseLedger;
 import com.gimle.hilmir.release.ReleaseMeta;
 import com.gimle.hilmir.release.ReleaseReconciler;
@@ -25,6 +26,7 @@ import com.gimle.hilmir.topology.Transport;
 import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.validate.FileSetValidator;
 import com.gimle.ivaldi.validate.Finding;
+import com.gimle.ivaldi.validate.JarArtifact;
 import com.gimle.ivaldi.validate.RenderedFile;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.io.ByteArrayInputStream;
@@ -35,13 +37,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
@@ -95,9 +100,25 @@ public final class RunController {
   private static final Set<String> STANDALONE_KINDS =
       Set.of("Service", "NetworkPolicy", "LimitRange");
 
+  /** How long a shutdown waits for a run's own worker to unwind before tearing down under it. */
+  /** How long a readiness probe's answer is reused before the next snapshot re-asks. */
+  private static final Duration READINESS_CACHE = Duration.ofSeconds(2);
+
+  private static final Duration SHUTDOWN_WORKER_GRACE = Duration.ofSeconds(10);
+
   private final ClusterStore clusters;
   private final Path workspaceRoot;
-  private volatile ActiveRun current;
+
+  /**
+   * Every run this process is holding, keyed by the cluster it targets.
+   *
+   * <p>Keyed by cluster rather than held in a single field because a cluster is what a run can
+   * collide with: two runs against one cluster fight over the same process tree and the same
+   * release, while runs against different clusters are independent and must both be reachable. A
+   * single field meant starting either kind abandoned the first with no way to stop it, and left
+   * every blueprint's Runner rendering whichever run happened to be current.
+   */
+  private final Map<String, ActiveRun> runsByCluster = new ConcurrentHashMap<>();
 
   public RunController(ClusterStore clusters, Path dataRoot) {
     this.clusters = clusters;
@@ -129,6 +150,10 @@ public final class RunController {
       if (applied.isEmpty()) {
         continue;
       }
+      // Recorded beside the applied topology when the run started, so the recovered cluster is
+      // still attributable to the blueprint that built it -- adopting it with no blueprint left it
+      // running and belonging to nothing, which no screen can then show.
+      Optional<String> owner = clusters.owningBlueprint(clusterId);
       try {
         Topology topology =
             TopologyParser.parse(
@@ -143,7 +168,7 @@ public final class RunController {
           clusters.clearAppliedTopology(clusterId);
           continue;
         }
-        ActiveRun adopted = new ActiveRun(mintRunId(), clusterId, Optional.empty());
+        ActiveRun adopted = new ActiveRun(mintRunId(), clusterId, owner);
         adopted.status = RunStatus.RUNNING;
         adopted.processes = processInfos(alive, topology);
         adopted.log.append(
@@ -152,8 +177,7 @@ public final class RunController {
                 + " process(es) still running for cluster "
                 + clusterId
                 + " from a previous Ivaldi process");
-        current = adopted;
-        return;
+        runsByCluster.put(clusterId, adopted);
       } catch (RuntimeException e) {
         log.warn("could not adopt a running cluster for {}: {}", clusterId, e.getMessage());
       }
@@ -182,29 +206,71 @@ public final class RunController {
       Optional<String> blueprintId,
       List<RenderedFile> files,
       Map<String, String> values) {
-    if (current != null && current.status.isInFlight()) {
-      throw new RunInProgressException(current.id);
+    ActiveRun existing = runsByCluster.get(clusterId);
+    // Scoped to the cluster: a run elsewhere is none of this one's business.
+    if (existing != null && existing.status.isInFlight()) {
+      throw new RunInProgressException(existing.id);
     }
     if (clusters.get(clusterId).isEmpty()) {
       throw new NotFoundException("no such cluster: " + clusterId);
     }
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
-    current = run;
+    runsByCluster.put(clusterId, run);
+    blueprintId.ifPresent(id -> clusters.recordOwningBlueprint(clusterId, id));
     run.worker = Thread.ofVirtual().start(() -> execute(run, files, values));
     return snapshotOf(run).toJsonMap();
   }
 
+  /** Every run this process holds, newest first -- what the blueprint list and Clusters read. */
+  public List<Map<String, Object>> allSnapshotsJson() {
+    return runsByCluster.values().stream()
+        .sorted(Comparator.comparing((ActiveRun r) -> r.startedAt).reversed())
+        .map(run -> snapshotOf(run).toJsonMap())
+        .toList();
+  }
+
+  /** The run against {@code clusterId}, or an idle snapshot when this process holds none. */
+  public Map<String, Object> clusterSnapshotJson(String clusterId) {
+    ActiveRun run = runsByCluster.get(clusterId);
+    return (run == null ? RunSnapshot.idle() : snapshotOf(run)).toJsonMap();
+  }
+
+  /**
+   * The run a given blueprint owns, or an idle snapshot. What a Runner screen asks for, so that a
+   * page never renders a run belonging to another blueprint.
+   */
+  public Map<String, Object> blueprintSnapshotJson(String blueprintId) {
+    return runsByCluster.values().stream()
+        .filter(run -> run.blueprintId.map(blueprintId::equals).orElse(false))
+        .max(Comparator.comparing(run -> run.startedAt))
+        .map(run -> snapshotOf(run).toJsonMap())
+        .orElseGet(() -> RunSnapshot.idle().toJsonMap());
+  }
+
+  /**
+   * The most recently started run, kept for the single-run clients that predate the registry.
+   * Ambiguous by construction once more than one cluster is running, which is why every screen
+   * should ask by blueprint or by cluster instead.
+   */
   public Map<String, Object> currentSnapshotJson() {
-    return (current == null ? RunSnapshot.idle() : snapshotOf(current)).toJsonMap();
+    return runsByCluster.values().stream()
+        .max(Comparator.comparing(run -> run.startedAt))
+        .map(run -> snapshotOf(run).toJsonMap())
+        .orElseGet(() -> RunSnapshot.idle().toJsonMap());
   }
 
   /** Empty when no run with this id exists at all -- distinct from an empty log page. */
   public Optional<LogPage> log(String runId, int cursor) {
-    if (current == null || !current.id.equals(runId)) {
-      return Optional.empty();
-    }
-    RunLog.Page page = current.log.since(cursor);
-    return Optional.of(new LogPage(page.lines(), page.nextCursor()));
+    return byId(runId)
+        .map(
+            run -> {
+              RunLog.Page page = run.log.since(cursor);
+              return new LogPage(page.lines(), page.nextCursor());
+            });
+  }
+
+  private Optional<ActiveRun> byId(String runId) {
+    return runsByCluster.values().stream().filter(run -> run.id.equals(runId)).findFirst();
   }
 
   /**
@@ -215,10 +281,53 @@ public final class RunController {
    * after the boot has actually stopped touching the cluster.
    */
   public synchronized Map<String, Object> stop() {
-    if (current == null) {
-      throw new NotFoundException("no run to stop");
+    ActiveRun latest =
+        runsByCluster.values().stream()
+            .filter(run -> run.status != RunStatus.IDLE)
+            .max(Comparator.comparing(run -> run.startedAt))
+            .orElseThrow(() -> new NotFoundException("no run to stop"));
+    return stopRun(latest);
+  }
+
+  /** Stops the run against one cluster, which is how a Runner screen addresses its own. */
+  public synchronized Map<String, Object> stopCluster(String clusterId) {
+    ActiveRun run = runsByCluster.get(clusterId);
+    if (run == null || run.status == RunStatus.IDLE) {
+      throw new NotFoundException("no run to stop for cluster: " + clusterId);
     }
-    ActiveRun run = current;
+    return stopRun(run);
+  }
+
+  /**
+   * Tears down every cluster this process launched. Called from the shutdown hook: a run's process
+   * tree is a child of nothing -- it outlives Ivaldi by design -- so without this a Ctrl+C left
+   * every cluster running, holding its ports, with no supervisor and nothing left that knew how to
+   * stop it.
+   */
+  public void stopAll() {
+    for (ActiveRun run : List.copyOf(runsByCluster.values())) {
+      if (run.status == RunStatus.IDLE) {
+        continue;
+      }
+      try {
+        Thread worker = run.worker;
+        if (worker != null && worker.isAlive()) {
+          run.cancelRequested = true;
+          worker.interrupt();
+          worker.join(SHUTDOWN_WORKER_GRACE.toMillis());
+        }
+        Thread.interrupted();
+        teardown(run);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      } catch (RuntimeException e) {
+        log.warn("could not stop cluster {} on shutdown: {}", run.clusterId, e.getMessage());
+      }
+    }
+  }
+
+  private Map<String, Object> stopRun(ActiveRun run) {
     run.status = RunStatus.STOPPING;
     run.updatedAt = Instant.now();
     Thread worker = run.worker;
@@ -328,14 +437,14 @@ public final class RunController {
       run.status = RunStatus.SEEDING;
       Path workspace = workspaceRoot.resolve(run.id);
       writeWorkspace(workspace, files);
-      List<RenderedFile> jarWorkloads = jarSourcedWorkloads(files);
+      List<JarArtifact> jarWorkloads = jarArtifacts(files);
       // Built here, after the boot above has minted whatever material this topology needs, and
       // from that topology rather than from this process's own configuration -- see
       // clientIdentityFor.
       ControlPlaneApi api =
           new ControlPlaneApi(serverAddress, clientIdentityFor(topology, cluster, run));
-      for (RenderedFile manifest : jarWorkloads) {
-        pushArtifact(api, manifest, run);
+      for (JarArtifact jarArtifact : jarWorkloads) {
+        pushArtifact(api, jarArtifact, run);
       }
       if (jarWorkloads.isEmpty()) {
         run.log.append("no jar-sourced workloads to push");
@@ -356,8 +465,8 @@ public final class RunController {
           values.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).toList();
       Map<String, String> merged =
           ValueOverrides.merge(bundle.values(), Optional.empty(), setFlags);
-      RenderedBundle rendered =
-          dropUnsuppliedSecrets(BundleRenderer.render(bundle, merged, workspace), run);
+      RenderedBundle declared = BundleRenderer.render(bundle, merged, workspace);
+      RenderedBundle rendered = dropUnsuppliedSecrets(declared, run);
 
       Optional<ReleaseMeta> meta = ReleaseLedger.readMeta(api, rendered.name());
       int revision;
@@ -379,9 +488,13 @@ public final class RunController {
                                 + meta.get().currentRevision()
                                 + " recorded in its ledger"));
         List<ResourceRef> toPrune = ReleaseReconciler.computePrune(rendered, previous);
+        // Against the declaring bundle, not the applied one: a secret withheld above because its
+        // value was not re-entered is still declared, and pruning it would destroy exactly the
+        // vault value that withholding it was meant to preserve.
+        List<KeyRef> keysToPrune = ReleaseReconciler.computeKeyPrune(declared, previous);
         ReleaseReconciler.UpgradeOutcome outcome =
             ReleaseReconciler.upgradeExisting(
-                api, rendered, meta.get(), toPrune, true, printStreamTo(run));
+                api, rendered, meta.get(), toPrune, keysToPrune, true, printStreamTo(run));
         revision = outcome.revision();
         run.log.append(
             "release "
@@ -390,7 +503,9 @@ public final class RunController {
                 + revision
                 + ", "
                 + toPrune.size()
-                + " pruned)");
+                + " resource(s) and "
+                + keysToPrune.size()
+                + " key(s) pruned)");
       }
       run.revision = Optional.of(revision);
 
@@ -494,67 +609,48 @@ public final class RunController {
    * can see.
    */
   private static void requireJarArtifactsReadable(List<RenderedFile> files) {
-    for (RenderedFile manifest : jarSourcedWorkloads(files)) {
-      Object artifactPath = readMapping(manifest.content()).get("artifactPath");
-      if (!(artifactPath instanceof String pathString) || pathString.isBlank()) {
-        continue;
-      }
-      Path jar = Path.of(pathString);
-      if (!Files.isRegularFile(jar)) {
-        throw new RunFailedException(
-            "no jar at " + jar + " (from " + manifest.path() + ") -- check the artifact path");
-      }
-      try {
-        ModuleArtifactReader.read(jar);
-      } catch (RuntimeException notAModule) {
-        throw new RunFailedException(
-            "not a pushable module artifact at "
-                + jar
-                + " (from "
-                + manifest.path()
-                + "): "
-                + notAModule.getMessage());
-      }
+    for (JarArtifact jarArtifact : jarArtifacts(files)) {
+      readModuleArtifact(jarArtifact);
     }
   }
 
-  private void pushArtifact(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
-    Map<?, ?> mapping = readMapping(manifest.content());
-    Object artifactPath = mapping.get("artifactPath");
-    if (!(artifactPath instanceof String pathString) || pathString.isBlank()) {
-      return;
-    }
-    Path jar = Path.of(pathString);
-    ModuleArtifact artifact;
+  private void pushArtifact(ControlPlaneApi api, JarArtifact jarArtifact, ActiveRun run) {
+    ModuleArtifact artifact = readModuleArtifact(jarArtifact);
+    String moduleId = artifact.id().name();
+    String version = artifact.id().version().toString();
+    api.putFile("/artifacts/" + moduleId + "/" + version, jarArtifact.jar());
+    run.log.append("pushed artifact " + moduleId + "@" + version + " from " + jarArtifact.jar());
+  }
+
+  private static List<JarArtifact> jarArtifacts(List<RenderedFile> files) {
     try {
-      artifact = ModuleArtifactReader.read(jar);
-    } catch (RuntimeException e) {
+      return JarArtifact.readFrom(files);
+    } catch (IllegalArgumentException malformed) {
+      throw new RunFailedException(malformed.getMessage());
+    }
+  }
+
+  private static ModuleArtifact readModuleArtifact(JarArtifact jarArtifact) {
+    Path jar = jarArtifact.jar();
+    if (!Files.isRegularFile(jar)) {
+      throw new RunFailedException(
+          "no jar at "
+              + jar
+              + " (for "
+              + jarArtifact.manifestPath()
+              + ") -- check the artifact path");
+    }
+    try {
+      return ModuleArtifactReader.read(jar);
+    } catch (RuntimeException notAModule) {
       throw new RunFailedException(
           "not a pushable module artifact at "
               + jar
-              + " (from "
-              + manifest.path()
+              + " (for "
+              + jarArtifact.manifestPath()
               + "): "
-              + e.getMessage());
+              + notAModule.getMessage());
     }
-    String moduleId = artifact.id().name();
-    String version = artifact.id().version().toString();
-    api.putFile("/artifacts/" + moduleId + "/" + version, jar);
-    run.log.append("pushed artifact " + moduleId + "@" + version + " from " + jar);
-  }
-
-  private static List<RenderedFile> jarSourcedWorkloads(List<RenderedFile> files) {
-    List<RenderedFile> jars = new ArrayList<>();
-    for (RenderedFile file : files) {
-      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
-        continue;
-      }
-      Map<?, ?> mapping = readMapping(file.content());
-      if (mapping.containsKey("artifactPath")) {
-        jars.add(file);
-      }
-    }
-    return jars;
   }
 
   /**
@@ -693,6 +789,35 @@ public final class RunController {
     run.log.append("FAILED: " + message);
   }
 
+  /**
+   * Readiness is re-probed here rather than reported as the launcher saw it: a process killed from
+   * outside Ivaldi -- or one that died on its own an hour into a run -- otherwise stayed "ready"
+   * for as long as the run object lived, and the console offered live links to a dead port.
+   *
+   * <p>Cached briefly because a console polls this: without the window, one connect per process per
+   * request turns a one-second poll into a steady trickle of sockets against every role.
+   */
+  private static List<RunSnapshot.ProcessInfo> refreshedProcesses(ActiveRun run) {
+    if (run.processes.isEmpty()) {
+      return run.processes;
+    }
+    Instant now = Instant.now();
+    Instant checked = run.processesCheckedAt;
+    if (checked != null && Duration.between(checked, now).compareTo(READINESS_CACHE) < 0) {
+      return run.processes;
+    }
+    List<RunSnapshot.ProcessInfo> refreshed =
+        run.processes.stream()
+            .map(
+                process ->
+                    process.withReady(
+                        MachineLauncher.isRunning(process.pid(), process.readinessAddress())))
+            .toList();
+    run.processes = refreshed;
+    run.processesCheckedAt = now;
+    return refreshed;
+  }
+
   private static RunSnapshot snapshotOf(ActiveRun run) {
     return new RunSnapshot(
         run.id,
@@ -700,7 +825,7 @@ public final class RunController {
         run.blueprintId,
         run.status,
         run.rebooted,
-        run.processes,
+        refreshedProcesses(run),
         run.revision,
         run.error,
         run.startedAt.toString(),
@@ -934,7 +1059,9 @@ public final class RunController {
       if (address.isBlank()) {
         address = declaredAgentAddress(record.id(), topology).orElse("");
       }
-      infos.add(new RunSnapshot.ProcessInfo(record.role(), address, true));
+      infos.add(
+          new RunSnapshot.ProcessInfo(
+              record.role(), address, record.pid(), record.readinessAddress(), true));
     }
     return List.copyOf(infos);
   }
@@ -1006,6 +1133,7 @@ public final class RunController {
     volatile RunStatus status = RunStatus.VALIDATING;
     volatile boolean rebooted;
     volatile List<RunSnapshot.ProcessInfo> processes = List.of();
+    volatile Instant processesCheckedAt;
     volatile Optional<Integer> revision = Optional.empty();
     volatile Optional<String> error = Optional.empty();
     volatile Instant updatedAt = Instant.now();

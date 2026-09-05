@@ -278,16 +278,24 @@ public final class IvaldiServer implements AutoCloseable {
       String tail = exchange.getRequestURI().getPath().substring("/api/runs".length());
       String method = exchange.getRequestMethod();
       if (tail.isEmpty() || "/".equals(tail)) {
-        if (!"POST".equals(method)) {
-          respond(exchange, 405, "method not allowed");
-          return;
+        switch (method) {
+          // The collection, not a singleton: this process can hold a run per cluster, and a
+          // screen that shows which blueprints are running has to be able to ask for all of them.
+          case "GET" -> respondJson(exchange, 200, runs.allSnapshotsJson());
+          case "POST" -> respondJson(exchange, 201, parseAndStartRun(readBody(exchange)));
+          default -> respond(exchange, 405, "method not allowed");
         }
-        respondJson(exchange, 201, parseAndStartRun(readBody(exchange)));
         return;
       }
       String[] segments = tail.substring(1).split("/", 3);
       if ("current".equals(segments[0]) && segments.length == 1) {
         handleRunsCurrent(exchange, method);
+      } else if ("for-blueprint".equals(segments[0]) && segments.length == 2) {
+        handleRunForBlueprint(
+            exchange, method, URLDecoder.decode(segments[1], StandardCharsets.UTF_8));
+      } else if ("for-cluster".equals(segments[0]) && segments.length == 2) {
+        handleRunForCluster(
+            exchange, method, URLDecoder.decode(segments[1], StandardCharsets.UTF_8));
       } else if (segments.length == 2 && "log".equals(segments[1])) {
         handleRunLog(exchange, method, URLDecoder.decode(segments[0], StandardCharsets.UTF_8));
       } else {
@@ -313,6 +321,30 @@ public final class IvaldiServer implements AutoCloseable {
     switch (method) {
       case "GET" -> respondJson(exchange, 200, runs.currentSnapshotJson());
       case "DELETE" -> respondJson(exchange, 200, runs.stop());
+      default -> respond(exchange, 405, "method not allowed");
+    }
+  }
+
+  /**
+   * The run one blueprint owns. A Runner screen asks by blueprint rather than for "the current
+   * run", so a page never renders a run that belongs to a different blueprint -- which is how one
+   * blueprint's screen came to show another cluster's status, endpoints and Stop button.
+   */
+  private void handleRunForBlueprint(HttpExchange exchange, String method, String blueprintId)
+      throws IOException {
+    if (!"GET".equals(method)) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    respondJson(exchange, 200, runs.blueprintSnapshotJson(blueprintId));
+  }
+
+  /** The run against one cluster: read it, or stop that one specifically. */
+  private void handleRunForCluster(HttpExchange exchange, String method, String clusterId)
+      throws IOException {
+    switch (method) {
+      case "GET" -> respondJson(exchange, 200, runs.clusterSnapshotJson(clusterId));
+      case "DELETE" -> respondJson(exchange, 200, runs.stopCluster(clusterId));
       default -> respond(exchange, 405, "method not allowed");
     }
   }
