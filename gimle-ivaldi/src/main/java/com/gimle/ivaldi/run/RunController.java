@@ -221,16 +221,20 @@ public final class RunController {
     ActiveRun run = current;
     run.status = RunStatus.STOPPING;
     run.updatedAt = Instant.now();
-    if (run.cancelRequested) {
-      return snapshotOf(run).toJsonMap();
-    }
     Thread worker = run.worker;
     if (worker != null && worker.isAlive()) {
-      run.cancelRequested = true;
-      run.log.append("stop requested -- cancelling the run in flight");
-      worker.interrupt();
+      // Already cancelling: the worker is on its way out and finishes the teardown itself, so a
+      // second press must not start a competing one.
+      if (!run.cancelRequested) {
+        run.cancelRequested = true;
+        run.log.append("stop requested -- cancelling the run in flight");
+        worker.interrupt();
+      }
       return snapshotOf(run).toJsonMap();
     }
+    // The worker is gone, whether or not this run was once cancelled. Returning early here on the
+    // cancelled flag left the status stuck at STOPPING, which reads as in-flight, so every later
+    // run was refused with a 409 until the process was restarted.
     Thread.ofVirtual().start(() -> teardown(run));
     return snapshotOf(run).toJsonMap();
   }
@@ -306,6 +310,9 @@ public final class RunController {
           // cluster is running.
           run.log.append(
               "up failed, tearing down any partially-started processes: " + upFailed.getMessage());
+          // Cleared first: when the boot was stopped by a cancel, the interrupt is still set, and
+          // a teardown running interrupted abandons every process after the first one it waits on.
+          Thread.interrupted();
           downQuietly(run, topologyFile.content());
           throw upFailed;
         }
@@ -390,7 +397,7 @@ public final class RunController {
       run.status = RunStatus.RUNNING;
       run.log.append("run complete");
     } catch (RunFailedException e) {
-      if (run.cancelRequested) {
+      if (cancelled(run)) {
         teardown(run);
       } else {
         fail(run, e.getMessage());
@@ -398,7 +405,7 @@ public final class RunController {
     } catch (RuntimeException e) {
       // A cancelled run's own failure is the cancellation, whatever shape it arrived in -- an
       // interrupted sleep inside a readiness poll surfaces here as an ordinary runtime failure.
-      if (run.cancelRequested) {
+      if (cancelled(run)) {
         run.log.append("run cancelled");
         teardown(run);
       } else {
@@ -409,6 +416,19 @@ public final class RunController {
       Thread.interrupted();
       run.updatedAt = Instant.now();
     }
+  }
+
+  /**
+   * Whether this run was cancelled, clearing the interrupt on the way out.
+   *
+   * <p>The interrupt is what stopped the run, and it is still set at this point: leaving it set
+   * meant the teardown that follows was itself interrupted, so the first {@code waitFor} threw and
+   * every process after it was abandoned -- a cancel during a boot left five JVMs running while
+   * reporting the cluster stopped.
+   */
+  private static boolean cancelled(ActiveRun run) {
+    Thread.interrupted();
+    return run.cancelRequested;
   }
 
   /**

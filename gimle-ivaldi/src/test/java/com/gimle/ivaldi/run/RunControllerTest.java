@@ -221,6 +221,43 @@ class RunControllerTest {
             "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
   }
 
+  /**
+   * A stop after a cancelled run has finished must still tear down and settle. Returning early on
+   * the cancelled flag left the status stuck at STOPPING -- which reads as in-flight -- so every
+   * later run was refused with a 409 until the process was restarted.
+   */
+  @Test
+  void a_stop_after_a_cancelled_run_settles_instead_of_wedging_the_controller() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.empty(), filesMissingTheirJar(), Map.of());
+    awaitSettled();
+
+    controller.stop();
+    Map<String, Object> settled = awaitSettled();
+
+    assertEquals("idle", settled.get("status"));
+    // and the controller accepts work again rather than answering 409 forever
+    controller.start("c1", Optional.empty(), filesMissingTheirJar(), Map.of());
+    assertEquals("failed", awaitSettled().get("status"));
+  }
+
+  private List<RenderedFile> filesMissingTheirJar() {
+    return List.of(
+        new RenderedFile("topology.yaml", TOPOLOGY),
+        new RenderedFile("bundle.yaml", BUNDLE),
+        new RenderedFile(
+            "manifests/01-app.yaml",
+            """
+            kind: Deployment
+            name: app
+            replicas: 1
+            module:
+              name: com.example.app
+              version: 1.0.0
+            artifactPath: /nowhere/does-not-exist.jar
+            """));
+  }
+
   private Map<String, Object> awaitSettled() {
     for (int attempt = 0; attempt < 200; attempt++) {
       Map<String, Object> snapshot = controller.currentSnapshotJson();
