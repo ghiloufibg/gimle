@@ -2221,6 +2221,97 @@ class AgentMainTest {
   // than one {port: ...} env entry -- the probe must dial the specific port its own manifest
   // config names, not whichever one happens to iterate first. ----
 
+  /**
+   * The assignment list a node fetches is all-or-nothing only if parsing is: one workload whose
+   * spec this agent cannot reconstruct must not stop it from learning about everything else
+   * assigned to it, which is what froze the node's whole heartbeat for every tenant.
+   */
+  @Test
+  void one_unparseable_assignment_does_not_discard_the_rest_of_the_batch() throws Exception {
+    // Two declared ports and a liveness rung naming neither -- unresolvable by construction.
+    String body =
+        """
+        [
+          {"deploymentName":"broken","instanceIndex":0,
+           "moduleId":{"name":"com.example.broken","version":"1.0.0"},
+           "artifactPath":"/tmp/broken.jar",
+           "vessel":{"args":[],"jvmFlags":[],
+             "env":{"A_PORT":{"port":"dynamic"},"B_PORT":{"port":"dynamic"}},
+             "files":[],"probes":{"liveness":{"tcp":true,"initialDelaySeconds":0}},
+             "resources":{"request":{"memory":"64Mi","cpu":"100m"},
+                          "limit":{"memory":"64Mi","cpu":"100m"}}}},
+          {"deploymentName":"healthy","instanceIndex":0,
+           "moduleId":{"name":"com.example.healthy","version":"2.0.0"},
+           "artifactPath":"/tmp/healthy.jar"}
+        ]
+        """;
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, bytes.length);
+          exchange.getResponseBody().write(bytes);
+          exchange.close();
+        });
+    server.start();
+    try {
+      URI baseUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+
+      List<AssignedInstance> assignments =
+          AgentMain.fetchAssignments(HttpClient.newHttpClient(), baseUrl, "node-a");
+
+      assertEquals(1, assignments.size());
+      assertEquals("healthy", assignments.get(0).deploymentName());
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
+   * A probe's named port has to survive the wire shape as well as the manifest: dropped here, a
+   * perfectly valid multi-port manifest becomes an unresolvable spec by the time it is rebuilt.
+   */
+  @Test
+  void a_fetched_vessel_probe_keeps_the_port_it_names() throws Exception {
+    String body =
+        """
+        [
+          {"deploymentName":"two-port","instanceIndex":0,
+           "moduleId":{"name":"com.example.two","version":"1.0.0"},
+           "artifactPath":"/tmp/two.jar",
+           "vessel":{"args":[],"jvmFlags":[],
+             "env":{"A_PORT":{"port":"dynamic"},"B_PORT":{"port":"dynamic"}},
+             "files":[],
+             "probes":{"liveness":{"tcp":true,"port":"B_PORT","initialDelaySeconds":0}},
+             "resources":{"request":{"memory":"64Mi","cpu":"100m"},
+                          "limit":{"memory":"64Mi","cpu":"100m"}}}}
+        ]
+        """;
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, bytes.length);
+          exchange.getResponseBody().write(bytes);
+          exchange.close();
+        });
+    server.start();
+    try {
+      URI baseUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+
+      List<AssignedInstance> assignments =
+          AgentMain.fetchAssignments(HttpClient.newHttpClient(), baseUrl, "node-a");
+
+      assertEquals(1, assignments.size());
+      VesselSpec vessel = assignments.get(0).vessel().orElseThrow();
+      assertEquals(Optional.of("B_PORT"), vessel.probes().liveness().orElseThrow().portName());
+    } finally {
+      server.stop(0);
+    }
+  }
+
   private static HttpServer respondingHttpServer(int status, String path) throws IOException {
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(

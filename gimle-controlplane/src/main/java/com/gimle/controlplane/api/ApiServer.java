@@ -4207,6 +4207,10 @@ public final class ApiServer implements AutoCloseable {
       case VesselProbeSpec.Tcp ignored -> map.put("tcp", true);
       case VesselProbeSpec.Http http -> map.put("http", http.path());
     }
+    // Emitted under the same key the manifest parser reads, so a spec read back out of the API
+    // and re-applied keeps naming the port it dials -- without it, a multi-port vessel's probe
+    // silently becomes ambiguous on the round trip.
+    probe.portName().ifPresent(name -> map.put("port", name));
     return map;
   }
 

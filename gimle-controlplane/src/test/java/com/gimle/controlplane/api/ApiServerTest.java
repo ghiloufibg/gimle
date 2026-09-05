@@ -1494,6 +1494,59 @@ class ApiServerTest {
   }
 
   @Test
+  void assignments_endpoint_keeps_the_port_a_vessel_probe_names() throws Exception {
+    // Two declared ports make naming one mandatory, so a response that drops the name yields a
+    // spec the agent cannot reconstruct at all -- the manifest is valid, the wire shape was not.
+    String vesselYaml =
+        """
+        kind: Deployment
+        name: two-port-vessel
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 1
+        vessel:
+          env:
+            ADMIN_PORT: {port: dynamic}
+            HTTP_PORT: {port: dynamic}
+          probes:
+            liveness: {tcp: true, port: HTTP_PORT}
+            readiness: {http: /healthz, port: ADMIN_PORT}
+          resources:
+            request: {memory: 64Mi, cpu: 100m}
+            limit: {memory: 128Mi, cpu: 200m}
+        """;
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/two-port-vessel"))
+            .PUT(HttpRequest.BodyPublishers.ofString(vesselYaml))
+            .build());
+    store.putAssignment(
+        new InstanceAssignment(
+            "two-port-vessel",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+
+    HttpResponse<String> assignments =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/assignments"))
+                .GET()
+                .build());
+
+    assertEquals(200, assignments.statusCode());
+    Map<String, Object> probes =
+        Json.asObject(
+            Json.asObject(Json.asObjectList(Json.parse(assignments.body())).get(0).get("vessel"))
+                .get("probes"));
+    assertEquals("HTTP_PORT", Json.asObject(probes.get("liveness")).get("port"));
+    assertEquals("ADMIN_PORT", Json.asObject(probes.get("readiness")).get("port"));
+  }
+
+  @Test
   void assignments_endpoint_is_empty_for_a_node_with_none() throws Exception {
     HttpResponse<String> assignments =
         send(

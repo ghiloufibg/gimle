@@ -1278,7 +1278,7 @@ public final class AgentMain {
     return observation;
   }
 
-  private static List<AssignedInstance> fetchAssignments(
+  static List<AssignedInstance> fetchAssignments(
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
@@ -1291,40 +1291,80 @@ public final class AgentMain {
     List<AssignedInstance> result = new ArrayList<>();
     for (Object entry : raw) {
       Map<String, Object> map = Json.asObject(entry);
-      Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
-      ModuleId moduleId =
-          new ModuleId(
-              (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
-      Object tenantId = map.get("tenantId");
-      Object renamedFrom = map.get("renamedFromInstanceIndex");
-      Object rawConfigMapRefs = map.get("configMapRefs");
-      List<String> configMapRefs =
-          rawConfigMapRefs == null
-              ? List.of()
-              : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
-      Object rawSecretMapRefs = map.get("secretMapRefs");
-      List<String> secretMapRefs =
-          rawSecretMapRefs == null
-              ? List.of()
-              : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
-      Object rawVessel = map.get("vessel");
-      result.add(
-          new AssignedInstance(
-              (String) map.get("deploymentName"),
-              ((Number) map.get("instanceIndex")).intValue(),
-              moduleId,
-              (String) map.get("artifactPath"),
-              tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
-              renamedFrom == null
-                  ? OptionalInt.empty()
-                  : OptionalInt.of(((Number) renamedFrom).intValue()),
-              rawVessel == null
-                  ? Optional.empty()
-                  : Optional.of(parseVessel(Json.asObject(rawVessel))),
-              configMapRefs,
-              secretMapRefs));
+      // Parsed one assignment at a time, and a failure here skips only that assignment. Letting it
+      // escape would abort the whole fetch, so a single malformed spec would stop this node from
+      // learning about every other tenant's instances too -- freezing its heartbeat cluster-wide
+      // rather than failing the one workload actually at fault.
+      try {
+        result.add(parseAssignment(map));
+      } catch (RuntimeException e) {
+        reportUnparseableAssignment(httpClient, baseUrl, nodeId, map, e);
+      }
     }
     return result;
+  }
+
+  /**
+   * Names the offending workload in a durable timeline event as well as this node's own log: an
+   * assignment the agent cannot even parse is otherwise invisible to an operator, who sees only a
+   * deployment that never progresses and a node that looks healthy.
+   */
+  private static void reportUnparseableAssignment(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      Map<String, Object> map,
+      RuntimeException e) {
+    Object name = map.get("deploymentName");
+    Object index = map.get("instanceIndex");
+    log.error("skipping unparseable assignment {}[{}]: {}", name, index, e.getMessage(), e);
+    if (!(name instanceof String deploymentName) || !(index instanceof Number instanceIndex)) {
+      return;
+    }
+    postInstanceEvent(
+        httpClient,
+        baseUrl,
+        nodeId,
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            deploymentName,
+            instanceIndex.intValue(),
+            InstanceEventKind.TRANSITION_FAILED,
+            "assignment spec rejected by this node",
+            Optional.of(String.valueOf(e.getMessage())),
+            System.currentTimeMillis()));
+  }
+
+  private static AssignedInstance parseAssignment(Map<String, Object> map) {
+    Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    Object tenantId = map.get("tenantId");
+    Object renamedFrom = map.get("renamedFromInstanceIndex");
+    Object rawConfigMapRefs = map.get("configMapRefs");
+    List<String> configMapRefs =
+        rawConfigMapRefs == null
+            ? List.of()
+            : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
+    Object rawSecretMapRefs = map.get("secretMapRefs");
+    List<String> secretMapRefs =
+        rawSecretMapRefs == null
+            ? List.of()
+            : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
+    Object rawVessel = map.get("vessel");
+    return new AssignedInstance(
+        (String) map.get("deploymentName"),
+        ((Number) map.get("instanceIndex")).intValue(),
+        moduleId,
+        (String) map.get("artifactPath"),
+        tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
+        renamedFrom == null
+            ? OptionalInt.empty()
+            : OptionalInt.of(((Number) renamedFrom).intValue()),
+        rawVessel == null ? Optional.empty() : Optional.of(parseVessel(Json.asObject(rawVessel))),
+        configMapRefs,
+        secretMapRefs);
   }
 
   /**
@@ -1391,10 +1431,14 @@ public final class AgentMain {
 
   private static VesselProbeSpec parseVesselProbe(Map<String, Object> map) {
     int initialDelaySeconds = ((Number) map.getOrDefault("initialDelaySeconds", 0)).intValue();
+    // Carried through even though a single-port vessel never needs it: dropping it here is what
+    // turns a perfectly well-formed multi-port manifest into an unresolvable one by the time the
+    // agent reconstructs it.
+    Optional<String> portName = Optional.ofNullable((String) map.get("port"));
     if (map.containsKey("http")) {
-      return new VesselProbeSpec.Http((String) map.get("http"), initialDelaySeconds);
+      return new VesselProbeSpec.Http((String) map.get("http"), portName, initialDelaySeconds);
     }
-    return new VesselProbeSpec.Tcp(initialDelaySeconds);
+    return new VesselProbeSpec.Tcp(portName, initialDelaySeconds);
   }
 
   /**
