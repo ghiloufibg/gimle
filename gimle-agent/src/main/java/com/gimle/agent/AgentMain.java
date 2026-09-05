@@ -153,6 +153,10 @@ public final class AgentMain {
   /** Request timeout for every outbound HTTP call this agent makes to the control plane. */
   private static final Duration HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
+  private static final Duration REGISTRATION_INITIAL_BACKOFF = Duration.ofSeconds(1);
+
+  private static final Duration REGISTRATION_MAX_BACKOFF = Duration.ofSeconds(30);
+
   /** Connect timeout for every {@link HttpClient} this agent builds. */
   private static final Duration HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
@@ -509,7 +513,7 @@ public final class AgentMain {
     CertificateRotationMonitor rotationMonitor =
         new CertificateRotationMonitor("agent " + nodeId, TICK_INTERVAL, rotationListener);
 
-    register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
+    registerWithRetry(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
     // Shared by BifrostProxy and NetworkPolicyRelay below -- HttpNetworkPolicySource is stateless
@@ -787,6 +791,46 @@ public final class AgentMain {
 
   // ---- control-plane registration/heartbeat/assignment fetch ----
 
+  /**
+   * Retries registration until it succeeds, rather than letting a transient control-plane hiccup
+   * at exactly this moment take the node out of the cluster until a human notices. The steady-state
+   * tick loop already survives the same class of failure; there is no reason startup should be the
+   * one moment a timeout is fatal. Backs off exponentially to a ceiling so a control plane that is
+   * genuinely down is not hammered, and keeps retrying rather than giving up after a fixed count --
+   * an agent that has nothing else to do until it registers has no better state to fall back to.
+   */
+  static void registerWithRetry(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      ResourceLimiter resourceLimiter,
+      String apiAddress)
+      throws InterruptedException {
+    Duration backoff = REGISTRATION_INITIAL_BACKOFF;
+    for (int attempt = 1; ; attempt++) {
+      try {
+        register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
+        return;
+      } catch (IOException | RuntimeException e) {
+        log.warn(
+            "agent {} could not register with control plane at {} (attempt {}): {} -- retrying in"
+                + " {}",
+            nodeId,
+            baseUrl,
+            attempt,
+            e.getMessage(),
+            backoff);
+        Thread.sleep(backoff);
+        backoff = nextRegistrationBackoff(backoff);
+      }
+    }
+  }
+
+  static Duration nextRegistrationBackoff(Duration current) {
+    Duration doubled = current.multipliedBy(2);
+    return doubled.compareTo(REGISTRATION_MAX_BACKOFF) > 0 ? REGISTRATION_MAX_BACKOFF : doubled;
+  }
+
   private static void register(
       HttpClient httpClient,
       URI baseUrl,
@@ -812,7 +856,14 @@ public final class AgentMain {
             .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
-    httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    // A control plane still coming up answers 503 here; treating that as success would leave this
+    // agent believing it is registered while the cluster has never heard of it.
+    if (response.statusCode() / 100 != 2) {
+      throw new IOException(
+          "control plane refused node registration with status " + response.statusCode());
+    }
   }
 
   /**

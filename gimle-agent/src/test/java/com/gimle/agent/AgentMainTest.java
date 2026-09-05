@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -2310,6 +2311,48 @@ class AgentMainTest {
     } finally {
       server.stop(0);
     }
+  }
+
+  /**
+   * Startup registration is hit by exactly the transient control-plane hiccups the steady-state
+   * tick loop already survives; a timeout there used to escape {@code main} and kill the JVM,
+   * silently removing the node from the cluster until a human noticed.
+   */
+  @Test
+  @Timeout(30)
+  void registration_keeps_retrying_until_the_control_plane_accepts_it() throws Exception {
+    AtomicInteger attempts = new AtomicInteger();
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/nodes/node-a/register",
+        exchange -> {
+          // Refuses the first two attempts the way a control plane still coming up does.
+          int status = attempts.incrementAndGet() <= 2 ? 503 : 200;
+          exchange.sendResponseHeaders(status, -1);
+          exchange.close();
+        });
+    server.start();
+    try {
+      URI baseUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+
+      AgentMain.registerWithRetry(
+          HttpClient.newHttpClient(),
+          baseUrl,
+          "node-a",
+          new PortableJvmFlagsResourceLimiter(),
+          "127.0.0.1:9999");
+
+      assertEquals(3, attempts.get());
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  @Test
+  void registration_backoff_grows_but_stops_at_its_ceiling() {
+    assertEquals(Duration.ofSeconds(2), AgentMain.nextRegistrationBackoff(Duration.ofSeconds(1)));
+    assertEquals(Duration.ofSeconds(30), AgentMain.nextRegistrationBackoff(Duration.ofSeconds(20)));
+    assertEquals(Duration.ofSeconds(30), AgentMain.nextRegistrationBackoff(Duration.ofSeconds(30)));
   }
 
   private static HttpServer respondingHttpServer(int status, String path) throws IOException {
