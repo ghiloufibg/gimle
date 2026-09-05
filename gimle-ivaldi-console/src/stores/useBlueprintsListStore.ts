@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { createBlueprint, type Blueprint } from "@/lib/blueprint";
+import { createBlueprint, uid, type Blueprint } from "@/lib/blueprint";
 import { blueprintsRepository, type BlueprintSummary } from "@/repositories";
 
 interface ListState {
@@ -87,7 +87,10 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
     if (!source) return null;
     const taken = get().blueprints.map((b) => b.name);
     const copy = await blueprintsRepository.create(
-      stamped({ ...source, name: uniqueName(taken, `${source.name}-copy`) }),
+      // A fresh id, not the source's own: create() now refuses a request naming an id already on
+      // disk rather than silently minting an unrelated one, and the source's own id -- the one
+      // this copy is a copy *of* -- always collides.
+      stamped({ ...source, id: uid("bp"), name: uniqueName(taken, `${source.name}-copy`) }),
     );
     await get().refresh();
     return copy;
@@ -98,6 +101,10 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
     const saved = await blueprintsRepository.create(
       stamped({
         ...blueprint,
+        // A fresh id, not whatever the imported document happens to carry: re-importing the same
+        // exported zip a second time -- a retry, or just re-opening an old backup -- named the
+        // same id both times, which create() now refuses rather than silently minting past it.
+        id: uid("bp"),
         name: taken.includes(blueprint.name)
           ? uniqueName(taken, `${blueprint.name}-imported`)
           : blueprint.name,

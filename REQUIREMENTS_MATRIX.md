@@ -932,6 +932,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-920 | A different blueprint cannot silently claim a cluster another blueprint still owns | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-921 | Creating a blueprint at an id already taken is refused, not silently re-minted | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-922 | A redeploy onto an already-running cluster still reports its live processes | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-923 | A LimitRange bound with only one of memory/cpu filled in is flagged before export | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-924 | A Tenant node's Inspector panel shows its own Links section | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-925 | Deleting a node with connected edges undoes as one step, not two | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-926 | Dragging a node checkpoints one undo step regardless of intermediate positions | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-927 | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -14096,4 +14101,71 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner.
   Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's.
   Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why.
+  ```
+
+#### GIMLE-923 — A LimitRange bound with only one of memory/cpu filled in is flagged before export
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator editing a LimitRange node in the designer, I want to be warned when I've typed a memory value with no matching cpu (or vice versa) for the same bound, since the renderer silently drops that whole bound rather than exporting a half-filled one.
+- **Status**: rules.ts's LIMITRANGE_NO_BOUNDS check only fired once a bound (min or max) was entirely empty on both fields; a bound with exactly one of memory/cpu filled in passed validation clean, yet the renderer requires both halves of a bound to emit it at all and silently drops a bound carrying a blank -- so the value a user just typed vanished from the exported manifest with nothing in the designer ever having said so. A new LIMITRANGE_HALF_FILLED warning fires per bound (min, max) whenever exactly one of memory/cpu is filled, naming which field is present.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (the `limitRange` validation loop)
+- **Test coverage**: Verified by direct code reading against the renderer's own both-halves-required contract; no dedicated rules.ts unit test file exists in this module yet for any LIMITRANGE_* code, matching the existing test boundary for that file.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a LimitRange node whose min bound has memory filled in but cpu left blank, When the blueprint is validated, Then a LIMITRANGE_HALF_FILLED warning names the min bound and the missing field.
+  ```
+
+#### GIMLE-924 — A Tenant node's Inspector panel shows its own Links section
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator with a Tenant selected on the canvas, I want to see and manage every belongsTo/allowsCaller link that names this tenant from its own Inspector panel, not just from the panel of the node on the other end of each link.
+- **Status**: The Inspector's LinksSection render condition covered isPlacedRole(kind) (a role placed on a machine), isTenantScoped(kind) (a resource belonging to a tenant), and kind === "machine", but never kind === "tenant" itself -- despite a Tenant node being the target of every belongsTo and allowsCaller edge in the blueprint. Selecting a Tenant therefore showed no Links section at all: no way to audit which resources belong to it or cut a membership from the tenant's own side. The condition now also matches node.kind === "tenant".
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the `LinksSection` render condition)
+- **Test coverage**: Verified by cross-referencing isPlacedRole/isTenantScoped's own definitions against every node kind that participates in an edge per EDGE_RULES/edgeKindFor; no dedicated Inspector.tsx component test exists in this module.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint with a resource belonging to a tenant, When I select that tenant node, Then its Inspector panel shows a Links section listing the membership, with a control to remove it.
+  ```
+
+#### GIMLE-925 — Deleting a node with connected edges undoes as one step, not two
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator who deletes a node with links attached, I want a single Ctrl+Z to restore both the node and its edges together, not leave the edges gone after undoing once.
+- **Status**: React Flow fires onNodesDelete and onEdgesDelete as two separate callbacks for one Delete-key gesture on a node with connected edges (the cascaded edge removal arrives as its own event) -- DesignerCanvas wired each to its own store commit, so one user action produced two history entries, and a single undo restored only the edges (or only the node, depending on order), leaving the design in a state the user never asked for and couldn't get back from with the same gesture they used to break it. DesignerCanvas now uses React Flow v12's combined onDelete callback, which reports both sides of the same gesture already resolved, and commits them together through a new store action, removeNodesAndEdges, that removes the named nodes, the named edges, and any edge left dangling by a removed node's endpoint in one blueprint update -- one history entry, one undo.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`onDelete`), `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`removeNodesAndEdges`)
+- **Test coverage**: `useBlueprintStore.test.ts` (`removes the node and its cascaded edges in one commit, undoable in a single step`, `also removes an edge named explicitly that isn't connected to any deleted node`, `does nothing when given no nodes and no edges`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node with two edges attached, When I delete it, Then the node and both edges disappear together, and a single Ctrl+Z restores all three.
+  ```
+
+#### GIMLE-926 — Dragging a node checkpoints one undo step regardless of intermediate positions
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator repositioning a node on the canvas, I want one Ctrl+Z to undo the whole drag back to where it started, not have to press it once per intermediate position React Flow reported mid-drag -- and I don't want a click that never moves anything to cost an undo step at all.
+- **Status**: moveNode wrote the node's new position straight into the blueprint via a raw set(), bypassing the store's own commit() helper (the only place that pushes onto the undo history) entirely -- so a drag was not undoable at all, and React Flow reports several intermediate position updates over the course of one drag gesture, each of which would have cost its own undo step had moveNode gone through commit() directly. Two new store actions, beginDrag/endDrag, bracket a drag gesture: beginDrag snapshots the blueprint before any position changes land, and endDrag compares that snapshot against the current blueprint and pushes exactly one history entry if anything actually moved (nothing is pushed for a click that never moved the node). DesignerCanvas wires them to React Flow's onNodeDragStart/onNodeDragStop and onSelectionDragStart/onSelectionDragStop.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`beginDrag`, `endDrag`), `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`onNodeDragStart`/`onNodeDragStop`/`onSelectionDragStart`/`onSelectionDragStop`)
+- **Test coverage**: `useBlueprintStore.test.ts` (`checkpoints a drag as one undo step regardless of how many positions moveNode touched`, `a click that never moves anything leaves no undo step`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node dragged through several intermediate positions to a final one, When the drag ends, Then exactly one history entry is pushed, and undoing it restores the node's original position.
+  Given a node clicked but never moved, When the click ends, Then no history entry is pushed.
+  ```
+
+#### GIMLE-927 — Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator duplicating a blueprint or importing an exported one, I want the copy to get its own new id, since the backend now refuses (409) a create request naming an id already on disk rather than silently minting an unrelated one.
+- **Status**: useBlueprintsListStore's duplicate() and importBlueprint() both built their POST /api/blueprints body by reusing the source document's own id -- relying on BlueprintStore.create's old behavior of silently minting a fresh id itself when the requested one was already taken (see GIMLE-794, which removed that fallback in favor of a 409). Once create started refusing instead, both flows began failing outright: duplicating an existing blueprint, or re-importing an exported one, always collided with the very document it had just read. Both now mint a fresh id client-side (uid("bp")) before posting, matching the id BlueprintStore.create expects to mint on the console's own create-new-blueprint path.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintsListStore.ts` (`duplicate`, `importBlueprint`)
+- **Test coverage**: `useBlueprintsListStore.test.ts` (`useBlueprintsListStore.duplicate` / `useBlueprintsListStore.importBlueprint` describe blocks: a fresh id is minted rather than the source's own, and two successive imports of the same document mint two different ids).
+- **Gherkin scenario**:
+  ```gherkin
+  Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own.
+  Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id.
   ```

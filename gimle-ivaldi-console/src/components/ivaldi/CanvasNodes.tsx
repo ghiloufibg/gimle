@@ -91,22 +91,39 @@ export function keyFact(kind: NodeKind, data: unknown): string {
 export function MachineNode({ data }: NodeProps) {
   const d = data as IvaldiNodeData;
   return (
+    // pointer-events-none on the frame itself: this box is drawn under every role placed on it
+    // (see the machines-first sort in DesignerCanvas), but the edges pane sits under ALL nodes
+    // regardless of zIndex, so without this a placedOn/belongsTo edge routed anywhere under this
+    // 640x260 frame was un-clickable -- occluded by a div with nothing visible to click through.
+    // Only the bits a user actually needs to grab (the header, to drag/select the machine; the
+    // handles, to draw a link; the status stripe, to read/click it) opt back in explicitly.
     <div
       className={cn(
-        "relative h-[260px] w-[640px] rounded-sm border border-dashed border-primary/50 bg-primary/5",
+        "relative h-[260px] w-[640px] rounded-sm border border-dashed border-primary/50 bg-primary/5 pointer-events-none",
         d.selected && "border-primary ring-1 ring-primary",
       )}
     >
-      <div className="absolute left-2 top-1.5 flex items-center gap-2">
+      <div className="pointer-events-auto absolute left-2 top-1.5 flex items-center gap-2">
         <span className="hud-label">Machine</span>
         <span className="font-mono text-[11px] font-semibold text-foreground">{d.label}</span>
         <span className="num text-[10px] text-muted-foreground">{d.fact}</span>
       </div>
       <div
-        className={cn("absolute left-0 top-0 h-full w-[3px] rounded-l-sm", stripeClass(d.problems))}
+        className={cn(
+          "pointer-events-auto absolute left-0 top-0 h-full w-[3px] rounded-l-sm",
+          stripeClass(d.problems),
+        )}
       />
-      <Handle type="target" position={Position.Left} className="!size-2 !bg-primary" />
-      <Handle type="source" position={Position.Right} className="!size-2 !bg-primary" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-2 !bg-primary pointer-events-auto"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-2 !bg-primary pointer-events-auto"
+      />
     </div>
   );
 }

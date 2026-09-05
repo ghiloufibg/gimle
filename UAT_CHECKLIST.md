@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 921
+- **Total requirements**: 926
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 791
-- **Release-readiness (automated coverage)**: 14.1%
+- **Not covered by automated test**: 796
+- **Release-readiness (automated coverage)**: 14.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -44,7 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 9 | 0 | 9 | 0.0% |
-| gimle-ivaldi-console | 3 | 0 | 3 | 0.0% |
+| gimle-ivaldi-console | 8 | 0 | 8 | 0.0% |
 
 ## Checklist
 
@@ -2587,3 +2587,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-910 | Ivaldi web console: blueprint designer canvas | Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh. | No |
 | [ ] | GIMLE-913 | Rendered workloads resolve through the artifact registry, not a local path | Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar. Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster. | No |
 | [ ] | GIMLE-917 | Ivaldi console shows which blueprints and clusters are actually running | Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner. Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's. Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why. | No |
+| [ ] | GIMLE-923 | A LimitRange bound with only one of memory/cpu filled in is flagged before export | Given a LimitRange node whose min bound has memory filled in but cpu left blank, When the blueprint is validated, Then a LIMITRANGE_HALF_FILLED warning names the min bound and the missing field. | No |
+| [ ] | GIMLE-924 | A Tenant node's Inspector panel shows its own Links section | Given a blueprint with a resource belonging to a tenant, When I select that tenant node, Then its Inspector panel shows a Links section listing the membership, with a control to remove it. | No |
+| [ ] | GIMLE-925 | Deleting a node with connected edges undoes as one step, not two | Given a node with two edges attached, When I delete it, Then the node and both edges disappear together, and a single Ctrl+Z restores all three. | No |
+| [ ] | GIMLE-926 | Dragging a node checkpoints one undo step regardless of intermediate positions | Given a node dragged through several intermediate positions to a final one, When the drag ends, Then exactly one history entry is pushed, and undoing it restores the node's original position. Given a node clicked but never moved, When the click ends, Then no history entry is pushed. | No |
+| [ ] | GIMLE-927 | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own. Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id. | No |

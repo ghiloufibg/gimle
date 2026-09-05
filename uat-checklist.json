@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 921,
+    "totalRequirements": 926,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 791,
-    "releaseReadinessPercent": 14.1
+    "notCoveredByAutomatedTest": 796,
+    "releaseReadinessPercent": 14.0
   },
   "items": [
     {
@@ -10133,6 +10133,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "A redeploy onto an already-running cluster still reports its live processes",
       "step": "Given a cluster already running an unchanged topology, When I redeploy the same blueprint, Then the run's processes list still names every live process.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-923",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A LimitRange bound with only one of memory/cpu filled in is flagged before export",
+      "step": "Given a LimitRange node whose min bound has memory filled in but cpu left blank, When the blueprint is validated, Then a LIMITRANGE_HALF_FILLED warning names the min bound and the missing field.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-924",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A Tenant node's Inspector panel shows its own Links section",
+      "step": "Given a blueprint with a resource belonging to a tenant, When I select that tenant node, Then its Inspector panel shows a Links section listing the membership, with a control to remove it.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-925",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Deleting a node with connected edges undoes as one step, not two",
+      "step": "Given a node with two edges attached, When I delete it, Then the node and both edges disappear together, and a single Ctrl+Z restores all three.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-926",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Dragging a node checkpoints one undo step regardless of intermediate positions",
+      "step": "Given a node dragged through several intermediate positions to a final one, When the drag ends, Then exactly one history entry is pushed, and undoing it restores the node's original position. Given a node clicked but never moved, When the click ends, Then no history entry is pushed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-927",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own",
+      "step": "Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own. Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

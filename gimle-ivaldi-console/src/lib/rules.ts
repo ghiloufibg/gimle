@@ -515,6 +515,26 @@ function validateApplication(bp: Blueprint): Problem[] {
           ),
         );
     }
+    // The renderer requires both halves of a bound to emit it at all (the platform reads a
+    // present bound as complete and refuses one carrying a blank) -- so a memory value typed in
+    // with no matching cpu, or vice versa, is silently dropped at export time with nothing here
+    // ever having said so. LIMITRANGE_NO_BOUNDS below only fires once every bound is fully empty,
+    // which missed exactly this half-filled case.
+    for (const [label, memory, cpu] of [
+      ["min", d.min?.memory, d.min?.cpu],
+      ["max", d.max?.memory, d.max?.cpu],
+    ] as const) {
+      const memoryFilled = Boolean(memory?.trim());
+      const cpuFilled = Boolean(cpu?.trim());
+      if (memoryFilled !== cpuFilled)
+        p.push(
+          warn(
+            "LIMITRANGE_HALF_FILLED",
+            `Limit range ${label} only has ${memoryFilled ? "memory" : "cpu"} filled in -- both are required together, so this ${label} bound is dropped entirely when exported.`,
+            lr.id,
+          ),
+        );
+    }
     // Checked on the limit range itself, before any workload is measured against it: an inverted
     // range no request can ever satisfy was reported as a violation by each deployment, sending
     // the operator to fix a value that was never the problem.

@@ -55,8 +55,9 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
   const moveNode = useBlueprintStore((s) => s.moveNode);
   const addNode = useBlueprintStore((s) => s.addNode);
   const connect = useBlueprintStore((s) => s.connect);
-  const removeNodes = useBlueprintStore((s) => s.removeNodes);
-  const removeEdges = useBlueprintStore((s) => s.removeEdges);
+  const removeNodesAndEdges = useBlueprintStore((s) => s.removeNodesAndEdges);
+  const beginDrag = useBlueprintStore((s) => s.beginDrag);
+  const endDrag = useBlueprintStore((s) => s.endDrag);
   const problems = useValidationStore((s) => s.problems);
 
   useEffect(() => {
@@ -172,21 +173,29 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
         multiSelectionKeyCode={["Shift", "Meta", "Control"]}
         selectionKeyCode="Shift"
         deleteKeyCode={["Delete", "Backspace"]}
-        onNodesDelete={(deleted) => {
-          const ids = deleted.map((n) => n.id);
-          const links = blueprint.edges.filter(
-            (e) => ids.includes(e.source) || ids.includes(e.target),
-          ).length;
+        onNodeDragStart={beginDrag}
+        onNodeDragStop={endDrag}
+        onSelectionDragStart={beginDrag}
+        onSelectionDragStop={endDrag}
+        onDelete={({ nodes: deletedNodes, edges: deletedEdges }) => {
+          // React Flow reports one delete gesture as this single callback with both sides already
+          // resolved -- the connected edges a node deletion cascades are already included in
+          // deletedEdges, so this dialog's own count and the actual removal always agree, and both
+          // land in one commit (see removeNodesAndEdges) rather than the two separate ones
+          // onNodesDelete/onEdgesDelete used to produce for what a user experiences as one action.
           if (
-            links > 0 &&
+            deletedNodes.length > 0 &&
+            deletedEdges.length > 0 &&
             !window.confirm(
-              `Delete ${ids.length} node${ids.length === 1 ? "" : "s"} and ${links} link${links === 1 ? "" : "s"}? Ctrl+Z brings them back.`,
+              `Delete ${deletedNodes.length} node${deletedNodes.length === 1 ? "" : "s"} and ${deletedEdges.length} link${deletedEdges.length === 1 ? "" : "s"}? Ctrl+Z brings them back.`,
             )
           )
             return;
-          removeNodes(ids);
+          removeNodesAndEdges(
+            deletedNodes.map((n) => n.id),
+            deletedEdges.map((e) => e.id),
+          );
         }}
-        onEdgesDelete={(deleted) => removeEdges(deleted.map((e) => e.id))}
         onEdgeClick={(_, edge) => setSelection([], [edge.id])}
         onPaneClick={() => setSelection([], [])}
         onDragOver={(event) => {

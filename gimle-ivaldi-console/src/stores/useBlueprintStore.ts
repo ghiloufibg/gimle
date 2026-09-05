@@ -34,7 +34,16 @@ interface BlueprintState {
   removeNode: (id: string) => void;
   removeNodes: (ids: string[]) => void;
   removeEdges: (ids: string[]) => void;
+  /** One node deletion is one link removal too, wherever it has any -- see `removeNodesAndEdges`. */
+  removeNodesAndEdges: (nodeIds: string[], edgeIds: string[]) => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
+  /**
+   * Snapshots the blueprint before a drag starts, and stamps it as one undo step once the drag
+   * ends -- `moveNode` itself never touches history, so every intermediate position during the
+   * drag stays a plain, un-undoable state update, and only the drag's net result is checkpointed.
+   */
+  beginDrag: () => void;
+  endDrag: () => void;
   connect: (source: string, target: string) => { ok: boolean; reason?: string };
   disconnect: (edgeId: string) => void;
   patchBlueprint: (patch: Partial<Blueprint>) => void;
@@ -66,6 +75,11 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
     set({ blueprint: next, past, future: [], dirty: markDirty ? true : get().dirty });
     revalidate(next);
   };
+
+  // The blueprint as of the start of the drag in progress, if any -- module-local rather than
+  // store state, since it drives no rendering of its own and only ever needs to be read back by
+  // endDrag once, right after it is written by beginDrag.
+  let dragSnapshot: Blueprint | null = null;
 
   return {
     blueprint: null,
@@ -171,6 +185,32 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       set({ selectedEdgeIds: [] });
     },
 
+    /**
+     * Removing a node with its own links used to cost two undo steps for one user action: React
+     * Flow reports a delete gesture as a node removal AND a separate edge removal (the connected
+     * edges, cascaded), and each landed as its own commit -- so restoring "the node and its links"
+     * needed Ctrl+Z twice, despite the confirmation dialog's own promise of one. Both sides of one
+     * gesture now land in a single commit.
+     */
+    removeNodesAndEdges: (nodeIds, edgeIds) => {
+      const bp = get().blueprint;
+      if (!bp || (nodeIds.length === 0 && edgeIds.length === 0)) return;
+      const doomedNodes = new Set(nodeIds);
+      const doomedEdges = new Set(edgeIds);
+      commit({
+        ...bp,
+        nodes: bp.nodes.filter((n) => !doomedNodes.has(n.id)),
+        edges: bp.edges.filter(
+          (e) => !doomedEdges.has(e.id) && !doomedNodes.has(e.source) && !doomedNodes.has(e.target),
+        ),
+      });
+      set({
+        selectedId: null,
+        selectedIds: get().selectedIds.filter((id) => !doomedNodes.has(id)),
+        selectedEdgeIds: get().selectedEdgeIds.filter((id) => !doomedEdges.has(id)),
+      });
+    },
+
     moveNode: (id, position) => {
       const bp = get().blueprint;
       if (!bp) return;
@@ -181,6 +221,21 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
         },
         dirty: true,
       });
+    },
+
+    beginDrag: () => {
+      dragSnapshot = get().blueprint;
+    },
+
+    endDrag: () => {
+      const before = dragSnapshot;
+      dragSnapshot = null;
+      const current = get().blueprint;
+      // moveNode replaces `blueprint` with a new object on every position update, so identity
+      // alone tells whether the drag actually moved anything: no move at all (a click that never
+      // became a drag) means nothing to undo.
+      if (!before || !current || before === current) return;
+      set({ past: [...get().past, before].slice(-HISTORY_LIMIT), future: [] });
     },
 
     connect: (source, target) => {

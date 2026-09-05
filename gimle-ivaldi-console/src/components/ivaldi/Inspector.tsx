@@ -88,7 +88,10 @@ function MachineField({
       hint={
         effective.fromEdge
           ? "Set by the link on the canvas. Remove the link below to type it here."
-          : undefined
+          : // Typing here does not draw a placedOn link -- it's a plain copy of the name, so it
+            // won't survive the machine being renamed and won't show up in the Links section
+            // below. Only dragging a connection between the two nodes on the canvas does that.
+            "Free text, not a link. Drag a connection from this node to the machine on the canvas to link them."
       }
       problems={problems}
     />
@@ -118,7 +121,9 @@ function TenantField({
       hint={
         effective.fromEdge
           ? "Set by the link on the canvas. Remove the link below to type it here."
-          : undefined
+          : // Same caveat as MachineField: this is a copy of the id, not a belongsTo link, so
+            // renaming the tenant won't follow it and it won't appear in Links below.
+            "Free text, not a link. Drag a connection from this node to the tenant on the canvas to link them."
       }
       problems={problems}
     />
@@ -899,9 +904,14 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
             <NodeErrorBoundary resetKey={node.id}>
               <NodeForm blueprint={blueprint} node={node} problems={problems} />
             </NodeErrorBoundary>
-            {(isPlacedRole(node.kind) || isTenantScoped(node.kind) || node.kind === "machine") && (
-              <LinksSection blueprint={blueprint} node={node} />
-            )}
+            {(isPlacedRole(node.kind) ||
+              isTenantScoped(node.kind) ||
+              node.kind === "machine" ||
+              // A tenant is itself an edge endpoint -- the target of every belongsTo and
+              // allowsCaller edge -- but was neither a placed role nor tenant-scoped (that
+              // describes what belongs *to* a tenant, not the tenant node itself), so its own
+              // panel showed no Links section at all: nowhere to audit or cut its own memberships.
+              node.kind === "tenant") && <LinksSection blueprint={blueprint} node={node} />}
           </>
         ) : (
           <BlueprintSettings blueprint={blueprint} />

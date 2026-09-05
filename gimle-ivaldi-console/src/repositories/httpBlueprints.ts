@@ -41,7 +41,11 @@ export class HttpBlueprintsRepository implements BlueprintsRepository {
     }
   }
 
-  /** POST: the server mints the id from the name; read it from the response. */
+  /**
+   * POST: honors the body's own id if it is free, mints one from the name if there is none, and
+   * refuses (409) if the id it names is already taken -- a caller reusing an existing id on
+   * purpose is a save, not a create, and belongs on {@link save}'s own PUT instead.
+   */
   async create(blueprint: Blueprint): Promise<BlueprintSummary> {
     const raw = await requestJson<RawBlueprintSummary>("/api/blueprints", {
       method: "POST",

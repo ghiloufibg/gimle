@@ -937,6 +937,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-920 | A different blueprint cannot silently claim a cluster another blueprint still owns | New | Not Covered | — |
 | GIMLE-921 | Creating a blueprint at an id already taken is refused, not silently re-minted | New | Not Covered | — |
 | GIMLE-922 | A redeploy onto an already-running cluster still reports its live processes | New | Not Covered | — |
+| GIMLE-923 | A LimitRange bound with only one of memory/cpu filled in is flagged before export | New | Not Covered | — |
+| GIMLE-924 | A Tenant node's Inspector panel shows its own Links section | New | Not Covered | — |
+| GIMLE-925 | Deleting a node with connected edges undoes as one step, not two | New | Not Covered | — |
+| GIMLE-926 | Dragging a node checkpoints one undo step regardless of intermediate positions | New | Not Covered | — |
+| GIMLE-927 | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9630,11 +9635,56 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `httpRunner.test.ts` (the runner asks for one blueprint's run, falls back to the latest only when none is named, reads an idle answer as nothing to re-attach to, and re-attaches to a run the backend still holds); `problemView.test.ts` (cascade suppression, one fault against two nodes collapsing to one row naming both, two different faults sharing a code staying apart, and two validators wording the same fault differently being shown rather than one silently dropped); the existing rules/render/golden suites cover `effective.ts`, which is now the single resolver behind every 'which machine / which tenant' answer in the console.
 - **Source location(s)**: `gimle-ivaldi-console/src/stores/useActiveRunsStore.ts`, `gimle-ivaldi-console/src/repositories/{contracts,httpRunner,mockRunner}.ts` (`listRuns`, `currentRun(blueprintId)`), `gimle-ivaldi-console/src/routes/{index,clusters,designer.$blueprintId,runner.$blueprintId}.tsx`, `gimle-ivaldi-console/src/components/ivaldi/{ClusterPicker,DesignerCanvas,Inspector,ProblemsDrawer}.tsx`, `gimle-ivaldi-console/src/stores/{useClustersStore,useBlueprintStore}.ts`, `gimle-ivaldi-console/src/lib/{effective,problemView,canvasBridge}.ts`
 
+#### GIMLE-923 — A LimitRange bound with only one of memory/cpu filled in is flagged before export
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(rules.ts's LIMITRANGE_NO_BOUNDS check only fired once a bound (min or max) was entirely empty on both fields; a bound with exactly one of memory/cpu filled in passed validation clean, yet the renderer requires both halves of a bound to emit it at all and silently drops a bound carrying a blank -- so)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet, and it has no automated test of its own in this module either; see gapNote in requirements-matrix.json.
+- **Other test coverage (non-Holmgang, informational only)**: Verified by direct code reading against the renderer's own both-halves-required contract; no dedicated rules.ts unit test file exists in this module yet for any LIMITRANGE_* code, matching the existing test boundary for that file.
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (the `limitRange` validation loop)
+
+#### GIMLE-924 — A Tenant node's Inspector panel shows its own Links section
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The Inspector's LinksSection render condition covered isPlacedRole(kind) (a role placed on a machine), isTenantScoped(kind) (a resource belonging to a tenant), and kind === "machine", but never kind === "tenant" itself -- despite a Tenant node being the target of every belongsTo and allowsCaller edg)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet, and it has no automated test of its own in this module either; see gapNote in requirements-matrix.json.
+- **Other test coverage (non-Holmgang, informational only)**: Verified by cross-referencing isPlacedRole/isTenantScoped's own definitions against every node kind that participates in an edge per EDGE_RULES/edgeKindFor; no dedicated Inspector.tsx component test exists in this module.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the `LinksSection` render condition)
+
+#### GIMLE-925 — Deleting a node with connected edges undoes as one step, not two
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(React Flow fires onNodesDelete and onEdgesDelete as two separate callbacks for one Delete-key gesture on a node with connected edges (the cascaded edge removal arrives as its own event) -- DesignerCanvas wired each to its own store commit, so one user action produced two history entries, and a singl)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintStore.test.ts` (`removes the node and its cascaded edges in one commit, undoable in a single step`, `also removes an edge named explicitly that isn't connected to any deleted node`, `does nothing when given no nodes and no edges`).
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`onDelete`), `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`removeNodesAndEdges`)
+
+#### GIMLE-926 — Dragging a node checkpoints one undo step regardless of intermediate positions
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(moveNode wrote the node's new position straight into the blueprint via a raw set(), bypassing the store's own commit() helper (the only place that pushes onto the undo history) entirely -- so a drag was not undoable at all, and React Flow reports several intermediate position updates over the course)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintStore.test.ts` (`checkpoints a drag as one undo step regardless of how many positions moveNode touched`, `a click that never moves anything leaves no undo step`).
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`beginDrag`, `endDrag`), `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`onNodeDragStart`/`onNodeDragStop`/`onSelectionDragStart`/`onSelectionDragStop`)
+
+#### GIMLE-927 — Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(useBlueprintsListStore's duplicate() and importBlueprint() both built their POST /api/blueprints body by reusing the source document's own id -- relying on BlueprintStore.create's old behavior of silently minting a fresh id itself when the requested one was already taken (see GIMLE-794, which remove)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintsListStore.test.ts` (`useBlueprintsListStore.duplicate` / `useBlueprintsListStore.importBlueprint` describe blocks: a fresh id is minted rather than the source's own, and two successive imports of the same document mint two different ids).
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintsListStore.ts` (`duplicate`, `importBlueprint`)
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**792 of 922 requirements are Not Covered.**
+**797 of 927 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9851,6 +9901,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-920 | gimle-ivaldi | A different blueprint cannot silently claim a cluster another blueprint still owns | Developer tooling / Internal-Infra | `RunControllerTest.java` (`a_different_blueprint_cannot_claim_a_cluster_another_blueprint_still_owns`, `the_same_blueprint_can_always_rerun_its_own_cluster`). |
 | GIMLE-921 | gimle-ivaldi | Creating a blueprint at an id already taken is refused, not silently re-minted | Developer tooling / Internal-Infra | `BlueprintStoreTest.java` (`refuses_a_second_create_for_an_id_already_taken_rather_than_minting_an_unrelated_one`, replacing the old test that asserted the previous silent-duplication behavior). |
 | GIMLE-922 | gimle-ivaldi | A redeploy onto an already-running cluster still reports its live processes | Developer tooling / Internal-Infra | Manually verified against a real booted cluster (a fresh boot's processes[] populated correctly; confirmed by direct code reading that the no-reboot branch previously had no equivalent assignment). Not covered by an added automated test: RunControllerTest's own scope is explicitly the fast, no-real-boot contract (see its class javadoc) -- exercising a genuine reboot-then-redeploy-without-reboot sequence needs a real multi-process cluster fixture, the same boundary every other in-process-vs-real-cluster pair in this repo draws. |
+| GIMLE-923 | gimle-ivaldi-console | A LimitRange bound with only one of memory/cpu filled in is flagged before export | Developer tooling / Internal-Infra | Verified by direct code reading against the renderer's own both-halves-required contract; no dedicated rules.ts unit test file exists in this module yet for any LIMITRANGE_* code, matching the existing test boundary for that file. |
+| GIMLE-924 | gimle-ivaldi-console | A Tenant node's Inspector panel shows its own Links section | Developer tooling / Internal-Infra | Verified by cross-referencing isPlacedRole/isTenantScoped's own definitions against every node kind that participates in an edge per EDGE_RULES/edgeKindFor; no dedicated Inspector.tsx component test exists in this module. |
+| GIMLE-925 | gimle-ivaldi-console | Deleting a node with connected edges undoes as one step, not two | Developer tooling / Internal-Infra | `useBlueprintStore.test.ts` (`removes the node and its cascaded edges in one commit, undoable in a single step`, `also removes an edge named explicitly that isn't connected to any deleted node`, `does nothing when given no nodes and no edges`). |
+| GIMLE-926 | gimle-ivaldi-console | Dragging a node checkpoints one undo step regardless of intermediate positions | Developer tooling / Internal-Infra | `useBlueprintStore.test.ts` (`checkpoints a drag as one undo step regardless of how many positions moveNode touched`, `a click that never moves anything leaves no undo step`). |
+| GIMLE-927 | gimle-ivaldi-console | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | Developer tooling / Internal-Infra | `useBlueprintsListStore.test.ts` (`useBlueprintsListStore.duplicate` / `useBlueprintsListStore.importBlueprint` describe blocks: a fresh id is minted rather than the source's own, and two successive imports of the same document mint two different ids). |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |
