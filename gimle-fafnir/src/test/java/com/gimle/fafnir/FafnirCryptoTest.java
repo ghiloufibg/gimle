@@ -133,6 +133,45 @@ class FafnirCryptoTest {
   }
 
   /**
+   * The cold-restart half of the guarantee: a process restart re-derives its key material from
+   * disk, so retirement only means anything if the material is gone from there too, not merely
+   * dropped from a running process's in-memory ring. Builds a second {@link FafnirCrypto} over the
+   * same key file and store, exactly as a restarted replica does.
+   */
+  @Test
+  void a_retired_key_cannot_decrypt_even_after_the_process_reloads_its_material() {
+    crypto.rotate(); // id 0 can never be retired -- encrypt under id 1
+    byte[] plaintext = "pre-rotation-value".getBytes(StandardCharsets.UTF_8);
+    byte[] ciphertext = crypto.encrypt(plaintext);
+    crypto.rotate(); // active moves off id 1 so it can be retired
+    crypto.retire(ciphertext[1]);
+
+    FafnirCrypto restarted = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
+
+    assertThrows(GimleSecretsException.class, () -> restarted.decrypt(ciphertext));
+  }
+
+  /**
+   * The other side of the same guarantee, and the one a retirement test is easy to get wrong on:
+   * retiring one key must not disturb anything encrypted under a different one. A secret written
+   * after a rotation is encrypted under the new active key, so retiring the older key leaves it
+   * readable -- correctly.
+   */
+  @Test
+  void retiring_one_key_leaves_a_secret_encrypted_under_another_key_readable() {
+    crypto.rotate(); // active id 1
+    byte[] underKeyOne = crypto.encrypt("pre-rotation-value".getBytes(StandardCharsets.UTF_8));
+    crypto.rotate(); // active id 2
+    byte[] underKeyTwo = crypto.encrypt("post-rotation-value".getBytes(StandardCharsets.UTF_8));
+
+    crypto.retire(underKeyOne[1]);
+
+    assertThrows(GimleSecretsException.class, () -> crypto.decrypt(underKeyOne));
+    assertEquals(
+        "post-rotation-value", new String(crypto.decrypt(underKeyTwo), StandardCharsets.UTF_8));
+  }
+
+  /**
    * {@code B3}: the actual bug this cross-replica check fixes -- {@code retire} used to mutate only
    * the local, in-memory {@code retiredKeyIds} field the replica that received the call happened to
    * hold, so a *different* Fafnir replica (a real HA deployment's normal shape) kept decrypting
