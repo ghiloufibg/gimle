@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 841
+- **Total requirements**: 843
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 711
-- **Release-readiness (automated coverage)**: 15.5%
+- **Not covered by automated test**: 713
+- **Release-readiness (automated coverage)**: 15.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 58 | 0 | 58 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
-| gimle-andvari-console | 9 | 0 | 9 | 0.0% |
+| gimle-andvari-console | 10 | 0 | 10 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
 | gimle-saga | 14 | 0 | 14 | 0.0% |
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
@@ -41,7 +41,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 6 | 0 | 6 | 0.0% |
+| gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 
 ## Checklist
@@ -2139,6 +2139,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ### gimle-andvari-console
 
+#### Web Console
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-843 | The registry overview tells a failed or in-flight catalog read apart from an empty one | Given the artifact registry is unreachable, When the console overview loads, Then the recent-pushes panel reports the read failure rather than an empty push list. Given a catalog with several modules, When the overview loads, Then the panel lists the newest pushes first and states how many of the catalog's modules it is showing. | No |
+
 #### Web Console / Auth
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2396,6 +2402,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting. | No |
 
 ### gimle-skald
+
+#### Cluster DNS
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-842 | A truncated UDP answer carries the records that fit rather than none | Given a Service whose A-record answer set would exceed 512 bytes, When it is queried over UDP, Then the reply sets TC and carries as many complete A records as fit rather than none. Given a response already within the ceiling, When it passes through UDP truncation, Then it is returned unchanged with TC clear. | No |
 
 #### Networking
 

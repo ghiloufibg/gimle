@@ -77,7 +77,7 @@ import java.util.function.Supplier;
  *                             [--tenant &lt;id&gt;]
  *   gimle delete service &lt;name&gt;
  *   gimle service endpoints &lt;name&gt;
- *   gimle get networkpolicies [name]
+ *   gimle get networkpolicies [&lt;name&gt; --tenant &lt;id&gt;]
  *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--deployment ...] [--service-interface ...]
  *                                   [--allowed-caller-tenant &lt;id&gt; ... | --deny-all-callers]
  *                                   [--allowed-callee-tenant &lt;id&gt; ... | --deny-all-callees]
@@ -85,7 +85,7 @@ import java.util.function.Supplier;
  *                                   [--remove-allowed-caller-tenant &lt;id&gt; ...]
  *                                   [--add-allowed-callee-tenant &lt;id&gt; ...]
  *                                   [--remove-allowed-callee-tenant &lt;id&gt; ...]
- *   gimle delete networkpolicy &lt;name&gt;
+ *   gimle delete networkpolicy &lt;name&gt; --tenant &lt;id&gt;
  *   gimle get alertrules [name]
  *   gimle set alertrule &lt;name&gt; --deployment &lt;name&gt; --metric &lt;METRIC&gt; --comparator &lt;GREATER_THAN|LESS_THAN&gt;
  *                               --threshold N --webhook &lt;url&gt; [--tenant &lt;id&gt;] [--disabled]
@@ -834,7 +834,8 @@ public final class GimleCli {
         nodes
         node-assignments <nodeId>
         services [name]
-        networkpolicies [name]
+        networkpolicies [<name> --tenant <id>]   (--tenant is required to name one: a
+                                                  NetworkPolicy has no untenanted namespace)
         alertrules [name]
         tenants [id]
         limitranges [tenantId]
@@ -907,7 +908,7 @@ public final class GimleCli {
 
       resources:
         service
-        networkpolicy
+        networkpolicy <name> --tenant <id>
         alertrule
         tenant
         limitrange

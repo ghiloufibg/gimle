@@ -49,8 +49,13 @@ function Tile({
 function OverviewPage() {
   const status = useStatusStore((s) => s.status);
   const versionsByModule = useArtifactsStore((s) => s.versionsByModule);
+  const catalog = useArtifactsStore((s) => s.catalog);
+  const catalogLoading = useArtifactsStore((s) => s.catalogLoading);
+  const catalogError = useArtifactsStore((s) => s.error);
+  const moduleError = useArtifactsStore((s) => s.moduleError);
   const recent = useMemo(() => selectRecentPushes({ versionsByModule }), [versionsByModule]);
   const loadAll = useArtifactsStore((s) => s.loadAll);
+  const loadError = catalogError ?? moduleError;
 
   useEffect(() => {
     void loadAll();
@@ -87,8 +92,29 @@ function OverviewPage() {
         )}
       </div>
 
-      <HudPanel label="recent pushes">
-        {recent.length === 0 ? (
+      <HudPanel
+        label="recent pushes"
+        actions={
+          recent.length > 0 ? (
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {recent.length} newest of {catalog.length}{" "}
+              {catalog.length === 1 ? "module" : "modules"}
+            </p>
+          ) : null
+        }
+      >
+        {/* Three states, told apart. This panel used to render its empty case for all three, so a
+            catalog that had simply failed to load -- or was still loading -- read as "nothing has
+            ever been pushed here", which is the one thing it definitely did not mean. */}
+        {loadError ? (
+          <p className="text-xs text-status-bad">Could not read the catalog: {loadError}</p>
+        ) : catalogLoading && recent.length === 0 ? (
+          <div className="space-y-2">
+            <Skeleton className="h-5 rounded-sm" />
+            <Skeleton className="h-5 rounded-sm" />
+            <Skeleton className="h-5 rounded-sm" />
+          </div>
+        ) : recent.length === 0 ? (
           <p className="text-xs text-muted-foreground">No artifacts pushed yet.</p>
         ) : (
           <ul className="divide-y divide-border/60">

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 841,
+  "requirementCount": 843,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -17213,6 +17213,46 @@
       "testCoverageDetail": "`gimle-console/src/addons/gateway/store.test.ts#finds a gateway DaemonSet whatever it is named, by the module it runs`, alongside the existing not-deployed and route-resolution tests",
       "gherkinSteps": [
         "Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-842",
+      "module": "gimle-skald",
+      "feature": "A truncated UDP answer carries the records that fit rather than none",
+      "category": "Cluster DNS",
+      "userStory": "As a caller resolving a Service with more endpoints than one datagram holds, I want the truncated reply to carry the endpoints it had room for, so that I can connect without a mandatory TCP round trip for information the first answer could have delivered.",
+      "statusDetail": "Complete. A response over RFC 1035's unextended 512-byte UDP ceiling was re-encoded from scratch with an empty answer list and TC=1 -- legal, and what an RFC-compliant resolver recovers from by retrying over TCP, but strictly worse than the conventional partial fill: it makes the round trip mandatory for information the datagram had room to carry, and a caller that can use any one of several equivalent endpoints needs no retry at all. DnsCodec#truncateForUdp now trims the already-encoded response by dropping whole answer records from the end until it fits, then sets TC and rewrites ANCOUNT to match. It walks the encoded bytes rather than the answer list because every branch of SkaldServer#buildResponse encodes as it goes; the layout it walks is exactly the one encodeResponse writes, and a response whose header and question alone overrun is returned answerless -- the smallest valid reply.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java` (`truncateForUdp`, `skipQuestion`, `skipAnswer`, `skipName`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`handleDatagram`)"
+      ],
+      "testCoverageDetail": "`DnsCodecTest#a_response_over_the_udp_ceiling_keeps_every_answer_that_still_fits` (40 A records, asserts TC set, a strictly partial ANCOUNT, and that every kept byte is identical to the untruncated response), `DnsCodecTest#a_response_already_within_the_ceiling_is_returned_untouched`",
+      "gherkinSteps": [
+        "Given a Service whose A-record answer set would exceed 512 bytes, When it is queried over UDP, Then the reply sets TC and carries as many complete A records as fit rather than none.",
+        "Given a response already within the ceiling, When it passes through UDP truncation, Then it is returned unchanged with TC clear."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-843",
+      "module": "gimle-andvari-console",
+      "feature": "The registry overview tells a failed or in-flight catalog read apart from an empty one",
+      "category": "Web Console",
+      "userStory": "As an operator opening the Andvari console, I want the recent-pushes panel to say when it could not read the catalog, so that a failed request does not read as \"nothing has ever been pushed here\".",
+      "statusDetail": "Complete. The panel rendered one empty state for three different situations -- still loading, the catalog read failed, and genuinely nothing pushed -- so a registry holding a growing catalog could report \"No artifacts pushed yet\" with nothing to indicate otherwise. It now renders a skeleton while loading, the store's own catalog/module error when one is set, and the empty sentence only when the read genuinely succeeded and found nothing. The panel also states its own bound (\"N newest of M modules\"), so the six rows read as the slice they are rather than the whole catalog.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-andvari-console/src/routes/_shell.index.tsx`",
+        "`gimle-andvari-console/src/stores/artifactsStore.ts` (`selectRecentPushes`)"
+      ],
+      "testCoverageDetail": "`gimle-andvari-console/src/stores/artifactsStore.test.ts` — `a failed catalog read leaves the overview an error to show, not an empty push list`, `recent pushes are the newest first across every module, bounded to the panel's own limit`",
+      "gherkinSteps": [
+        "Given the artifact registry is unreachable, When the console overview loads, Then the recent-pushes panel reports the read failure rather than an empty push list.",
+        "Given a catalog with several modules, When the overview loads, Then the panel lists the newest pushes first and states how many of the catalog's modules it is showing."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

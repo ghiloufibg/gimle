@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { jsonResponse, textResponse } from "@/repositories/http/testUtil";
-import { useArtifactsStore } from "./artifactsStore";
+import { selectRecentPushes, useArtifactsStore } from "./artifactsStore";
 
 // The composition root (@/repositories) always wires the Http implementation (see
 // src/repositories/index.ts's own comment), so this store-level test stubs fetch directly rather
@@ -77,5 +77,52 @@ describe("useArtifactsStore", () => {
     await expect(
       useArtifactsStore.getState().download("com.example.app", "1.0.0", "0".repeat(64)),
     ).rejects.toThrow(/sha256 verification/);
+  });
+
+  it("a failed catalog read leaves the overview an error to show, not an empty push list", async () => {
+    // The overview's "recent pushes" panel used to render its own empty case for this, which reads
+    // as "nothing has ever been pushed here" -- the one thing a failed read definitely does not
+    // mean. The store has to carry the failure for the panel to be able to tell them apart.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => textResponse("registry unavailable", 503)),
+    );
+
+    await useArtifactsStore.getState().loadAll();
+
+    expect(useArtifactsStore.getState().error).toContain("registry unavailable");
+    expect(selectRecentPushes(useArtifactsStore.getState())).toEqual([]);
+  });
+
+  it("recent pushes are the newest first across every module, bounded to the panel's own limit", async () => {
+    useArtifactsStore.setState({
+      versionsByModule: {
+        "com.example.a": [
+          {
+            moduleId: "com.example.a",
+            version: "1.0.0",
+            sha256: "a".repeat(64),
+            sizeBytes: 10,
+            pushedAtEpochMilli: 1_000,
+            pushedBy: "someone",
+          },
+        ],
+        "com.example.b": [
+          {
+            moduleId: "com.example.b",
+            version: "2.0.0",
+            sha256: "b".repeat(64),
+            sizeBytes: 20,
+            pushedAtEpochMilli: 3_000,
+            pushedBy: "someone",
+          },
+        ],
+      },
+    });
+
+    const recent = selectRecentPushes(useArtifactsStore.getState());
+
+    expect(recent.map((v) => v.moduleId)).toEqual(["com.example.b", "com.example.a"]);
+    expect(selectRecentPushes(useArtifactsStore.getState(), 1)).toHaveLength(1);
   });
 });

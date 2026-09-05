@@ -1137,6 +1137,9 @@ class GimleCliTest {
     int exit = GimleCli.run(new String[] {"get", "tenants", "--server", "localhost:1"}, out, err);
     assertEquals(6, exit);
     assertTrue(stderr().contains("could not reach control plane"));
+    // A ConnectException routinely carries no message of its own, which used to reach an operator
+    // as a literal trailing ": null" -- the exception's own type is named instead.
+    assertFalse(stderr().contains(": null"), stderr());
   }
 
   @Test

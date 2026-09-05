@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 841,
+  "requirementCount": 843,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -14588,6 +14588,38 @@
         "`gimle-console/src/addons/gateway/screen.tsx`"
       ],
       "otherTestCoverage": "gimle-console/src/addons/gateway/store.test.ts"
+    },
+    {
+      "id": "GIMLE-842",
+      "module": "gimle-skald",
+      "feature": "A truncated UDP answer carries the records that fit rather than none",
+      "category": "Cluster DNS",
+      "status": "New",
+      "statusNote": "a truncated UDP reply carried zero answer records instead of as many complete records as fit under the 512-byte ceiling, forcing a TCP retry for information the datagram had room for",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by DnsCodecTest, but no Holmgang Cucumber .feature scenario queries a Service with enough endpoints to overrun a UDP datagram. To close: add a scenario resolving an over-512-byte answer set over UDP and asserting a partial fill with TC set.",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java` (`truncateForUdp`, `skipQuestion`, `skipAnswer`, `skipName`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`handleDatagram`)"
+      ],
+      "otherTestCoverage": "DnsCodecTest, SkaldServerTest"
+    },
+    {
+      "id": "GIMLE-843",
+      "module": "gimle-andvari-console",
+      "feature": "The registry overview tells a failed or in-flight catalog read apart from an empty one",
+      "category": "Web Console",
+      "status": "New",
+      "statusNote": "the Andvari console's recent-pushes panel rendered its empty state for a failed or in-flight catalog read as well as a genuinely empty one, so a growing catalog could read as \"no artifacts pushed yet\"",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Vitest-covered only; no Playwright or Holmgang scenario drives the Andvari console overview against an unreachable registry. To close: add a console case asserting the error state.",
+      "sourceLocations": [
+        "`gimle-andvari-console/src/routes/_shell.index.tsx`",
+        "`gimle-andvari-console/src/stores/artifactsStore.ts` (`selectRecentPushes`)"
+      ],
+      "otherTestCoverage": "gimle-andvari-console/src/stores/artifactsStore.test.ts"
     }
   ]
 }

@@ -856,6 +856,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-839 | An ArtifactSet publishes every member it can read and reports the ones it could not | New | Not Covered | — |
 | GIMLE-840 | A module's own background and config-callback logging carries its instance identity | New | Not Covered | — |
 | GIMLE-841 | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | New | Not Covered | — |
+| GIMLE-842 | A truncated UDP answer carries the records that fit rather than none | New | Not Covered | — |
+| GIMLE-843 | The registry overview tells a failed or in-flight catalog read apart from an empty one | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7577,6 +7579,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.
 - **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
 
+#### GIMLE-843 — The registry overview tells a failed or in-flight catalog read apart from an empty one
+
+- **Category**: Web Console
+- **Status**: New  _(the Andvari console's recent-pushes panel rendered its empty state for a failed or in-flight catalog read as well as a genuinely empty one, so a growing catalog could read as "no artifacts pushed yet")_
+- **Coverage**: Not Covered
+- **Gap note**: Vitest-covered only; no Playwright or Holmgang scenario drives the Andvari console overview against an unreachable registry. To close: add a console case asserting the error state.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-andvari-console/src/stores/artifactsStore.test.ts
+- **Source location(s)**: `gimle-andvari-console/src/routes/_shell.index.tsx`, `gimle-andvari-console/src/stores/artifactsStore.ts` (`selectRecentPushes`)
+
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -8608,6 +8619,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: New SkaldHealthServerTest covers a fresh directory being both alive and ready, a stale one being unready but still alive (with the reason naming the threshold), a directory that has never polled successfully never opening readiness, readiness recovering once a poll succeeds, and the bound port being reported. DaemonSetManifestParserTest gained parses_placement_priority_even_though_anti_affinity_is_rejected_here and placement_priority_defaults_to_zero_when_undeclared.
 - **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldHealthServer.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java` (`--health-port`), `gimle-skald/deploy/skald-daemonset.yaml`, `gimle-skald/deploy/skald-service.yaml`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java` (placement priority), `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`apply -f` protocol)
 
+#### GIMLE-842 — A truncated UDP answer carries the records that fit rather than none
+
+- **Category**: Cluster DNS
+- **Status**: New  _(a truncated UDP reply carried zero answer records instead of as many complete records as fit under the 512-byte ceiling, forcing a TCP retry for information the datagram had room for)_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by DnsCodecTest, but no Holmgang Cucumber .feature scenario queries a Service with enough endpoints to overrun a UDP datagram. To close: add a scenario resolving an over-512-byte answer set over UDP and asserting a partial fill with TC set.
+- **Other test coverage (non-Holmgang, informational only)**: DnsCodecTest, SkaldServerTest
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java` (`truncateForUdp`, `skipQuestion`, `skipAnswer`, `skipName`), `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`handleDatagram`)
+
 ### gimle-hugin
 
 #### GIMLE-807 — `gimle top` renders a live, read-only cluster view of nodes and instances
@@ -8820,7 +8840,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**711 of 841 requirements are Not Covered.**
+**713 of 843 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8959,6 +8979,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-187 | gimle-fabric | Circuit Breaker Exponential Cooldown Backoff | Circuit Breaking | `CircuitBreakerTest#repeated_reopens_double_the_effective_cooldown`, `#the_doubling_backoff_stops_at_its_documented_ceiling`, `#a_successful_half_open_trial_resets_the_backoff_to_the_base_cooldown` |
 | GIMLE-188 | gimle-fabric | Panic-Mode Ejection Floor | Circuit Breaking | `FabricServiceRegistryTest#all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed`, `#no_known_exporter_anywhere_throws_gimle_cluster_exception` |
 | GIMLE-189 | gimle-fabric | Application-Exception vs Transport-Failure Breaker Scoring | Circuit Breaking | `FabricServiceRegistryTest#an_endpoint_whose_method_throws_an_application_exception_does_not_open_its_breaker` |
+| GIMLE-842 | gimle-skald | A truncated UDP answer carries the records that fit rather than none | Cluster DNS | DnsCodecTest, SkaldServerTest |
 | GIMLE-509 | gimle-smoke-tests | Base cluster topology deploy across store cluster and multiple CP replicas | Cluster Validation | `GreeterClusterTopologyIT.greeter_modules_deploy_across_a_store_cluster_and_multiple_control_plane_replicas` |
 | GIMLE-510 | gimle-smoke-tests | Raft store resilience (member loss, leader failover, live membership change) | Cluster Validation | `RaftResilienceIT.cluster_tolerates_losing_one_store_node_mid_deployment`, `a_leader_failover_loses_no_acknowledged_write_under_concurrent_load`, `a_new_store_node_joins_via_live_membership_change_and_is_then_removed` |
 | GIMLE-511 | gimle-smoke-tests | Tiered self-healing (worker respawn, liveness-exhaustion escalation to FAILED) | Cluster Validation | `SelfHealingIT.a_crashed_workers_instance_is_respawned_and_returns_to_active`, `a_module_that_never_passes_its_own_liveness_check_exhausts_its_restart_budget_and_fails` |
@@ -9442,6 +9463,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-799 | gimle-gateway | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`. |
 | GIMLE-703 | gimle-mimir | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Upgrade path | RaftCodecTest#rejects_an_unrecognized_rpc_version_before_decoding_the_tag and #rejects_an_unrecognized_snapshot_version; StoreCodecTest#rejects_an_unrecognized_version_before_decoding_the_tag -- each forges a frame carrying an out-of-range version byte and asserts GimleCodecException naming both the declared and max-supported version, decoded before any tag/field is touched. Full gimle-mimir module suite (500+ pre-existing cases across both codecs) re-verified against the new framing. |
 | GIMLE-841 | gimle-console | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | Web Console | gimle-console/src/addons/gateway/store.test.ts |
+| GIMLE-843 | gimle-andvari-console | The registry overview tells a failed or in-flight catalog read apart from an empty one | Web Console | gimle-andvari-console/src/stores/artifactsStore.test.ts |
 | GIMLE-435 | gimle-console | Operator session login / logout | Web Console / Auth | `src/stores/useAuthStore.test.ts` — "a successful login sets status authenticated and clears any previous error", "login failure surfaces a generic error and leaves status unauthenticated" |
 | GIMLE-436 | gimle-console | Session bootstrap & 401 handling | Web Console / Auth | `useAuthStore.test.ts` — "init() only calls session() once even if invoked twice", "handleUnauthorized clears principal and sets status unauthenticated" |
 | GIMLE-461 | gimle-fafnir-console | Vault operator login/logout (session-cookie auth) | Web Console / Auth | `src/stores/useAuthStore.test.ts` |

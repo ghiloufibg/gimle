@@ -2,12 +2,14 @@ package com.gimle.skald.dns;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -119,8 +121,52 @@ final class DnsCodecTest {
             false);
 
     assertEquals(1, (unsignedShort(truncated, 2) >>> 9) & 0x1);
-    assertEquals(0, unsignedShort(truncated, 6)); // ANCOUNT: a truncated reply carries no answers
+    // Encoding directly with an empty answer list is still legal and still ANCOUNT 0; what the
+    // UDP path does with a real over-ceiling response is truncateForUdp's own concern.
+    assertEquals(0, unsignedShort(truncated, 6));
     assertEquals(0, (unsignedShort(full, 2) >>> 9) & 0x1);
+  }
+
+  @Test
+  void a_response_over_the_udp_ceiling_keeps_every_answer_that_still_fits() throws IOException {
+    byte[] raw = buildQuery(0x42, "orders.svc.gimle.local", DnsCodec.TYPE_A, 0, true);
+    DnsCodec.Query query = DnsCodec.decodeQuery(raw, raw.length);
+    List<DnsCodec.Answer> answers = new ArrayList<>();
+    for (int i = 1; i <= 40; i++) {
+      answers.add(DnsCodec.Answer.a(new byte[] {10, 0, 0, (byte) i}));
+    }
+    byte[] full = DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
+    assertTrue(full.length > 512, "fixture must genuinely overrun the ceiling: " + full.length);
+
+    byte[] truncated = DnsCodec.truncateForUdp(full, 512);
+
+    assertTrue(truncated.length <= 512);
+    assertEquals(1, (unsignedShort(truncated, 2) >>> 9) & 0x1, "TC must be set");
+    int kept = unsignedShort(truncated, 6);
+    // The whole point of the fix: a truncated datagram carries what it had room for, rather than
+    // forcing a TCP round trip for information it could have delivered.
+    assertTrue(kept > 0 && kept < answers.size(), "expected a partial fill, got " + kept);
+    // Every kept record is whole -- the prefix is byte-identical to the untruncated response.
+    for (int i = 12; i < truncated.length; i++) {
+      if (i == 2 || i == 3 || i == 6 || i == 7) {
+        continue; // flags and ANCOUNT are the two fields truncation rewrites
+      }
+      assertEquals(full[i], truncated[i], "byte " + i + " diverged from the full response");
+    }
+  }
+
+  @Test
+  void a_response_already_within_the_ceiling_is_returned_untouched() throws IOException {
+    byte[] raw = buildQuery(0x43, "orders.svc.gimle.local", DnsCodec.TYPE_A, 0, true);
+    DnsCodec.Query query = DnsCodec.decodeQuery(raw, raw.length);
+    byte[] full =
+        DnsCodec.encodeResponse(
+            query,
+            DnsCodec.RCODE_NOERROR,
+            List.of(DnsCodec.Answer.a(new byte[] {10, 0, 0, 5})),
+            false);
+
+    assertSame(full, DnsCodec.truncateForUdp(full, 512));
   }
 
   private static byte[] buildQuery(

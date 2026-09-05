@@ -1442,14 +1442,15 @@
       "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The console's Skald DNS screen derives the same names, shows zero A records for the empty Service, and reports that responder's directory age and consecutive poll failures from its own shipped gauges. The deployed form answers identically through its Service; a replica whose directory goes stale leaves the Service's endpoint set without being restarted, and its /health stays green throughout.",
       "requirements": [
         "GIMLE-569",
-        "GIMLE-620",
-        "GIMLE-721",
         "GIMLE-613",
+        "GIMLE-620",
         "GIMLE-628",
         "GIMLE-686",
+        "GIMLE-721",
         "GIMLE-774",
         "GIMLE-776",
-        "GIMLE-784"
+        "GIMLE-784",
+        "GIMLE-842"
       ]
     },
     {
@@ -2009,18 +2010,19 @@
       "objective": "`artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); also try typing a coordinate in Andvari console's Push dialog that doesn't match the jar's own bundled descriptor; read Andvari's status.",
       "oracle": "The coordinate comes from the jar's own bundled descriptor, never from a typed flag or field -- the CLI derives it and never exposed one to override, and Andvari console's Push dialog auto-fills and locks moduleId/version from the same descriptor the instant a jar with one is picked, leaving no way to push it under a mismatched coordinate; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes.",
       "requirements": [
-        "GIMLE-381",
-        "GIMLE-305",
+        "GIMLE-265",
         "GIMLE-297",
+        "GIMLE-305",
+        "GIMLE-381",
         "GIMLE-455",
         "GIMLE-468",
         "GIMLE-469",
         "GIMLE-470",
         "GIMLE-471",
         "GIMLE-472",
-        "GIMLE-804",
         "GIMLE-474",
-        "GIMLE-265"
+        "GIMLE-804",
+        "GIMLE-843"
       ]
     },
     {
@@ -2279,7 +2281,8 @@
         "GIMLE-464",
         "GIMLE-466",
         "GIMLE-467",
-        "GIMLE-468"
+        "GIMLE-468",
+        "GIMLE-843"
       ]
     },
     {

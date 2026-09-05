@@ -851,6 +851,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-839 | An ArtifactSet publishes every member it can read and reports the ones it could not | Artifact Registry | Complete | Partial |
 | GIMLE-840 | A module's own background and config-callback logging carries its instance identity | Logging | Complete | Partial |
 | GIMLE-841 | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | Web Console | Complete | Yes |
+| GIMLE-842 | A truncated UDP answer carries the records that fit rather than none | Cluster DNS | Complete | Yes |
+| GIMLE-843 | The registry overview tells a failed or in-flight catalog read apart from an empty one | Web Console | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -11007,6 +11009,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.
   ```
 
+#### GIMLE-843 — The registry overview tells a failed or in-flight catalog read apart from an empty one
+
+- **Category**: Web Console
+- **User story**: As an operator opening the Andvari console, I want the recent-pushes panel to say when it could not read the catalog, so that a failed request does not read as "nothing has ever been pushed here".
+- **Status**: Complete. The panel rendered one empty state for three different situations -- still loading, the catalog read failed, and genuinely nothing pushed -- so a registry holding a growing catalog could report "No artifacts pushed yet" with nothing to indicate otherwise. It now renders a skeleton while loading, the store's own catalog/module error when one is set, and the empty sentence only when the read genuinely succeeded and found nothing. The panel also states its own bound ("N newest of M modules"), so the six rows read as the slice they are rather than the whole catalog.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari-console/src/routes/_shell.index.tsx`, `gimle-andvari-console/src/stores/artifactsStore.ts` (`selectRecentPushes`)
+- **Test coverage**: `gimle-andvari-console/src/stores/artifactsStore.test.ts` — `a failed catalog read leaves the overview an error to show, not an empty push list`, `recent pushes are the newest first across every module, bounded to the panel's own limit`
+- **Gherkin scenario**:
+  ```gherkin
+  Given the artifact registry is unreachable, When the console overview loads, Then the recent-pushes panel reports the read failure rather than an empty push list.
+  Given a catalog with several modules, When the overview loads, Then the panel lists the newest pushes first and states how many of the catalog's modules it is showing.
+  ```
+
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -12436,6 +12452,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator queries the Service's stable ClusterIP for a cluster name
   Then the answer comes from a Skald instance the platform scheduled and supervises
   And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted
+  ```
+
+#### GIMLE-842 — A truncated UDP answer carries the records that fit rather than none
+
+- **Category**: Cluster DNS
+- **User story**: As a caller resolving a Service with more endpoints than one datagram holds, I want the truncated reply to carry the endpoints it had room for, so that I can connect without a mandatory TCP round trip for information the first answer could have delivered.
+- **Status**: Complete. A response over RFC 1035's unextended 512-byte UDP ceiling was re-encoded from scratch with an empty answer list and TC=1 -- legal, and what an RFC-compliant resolver recovers from by retrying over TCP, but strictly worse than the conventional partial fill: it makes the round trip mandatory for information the datagram had room to carry, and a caller that can use any one of several equivalent endpoints needs no retry at all. DnsCodec#truncateForUdp now trims the already-encoded response by dropping whole answer records from the end until it fits, then sets TC and rewrites ANCOUNT to match. It walks the encoded bytes rather than the answer list because every branch of SkaldServer#buildResponse encodes as it goes; the layout it walks is exactly the one encodeResponse writes, and a response whose header and question alone overrun is returned answerless -- the smallest valid reply.
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java` (`truncateForUdp`, `skipQuestion`, `skipAnswer`, `skipName`), `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`handleDatagram`)
+- **Test coverage**: `DnsCodecTest#a_response_over_the_udp_ceiling_keeps_every_answer_that_still_fits` (40 A records, asserts TC set, a strictly partial ANCOUNT, and that every kept byte is identical to the untruncated response), `DnsCodecTest#a_response_already_within_the_ceiling_is_returned_untouched`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service whose A-record answer set would exceed 512 bytes, When it is queried over UDP, Then the reply sets TC and carries as many complete A records as fit rather than none.
+  Given a response already within the ceiling, When it passes through UDP truncation, Then it is returned unchanged with TC clear.
   ```
 
 ### gimle-hugin

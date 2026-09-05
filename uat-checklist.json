@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 841,
+    "totalRequirements": 843,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 711,
-    "releaseReadinessPercent": 15.5
+    "notCoveredByAutomatedTest": 713,
+    "releaseReadinessPercent": 15.4
   },
   "items": [
     {
@@ -9253,6 +9253,28 @@
       "category": "Web Console",
       "feature": "The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name",
       "step": "Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-842",
+      "module": "gimle-skald",
+      "category": "Cluster DNS",
+      "feature": "A truncated UDP answer carries the records that fit rather than none",
+      "step": "Given a Service whose A-record answer set would exceed 512 bytes, When it is queried over UDP, Then the reply sets TC and carries as many complete A records as fit rather than none. Given a response already within the ceiling, When it passes through UDP truncation, Then it is returned unchanged with TC clear.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-843",
+      "module": "gimle-andvari-console",
+      "category": "Web Console",
+      "feature": "The registry overview tells a failed or in-flight catalog read apart from an empty one",
+      "step": "Given the artifact registry is unreachable, When the console overview loads, Then the recent-pushes panel reports the read failure rather than an empty push list. Given a catalog with several modules, When the overview loads, Then the panel lists the newest pushes first and states how many of the catalog's modules it is showing.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

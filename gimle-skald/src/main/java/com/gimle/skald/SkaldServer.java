@@ -36,10 +36,10 @@ import org.slf4j.LoggerFactory;
  * fails fast instead of timing out.
  *
  * <p>TCP serves the RFC 1035 §4.2.2 fallback contract: a UDP response that would exceed the
- * unextended 512-byte ceiling is sent truncated ({@code TC=1}, no answers), telling the resolver to
- * retry the identical query over TCP -- where each message is two-byte-length-prefixed and the full
- * response always fits. Both transports resolve through the identical code path, so an answer never
- * differs by transport.
+ * unextended 512-byte ceiling is sent truncated ({@code TC=1}, carrying as many complete answer
+ * records as fit), telling the resolver to retry the identical query over TCP -- where each message
+ * is two-byte-length-prefixed and the full response always fits. Both transports resolve through
+ * the identical code path, so an answer never differs by transport.
  */
 public final class SkaldServer implements AutoCloseable {
 
@@ -143,11 +143,11 @@ public final class SkaldServer implements AutoCloseable {
       log.debug("dropping malformed DNS datagram from {}: {}", from, e.getMessage());
       return;
     }
-    byte[] response = buildResponse(query);
-    if (response.length > MAX_UDP_PACKET_BYTES) {
-      // Too big for unextended UDP: answers dropped, TC set, the resolver retries over TCP.
-      response = DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(), true);
-    }
+    // Too big for unextended UDP: keep whatever complete records fit, set TC, and let the
+    // resolver retry over TCP for the rest. Dropping every answer would also be legal, but it
+    // makes the round trip mandatory for information this datagram had room to carry -- and a
+    // caller picking any one of several equivalent endpoints often needs no retry at all.
+    byte[] response = DnsCodec.truncateForUdp(buildResponse(query), MAX_UDP_PACKET_BYTES);
     try {
       socket.send(new DatagramPacket(response, response.length, from));
     } catch (IOException e) {

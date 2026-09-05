@@ -123,7 +123,7 @@ gimle set service <name> (--deployment <name> [--deployment ...] | --external-na
                           --port N [--target-port N] [--tenant <id>] [--session-affinity]
 gimle delete service <name> [--tenant <id>]
 gimle service endpoints <name> [--tenant <id>]
-gimle get networkpolicies [name] [--tenant <id>]
+gimle get networkpolicies [<name> --tenant <id>]
 gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                 [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                 [--allowed-callee-tenant <id> ... | --deny-all-callees]
@@ -433,7 +433,9 @@ resolves the Service's current live backing-instance set on every call, never a 
 never lags a reconcile interval behind. `networkpolicy` manages the accompanying NetworkPolicy
 analogue — a deny-by-default restriction on which other tenants may call into one tenant's own
 Services (ingress) and which tenants its own workloads may call out to (egress); `--tenant` is
-required (a NetworkPolicy always restricts exactly one tenant's own traffic), `--deployment` scopes
+required (a NetworkPolicy always restricts exactly one tenant's own traffic) — including on `get`
+and `delete` when a name is given, since unlike every other by-name resource here a NetworkPolicy
+has no untenanted namespace to fall back to. `--deployment` scopes
 it to specific workloads instead of the whole tenant when given, and `--service-interface` scopes
 it to named exported fabric interfaces. A direction is restricted only when expressed, and at least
 one must be: `--allowed-caller-tenant` (repeatable) allows the named caller tenants in, while
