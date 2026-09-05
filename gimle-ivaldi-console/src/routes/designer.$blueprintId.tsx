@@ -9,8 +9,11 @@ import {
   Minimize2,
   Moon,
   Play,
+  Redo2,
   Save,
   Sun,
+  Undo2,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -23,6 +26,7 @@ import { Palette } from "@/components/ivaldi/Palette";
 import { ProblemsDrawer } from "@/components/ivaldi/ProblemsDrawer";
 import { RunDrawer } from "@/components/ivaldi/RunDrawer";
 import { renderFiles } from "@/lib/render";
+import { secretKeys } from "@/lib/runArtifacts";
 import { downloadZip } from "@/lib/zip";
 import { cn } from "@/lib/utils";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
@@ -202,6 +206,15 @@ function Designer() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const middleRef = useRef<HTMLDivElement>(null);
   const setDrawerHeight = useUiStore((s) => s.setDrawerHeight);
+  const undo = useBlueprintStore((s) => s.undo);
+  const redo = useBlueprintStore((s) => s.redo);
+  const canUndo = useBlueprintStore((s) => s.past.length > 0);
+  const canRedo = useBlueprintStore((s) => s.future.length > 0);
+
+  const exitFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    setIsFullscreen(false);
+  };
 
   useEffect(() => {
     applyTheme(storedTheme());
@@ -212,6 +225,29 @@ function Designer() {
     const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && document.fullscreenElement) {
+        void document.exitFullscreen();
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (typing || !(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        useBlueprintStore.getState().undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        useBlueprintStore.getState().redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   useEffect(() => {
@@ -305,6 +341,24 @@ function Designer() {
             />
             <Counter count={tallies.infos} tone="info" onClick={() => toggleDrawer("problems")} />
           </div>
+          <button
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            disabled={!canUndo}
+            onClick={undo}
+            className="inline-flex size-7 items-center justify-center rounded-sm border border-border text-foreground hover:border-primary disabled:opacity-40"
+          >
+            <Undo2 className="size-3.5" />
+          </button>
+          <button
+            title="Redo (Ctrl+Shift+Z)"
+            aria-label="Redo"
+            disabled={!canRedo}
+            onClick={redo}
+            className="inline-flex size-7 items-center justify-center rounded-sm border border-border text-foreground hover:border-primary disabled:opacity-40"
+          >
+            <Redo2 className="size-3.5" />
+          </button>
           <ToolbarButton
             icon={CheckCircle2}
             label={hilmirRunning ? "Validating…" : "Validate"}
@@ -351,7 +405,12 @@ function Designer() {
             label="Run locally"
             primary
             onClick={() => {
-              void startRun(blueprint);
+              const secrets = secretKeys(blueprint);
+              if (secrets.length > 0)
+                toast.message("Secret values needed", {
+                  description: `Type ${secrets.length} secret value${secrets.length === 1 ? "" : "s"} on the runner screen, then press Run.`,
+                });
+              else void startRun(blueprint);
               void navigate({ to: "/runner/$blueprintId", params: { blueprintId: blueprint.id } });
             }}
           />
@@ -361,7 +420,7 @@ function Designer() {
             label={isFullscreen ? "Exit" : "Full"}
             onClick={() => {
               if (document.fullscreenElement) {
-                void document.exitFullscreen();
+                exitFullscreen();
               } else {
                 void canvasRef.current?.requestFullscreen();
               }
@@ -378,8 +437,16 @@ function Designer() {
       <div className="flex min-h-0 flex-1">
         <Palette />
         <div ref={middleRef} className="flex min-w-0 flex-1 flex-col">
-          <div ref={canvasRef} className="min-h-0 flex-1 bg-background">
+          <div ref={canvasRef} className="relative min-h-0 flex-1 bg-background">
             <DesignerCanvas blueprint={blueprint} />
+            {isFullscreen && (
+              <button
+                onClick={exitFullscreen}
+                className="absolute right-3 top-3 z-50 inline-flex h-7 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 font-mono text-[11px] text-foreground hover:border-primary"
+              >
+                <X className="size-3" /> Exit full screen (Esc)
+              </button>
+            )}
           </div>
           {drawer && (
             <>

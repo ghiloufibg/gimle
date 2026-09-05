@@ -22,6 +22,7 @@ import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useUiStore } from "@/stores/useUiStore";
 import { useValidationStore } from "@/stores/useValidationStore";
 
+import { NodeErrorBoundary } from "./NodeErrorBoundary";
 import {
   CheckboxField,
   CpuField,
@@ -283,6 +284,12 @@ function WorkloadForm({
           />
         </>
       )}
+      <div className="hud-label pt-1">Resources</div>
+      <p className="-mt-1 text-[10px] text-muted-foreground">
+        Used for tenant quota and limit-range checks here only. A module's real request and limit
+        come from its own gimle-module.yaml inside the jar, so these values never reach the
+        generated files.
+      </p>
       <div className="grid grid-cols-2 gap-2">
         <MemoryField
           label="Request memory"
@@ -696,7 +703,9 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
                 <ProblemList problems={problems} />
               </div>
             )}
-            <NodeForm node={node} problems={problems} />
+            <NodeErrorBoundary resetKey={node.id}>
+              <NodeForm node={node} problems={problems} />
+            </NodeErrorBoundary>
           </>
         ) : (
           <BlueprintSettings blueprint={blueprint} />
@@ -705,7 +714,19 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
       {node && (
         <div className="border-t border-sidebar-border p-3">
           <button
-            onClick={() => removeNode(node.id)}
+            onClick={() => {
+              const links = blueprint.edges.filter(
+                (e) => e.source === node.id || e.target === node.id,
+              ).length;
+              if (
+                links > 0 &&
+                !window.confirm(
+                  `Delete this node and its ${links} link${links === 1 ? "" : "s"}? Use Undo in the toolbar (Ctrl+Z) to bring it back.`,
+                )
+              )
+                return;
+              removeNode(node.id);
+            }}
             className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-sm border border-destructive/50 bg-transparent px-2 font-mono text-[11px] text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="size-3" /> Delete node

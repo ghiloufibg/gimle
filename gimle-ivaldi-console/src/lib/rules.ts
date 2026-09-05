@@ -99,8 +99,7 @@ export function validateTopology(bp: Blueprint): Problem[] {
   for (const n of bp.nodes) {
     if (["store", "controlPlane", "fafnir", "muninn", "andvari", "agent"].includes(n.kind)) {
       const machine = machineNameOf(bp, n) ?? "";
-      if (!machine)
-        p.push(err("UNKNOWN_MACHINE", `${n.kind} is not placed on any machine.`, n.id));
+      if (!machine) p.push(err("UNKNOWN_MACHINE", `${n.kind} is not placed on any machine.`, n.id));
       else if (!names.includes(machine))
         p.push(
           err("UNKNOWN_MACHINE", `${n.kind} is placed on unknown machine "${machine}".`, n.id),
@@ -347,7 +346,9 @@ function validateApplication(bp: Blueprint): Problem[] {
     if (typeof d.replicas === "number" && d.replicas < 0)
       p.push(err("REPLICAS_NEGATIVE", "Replicas cannot be negative.", w.id));
     if (typeof d.replicas === "number" && !Number.isInteger(d.replicas))
-      p.push(err("REPLICAS_FRACTIONAL", `Replicas must be a whole number, not ${d.replicas}.`, w.id));
+      p.push(
+        err("REPLICAS_FRACTIONAL", `Replicas must be a whole number, not ${d.replicas}.`, w.id),
+      );
     if (d.autoscale) {
       const a = d.autoscale;
       if (a.maxReplicas < a.minReplicas)
@@ -445,7 +446,11 @@ function validateApplication(bp: Blueprint): Problem[] {
     };
     if (Object.values(bounds).every((b) => b === undefined)) {
       p.push(
-        info("LIMITRANGE_NO_BOUNDS", "Limit range declares no bounds and constrains nothing.", lr.id),
+        info(
+          "LIMITRANGE_NO_BOUNDS",
+          "Limit range declares no bounds and constrains nothing.",
+          lr.id,
+        ),
       );
       continue;
     }
@@ -521,7 +526,11 @@ function validateApplication(bp: Blueprint): Problem[] {
   for (const s of nodesOf(bp, "secret")) {
     const d = s.data as SecretData;
     p.push(
-      info("SECRET_NO_VALUE_AT_RUN", `Secret "${d.key}" gets its value only at run time.`, s.id),
+      info(
+        "SECRET_NO_VALUE_AT_RUN",
+        `Secret "${d.key}" gets its value only at run time — type it in the Runner screen before pressing Run.`,
+        s.id,
+      ),
     );
   }
 

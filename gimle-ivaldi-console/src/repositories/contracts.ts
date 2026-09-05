@@ -33,6 +33,8 @@ export interface CreateRunRequest {
   clusterId?: string;
   clusterName?: string;
   controlPlaneUrl?: string;
+  /** Secret values for this one run only; never persisted anywhere. */
+  values?: Record<string, string>;
 }
 
 export type ClusterEnvironment = "local" | "dev" | "staging" | "prod";

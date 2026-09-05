@@ -75,7 +75,10 @@ function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
     endpoints.push({ label: "Muninn", url: `${scheme}://${host}:${muninnPort}` });
   const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORTS.andvari;
   if (topology.andvari?.replicas?.length)
-    endpoints.push({ label: "Andvari registry", url: `${scheme}://${host}:${andvariPort}/console` });
+    endpoints.push({
+      label: "Andvari registry",
+      url: `${scheme}://${host}:${andvariPort}/console`,
+    });
   return endpoints;
 }
 
@@ -154,6 +157,9 @@ export class HttpRunnerClient implements RunnerClient {
         clusterId: request.clusterId,
         blueprintId: request.blueprintId,
         files: request.files,
+        // Secret values ride this one request and are stored nowhere: the backend applies them
+        // to the bundle's ${values.*} placeholders and they never reach a rendered file.
+        ...(request.values && Object.keys(request.values).length ? { values: request.values } : {}),
       }),
     });
     if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);

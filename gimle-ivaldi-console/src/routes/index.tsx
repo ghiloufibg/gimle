@@ -26,6 +26,7 @@ import { readBlueprintFile } from "@/lib/import";
 import { validate } from "@/lib/rules";
 import { useBlueprintsListStore } from "@/stores/useBlueprintsListStore";
 import { useClustersStore } from "@/stores/useClustersStore";
+import { useRunStore } from "@/stores/useRunStore";
 import { applyTheme, storedTheme, useUiStore } from "@/stores/useUiStore";
 
 export const Route = createFileRoute("/")({
@@ -222,6 +223,17 @@ function BlueprintsList() {
                           title="Delete"
                           onClick={(e) => {
                             e.stopPropagation();
+                            const run = useRunStore.getState();
+                            if (
+                              run.runId &&
+                              run.status !== "idle" &&
+                              run.request?.blueprintId === bp.id
+                            ) {
+                              toast.error("Still running", {
+                                description: `${bp.name} owns the current run. Stop it on the runner screen first.`,
+                              });
+                              return;
+                            }
                             setPendingDelete({ id: bp.id, name: bp.name });
                           }}
                           className="rounded-sm border border-border p-1 text-muted-foreground hover:border-destructive hover:text-destructive"

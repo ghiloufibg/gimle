@@ -19,12 +19,7 @@ describe("the clean sample", () => {
     const problems = validate(ordersPlatform!);
     expect(problems.some((p) => p.severity === "error")).toBe(false);
     expect(problems.map((p) => p.code).sort()).toEqual(
-      [
-        "AGENTS_COLOCATED",
-        "SECRET_NO_VALUE_AT_RUN",
-        "SINGLE_CONTROL_PLANE",
-        "SINGLE_STORE",
-      ].sort(),
+      ["AGENTS_COLOCATED", "SECRET_NO_VALUE_AT_RUN", "SINGLE_CONTROL_PLANE", "SINGLE_STORE"].sort(),
     );
   });
 });

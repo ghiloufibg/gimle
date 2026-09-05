@@ -2,7 +2,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -22,14 +21,20 @@ import { useValidationStore } from "@/stores/useValidationStore";
 import { keyFact, nodeTypes, type IvaldiNodeData } from "./CanvasNodes";
 
 function labelOf(kind: NodeKind, data: unknown): string {
-  const d = data as Record<string, unknown>;
-  return (
-    (d.name as string) ??
-    (d.id as string) ??
-    (d.nodeId as string) ??
-    (d.key as string) ??
-    KIND_LABELS[kind]
-  );
+  const d = (data ?? {}) as Record<string, unknown>;
+  const named = [d.name, d.id, d.nodeId, d.key].find(
+    (v) => typeof v === "string" && v.trim() !== "",
+  ) as string | undefined;
+  return named ?? KIND_LABELS[kind];
+}
+
+/** A node with a missing nested object must not take the canvas down with it. */
+function safeFact(kind: NodeKind, data: unknown): string {
+  try {
+    return keyFact(kind, data as never);
+  } catch {
+    return "incomplete";
+  }
 }
 
 function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
@@ -53,7 +58,7 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
         data: {
           kind: n.kind,
           label: labelOf(n.kind, n.data),
-          fact: keyFact(n.kind, n.data),
+          fact: safeFact(n.kind, n.data),
           problems: problems.filter((p) => p.nodeId === n.id),
           selected: n.id === selectedId,
         } satisfies IvaldiNodeData,
@@ -134,13 +139,6 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
           gap={16}
           size={1}
           color="var(--color-border)"
-        />
-        <MiniMap
-          pannable
-          zoomable
-          className="!bg-card !border !border-border"
-          maskColor="color-mix(in oklab, var(--color-background) 70%, transparent)"
-          nodeColor="var(--color-primary)"
         />
         <Controls className="!border !border-border !bg-card" showInteractive={false} />
       </ReactFlow>

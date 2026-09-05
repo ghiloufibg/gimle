@@ -69,7 +69,11 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: IVALDI_FAVICON, type: "image/svg+xml" },
+      // A real file at the site root as well as the inline emblem: the browser asks for
+      // /favicon.ico regardless, and a 404 on every page load is noise in the console.
+      { rel: "icon", type: "image/svg+xml", href: `${import.meta.env.BASE_URL}favicon.svg` },
+      { rel: "alternate icon", href: `${import.meta.env.BASE_URL}favicon.ico` },
+      { rel: "apple-touch-icon", href: IVALDI_FAVICON },
     ],
   }),
   component: RootComponent,

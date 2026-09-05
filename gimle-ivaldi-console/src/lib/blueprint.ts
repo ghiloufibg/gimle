@@ -328,16 +328,26 @@ export const EDGE_RULES: Record<EdgeKind, { from: NodeKind[]; to: NodeKind[] }> 
     from: [...WORKLOAD_KINDS, "service", "networkPolicy", "configEntry", "secret", "limitRange"],
     to: ["tenant"],
   },
-  fronts: { from: ["service"], to: ["deployment", "statefulSet"] },
+  // Both front the same set: they share a "deployment names" field, so a target one accepts and
+  // the other refuses would populate that one field from two different rules. Kept in step with
+  // edgeKindFor, which is what actually decides.
+  fronts: { from: ["service"], to: ["deployment", "statefulSet", "daemonSet"] },
   allowsCaller: { from: ["networkPolicy"], to: ["tenant"] },
-  restricts: { from: ["networkPolicy"], to: ["deployment"] },
+  restricts: { from: ["networkPolicy"], to: ["deployment", "statefulSet", "daemonSet"] },
 };
 
 export function edgeKindFor(sourceKind: NodeKind, targetKind: NodeKind): EdgeKind | null {
   if (isPlacedRole(sourceKind) && targetKind === "machine") return "placedOn";
-  if (sourceKind === "service" && (targetKind === "deployment" || targetKind === "statefulSet"))
+  if (
+    sourceKind === "service" &&
+    (targetKind === "deployment" || targetKind === "statefulSet" || targetKind === "daemonSet")
+  )
     return "fronts";
-  if (sourceKind === "networkPolicy" && targetKind === "deployment") return "restricts";
+  if (
+    sourceKind === "networkPolicy" &&
+    (targetKind === "deployment" || targetKind === "statefulSet" || targetKind === "daemonSet")
+  )
+    return "restricts";
   if (sourceKind === "networkPolicy" && targetKind === "tenant") return "allowsCaller";
   if (isTenantScoped(sourceKind) && targetKind === "tenant") return "belongsTo";
   return null;

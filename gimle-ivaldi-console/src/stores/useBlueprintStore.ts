@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import {
+  KIND_LABELS,
   createNode,
   edgeKindFor,
   uid,
@@ -36,6 +37,11 @@ interface BlueprintState {
   duplicate: () => Promise<Blueprint | null>;
   undo: () => void;
   redo: () => void;
+}
+
+/** "An Agent" / "A Store", using the palette's own labels. */
+function article(label: string): string {
+  return `${/^[aeiou]/i.test(label) ? "An" : "A"} ${label}`;
 }
 
 function revalidate(bp: Blueprint | null) {
@@ -128,7 +134,11 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const t = bp.nodes.find((n) => n.id === target);
       if (!s || !t) return { ok: false, reason: "Unknown node." };
       const kind = edgeKindFor(s.kind, t.kind);
-      if (!kind) return { ok: false, reason: `A ${s.kind} cannot connect to a ${t.kind}.` };
+      if (!kind)
+        return {
+          ok: false,
+          reason: `${article(KIND_LABELS[s.kind])} cannot connect to ${article(KIND_LABELS[t.kind]).toLowerCase()}.`,
+        };
       if (bp.edges.some((e) => e.source === source && e.target === target && e.kind === kind))
         return { ok: false, reason: "That link already exists." };
       const edge: BlueprintEdge = { id: uid("edge"), kind, source, target };

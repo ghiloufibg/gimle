@@ -9,13 +9,38 @@ function severityClass(severity: Problem["severity"]): string {
   return "text-status-info";
 }
 
+/**
+ * Names the node a problem points at so two replicas of the same role can be
+ * told apart: an unnamed role falls back to its machine and port, and any
+ * remaining ambiguity is resolved with its index among its own kind.
+ */
 function targetLabel(blueprint: Blueprint, problem: Problem): string {
   if (!problem.nodeId) return "blueprint";
   const node = blueprint.nodes.find((n) => n.id === problem.nodeId);
   if (!node) return problem.nodeId;
   const d = node.data as unknown as Record<string, unknown>;
-  const name = (d.name ?? d.id ?? d.nodeId ?? d.key ?? node.kind) as string;
-  return `${node.kind}/${name}`;
+  const named = [d.name, d.id, d.nodeId, d.key].find(
+    (v) => typeof v === "string" && v.trim() !== "",
+  ) as string | undefined;
+
+  const sameKind = blueprint.nodes.filter((n) => n.kind === node.kind);
+  const index = sameKind.findIndex((n) => n.id === node.id) + 1;
+
+  if (!named) {
+    const machine = typeof d.machine === "string" && d.machine ? d.machine : null;
+    const port = [d.port, d.clientPort, d.raftPort, d.gossipPort].find(
+      (v) => typeof v === "number",
+    ) as number | undefined;
+    const where = [machine, port ? String(port) : null].filter(Boolean).join(":");
+    const suffix = where || "unnamed";
+    return sameKind.length > 1 ? `${node.kind}/${suffix} #${index}` : `${node.kind}/${suffix}`;
+  }
+
+  const duplicates = sameKind.filter((n) => {
+    const nd = n.data as unknown as Record<string, unknown>;
+    return [nd.name, nd.id, nd.nodeId, nd.key].some((v) => v === named);
+  }).length;
+  return duplicates > 1 ? `${node.kind}/${named} #${index}` : `${node.kind}/${named}`;
 }
 
 export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
@@ -41,9 +66,11 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
         <span className="font-mono text-[10px] text-muted-foreground">
           {hilmir.error
             ? hilmir.error
-            : hilmir.report
-              ? `${hilmir.report.validator}${hilmir.report.version ? ` ${hilmir.report.version}` : ""} · ${new Date(hilmir.report.checkedAt).toLocaleTimeString()}`
-              : `hilmir ${hilmir.mode}${hilmir.baseUrl ? ` · ${hilmir.baseUrl}` : ""} · not run`}
+            : hilmir.stale
+              ? "hilmir · stale, blueprint changed — re-run Validate"
+              : hilmir.report
+                ? `${hilmir.report.validator}${hilmir.report.version ? ` ${hilmir.report.version}` : ""} · ${new Date(hilmir.report.checkedAt).toLocaleTimeString()}`
+                : `hilmir ${hilmir.mode}${hilmir.baseUrl ? ` · ${hilmir.baseUrl}` : ""} · not run`}
         </span>
         <button
           disabled={hilmir.running}

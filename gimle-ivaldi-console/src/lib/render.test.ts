@@ -237,8 +237,9 @@ describe("renderFiles, on input the file formats cannot take verbatim", () => {
 
   it("carries a tenant's isolation posture into bundle.yaml, where the platform reads it", () => {
     const bp = structuredClone(ordersPlatform!);
-    (bp.nodes.find((n) => n.kind === "tenant")!.data as { isolationPosture?: string }).isolationPosture =
-      "DENY_BY_DEFAULT";
+    (
+      bp.nodes.find((n) => n.kind === "tenant")!.data as { isolationPosture?: string }
+    ).isolationPosture = "DENY_BY_DEFAULT";
     const bundle = parse(renderFiles(bp).find((f) => f.path === "bundle.yaml")!.content) as {
       tenants: Array<{ isolationPosture?: string }>;
     };

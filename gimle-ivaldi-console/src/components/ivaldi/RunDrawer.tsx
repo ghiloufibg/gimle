@@ -3,7 +3,7 @@ import { ExternalLink, Play, Square } from "lucide-react";
 
 import type { Blueprint } from "@/lib/blueprint";
 import { cn } from "@/lib/utils";
-import { useRunStore } from "@/stores/useRunStore";
+import { IN_FLIGHT, useRunStore } from "@/stores/useRunStore";
 import { useValidationStore } from "@/stores/useValidationStore";
 
 import { ClusterPicker } from "./ClusterPicker";
@@ -23,14 +23,16 @@ export const RUN_STATUS_CLASS: Record<string, string> = {
 };
 
 export function RunDrawer({ blueprint }: { blueprint: Blueprint }) {
-  const { status, log, steps, endpoints, artifacts, reason, busy, start, stop } = useRunStore();
+  const { status, log, steps, endpoints, reason, stopError, busy, runId, start, stop } =
+    useRunStore();
   const ivaldiProblems = useValidationStore((s) => s.problems);
   const hilmirProblems = useValidationStore((s) => s.serverProblems);
   const errorCount = [...ivaldiProblems, ...hilmirProblems].filter(
     (p) => p.severity === "error",
   ).length;
 
-  const active = status !== "idle" && status !== "failed";
+  const inFlight = IN_FLIGHT.includes(status);
+  const canStop = Boolean(runId) && status !== "idle";
 
   return (
     <div className="flex h-full">
@@ -58,24 +60,26 @@ export function RunDrawer({ blueprint }: { blueprint: Blueprint }) {
         <ClusterPicker />
         <div className="flex gap-2">
           <button
-            disabled={errorCount > 0 || active || busy}
+            disabled={errorCount > 0 || inFlight || busy}
             onClick={() => void start(blueprint)}
             className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-sm border border-primary bg-primary px-2 font-mono text-[11px] text-primary-foreground disabled:opacity-40"
           >
             <Play className="size-3" /> Start
           </button>
           <button
-            disabled={!active || busy}
+            disabled={!canStop || busy}
             onClick={() => void stop()}
             className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-sm border border-border px-2 font-mono text-[11px] text-foreground disabled:opacity-40"
           >
             <Square className="size-3" /> Stop
           </button>
         </div>
-        {(errorCount > 0 || reason) && (
+        {(errorCount > 0 || reason || stopError) && (
           <p className="font-mono text-[10px] text-status-bad">
-            {reason ??
-              `${errorCount} error${errorCount === 1 ? "" : "s"} must be fixed before running.`}
+            {stopError
+              ? `Stop failed: ${stopError}`
+              : (reason ??
+                `${errorCount} error${errorCount === 1 ? "" : "s"} must be fixed before running.`)}
           </p>
         )}
         <div>
@@ -86,7 +90,7 @@ export function RunDrawer({ blueprint }: { blueprint: Blueprint }) {
         </div>
         <div>
           <div className="hud-label">Artifacts</div>
-          <RunArtifacts artifacts={artifacts} />
+          <RunArtifacts log={log} blueprint={blueprint} />
         </div>
         <div>
           <div className="hud-label">Endpoints</div>

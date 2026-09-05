@@ -242,7 +242,7 @@ function buildScript(request: CreateRunRequest): {
       script.push({
         delay: 340,
         source: "controlPlane",
-        text: `artifact stored id=${artifactId} digest=${digest.slice(0, 19)}… size=${(sizeBytes / 1_048_576).toFixed(1)}MiB workload=${artifact.workload}`,
+        text: `pushed artifact ${artifact.module}@${artifact.version} from ${artifact.path}`,
         artifact: { ...artifact, status: "stored", digest, sizeBytes, artifactId },
       });
     }

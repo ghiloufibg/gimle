@@ -17,6 +17,8 @@ interface ValidationState {
     report: HilmirReport | null;
     running: boolean;
     error: string | null;
+    /** The last report described an older blueprint and has been dropped. */
+    stale: boolean;
   };
   recompute: (blueprint: Blueprint | null) => void;
   validateWithHilmir: (blueprint: Blueprint) => Promise<void>;
@@ -62,19 +64,31 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
     report: null,
     running: false,
     error: null,
+    stale: false,
   },
 
-  recompute: (blueprint) => set({ problems: blueprint ? validate(blueprint) : [] }),
+  // Any blueprint change invalidates the last tier-2 answer: the stored server
+  // findings describe a document that no longer exists, so they are dropped and
+  // the footer says the report is stale until Validate runs again.
+  recompute: (blueprint) =>
+    set((s) => ({
+      problems: blueprint ? validate(blueprint) : [],
+      serverProblems: [],
+      hilmir:
+        s.serverProblems.length || s.hilmir.report
+          ? { ...s.hilmir, report: null, stale: true }
+          : s.hilmir,
+    })),
 
   validateWithHilmir: async (blueprint) => {
     if (get().hilmir.running) return;
     set((s) => ({ hilmir: { ...s.hilmir, running: true, error: null } }));
-    const files = renderFiles(blueprint).map((f) => ({ path: f.path, content: f.content }));
     try {
+      const files = renderFiles(blueprint).map((f) => ({ path: f.path, content: f.content }));
       const report = await hilmirValidator.validate(files);
       set((s) => ({
         serverProblems: report.findings.map((f) => toProblem(blueprint, f)),
-        hilmir: { ...s.hilmir, report, running: false, error: report.error },
+        hilmir: { ...s.hilmir, report, running: false, error: report.error, stale: false },
       }));
     } catch (error) {
       set((s) => ({
@@ -82,6 +96,7 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
         hilmir: {
           ...s.hilmir,
           running: false,
+          stale: false,
           error: error instanceof Error ? error.message : "hilmir unreachable",
         },
       }));
@@ -89,7 +104,10 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
   },
 
   clearHilmir: () =>
-    set((s) => ({ serverProblems: [], hilmir: { ...s.hilmir, report: null, error: null } })),
+    set((s) => ({
+      serverProblems: [],
+      hilmir: { ...s.hilmir, report: null, error: null, stale: false },
+    })),
 
   allProblems: () => [...get().problems, ...get().serverProblems],
   sourceOf: (problem) => (get().serverProblems.includes(problem) ? "hilmir" : "ivaldi"),

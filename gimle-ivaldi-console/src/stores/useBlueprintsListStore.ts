@@ -18,6 +18,16 @@ interface ListState {
   importBlueprint: (blueprint: Blueprint) => Promise<BlueprintSummary>;
 }
 
+/** Keeps list names distinct so a copy or a re-import is identifiable. */
+function uniqueName(taken: string[], base: string): string {
+  if (!taken.includes(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${base}-${i}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
+}
+
 /** Every write stamps updatedAt: the backend echoes it back verbatim. */
 function stamped(bp: Blueprint): Blueprint {
   return { ...bp, version: bp.version || "1.0.0", updatedAt: new Date().toISOString() };
@@ -67,15 +77,24 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   duplicate: async (id) => {
     const source = await blueprintsRepository.get(id);
     if (!source) return null;
+    const taken = get().blueprints.map((b) => b.name);
     const copy = await blueprintsRepository.create(
-      stamped({ ...source, name: `${source.name}-copy` }),
+      stamped({ ...source, name: uniqueName(taken, `${source.name}-copy`) }),
     );
     await get().refresh();
     return copy;
   },
 
   importBlueprint: async (blueprint) => {
-    const saved = await blueprintsRepository.create(stamped(blueprint));
+    const taken = get().blueprints.map((b) => b.name);
+    const saved = await blueprintsRepository.create(
+      stamped({
+        ...blueprint,
+        name: taken.includes(blueprint.name)
+          ? uniqueName(taken, `${blueprint.name}-imported`)
+          : blueprint.name,
+      }),
+    );
     await get().refresh();
     return saved;
   },

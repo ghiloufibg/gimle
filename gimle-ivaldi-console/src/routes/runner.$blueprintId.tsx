@@ -1,6 +1,6 @@
 import { Link, createFileRoute, useParams } from "@tanstack/react-router";
 import { ArrowLeft, Play, RotateCcw, Square } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import { ClusterPicker } from "@/components/ivaldi/ClusterPicker";
@@ -8,9 +8,10 @@ import { RunArtifacts } from "@/components/ivaldi/RunArtifacts";
 import { RunConsole } from "@/components/ivaldi/RunConsole";
 import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
 import { RunSteps } from "@/components/ivaldi/RunSteps";
+import { secretKeys } from "@/lib/runArtifacts";
 import { cn } from "@/lib/utils";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
-import { useRunStore } from "@/stores/useRunStore";
+import { IN_FLIGHT, useRunStore } from "@/stores/useRunStore";
 import { applyTheme, storedTheme } from "@/stores/useUiStore";
 import { useValidationStore } from "@/stores/useValidationStore";
 
@@ -46,11 +47,11 @@ function RunnerPage() {
     status,
     steps,
     endpoints,
-    artifacts,
     log,
     request,
     health,
     reason,
+    stopError,
     busy,
     runId,
     transport,
@@ -76,10 +77,18 @@ function RunnerPage() {
   }, [checkHealth, attach]);
 
   const errorCount = problems.filter((p) => p.severity === "error").length;
-  const active = status !== "idle" && status !== "failed";
-  // Not `active`: a failed run can still own a live process tree, and Stop is the only way
-  // to tear it down from here.
+  // Only a run actually in flight refuses a new one. A `running` cluster is exactly what the
+  // deploy-only path exists for: redeploying onto it must not cost a stop and a full reboot.
+  const inFlight = IN_FLIGHT.includes(status);
+  // A failed run can still own a live process tree, and Stop is the only way to tear it down
+  // from here; a run still booting can now be cancelled outright.
   const canStop = Boolean(runId) && status !== "idle";
+  const keys = secretKeys(blueprint);
+  // Secret values live only in this component, for the lifetime of one request.
+  const [values, setValues] = useState<Record<string, string>>({});
+  const runValues = Object.fromEntries(
+    keys.map((k) => [k, values[k] ?? ""]).filter(([, v]) => v !== ""),
+  ) as Record<string, string>;
 
   if (!blueprint)
     return (
@@ -92,6 +101,32 @@ function RunnerPage() {
               Back to blueprints
             </Link>
           </p>
+        </div>
+        <div className="w-full max-w-2xl rounded-sm border border-border bg-card p-3">
+          <div className="flex items-center justify-between">
+            <span className="hud-label">Current run</span>
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "rounded-sm px-2 py-0.5 font-mono text-[11px] uppercase tracking-widest",
+                  RUN_STATUS_CLASS[status],
+                )}
+              >
+                {status}
+              </span>
+              <button
+                disabled={!canStop || busy}
+                onClick={() => void stop()}
+                className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2 font-mono text-[11px] text-foreground disabled:opacity-40"
+              >
+                <Square className="size-3" /> Stop
+              </button>
+            </div>
+          </div>
+          {stopError && (
+            <p className="mt-2 font-mono text-[10px] text-status-bad">Stop failed: {stopError}</p>
+          )}
+          <RunConsole log={log} className="mt-2 h-[280px] rounded-sm border border-border" />
         </div>
       </div>
     );
@@ -133,8 +168,8 @@ function RunnerPage() {
             <RotateCcw className="size-3" /> Clear console
           </button>
           <button
-            disabled={errorCount > 0 || active || busy}
-            onClick={() => void start(blueprint)}
+            disabled={errorCount > 0 || inFlight || busy}
+            onClick={() => void start(blueprint, { values: runValues })}
             className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-primary bg-primary px-2 font-mono text-[11px] text-primary-foreground disabled:opacity-40"
           >
             <Play className="size-3" /> Run
@@ -203,6 +238,32 @@ function RunnerPage() {
             )}
           </section>
 
+          {keys.length > 0 && (
+            <section>
+              <div className="hud-label">Secret values</div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Sent with this run only. Never saved to the blueprint or to disk.
+              </p>
+              <div className="mt-1 space-y-1">
+                {keys.map((key) => (
+                  <label key={key} className="block">
+                    <span className="num block truncate text-[10px] text-muted-foreground">
+                      {key}
+                    </span>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={values[key] ?? ""}
+                      placeholder="value"
+                      onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                      className="h-7 w-full rounded-sm border border-border bg-card px-2 font-mono text-[11px] text-foreground"
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section>
             <div className="hud-label">Steps</div>
             <div className="mt-1">
@@ -212,7 +273,7 @@ function RunnerPage() {
 
           <section>
             <div className="hud-label">Artifacts</div>
-            <RunArtifacts artifacts={artifacts} />
+            <RunArtifacts log={log} blueprint={blueprint} />
           </section>
 
           <section>
@@ -237,6 +298,9 @@ function RunnerPage() {
             )}
           </section>
 
+          {stopError && (
+            <p className="font-mono text-[10px] text-status-bad">Stop failed: {stopError}</p>
+          )}
           {(errorCount > 0 || reason) && (
             <p className="font-mono text-[10px] text-status-bad">
               {reason ??
