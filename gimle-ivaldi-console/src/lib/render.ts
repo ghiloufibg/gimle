@@ -1,4 +1,4 @@
-import { stringify } from "yaml";
+import { Scalar, stringify } from "yaml";
 
 import {
   type AgentData,
@@ -16,20 +16,55 @@ import {
   type WorkloadData,
 } from "./blueprint";
 import { DEFAULT_PORTS } from "./ports";
-import { nodesOf, tenantIdOf } from "./rules";
+import { machineNameOf, nodesOf, tenantIdOf } from "./rules";
 
 export interface RenderedFile {
   path: string;
   content: string;
 }
 
+// A YAML 1.2 emitter leaves these bare because 1.2 reads them as plain strings, but the platform
+// and plenty of other readers are on 1.1, where a bare `yes` is a boolean and a bare 2026-01-01 is
+// a date. Quoting them keeps a config value the user typed as a string a string everywhere.
+const YAML_1_1_AMBIGUOUS = /^(y|n|yes|no|on|off|\d{4}-\d{2}-\d{2}([Tt ].*)?)$/i;
+
+function quoteAmbiguous(value: unknown): unknown {
+  if (typeof value === "string")
+    return YAML_1_1_AMBIGUOUS.test(value)
+      ? Object.assign(new Scalar(value), { type: Scalar.QUOTE_DOUBLE })
+      : value;
+  if (Array.isArray(value)) return value.map(quoteAmbiguous);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, quoteAmbiguous(v)]),
+    );
+  return value;
+}
+
 const yml = (value: unknown): string =>
-  stringify(value, { indent: 2, lineWidth: 0 })
+  stringify(quoteAmbiguous(value), { indent: 2, lineWidth: 0 })
     .split("\n")
     .map((l) => l.replace(/\s+$/, ""))
     .join("\n");
 
 const pad = (n: number): string => String(n).padStart(2, "0");
+
+/**
+ * A resource's name spliced straight into a path makes a filename nobody can extract: a "/" opens
+ * a directory inside the zip, a quote or backslash breaks the entry on Windows, and a long name
+ * exceeds every filesystem's per-component limit. The name inside the manifest is untouched --
+ * only the path it is written to is sanitised, the same way the blueprint's own download filename
+ * already is.
+ */
+function fileSlug(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 60);
+  return slug || "unnamed";
+}
 
 const MANIFEST_KIND: Record<string, string> = {
   deployment: "Deployment",
@@ -54,6 +89,7 @@ function renderTopology(bp: Blueprint): string {
     const d = m.data as MachineData;
     return { name: d.name, host: d.host };
   });
+  const machineOf = (n: BlueprintNode) => machineNameOf(bp, n) ?? "";
   const runtime: Record<string, unknown> = { dataRoot: bp.runtime.dataRoot };
   if (bp.runtime.classpath) runtime.classpath = bp.runtime.classpath;
   doc.runtime = runtime;
@@ -63,7 +99,7 @@ function renderTopology(bp: Blueprint): string {
     doc.store = {
       replicas: stores.map((s) => {
         const d = s.data as StoreData;
-        const r: Record<string, unknown> = { machine: d.machine };
+        const r: Record<string, unknown> = { machine: machineOf(s) };
         if (d.raftPort !== DEFAULT_PORTS.storeRaft) r.raftPort = d.raftPort;
         if (d.clientPort !== DEFAULT_PORTS.storeClient) r.clientPort = d.clientPort;
         return r;
@@ -75,7 +111,7 @@ function renderTopology(bp: Blueprint): string {
     if (!list.length) return undefined;
     return list.map((n) => {
       const d = n.data as RoleData;
-      const r: Record<string, unknown> = { machine: d.machine };
+      const r: Record<string, unknown> = { machine: machineOf(n) };
       if (d.port !== defaultPort) r.port = d.port;
       return r;
     });
@@ -100,16 +136,21 @@ function renderTopology(bp: Blueprint): string {
   if (agents.length)
     doc.agents = agents.map((a) => {
       const d = a.data as AgentData;
-      const r: Record<string, unknown> = { machine: d.machine, nodeId: d.nodeId };
+      const r: Record<string, unknown> = { machine: machineOf(a), nodeId: d.nodeId };
       if (d.gossipPort !== DEFAULT_PORTS.agent) r.gossipPort = d.gossipPort;
       if (d.labels?.length) r.labels = [...d.labels].sort();
       return r;
     });
 
+  // topology.yaml's `jvm:` is one flag list per role, not per replica, so two replicas of a role
+  // that each carry flags contribute to the same list. Unioned rather than overwritten: dropping
+  // one replica's flags on the floor would leave the canvas and the rendered file disagreeing with
+  // nothing said about it. rules.ts warns when two replicas of a role disagree.
   const jvm: Record<string, string[]> = {};
   for (const n of bp.nodes) {
     const flags = (n.data as { jvmFlags?: string[] }).jvmFlags;
-    if (flags?.length) jvm[n.kind] = flags;
+    if (!flags?.length) continue;
+    jvm[n.kind] = [...new Set([...(jvm[n.kind] ?? []), ...flags])];
   }
   if (Object.keys(jvm).length) doc.jvm = jvm;
 
@@ -181,14 +222,14 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
 
   for (const w of orderedWorkloads(bp)) {
     const d = w.data as WorkloadData;
-    const path = `manifests/${pad(index++)}-${d.name || "unnamed"}.yaml`;
+    const path = `manifests/${pad(index++)}-${fileSlug(d.name)}.yaml`;
     manifestPaths.push(path);
     files.push({ path, content: yml(workloadDoc(bp, w)) });
   }
 
   for (const s of nodesOf(bp, "service")) {
     const d = s.data as ServiceData;
-    const path = `manifests/${pad(index++)}-service-${d.name || "unnamed"}.yaml`;
+    const path = `manifests/${pad(index++)}-service-${fileSlug(d.name)}.yaml`;
     standalonePaths.push(path);
     const fronted = bp.edges
       .filter((e) => e.kind === "fronts" && e.source === s.id)
@@ -211,7 +252,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
 
   for (const np of nodesOf(bp, "networkPolicy")) {
     const d = np.data as NetworkPolicyData;
-    const path = `manifests/${pad(index++)}-networkpolicy-${d.name || "unnamed"}.yaml`;
+    const path = `manifests/${pad(index++)}-networkpolicy-${fileSlug(d.name)}.yaml`;
     standalonePaths.push(path);
     const restricted = bp.edges
       .filter((e) => e.kind === "restricts" && e.source === np.id)
@@ -238,7 +279,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
   for (const lr of nodesOf(bp, "limitRange")) {
     const d = lr.data as LimitRangeData;
     const tenantId = tenantIdOf(bp, lr) ?? d.tenantId;
-    const path = `manifests/${pad(index++)}-limitrange-${tenantId || "unnamed"}.yaml`;
+    const path = `manifests/${pad(index++)}-limitrange-${fileSlug(tenantId)}.yaml`;
     standalonePaths.push(path);
     files.push({
       path,
@@ -266,7 +307,11 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     values,
     tenants: nodesOf(bp, "tenant").map((t) => {
       const d = t.data as TenantData;
-      return { id: d.id, quota: { ...d.quota } };
+      return {
+        id: d.id,
+        quota: { ...d.quota },
+        ...(d.isolationPosture ? { isolationPosture: d.isolationPosture } : {}),
+      };
     }),
     config: nodesOf(bp, "configEntry").map((c) => {
       const d = c.data as ConfigEntryData;
@@ -306,7 +351,10 @@ export function firstMachineName(bp: Blueprint): string {
 }
 
 function renderReadme(bp: Blueprint, standalonePaths: string[]): string {
-  const machine = firstMachineName(bp);
+  // Every machine, not just the first: `hilmir up` brings up one machine's own processes, so a
+  // two-machine topology needs the command twice -- and a teardown that names only the first
+  // leaves the other machine's processes running and its data behind.
+  const machines = nodesOf(bp, "machine").map((m) => (m.data as MachineData).name);
   const port = controlPlanePort(bp);
   // Under mTLS every leaf certificate is minted for the machine's declared hostname (an IP
   // literal is refused outright by the topology rules), so an IP here would fail SAN matching
@@ -365,7 +413,7 @@ hilmir validate -f topology.yaml
 ${pkiStep}## 2. Bring the cluster up
 
 \`\`\`sh
-hilmir up -f topology.yaml --machine ${machine}
+${machines.map((m) => `hilmir up -f topology.yaml --machine ${m}`).join("\n")}
 \`\`\`
 
 ## 3. Push local artifacts
@@ -397,7 +445,10 @@ ${scheme}://${server}/console
 ## 6. Tear down
 
 \`\`\`sh
-hilmir down --machine ${machine} --data-root ${bp.runtime.dataRoot}
+${machines
+  .map((m) => `hilmir down --machine ${m} --data-root ${bp.runtime.dataRoot}`)
+  .reverse()
+  .join("\n")}
 \`\`\`
 `;
 }

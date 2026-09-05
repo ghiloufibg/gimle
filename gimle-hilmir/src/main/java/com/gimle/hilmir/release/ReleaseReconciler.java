@@ -53,7 +53,7 @@ public final class ReleaseReconciler {
             Instant.now().toEpochMilli(),
             rendered.tenants(),
             rendered.config(),
-            rendered.secrets(),
+            rendered.secrets().stream().map(SecretRef::of).toList(),
             rendered.workloads(),
             Optional.empty()));
     ReleaseLedger.writeMeta(
@@ -105,7 +105,7 @@ public final class ReleaseReconciler {
             Instant.now().toEpochMilli(),
             rendered.tenants(),
             rendered.config(),
-            rendered.secrets(),
+            rendered.secrets().stream().map(SecretRef::of).toList(),
             rendered.workloads(),
             Optional.empty()));
     ReleaseLedger.writeMeta(

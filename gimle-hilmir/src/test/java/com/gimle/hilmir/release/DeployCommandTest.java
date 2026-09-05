@@ -1,6 +1,7 @@
 package com.gimle.hilmir.release;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -93,7 +94,14 @@ class DeployCommandTest {
 
     // the ledger itself
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.meta") != null);
-    assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.rev.1") != null);
+    String revision = fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.rev.1");
+    assertTrue(revision != null);
+    // The ledger is written through the plain, unencrypted /config/* surface and replicated into
+    // the state store's log, so a secret value reaching it would outlive the vault that exists to
+    // hold it. The revision records the key and a digest, never the value.
+    assertFalse(revision.contains("secret123"), revision);
+    assertTrue(revision.contains("api.token"), revision);
+    assertTrue(revision.contains("valueDigest"), revision);
 
     // apply order: tenant before config/secret before workload
     List<String> orderedPaths =

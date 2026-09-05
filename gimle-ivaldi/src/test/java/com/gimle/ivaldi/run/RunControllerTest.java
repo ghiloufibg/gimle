@@ -75,4 +75,84 @@ class RunControllerTest {
     // (no bundle.yaml in the file set), which is exactly why this test only asserts the
     // synchronous start() contract, not the run's eventual terminal status.
   }
+
+  /**
+   * A jar path that names nothing is the validate phase's problem, not the push step's. Discovered
+   * at push time it costs a full stop-and-respawn of a cluster that was running fine.
+   */
+  @Test
+  void a_workload_naming_a_jar_that_is_not_there_fails_before_anything_is_touched() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    List<RenderedFile> files =
+        List.of(
+            new RenderedFile("topology.yaml", TOPOLOGY),
+            new RenderedFile("bundle.yaml", BUNDLE),
+            new RenderedFile(
+                "manifests/01-app.yaml",
+                """
+                kind: Deployment
+                name: app
+                replicas: 1
+                module:
+                  name: com.example.app
+                  version: 1.0.0
+                artifactPath: /nowhere/does-not-exist.jar
+                """));
+
+    controller.start("c1", Optional.empty(), files, Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    assertEquals("failed", snapshot.get("status"));
+    assertTrue(String.valueOf(snapshot.get("error")).contains("does-not-exist.jar"), snapshot + "");
+    assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
+  }
+
+  private Map<String, Object> awaitSettled() {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      Map<String, Object> snapshot = controller.currentSnapshotJson();
+      String status = String.valueOf(snapshot.get("status"));
+      if (status.equals("failed") || status.equals("running") || status.equals("idle")) {
+        return snapshot;
+      }
+      try {
+        Thread.sleep(25);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("interrupted waiting for the run to settle", e);
+      }
+    }
+    throw new IllegalStateException("run never settled: " + controller.currentSnapshotJson());
+  }
+
+  private static final String TOPOLOGY =
+      """
+      name: t
+      machines:
+        - name: local
+          host: 127.0.0.1
+      runtime:
+        dataRoot: /tmp/gimle-ivaldi-test-never-booted
+      store:
+        replicas:
+          - machine: local
+      controlPlane:
+        replicas:
+          - machine: local
+      fafnir:
+        keyFile: /tmp/gimle-ivaldi-test-never-booted/fafnir.key
+        replicas:
+          - machine: local
+      andvari:
+        replicas:
+          - machine: local
+      """;
+
+  private static final String BUNDLE =
+      """
+      kind: Bundle
+      name: t
+      version: 1.0.0
+      workloads:
+        - file: manifests/01-app.yaml
+      """;
 }

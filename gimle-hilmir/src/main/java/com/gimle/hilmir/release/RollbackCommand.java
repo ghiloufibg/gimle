@@ -78,7 +78,10 @@ public final class RollbackCommand {
             meta.bundleVersion(),
             target.tenants(),
             target.config(),
-            target.secrets(),
+            // A rollback restores workloads and config; secret material stays with the vault that
+            // owns it, which versions every value it has ever held. The ledger records only a
+            // digest, so there is nothing here to re-apply and nothing lost by not doing so.
+            List.of(),
             target.workloads());
     List<ResourceRef> toPrune =
         current.resources().stream().filter(r -> !target.resources().contains(r)).toList();
@@ -90,7 +93,6 @@ public final class RollbackCommand {
 
     BundleApplier.applyTenants(api, target.tenants());
     BundleApplier.applyConfig(api, target.config());
-    BundleApplier.applySecrets(api, target.secrets());
     BundleApplier.applyWorkloads(api, target.workloads());
     BundleApplier.deleteWorkloads(api, toPrune);
     if (flags.isSet("--wait")) {

@@ -1,6 +1,7 @@
 package com.gimle.observability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
@@ -467,5 +468,47 @@ class MuninnShipperTest {
    */
   private static String structuredLine(String timestamp, String message) {
     return Json.write(Map.of("timestamp", timestamp, "level", "INFO", "message", message));
+  }
+
+  /**
+   * The whole point of persisting the cursor: Muninn's store is append-only, so a shipper that
+   * restarts from "nothing shipped yet" adds another copy of every retained line each time, and a
+   * line read back comes back once per restart since it was written.
+   */
+  @Test
+  @Timeout(10)
+  void a_restarted_shipper_resumes_where_the_previous_one_stopped(
+      @TempDir Path tempDir, TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    Path logFile = tempDir.resolve("app.log");
+    Files.writeString(logFile, structuredLine("2026-08-10T10:00:00Z", "one") + "\n");
+
+    TestScheduler firstScheduler = new TestScheduler(clock);
+    shipper = shipperOn(firstScheduler, SHIP_INTERVAL);
+    shipper.startShippingLogFile(logFile, 1);
+    firstScheduler.runUntilIdle();
+    assertEquals(1, receivedBodies.size());
+    shipper.close();
+
+    Files.writeString(
+        logFile,
+        structuredLine("2026-08-10T10:00:05Z", "two") + "\n",
+        java.nio.file.StandardOpenOption.APPEND);
+
+    TestScheduler secondScheduler = new TestScheduler(clock);
+    shipper = shipperOn(secondScheduler, SHIP_INTERVAL);
+    shipper.startShippingLogFile(logFile, 1);
+    secondScheduler.runUntilIdle();
+
+    assertEquals(2, receivedBodies.size());
+    assertTrue(receivedBodies.get(1).contains("\"message\":\"two\""), receivedBodies.get(1));
+    assertFalse(receivedBodies.get(1).contains("\"message\":\"one\""), receivedBodies.get(1));
   }
 }

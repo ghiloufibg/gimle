@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,14 +52,15 @@ import org.slf4j.LoggerFactory;
  * tick with the same unshipped cursor (logs only -- metrics/traces have no cursor to preserve, a
  * missed tick's data is simply not re-sent), the same degrade-don't-fail posture {@link
  * ThreadNameJfrAttributor} already applies when JFR itself is unavailable. The log-shipping cursor
- * is deliberately in-memory only, not persisted to disk: a process restart re-ships from "nothing
- * shipped yet," accepting a small duplicate window in Muninn's own history rather than adding a
- * second persisted-cursor mechanism next to {@code LogFileReader}'s own cursor semantics.
+ * is kept in a small file beside the log file it tracks, so a restart resumes where it left off:
+ * Muninn's store is append-only, so an in-memory cursor meant every restart re-shipped the whole
+ * retained log and a line read back came back once per restart since it was written.
  */
 public final class MuninnShipper implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(MuninnShipper.class);
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+  private static final String CURSOR_SUFFIX = ".muninn-cursor";
 
   private final List<URI> baseUris;
   private final String ingestPath;
@@ -66,6 +68,12 @@ public final class MuninnShipper implements AutoCloseable {
   private final HttpClient httpClient;
   private volatile ScheduledExecutorService ticker;
   private volatile String logCursor;
+
+  /**
+   * Where {@link #logCursor} is kept across restarts, beside the log file it tracks. Each stream
+   * ships its own distinct active file, so the name is unique per stream without further scoping.
+   */
+  private volatile Path cursorFile;
 
   /**
    * How many lines sharing {@link #logCursor}'s exact instant have already been shipped -- {@code
@@ -160,6 +168,8 @@ public final class MuninnShipper implements AutoCloseable {
    * ship, so a failed tick re-sends the same unshipped lines next time rather than losing them.
    */
   public void startShippingLogFile(Path activeFile, int maxFiles) {
+    this.cursorFile = activeFile.resolveSibling(activeFile.getFileName() + CURSOR_SUFFIX);
+    restoreCursor();
     startTicker(() -> tickLogs(activeFile, maxFiles));
   }
 
@@ -285,6 +295,41 @@ public final class MuninnShipper implements AutoCloseable {
     }
     logCursor = newCursorInstant.toString();
     shippedAtCursorTimestamp = countAtNewCursor;
+    persistCursor();
+  }
+
+  /**
+   * Reads back the cursor a previous process left. Without it, every restart re-ships the whole
+   * retained log from the beginning: Muninn's store is append-only, so each restart adds another
+   * copy of everything still on disk and a line read back comes back once per restart since it was
+   * written.
+   */
+  private void restoreCursor() {
+    try {
+      if (!Files.isRegularFile(cursorFile)) {
+        return;
+      }
+      String[] parts = Files.readString(cursorFile, StandardCharsets.UTF_8).trim().split(" ", 2);
+      Instant.parse(parts[0]);
+      logCursor = parts[0];
+      shippedAtCursorTimestamp = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+    } catch (IOException | RuntimeException unreadable) {
+      // A cursor that cannot be read is the same situation as no cursor at all: ship from the
+      // start rather than refusing to ship. Duplicates in Muninn are recoverable; silence is not.
+      log.debug("could not read the shipping cursor at {}: {}", cursorFile, unreadable.toString());
+    }
+  }
+
+  private void persistCursor() {
+    if (cursorFile == null) {
+      return;
+    }
+    try {
+      Files.writeString(
+          cursorFile, logCursor + " " + shippedAtCursorTimestamp, StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      log.debug("could not persist the shipping cursor to {}: {}", cursorFile, e.getMessage());
+    }
   }
 
   private void tickMetrics(MeterRegistry registry) {

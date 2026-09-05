@@ -103,6 +103,57 @@ public final class RunController {
     } catch (java.io.IOException e) {
       throw new UncheckedIOException("failed creating run workspace root: " + workspaceRoot, e);
     }
+    adoptRunningCluster();
+  }
+
+  /**
+   * Re-adopts a cluster this Ivaldi launched before it was itself restarted. The run state lives in
+   * memory, so without this a restart left a live process tree that nothing could see or stop: the
+   * API reported idle and refused the teardown while four JVMs held their ports. Everything needed
+   * is already on disk -- which topology was last applied to each cluster, and the process ledger
+   * that topology's own data root holds -- so the tree is picked back up rather than abandoned.
+   * Best-effort by construction: an unreadable topology or a ledger whose processes are all gone
+   * simply means there is nothing to adopt.
+   */
+  private void adoptRunningCluster() {
+    for (Map<String, Object> cluster : clusters.list()) {
+      Object id = cluster.get("id");
+      if (!(id instanceof String clusterId)) {
+        continue;
+      }
+      Optional<String> applied = clusters.appliedTopology(clusterId);
+      if (applied.isEmpty()) {
+        continue;
+      }
+      try {
+        Topology topology =
+            TopologyParser.parse(
+                new ByteArrayInputStream(applied.get().getBytes(StandardCharsets.UTF_8)));
+        List<RunRecord> records =
+            MachineLauncher.recordedProcesses(resolveRuntime(topology).dataRoot());
+        List<RunRecord> alive =
+            records.stream()
+                .filter(r -> ProcessHandle.of(r.pid()).map(ProcessHandle::isAlive).orElse(false))
+                .toList();
+        if (alive.isEmpty()) {
+          clusters.clearAppliedTopology(clusterId);
+          continue;
+        }
+        ActiveRun adopted = new ActiveRun(mintRunId(), clusterId, Optional.empty());
+        adopted.status = RunStatus.RUNNING;
+        adopted.processes = processInfos(alive, topology);
+        adopted.log.append(
+            "adopted "
+                + alive.size()
+                + " process(es) still running for cluster "
+                + clusterId
+                + " from a previous Ivaldi process");
+        current = adopted;
+        return;
+      } catch (RuntimeException e) {
+        log.warn("could not adopt a running cluster for {}: {}", clusterId, e.getMessage());
+      }
+    }
   }
 
   /** Thrown for a 409: a run is already in flight. */
@@ -135,7 +186,7 @@ public final class RunController {
     }
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
     current = run;
-    Thread.ofVirtual().start(() -> execute(run, files, values));
+    run.worker = Thread.ofVirtual().start(() -> execute(run, files, values));
     return snapshotOf(run).toJsonMap();
   }
 
@@ -152,16 +203,30 @@ public final class RunController {
     return Optional.of(new LogPage(page.lines(), page.nextCursor()));
   }
 
+  /**
+   * Stops whatever this controller is holding. A run still in flight is cancelled rather than
+   * refused: a boot waiting out a readiness timeout is exactly when an operator most wants out, and
+   * refusing left them with no way to stop, no way to start another, and a growing process tree.
+   * The worker is interrupted and finishes the teardown on its own way out, so the stop always runs
+   * after the boot has actually stopped touching the cluster.
+   */
   public synchronized Map<String, Object> stop() {
     if (current == null) {
       throw new NotFoundException("no run to stop");
     }
     ActiveRun run = current;
-    if (run.status.isInFlight()) {
-      throw new RunInProgressException(run.id);
-    }
     run.status = RunStatus.STOPPING;
     run.updatedAt = Instant.now();
+    if (run.cancelRequested) {
+      return snapshotOf(run).toJsonMap();
+    }
+    Thread worker = run.worker;
+    if (worker != null && worker.isAlive()) {
+      run.cancelRequested = true;
+      run.log.append("stop requested -- cancelling the run in flight");
+      worker.interrupt();
+      return snapshotOf(run).toJsonMap();
+    }
     Thread.ofVirtual().start(() -> teardown(run));
     return snapshotOf(run).toJsonMap();
   }
@@ -180,6 +245,7 @@ public final class RunController {
                 + errors.stream().map(Finding::message).collect(Collectors.joining("; ")));
       }
       run.log.append("validated " + files.size() + " file(s), 0 errors");
+      requireJarArtifactsReadable(files);
 
       RenderedFile topologyFile = requireFile(files, "topology.yaml");
       RenderedFile bundleFile = requireFile(files, "bundle.yaml");
@@ -200,6 +266,7 @@ public final class RunController {
               || !normalizeTopology(appliedTopology.get())
                   .equals(normalizeTopology(topologyFile.content()));
 
+      requireNotCancelled(run);
       run.status = RunStatus.BOOTING;
       if (reboot) {
         run.log.append(
@@ -245,6 +312,7 @@ public final class RunController {
         run.log.append("topology unchanged -- deploying onto the running cluster without a reboot");
       }
 
+      requireNotCancelled(run);
       run.status = RunStatus.SEEDING;
       Path workspace = workspaceRoot.resolve(run.id);
       writeWorkspace(workspace, files);
@@ -265,6 +333,7 @@ public final class RunController {
         run.log.append("no standalone resources to apply");
       }
 
+      requireNotCancelled(run);
       run.status = RunStatus.DEPLOYING;
       Bundle bundle = BundleParser.parse(streamOf(bundleFile));
       List<String> setFlags =
@@ -311,12 +380,33 @@ public final class RunController {
       run.status = RunStatus.RUNNING;
       run.log.append("run complete");
     } catch (RunFailedException e) {
-      fail(run, e.getMessage());
+      if (run.cancelRequested) {
+        teardown(run);
+      } else {
+        fail(run, e.getMessage());
+      }
     } catch (RuntimeException e) {
-      log.warn("run {} failed", run.id, e);
-      fail(run, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+      // A cancelled run's own failure is the cancellation, whatever shape it arrived in -- an
+      // interrupted sleep inside a readiness poll surfaces here as an ordinary runtime failure.
+      if (run.cancelRequested) {
+        run.log.append("run cancelled");
+        teardown(run);
+      } else {
+        log.warn("run {} failed", run.id, e);
+        fail(run, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+      }
     } finally {
+      Thread.interrupted();
       run.updatedAt = Instant.now();
+    }
+  }
+
+  /**
+   * Aborts at a phase boundary, so a cancelled run stops before starting its next piece of work.
+   */
+  private static void requireNotCancelled(ActiveRun run) {
+    if (run.cancelRequested) {
+      throw new RunFailedException("run cancelled");
     }
   }
 
@@ -365,6 +455,37 @@ public final class RunController {
     }
     run.log.append("minting TLS material under " + materialDir);
     PkiInit.run(topology, runtime, printStreamTo(run));
+  }
+
+  /**
+   * Every jar a run will push, read before anything is torn down. The push itself is the first step
+   * after the boot, so a mistyped path used to be discovered only once the running cluster had
+   * already been stopped and respawned -- the whole cost of a reboot for a typo the validate phase
+   * can see.
+   */
+  private static void requireJarArtifactsReadable(List<RenderedFile> files) {
+    for (RenderedFile manifest : jarSourcedWorkloads(files)) {
+      Object artifactPath = readMapping(manifest.content()).get("artifactPath");
+      if (!(artifactPath instanceof String pathString) || pathString.isBlank()) {
+        continue;
+      }
+      Path jar = Path.of(pathString);
+      if (!Files.isRegularFile(jar)) {
+        throw new RunFailedException(
+            "no jar at " + jar + " (from " + manifest.path() + ") -- check the artifact path");
+      }
+      try {
+        ModuleArtifactReader.read(jar);
+      } catch (RuntimeException notAModule) {
+        throw new RunFailedException(
+            "not a pushable module artifact at "
+                + jar
+                + " (from "
+                + manifest.path()
+                + "): "
+                + notAModule.getMessage());
+      }
+    }
   }
 
   private void pushArtifact(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
@@ -571,10 +692,17 @@ public final class RunController {
   }
 
   /** Ignores blank lines and trailing whitespace so a run doesn't reboot over formatting alone. */
+  /**
+   * The topology text reduced to what a reboot decision actually turns on. Blank lines and trailing
+   * space are noise, and so is the topology's own {@code name:} -- it labels the design, names no
+   * process, and binds no port, so renaming a blueprint used to stop and respawn every process for
+   * a change nothing could observe.
+   */
   private static String normalizeTopology(String text) {
     return text.lines()
         .map(String::stripTrailing)
         .filter(l -> !l.isBlank())
+        .filter(l -> !l.startsWith("name:"))
         .collect(Collectors.joining("\n"));
   }
 
@@ -708,6 +836,8 @@ public final class RunController {
     volatile Optional<Integer> revision = Optional.empty();
     volatile Optional<String> error = Optional.empty();
     volatile Instant updatedAt = Instant.now();
+    volatile boolean cancelRequested;
+    volatile Thread worker;
 
     ActiveRun(String id, String clusterId, Optional<String> blueprintId) {
       this.id = id;

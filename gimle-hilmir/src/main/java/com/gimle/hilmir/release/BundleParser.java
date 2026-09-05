@@ -26,7 +26,7 @@ public final class BundleParser {
 
   private static final Set<String> ROOT_KEYS =
       Set.of("kind", "name", "version", "values", "tenants", "config", "secrets", "workloads");
-  private static final Set<String> TENANT_KEYS = Set.of("id", "quota");
+  private static final Set<String> TENANT_KEYS = Set.of("id", "quota", "isolationPosture");
   private static final Set<String> QUOTA_KEYS =
       Set.of("maxMemoryBytes", "maxCpuMillicores", "maxInstances");
   private static final Set<String> CONFIG_KEYS = Set.of("tenant", "key", "value");
@@ -101,9 +101,23 @@ public final class BundleParser {
         throw new GimleManifestException("each 'tenants' entry must be a mapping");
       }
       requireNoUnknownKeys(map, TENANT_KEYS, "tenants[]");
-      tenants.add(new BundleTenant(requireString(map, "id"), parseQuota(map)));
+      tenants.add(
+          new BundleTenant(requireString(map, "id"), parseQuota(map), parseIsolationPosture(map)));
     }
     return tenants;
+  }
+
+  private static Optional<String> parseIsolationPosture(Map<?, ?> tenant) {
+    Object value = tenant.get("isolationPosture");
+    if (value == null) {
+      return Optional.empty();
+    }
+    String posture = String.valueOf(value);
+    if (!posture.equals("OPEN") && !posture.equals("DENY_BY_DEFAULT")) {
+      throw new GimleManifestException(
+          "tenant 'isolationPosture' must be OPEN or DENY_BY_DEFAULT, not: " + posture);
+    }
+    return Optional.of(posture);
   }
 
   private static BundleQuota parseQuota(Map<?, ?> tenant) {

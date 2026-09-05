@@ -25,6 +25,7 @@ final class BundleApplier {
       quota.put("maxInstances", tenant.quota().maxInstances());
       Map<String, Object> body = new LinkedHashMap<>();
       body.put("quota", quota);
+      tenant.isolationPosture().ifPresent(posture -> body.put("isolationPosture", posture));
       api.expectSuccess(api.put("/tenants/" + tenant.id(), Json.write(body)));
     }
   }

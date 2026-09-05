@@ -15,13 +15,9 @@ import java.util.Optional;
  * produced by {@code rollback}, recording which earlier revision it restored -- rollback always
  * writes a new revision, never rewrites history in place.
  *
- * <p>Secret values are stored here rendered (plaintext), the same way every other field in this
- * snapshot is: this row is written through the plain, unencrypted {@code /config/*} surface (see
- * {@link ReleaseLedger}), not Fafnir's own encrypted {@code /secrets/*} one, so a release's secret
- * material is only ever as protected as the rest of its ledger history. A deliberate v1 tradeoff --
- * re-applying a rollback byte-for-byte requires the exact value that was set, and the {@code
- * /secrets/*} surface has no "read back the plaintext I previously wrote" endpoint to recover it
- * from instead.
+ * <p>Secrets appear here as a {@link SecretRef} -- tenant, key and a digest of the value, never the
+ * value -- because this row is written through the plain, unencrypted {@code /config/*} surface
+ * (see {@link ReleaseLedger}). See {@code SecretRef} for why the digest is enough.
  *
  * <p>Public so {@code com.gimle.hilmir.sync} can read a release's last-applied content back through
  * {@link ReleaseLedger#readRevision} and compare it against a freshly rendered candidate via {@link
@@ -32,7 +28,7 @@ public record ReleaseRevision(
     long appliedAtEpochMilli,
     List<BundleTenant> tenants,
     List<RenderedConfigEntry> config,
-    List<RenderedSecretEntry> secrets,
+    List<SecretRef> secrets,
     List<RenderedWorkload> workloads,
     Optional<Integer> rollbackOfRevision) {
 
@@ -52,7 +48,7 @@ public record ReleaseRevision(
   public boolean matchesContent(RenderedBundle rendered) {
     return tenants.equals(rendered.tenants())
         && config.equals(rendered.config())
-        && secrets.equals(rendered.secrets())
+        && secrets.equals(rendered.secrets().stream().map(SecretRef::of).toList())
         && workloads.equals(rendered.workloads());
   }
 
@@ -80,11 +76,11 @@ public record ReleaseRevision(
           new RenderedConfigEntry(
               (String) c.get("tenant"), (String) c.get("key"), (String) c.get("value")));
     }
-    List<RenderedSecretEntry> secrets = new ArrayList<>();
+    List<SecretRef> secrets = new ArrayList<>();
     for (Map<String, Object> s : Json.asObjectList(json.get("secrets"))) {
       secrets.add(
-          new RenderedSecretEntry(
-              (String) s.get("tenant"), (String) s.get("key"), (String) s.get("value")));
+          new SecretRef(
+              (String) s.get("tenant"), (String) s.get("key"), (String) s.get("valueDigest")));
     }
     List<RenderedWorkload> workloads = new ArrayList<>();
     for (Map<String, Object> w : Json.asObjectList(json.get("workloads"))) {
@@ -111,6 +107,7 @@ public record ReleaseRevision(
     Map<String, Object> json = new LinkedHashMap<>();
     json.put("id", tenant.id());
     json.put("quota", quota);
+    tenant.isolationPosture().ifPresent(posture -> json.put("isolationPosture", posture));
     return json;
   }
 
@@ -121,7 +118,8 @@ public record ReleaseRevision(
         new BundleQuota(
             ((Number) quota.get("maxMemoryBytes")).longValue(),
             ((Number) quota.get("maxCpuMillicores")).longValue(),
-            ((Number) quota.get("maxInstances")).intValue()));
+            ((Number) quota.get("maxInstances")).intValue()),
+        Optional.ofNullable((String) json.get("isolationPosture")));
   }
 
   private static Map<String, Object> configToJson(RenderedConfigEntry entry) {
@@ -132,11 +130,11 @@ public record ReleaseRevision(
     return json;
   }
 
-  private static Map<String, Object> secretToJson(RenderedSecretEntry entry) {
+  private static Map<String, Object> secretToJson(SecretRef entry) {
     Map<String, Object> json = new LinkedHashMap<>();
     json.put("tenant", entry.tenant());
     json.put("key", entry.key());
-    json.put("value", entry.value());
+    json.put("valueDigest", entry.valueDigest());
     return json;
   }
 

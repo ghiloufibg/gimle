@@ -6,7 +6,7 @@ import { controlPlanePort, firstMachineName, renderFiles } from "./render";
 
 const [ordersPlatform] = sampleBlueprints();
 
-const STANDALONE_KINDS = ["Service", "NetworkPolicy", "LimitRange"];
+const STANDALONE_KINDS: (string | undefined)[] = ["Service", "NetworkPolicy", "LimitRange"];
 
 /** A manifest's own declared kind -- a filename can't be trusted for this, since a workload may
  *  legitimately be named something like "inventory-service". */
@@ -117,6 +117,7 @@ describe("renderFiles", () => {
     const referenced = bundle.workloads.map((w) => w.file);
     for (const kind of STANDALONE_KINDS) {
       const standalone = files.filter((f) => kindOf(f) === kind);
+      expect(kind).toBeDefined();
       expect(standalone.length).toBeGreaterThan(0);
       for (const file of standalone) expect(referenced).not.toContain(file.path);
     }
@@ -173,5 +174,74 @@ describe("renderFiles", () => {
     expect(readme).toContain(`hilmir deploy -f bundle.yaml`);
     expect(readme).toContain(`127.0.0.1:${port}/console`);
     expect(readme).toContain(`hilmir down --machine ${machine}`);
+  });
+});
+
+describe("renderFiles, on input the file formats cannot take verbatim", () => {
+  function withWorkloadNamed(name: string) {
+    const bp = structuredClone(ordersPlatform!);
+    const workload = bp.nodes.find((n) => n.kind === "deployment")!;
+    (workload.data as { name: string }).name = name;
+    return renderFiles(bp);
+  }
+
+  it("sanitises a workload name into its manifest path but leaves the name itself alone", () => {
+    const files = withWorkloadNamed('a/b\\c "q" x');
+    const path = files.map((f) => f.path).find((p) => p.includes("a-b-c-q-x"))!;
+    expect(path).toBe("manifests/02-a-b-c-q-x.yaml");
+    // one path component under manifests/, with nothing a zip entry or Windows would refuse
+    expect(path.split("/")).toHaveLength(2);
+    const doc = parse(files.find((f) => f.path === path)!.content) as { name: string };
+    expect(doc.name).toBe('a/b\\c "q" x');
+  });
+
+  it("caps a very long name, which no filesystem would accept as one path component", () => {
+    const files = withWorkloadNamed("L".repeat(300));
+    const path = files.map((f) => f.path).find((p) => p.includes("llll"))!;
+    expect(path.replace("manifests/", "").length).toBeLessThanOrEqual(70);
+  });
+
+  it("quotes the scalars a YAML 1.1 reader would take for a boolean or a date", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const config = bp.nodes.find((n) => n.kind === "configEntry")!;
+    (config.data as { value: string }).value = "yes";
+    const bundle = renderFiles(bp).find((f) => f.path === "bundle.yaml")!.content;
+    expect(bundle).toContain('value: "yes"');
+  });
+
+  it("unions jvm flags across replicas of a role, since the format holds one list per role", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const store = bp.nodes.find((n) => n.kind === "store")!;
+    const second = structuredClone(store);
+    second.id = "r-store-2";
+    (store.data as { jvmFlags?: string[] }).jvmFlags = ["-Xmx512m"];
+    (second.data as { jvmFlags?: string[] }).jvmFlags = ["-XX:+UseZGC"];
+    bp.nodes.push(second);
+    const topology = parse(renderFiles(bp).find((f) => f.path === "topology.yaml")!.content) as {
+      jvm: { store: string[] };
+    };
+    expect(topology.jvm.store.sort()).toEqual(["-XX:+UseZGC", "-Xmx512m"]);
+  });
+
+  it("brings up and tears down every machine in the README, not just the first", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const machine = structuredClone(bp.nodes.find((n) => n.kind === "machine")!);
+    machine.id = "m-beta";
+    (machine.data as { name: string }).name = "beta";
+    bp.nodes.push(machine);
+    const readme = renderFiles(bp).find((f) => f.path === "README.md")!.content;
+    expect(readme).toContain("hilmir up -f topology.yaml --machine local");
+    expect(readme).toContain("hilmir up -f topology.yaml --machine beta");
+    expect(readme).toContain("hilmir down --machine beta");
+  });
+
+  it("carries a tenant's isolation posture into bundle.yaml, where the platform reads it", () => {
+    const bp = structuredClone(ordersPlatform!);
+    (bp.nodes.find((n) => n.kind === "tenant")!.data as { isolationPosture?: string }).isolationPosture =
+      "DENY_BY_DEFAULT";
+    const bundle = parse(renderFiles(bp).find((f) => f.path === "bundle.yaml")!.content) as {
+      tenants: Array<{ isolationPosture?: string }>;
+    };
+    expect(bundle.tenants[0].isolationPosture).toBe("DENY_BY_DEFAULT");
   });
 });

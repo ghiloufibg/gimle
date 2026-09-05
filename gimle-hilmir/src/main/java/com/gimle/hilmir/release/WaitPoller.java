@@ -15,14 +15,14 @@ import java.util.function.Predicate;
  * at all, and is package-private to a different package besides.
  *
  * <p>Deployment/DaemonSet/StatefulSet wait for every instance to report an {@code ACTIVE}
- * observation (an empty instance list is not yet ready, not vacuously ready). Job waits only for a
- * terminal {@code phase} to be reached, not necessarily {@code SUCCEEDED} -- mirrors {@code kubectl
- * wait}'s own posture of waiting for completion rather than asserting outcome; a caller that cares
- * about success/failure reads the phase back itself afterward. CronJob has no natural "active
- * instance" state at all, so a single successful {@code GET} -- confirming the resource round-trips
- * back from the control plane it was just applied to -- is its whole readiness signal, checked once
- * rather than polled, since nothing about "does this resource still exist" changes on its own
- * between polls the way a Deployment's instance rollout does.
+ * observation (an empty instance list is not yet ready, not vacuously ready). Job waits for a
+ * terminal {@code phase} and then reports which one it reached: a {@code FAILED} job fails the
+ * wait, since a deploy that exits 0 while one of its workloads has terminally failed tells the
+ * caller the opposite of what happened. CronJob has no natural "active instance" state at all, so a
+ * single successful {@code GET} -- confirming the resource round-trips back from the control plane
+ * it was just applied to -- is its whole readiness signal, checked once rather than polled, since
+ * nothing about "does this resource still exist" changes on its own between polls the way a
+ * Deployment's instance rollout does.
  */
 final class WaitPoller {
 
@@ -46,7 +46,7 @@ final class WaitPoller {
     switch (workload.kind()) {
       case "Deployment", "DaemonSet", "StatefulSet" ->
           pollUntil(api, path, workload, out, WaitPoller::instancesAllActive);
-      case "Job" -> pollUntil(api, path, workload, out, WaitPoller::jobTerminal);
+      case "Job" -> awaitJobTerminal(api, path, workload, out);
       case "CronJob" -> awaitExists(api, path, workload, out);
       default ->
           throw new HilmirException("cannot wait on unknown workload kind: " + workload.kind());
@@ -105,9 +105,41 @@ final class WaitPoller {
     return true;
   }
 
-  private static boolean jobTerminal(Map<String, Object> status) {
-    Object phase = status.get("phase");
-    return "SUCCEEDED".equals(phase) || "FAILED".equals(phase);
+  /**
+   * A Job's wait ends at either terminal phase, but the two are not the same outcome: reporting a
+   * FAILED job as "ready" and exiting 0 hid a terminally failed workload behind a green deploy. The
+   * phase is named either way, and a failure fails the wait.
+   */
+  private static void awaitJobTerminal(
+      ControlPlaneApi api, String path, RenderedWorkload workload, PrintStream out) {
+    long deadlineNanos = System.nanoTime() + TIMEOUT.toNanos();
+    while (true) {
+      Object phase = api.getObject(path).get("phase");
+      if ("SUCCEEDED".equals(phase)) {
+        out.println(workload.kind() + " " + workload.name() + " succeeded");
+        return;
+      }
+      if ("FAILED".equals(phase)) {
+        Object reason = api.getObject(path).get("reason");
+        throw new HilmirException(
+            workload.kind()
+                + " "
+                + workload.name()
+                + " failed"
+                + (reason == null ? "" : ": " + reason));
+      }
+      if (System.nanoTime() > deadlineNanos) {
+        throw new HilmirException(
+            "timed out after "
+                + TIMEOUT
+                + " waiting for "
+                + workload.kind()
+                + " "
+                + workload.name()
+                + " to reach a terminal phase");
+      }
+      sleep();
+    }
   }
 
   private static void sleep() {

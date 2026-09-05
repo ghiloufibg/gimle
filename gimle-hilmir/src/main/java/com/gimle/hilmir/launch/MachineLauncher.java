@@ -761,8 +761,17 @@ public final class MachineLauncher {
     }
   }
 
+  /**
+   * The process tree recorded under {@code dataRoot}, as data rather than as printed lines -- what
+   * {@link #status} renders, and what a supervising tool needs to re-adopt a cluster it launched
+   * before it was itself restarted. Empty when no ledger is there.
+   */
+  public static List<RunRecord> recordedProcesses(final Path dataRoot) {
+    return RunLedger.read(dataRoot);
+  }
+
   public static void status(final Path dataRoot, final PrintStream out) {
-    final List<RunRecord> records = RunLedger.read(dataRoot);
+    final List<RunRecord> records = recordedProcesses(dataRoot);
     for (final RunRecord record : records) {
       final String readiness = readinessSummary(record);
       out.println(
