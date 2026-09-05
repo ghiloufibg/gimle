@@ -196,6 +196,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -412,6 +414,49 @@ public final class ApiServer implements AutoCloseable {
       new ConcurrencyLimiter(Integer.getInteger(ADMISSION_NODE_LIMIT_PROPERTY, 64));
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
+  static final String STORE_PROBE_INTERVAL_PROPERTY =
+      "gimle.controlplane.health.storeProbeIntervalMillis";
+
+  /**
+   * How stale the last completed store probe may be before {@code /health} calls the store down.
+   * Generous enough by default to ride out a couple of missed cycles, short enough that a probe
+   * wedged behind {@code StoreClient}'s own leader search is reported rather than waited on.
+   */
+  static final String STORE_PROBE_MAX_AGE_PROPERTY =
+      "gimle.controlplane.health.storeProbeMaxAgeMillis";
+
+  private final Duration storeProbeInterval =
+      Duration.ofMillis(Long.getLong(STORE_PROBE_INTERVAL_PROPERTY, 2_000));
+  private final Duration storeProbeMaxAge =
+      Duration.ofMillis(Long.getLong(STORE_PROBE_MAX_AGE_PROPERTY, 15_000));
+
+  private final ScheduledExecutorService storeProbe =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> Thread.ofPlatform().name("controlplane-store-probe").daemon(true).unstarted(r));
+
+  /**
+   * The last completed store probe. {@code /health} reads this and answers immediately instead of
+   * making the caller wait on a live round trip: a store with no reachable leader blocks that round
+   * trip for as long as {@code StoreClient}'s own leader search runs, and a probe that answers
+   * nothing at all is strictly worse than one that answers "down" -- a caller cannot act on
+   * silence, and enough silent handlers pile up to take the endpoint out entirely.
+   */
+  private volatile StoreProbeResult lastStoreProbe = StoreProbeResult.notYetProbed();
+
+  private record StoreProbeResult(boolean up, int tenantCount, String reason, Instant completedAt) {
+
+    static StoreProbeResult notYetProbed() {
+      return new StoreProbeResult(false, 0, "store has not been probed yet", Instant.EPOCH);
+    }
+
+    static StoreProbeResult up(int tenantCount) {
+      return new StoreProbeResult(true, tenantCount, "", Instant.now());
+    }
+
+    static StoreProbeResult down(String reason) {
+      return new StoreProbeResult(false, 0, reason, Instant.now());
+    }
+  }
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
   // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
@@ -889,6 +934,27 @@ public final class ApiServer implements AutoCloseable {
 
   public void start() {
     server.start();
+    // Probed once inline so the very first /health answers about the real store rather than about
+    // a probe that has not run yet; every later refresh is the background thread's job.
+    refreshStoreProbe();
+    storeProbe.scheduleWithFixedDelay(
+        this::refreshStoreProbe,
+        storeProbeInterval.toMillis(),
+        storeProbeInterval.toMillis(),
+        TimeUnit.MILLISECONDS);
+  }
+
+  /**
+   * Runs on its own thread so a slow or hanging store round trip delays only the next probe, never
+   * a caller of {@code /health}. Fixed *delay* rather than fixed rate: a probe that overran its
+   * interval must not have a queue of catch-up runs waiting behind it.
+   */
+  private void refreshStoreProbe() {
+    try {
+      lastStoreProbe = StoreProbeResult.up(storeClient.listTenants().size());
+    } catch (RuntimeException e) {
+      lastStoreProbe = StoreProbeResult.down(String.valueOf(e.getMessage()));
+    }
   }
 
   public int port() {
@@ -897,6 +963,7 @@ public final class ApiServer implements AutoCloseable {
 
   @Override
   public void close() {
+    storeProbe.shutdownNow();
     server.stop(0);
   }
 
@@ -7581,15 +7648,29 @@ public final class ApiServer implements AutoCloseable {
       Map<String, Object> status = new LinkedHashMap<>();
       status.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
       status.put("transportProtocol", TransportProtocol.fromConfig().name());
-      try {
-        status.put("storeTenantCount", storeClient.listTenants().size());
-        status.put("status", "UP");
-        respondJson(exchange, 200, status);
-      } catch (RuntimeException e) {
+      StoreProbeResult probe = lastStoreProbe;
+      Duration age = Duration.between(probe.completedAt(), Instant.now());
+      // A probe too old to trust is reported down rather than waited on: the prober being stuck is
+      // itself evidence the store cannot be reached.
+      if (age.compareTo(storeProbeMaxAge) > 0) {
         status.put("status", "DOWN");
-        status.put("reason", String.valueOf(e.getMessage()));
+        status.put(
+            "reason",
+            probe.completedAt().equals(Instant.EPOCH)
+                ? probe.reason()
+                : "last store probe completed " + age.toSeconds() + "s ago");
         respondJson(exchange, 503, status);
+        return;
       }
+      if (!probe.up()) {
+        status.put("status", "DOWN");
+        status.put("reason", probe.reason());
+        respondJson(exchange, 503, status);
+        return;
+      }
+      status.put("storeTenantCount", probe.tenantCount());
+      status.put("status", "UP");
+      respondJson(exchange, 200, status);
     } catch (IOException | RuntimeException e) {
       log.warn("health request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");

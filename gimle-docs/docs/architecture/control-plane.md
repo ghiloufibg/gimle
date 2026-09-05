@@ -135,6 +135,20 @@ worth doing when pointing a load generator such as [`ragnarok stress`](../refere
 at the cluster, since a stress run's whole purpose is to exceed exactly this rate. Console static
 assets are served outside this wrapper and are not charged.
 
+## Health
+
+`GET /health` is unauthenticated and reports on the store this process depends on, not merely on
+its own liveness: a control plane that cannot reach a `gimle-mimir` leader fails every other
+request it serves, so it answers `503` with a `DOWN` status and a reason rather than `200`.
+
+The store check runs on its own background thread every
+`gimle.controlplane.health.storeProbeIntervalMillis` (default 2000) and the handler answers from
+that last completed result, so a request never waits on a live store round trip. A leader search can
+run for many seconds, and a handler that blocks on one answers nothing at all — which tells a poller
+strictly less than "down" does, and piles up enough stalled handlers to take the endpoint out
+entirely. A probe result older than `gimle.controlplane.health.storeProbeMaxAgeMillis` (default
+15000) is itself reported as down: the prober being stuck is evidence the store is unreachable.
+
 ## Admission, and previewing it
 
 Every workload PUT runs an ordered `AdmissionChain` before anything is proposed to the store:
