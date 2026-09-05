@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 926,
+    "totalRequirements": 931,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 796,
+    "notCoveredByAutomatedTest": 801,
     "releaseReadinessPercent": 14.0
   },
   "items": [
@@ -10188,6 +10188,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own",
       "step": "Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own. Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-928",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A cluster's infra can host more than one blueprint's own deployment",
+      "step": "Given a cluster already running blueprint A's deployment, When blueprint B deploys the same topology onto that cluster, Then B's own deployment starts and runs independently of A's.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-929",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A topology change is refused while another deployment still shares the cluster",
+      "step": "Given a cluster with two blueprints deployed under the same topology, When one of them submits a run with a different topology, Then the run is refused and neither deployment's process tree is touched.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-930",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Deleting a cluster connection is refused while any of its deployments is still live",
+      "step": "Given a cluster with two deployments, one stopped and one still live, When I delete the cluster connection, Then the delete is refused with 409 naming the still-live deployment.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-931",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Stopping a deployment on a shared cluster undeploys only its own release",
+      "step": "Given two blueprints deployed on the same cluster, When I stop one of them, Then only its own release is undeployed and the other blueprint's deployment keeps running.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-932",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The console tracks and stops each deployment on a shared cluster independently",
+      "step": "Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

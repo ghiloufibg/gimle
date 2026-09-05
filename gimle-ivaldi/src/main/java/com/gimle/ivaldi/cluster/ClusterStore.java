@@ -10,12 +10,15 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -26,13 +29,21 @@ import java.util.stream.Stream;
  * name}/{@code updatedAt} for the list's sort order, the only field this store looks at is {@code
  * controlPlaneUrl}, which it refuses to write blank (see {@link #requireControlPlaneUrl}).
  *
- * <p>Alongside each connection this store keeps one more thing the console's own {@code
- * ClusterConnection} document has no field for: the {@code topology.yaml} text a run actually last
- * applied to that cluster, as a sibling {@code <id>.topology.yaml} file. {@link
+ * <p>Alongside each connection this store keeps two more things the console's own {@code
+ * ClusterConnection} document has no field for. One is the {@code topology.yaml} text a run
+ * actually last applied to that cluster, as a sibling {@code <id>.topology.yaml} file. {@link
  * com.gimle.ivaldi.run.RunController} diffs a new run's rendered topology against this text to
  * decide whether the run can deploy onto the already-running process tree or must reboot it first
  * -- see that class for the decision itself. A cluster with no recorded topology yet (freshly
- * created, or just torn down by {@code DELETE /api/runs/current}) always reboots on its next run.
+ * created, or just torn down because its last deployment stopped) always reboots on its next run.
+ *
+ * <p>The other is the set of blueprint ids with a deployment currently recorded against that
+ * cluster, as a sibling {@code <id>.deployments} file -- one cluster's infra, once up, can host any
+ * number of blueprints' own deployments (see {@code RunController}'s "Deploy-only vs. reboot"
+ * section), so there is no single "owning" blueprint any more, only the set of blueprints currently
+ * deployed there. This is what {@code RunController}'s own restart re-attachment reads to rebuild
+ * one tracked run per deployment instead of attributing the whole shared cluster to just one of
+ * them.
  */
 public final class ClusterStore {
 
@@ -40,7 +51,7 @@ public final class ClusterStore {
   private static final int MAX_ID_MINT_ATTEMPTS = 20;
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final String TOPOLOGY_SUFFIX = ".topology.yaml";
-  private static final String OWNER_SUFFIX = ".owner";
+  private static final String DEPLOYMENTS_SUFFIX = ".deployments";
 
   private final Path root;
 
@@ -112,6 +123,7 @@ public final class ClusterStore {
     try {
       boolean deleted = Files.deleteIfExists(fileFor(id));
       Files.deleteIfExists(topologyFileFor(id));
+      Files.deleteIfExists(deploymentsFileFor(id));
       return deleted;
     } catch (IOException e) {
       throw new UncheckedIOException("failed deleting cluster " + id, e);
@@ -138,42 +150,66 @@ public final class ClusterStore {
     write(topologyFileFor(id), topologyYaml);
   }
 
-  /** Forgets the applied topology: the next run against this cluster always reboots first. */
+  /**
+   * Forgets the applied topology and every deployment recorded against it: the next run against
+   * this cluster always reboots first, and a reboot tears down the whole process tree -- the state
+   * every previously-recorded deployment lived in -- so none of them survive it either, whichever
+   * blueprint's run happens to be the one driving the reboot.
+   */
   public void clearAppliedTopology(String id) {
     requireValidId(id);
     try {
       Files.deleteIfExists(topologyFileFor(id));
-      Files.deleteIfExists(ownerFileFor(id));
+      Files.deleteIfExists(deploymentsFileFor(id));
     } catch (IOException e) {
       throw new UncheckedIOException("failed clearing applied topology for cluster " + id, e);
     }
   }
 
   /**
-   * The blueprint whose run last applied a topology to this cluster.
+   * Blueprint ids with a deployment currently recorded against this cluster.
    *
-   * <p>Recorded beside that topology because it is the only durable link between the two: run state
-   * lives in memory, so after a restart a recovered cluster could be re-adopted but not attributed
-   * to anything, and no screen can show a blueprint as running without knowing which cluster is its
-   * own.
+   * <p>Recorded beside the applied topology because it is the only durable link between the two:
+   * run state lives in memory, so after a restart a recovered cluster's live process tree could be
+   * re-adopted but not attributed to anything, and no screen can show a blueprint as running
+   * without knowing which cluster is its own. A cluster's infra, once up, can host any number of
+   * blueprints' own deployments (see {@code RunController}), so this is a set, not a single owner.
    */
-  public Optional<String> owningBlueprint(String id) {
+  public Set<String> deployments(String id) {
     requireValidId(id);
-    Path file = ownerFileFor(id);
+    Path file = deploymentsFileFor(id);
     if (!Files.exists(file)) {
-      return Optional.empty();
+      return Set.of();
     }
     try {
-      String owner = Files.readString(file, StandardCharsets.UTF_8).trim();
-      return owner.isBlank() ? Optional.empty() : Optional.of(owner);
+      return Files.readAllLines(file, StandardCharsets.UTF_8).stream()
+          .map(String::trim)
+          .filter(line -> !line.isBlank())
+          .collect(Collectors.toCollection(LinkedHashSet::new));
     } catch (IOException e) {
-      throw new UncheckedIOException("failed reading owning blueprint for cluster " + id, e);
+      throw new UncheckedIOException("failed reading deployments for cluster " + id, e);
     }
   }
 
-  public void recordOwningBlueprint(String id, String blueprintId) {
+  /** Records that {@code blueprintId} now has a deployment against this cluster. */
+  public void recordDeployment(String id, String blueprintId) {
     requireValidId(id);
-    write(ownerFileFor(id), blueprintId);
+    Set<String> updated = new LinkedHashSet<>(deployments(id));
+    updated.add(blueprintId);
+    write(deploymentsFileFor(id), String.join("\n", updated));
+  }
+
+  /**
+   * Forgets {@code blueprintId}'s own deployment against this cluster -- its run was stopped and
+   * (best-effort) its release undeployed, but the cluster's infra, and any other blueprint's own
+   * deployment on it, may still be up.
+   */
+  public void removeDeployment(String id, String blueprintId) {
+    requireValidId(id);
+    Set<String> updated = new LinkedHashSet<>(deployments(id));
+    if (updated.remove(blueprintId)) {
+      write(deploymentsFileFor(id), String.join("\n", updated));
+    }
   }
 
   private static void write(Path target, String content) {
@@ -244,8 +280,8 @@ public final class ClusterStore {
     return root.resolve(id + TOPOLOGY_SUFFIX);
   }
 
-  private Path ownerFileFor(String id) {
-    return root.resolve(id + OWNER_SUFFIX);
+  private Path deploymentsFileFor(String id) {
+    return root.resolve(id + DEPLOYMENTS_SUFFIX);
   }
 
   /** {@code Path#getFileName()} is only ever null for a root path, never for a directory entry. */

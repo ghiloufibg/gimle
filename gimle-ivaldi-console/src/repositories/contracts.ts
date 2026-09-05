@@ -133,19 +133,32 @@ export interface RunnerClient {
   createRun(request: CreateRunRequest): Promise<RunSnapshot>;
   /**
    * The run the backend holds for {@code blueprintId}, if any -- how a reloaded page finds its way
-   * back. Asked per blueprint rather than globally: the backend tracks a run per cluster, so "the
-   * current run" is only ever the most recently started one, and reading that on a blueprint which
-   * never started it put another cluster's status, endpoints and log on this page.
+   * back. Asked per blueprint rather than globally: a cluster can now host more than one
+   * blueprint's own deployment at once, so "the current run" is only ever the most recently
+   * started one across the whole backend, and reading that on a blueprint which never started it
+   * put another deployment's status, endpoints and log on this page.
    */
   currentRun(blueprintId?: string): Promise<RunSnapshot | null>;
   /**
-   * Every run the backend is tracking right now, one per cluster. What lets a screen showing many
-   * blueprints -- the list, the cluster table -- say which of them own a live cluster, without
-   * opening each one's runner in turn.
+   * Every run the backend is tracking right now. What lets a screen showing many blueprints -- the
+   * list, the cluster table -- say which of them own a live deployment, without opening each one's
+   * runner in turn. More than one entry can now share a {@code clusterId}: a cluster's infra can
+   * host several blueprints' own deployments, each still uniquely identified by its own
+   * {@code blueprintId}.
    */
   listRuns(): Promise<ActiveRun[]>;
-  subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void;
-  stopRun(runId: string): Promise<RunSnapshot>;
+  /**
+   * Follows one run's own progress. Addressed by blueprint, not by cluster: once a cluster can host
+   * more than one deployment, only the blueprint id stays unambiguous for polling this one run's
+   * own status apart from any other deployment sharing its cluster.
+   */
+  subscribe(
+    runId: string,
+    blueprintId: string,
+    onEvent: (event: RunnerEvent) => void,
+  ): () => void;
+  /** Stops one blueprint's own run -- see {@link subscribe} for why blueprint, not cluster. */
+  stopRun(runId: string, blueprintId: string): Promise<RunSnapshot>;
 }
 
 /** One run the backend is tracking, as the cross-blueprint views need it. */

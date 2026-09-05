@@ -30,6 +30,9 @@ interface StartOptions {
 
 interface RunState {
   runId: string | null;
+  /** Which blueprint owns {@code runId} -- what addresses this run unambiguously against the
+   * backend's own per-blueprint endpoints, now that a cluster can host more than one deployment. */
+  blueprintId: string | null;
   status: RunStatus;
   steps: RunStep[];
   endpoints: RunEndpoint[];
@@ -83,9 +86,9 @@ async function resolveCluster(
 
 export const useRunStore = create<RunState>((set, get) => {
   /** Subscribes to a run and keeps the store in step with it. */
-  const listen = (client: RunnerClient, runId: string) => {
+  const listen = (client: RunnerClient, runId: string, blueprintId: string) => {
     unsubscribe?.();
-    unsubscribe = client.subscribe(runId, (event) => {
+    unsubscribe = client.subscribe(runId, blueprintId, (event) => {
       if (event.type === "log") set((state) => ({ log: [...state.log, event.line] }));
       else if (event.type === "snapshot") {
         set(applySnapshot(event.snapshot));
@@ -101,6 +104,7 @@ export const useRunStore = create<RunState>((set, get) => {
 
   return {
     runId: null,
+    blueprintId: null,
     status: "idle",
     steps: [],
     endpoints: [],
@@ -142,9 +146,12 @@ export const useRunStore = create<RunState>((set, get) => {
       if (!snapshot || snapshot.status === "idle") return;
       set({
         ...applySnapshot(snapshot),
+        blueprintId: blueprintId ?? null,
         transport: { mode: client.mode, baseUrl: client.baseUrl },
       });
-      listen(client, snapshot.runId);
+      // Without a blueprint id there is no per-blueprint endpoint to poll (see contracts.ts) -- a
+      // defensive path for a direct, low-level caller only; the runner page always passes one.
+      if (blueprintId) listen(client, snapshot.runId, blueprintId);
     },
 
     start: async (blueprint, options) => {
@@ -195,6 +202,7 @@ export const useRunStore = create<RunState>((set, get) => {
         endpoints: [],
         steps: [],
         request,
+        blueprintId: blueprint.id,
         cluster,
         transport: { mode: client.mode, baseUrl: client.baseUrl },
         status: "validating",
@@ -203,7 +211,7 @@ export const useRunStore = create<RunState>((set, get) => {
       try {
         const snapshot = await client.createRun(request);
         set({ ...applySnapshot(snapshot), busy: false });
-        listen(client, snapshot.runId);
+        listen(client, snapshot.runId, blueprint.id);
       } catch (error) {
         set({
           busy: false,
@@ -214,13 +222,13 @@ export const useRunStore = create<RunState>((set, get) => {
     },
 
     stop: async () => {
-      const { runId, status } = get();
-      if (!runId || status === "idle") return;
+      const { runId, blueprintId, status } = get();
+      if (!runId || !blueprintId || status === "idle") return;
       set({ status: "stopping", busy: true, stopError: null });
       try {
         // Keep the subscription alive: the backend tears down asynchronously and the poll is what
         // carries the run to idle.
-        const snapshot = await runnerClientFor(get().cluster).stopRun(runId);
+        const snapshot = await runnerClientFor(get().cluster).stopRun(runId, blueprintId);
         set({ ...applySnapshot(snapshot), busy: false });
         if (snapshot.status === "idle") {
           unsubscribe?.();

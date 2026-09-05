@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 927,
+  "requirementCount": 932,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16010,6 +16010,85 @@
       "otherTestCoverage": "`useBlueprintsListStore.test.ts` (`useBlueprintsListStore.duplicate` / `useBlueprintsListStore.importBlueprint` describe blocks: a fresh id is minted rather than the source's own, and two successive imports of the same document mint two different ids).",
       "sourceLocations": [
         "`gimle-ivaldi-console/src/stores/useBlueprintsListStore.ts` (`duplicate`, `importBlueprint`)"
+      ]
+    },
+    {
+      "id": "GIMLE-928",
+      "module": "gimle-ivaldi",
+      "feature": "A cluster's infra can host more than one blueprint's own deployment",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController previously modeled a cluster as owned by a single blueprint: runsByCluster tracked one ActiveRun per cluster id, and start() refused (409) any run whose blueprint id differed from the existing non-idle run's own. This conflated two different things -- a cluster's shared infra (machines",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`two_different_blueprints_can_each_run_against_the_same_shared_cluster`, `the_same_blueprint_can_always_rerun_its_own_cluster`, `starting_a_run_records_the_deployment_against_the_cluster`); `IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently`, real HTTP traffic against a real server); `ClusterStoreTest.java` (`deployments_start_empty_and_accumulate_as_blueprints_record_themselves`, `recording_the_same_deployment_twice_does_not_duplicate_it`, `removing_one_deployment_leaves_the_others_recorded`).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`runsByDeployment`, `deploymentKey`, `start`, `adoptRunningCluster`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java` (`deployments`, `recordDeployment`, `removeDeployment`)"
+      ]
+    },
+    {
+      "id": "GIMLE-929",
+      "module": "gimle-ivaldi",
+      "feature": "A topology change is refused while another deployment still shares the cluster",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "Once a cluster's infra could host several deployments (see GIMLE-801), a topology *change* -- as opposed to a cluster's very first boot -- became genuinely dangerous to allow unconditionally: RunController.execute already tears the whole process tree down and rebuilds it whenever a run's rendered to",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`a_topology_change_is_refused_while_another_deployment_still_shares_the_cluster`, `a_topology_change_is_allowed_when_nothing_else_shares_the_cluster` -- both against the extracted static helper directly, matching the existing `networkPolicyBody` testing pattern, since exercising the real reboot path itself needs a live multi-process cluster).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`conflictingRebootMessage`, `otherLiveDeploymentBlueprintIds`, `execute`)"
+      ]
+    },
+    {
+      "id": "GIMLE-930",
+      "module": "gimle-ivaldi",
+      "feature": "Deleting a cluster connection is refused while any of its deployments is still live",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController.requireNoLiveRun (the guard IvaldiServer's DELETE /api/clusters/{id} calls) read a single runsByCluster entry keyed by cluster id, which stopped resolving anything meaningful once runs moved to the per-deployment runsByDeployment map (see GIMLE-801) -- a cluster with two live deploymen",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`requiring_no_live_run_checks_every_deployment_on_the_cluster_not_just_one`); `IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently` -- real HTTP DELETE refused with 409 while either of two deployments remains tracked, and only succeeds once both are stopped).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`requireNoLiveRun`)"
+      ]
+    },
+    {
+      "id": "GIMLE-931",
+      "module": "gimle-ivaldi",
+      "feature": "Stopping a deployment on a shared cluster undeploys only its own release",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "teardown() previously always tore the whole process tree down (MachineLauncher.down against the cluster's applied topology) whenever any run was stopped -- correct for the single-deployment-per-cluster model, but destructive once a cluster could host several (see GIMLE-801): stopping any one of them",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently` -- stopping one of two deployments leaves the other's own status untouched and the cluster connection still refuses deletion until it too is stopped). The undeploy call itself (a real ReleaseReconciler.undeployRelease against a live control plane) is not exercised by this fast unit-level suite -- consistent with this class's own documented boundary (see its class javadoc) that a real boot-and-deploy pipeline needs a genuine multi-process cluster fixture.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`teardown`, `undeployReleaseQuietly`, `ActiveRun.releaseName`)"
+      ]
+    },
+    {
+      "id": "GIMLE-932",
+      "module": "gimle-ivaldi-console",
+      "feature": "The console tracks and stops each deployment on a shared cluster independently",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "HttpRunnerClient.subscribe and .stopRun polled/DELETEd the backend's ambiguous GET/DELETE /api/runs/current -- 'the most recently started run' -- which was already latent-wrong once two different clusters could run concurrently, and became actively wrong once a single cluster could host several blue",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit/integration tests listed under otherTestCoverage.",
+      "otherTestCoverage": "`httpRunner.test.ts` (`HttpRunnerClient.stopRun` describe block: DELETEs `/api/runs/for-blueprint/{id}`, not `/api/runs/current`). `subscribe`'s own URL scoping is not unit-tested here -- it schedules its poll loop via `window.setInterval`, and this module's `vitest.config.ts` deliberately runs in a plain Node environment with no `window` (see that file's own comment), the same reason `currentRun` was the only method of this client under test before this change too.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunnerClient.subscribe`, `.stopRun`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`subscribe`, `stopRun`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts` (`blueprintId`, `listen`, `start`, `attach`, `stop`)",
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (`runsFor`)"
       ]
     }
   ]

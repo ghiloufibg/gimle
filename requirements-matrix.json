@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 927,
+  "requirementCount": 932,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19095,6 +19095,102 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-928",
+      "module": "gimle-ivaldi",
+      "feature": "A cluster's infra can host more than one blueprint's own deployment",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator, I want to deploy a second blueprint onto a cluster another blueprint is already running on, as long as the two agree on the cluster's topology, rather than being refused outright just because the cluster already has a live deployment.",
+      "statusDetail": "RunController previously modeled a cluster as owned by a single blueprint: runsByCluster tracked one ActiveRun per cluster id, and start() refused (409) any run whose blueprint id differed from the existing non-idle run's own. This conflated two different things -- a cluster's shared infra (machines, agents, control plane, store) and the individual bundles deployed onto it -- so a second, unrelated blueprint targeting an already-running cluster was always rejected, even when its own rendered topology matched exactly and a normal deploy-only apply (see the class's own 'Deploy-only vs. reboot' section) would have been perfectly safe. Runs are now tracked per (cluster, blueprint) pair (runsByDeployment, keyed by a new deploymentKey helper), the per-blueprint ownership guard is removed, and ClusterStore gained a deployments(id)/recordDeployment/removeDeployment set (replacing the old single owningBlueprint/recordOwningBlueprint file) so a restart's own re-adoption rebuilds one tracked run per recorded deployment rather than attributing the whole shared cluster to just one of them.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`runsByDeployment`, `deploymentKey`, `start`, `adoptRunningCluster`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java` (`deployments`, `recordDeployment`, `removeDeployment`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest.java` (`two_different_blueprints_can_each_run_against_the_same_shared_cluster`, `the_same_blueprint_can_always_rerun_its_own_cluster`, `starting_a_run_records_the_deployment_against_the_cluster`); `IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently`, real HTTP traffic against a real server); `ClusterStoreTest.java` (`deployments_start_empty_and_accumulate_as_blueprints_record_themselves`, `recording_the_same_deployment_twice_does_not_duplicate_it`, `removing_one_deployment_leaves_the_others_recorded`).",
+      "gherkinSteps": [
+        "Given a cluster already running blueprint A's deployment, When blueprint B deploys the same topology onto that cluster, Then B's own deployment starts and runs independently of A's."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-929",
+      "module": "gimle-ivaldi",
+      "feature": "A topology change is refused while another deployment still shares the cluster",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator, I want a blueprint's own topology change to be refused, not silently applied, when another blueprint's deployment still shares that cluster's infra -- rebooting would tear its process tree down too.",
+      "statusDetail": "Once a cluster's infra could host several deployments (see GIMLE-801), a topology *change* -- as opposed to a cluster's very first boot -- became genuinely dangerous to allow unconditionally: RunController.execute already tears the whole process tree down and rebuilds it whenever a run's rendered topology differs from the one last applied, which would silently take every other blueprint's own deployment on that cluster down with it. A new check, pulled out as the directly-testable static `conflictingRebootMessage(clusterId, otherLiveBlueprintIds)`, refuses (fails the run with a descriptive message) any topology change while `otherLiveDeploymentBlueprintIds` reports another blueprint's run still non-idle against the same cluster; a cluster's first-ever boot (no topology previously applied) is unaffected, since there is nothing yet to protect.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`conflictingRebootMessage`, `otherLiveDeploymentBlueprintIds`, `execute`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest.java` (`a_topology_change_is_refused_while_another_deployment_still_shares_the_cluster`, `a_topology_change_is_allowed_when_nothing_else_shares_the_cluster` -- both against the extracted static helper directly, matching the existing `networkPolicyBody` testing pattern, since exercising the real reboot path itself needs a live multi-process cluster).",
+      "gherkinSteps": [
+        "Given a cluster with two blueprints deployed under the same topology, When one of them submits a run with a different topology, Then the run is refused and neither deployment's process tree is touched."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-930",
+      "module": "gimle-ivaldi",
+      "feature": "Deleting a cluster connection is refused while any of its deployments is still live",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator, I want deleting a cluster connection to be refused while any deployment on it -- not just the first one ever tracked -- is still live, so a second blueprint's own process tree can never be orphaned by a delete that only checked the first.",
+      "statusDetail": "RunController.requireNoLiveRun (the guard IvaldiServer's DELETE /api/clusters/{id} calls) read a single runsByCluster entry keyed by cluster id, which stopped resolving anything meaningful once runs moved to the per-deployment runsByDeployment map (see GIMLE-801) -- a cluster with two live deployments could otherwise have its connection deleted after only one of them settled. The guard now checks every tracked run whose clusterId matches, across every deployment, and names all of their run ids in its refusal message.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`requireNoLiveRun`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest.java` (`requiring_no_live_run_checks_every_deployment_on_the_cluster_not_just_one`); `IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently` -- real HTTP DELETE refused with 409 while either of two deployments remains tracked, and only succeeds once both are stopped).",
+      "gherkinSteps": [
+        "Given a cluster with two deployments, one stopped and one still live, When I delete the cluster connection, Then the delete is refused with 409 naming the still-live deployment."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-931",
+      "module": "gimle-ivaldi",
+      "feature": "Stopping a deployment on a shared cluster undeploys only its own release",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator running several blueprints on one cluster, I want stopping one of them to remove only its own workloads, leaving the shared infra -- and every other blueprint's own deployment -- running.",
+      "statusDetail": "teardown() previously always tore the whole process tree down (MachineLauncher.down against the cluster's applied topology) whenever any run was stopped -- correct for the single-deployment-per-cluster model, but destructive once a cluster could host several (see GIMLE-801): stopping any one of them would have killed the shared infra out from under the others. teardown now checks otherLiveDeploymentBlueprintIds first: while another deployment still shares the cluster, it instead calls the new undeployReleaseQuietly, which reuses gimle-hilmir's own ReleaseReconciler.undeployRelease (the same mechanism `hilmir undeploy` and sync's own orphan pruning already share) to remove just this run's own release, and removes this blueprint from the cluster's recorded deployments -- the full MachineLauncher.down teardown only runs once this is the last live deployment on the cluster. ActiveRun gained a releaseName field, set once a run actually deploys a bundle, for undeployReleaseQuietly to address.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`teardown`, `undeployReleaseQuietly`, `ActiveRun.releaseName`)"
+      ],
+      "testCoverageDetail": "`IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently` -- stopping one of two deployments leaves the other's own status untouched and the cluster connection still refuses deletion until it too is stopped). The undeploy call itself (a real ReleaseReconciler.undeployRelease against a live control plane) is not exercised by this fast unit-level suite -- consistent with this class's own documented boundary (see its class javadoc) that a real boot-and-deploy pipeline needs a genuine multi-process cluster fixture.",
+      "gherkinSteps": [
+        "Given two blueprints deployed on the same cluster, When I stop one of them, Then only its own release is undeployed and the other blueprint's deployment keeps running."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial",
+      "gapNote": "The actual release-undeploy call (ReleaseReconciler.undeployRelease against a live control plane) is verified only by code reading and by the fact that stopping a non-last deployment leaves the cluster's shared infra running in IvaldiServerTest; no smoke/holmgang-level test yet exercises undeploying one of several real, live releases end to end."
+    },
+    {
+      "id": "GIMLE-932",
+      "module": "gimle-ivaldi-console",
+      "feature": "The console tracks and stops each deployment on a shared cluster independently",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator using the Ivaldi console, I want the Runner page and the Clusters screen to follow and stop my own blueprint's deployment specifically, not whichever deployment across the whole backend happens to be the most recently started -- and to see every deployment a shared cluster is running, not just one.",
+      "statusDetail": "HttpRunnerClient.subscribe and .stopRun polled/DELETEd the backend's ambiguous GET/DELETE /api/runs/current -- 'the most recently started run' -- which was already latent-wrong once two different clusters could run concurrently, and became actively wrong once a single cluster could host several blueprints' own deployments (see GIMLE-801): a runner page's poll could pick up a different blueprint's status, endpoints and log entirely, and its Stop button could tear down the wrong deployment. Both now address the backend's existing per-blueprint GET /api/runs/for-blueprint/{id} (subscribe) and a new DELETE on the same route (stopRun), threaded through useRunStore via a new blueprintId field set alongside runId on both start and attach. The Clusters screen's per-cluster run lookup changed from a single Array.find to Array.filter, rendering one status badge per deployment instead of only the first match.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunnerClient.subscribe`, `.stopRun`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`subscribe`, `stopRun`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts` (`blueprintId`, `listen`, `start`, `attach`, `stop`)",
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (`runsFor`)"
+      ],
+      "testCoverageDetail": "`httpRunner.test.ts` (`HttpRunnerClient.stopRun` describe block: DELETEs `/api/runs/for-blueprint/{id}`, not `/api/runs/current`). `subscribe`'s own URL scoping is not unit-tested here -- it schedules its poll loop via `window.setInterval`, and this module's `vitest.config.ts` deliberately runs in a plain Node environment with no `window` (see that file's own comment), the same reason `currentRun` was the only method of this client under test before this change too.",
+      "gherkinSteps": [
+        "Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial",
+      "gapNote": "subscribe's own per-blueprint URL scoping is exercised only by code reading and by stopRun's equivalent, already-tested scoping -- vitest.config.ts's plain-Node environment (no window) means a direct test of subscribe's window.setInterval-driven poll loop is not possible in this suite."
     }
   ]
 }

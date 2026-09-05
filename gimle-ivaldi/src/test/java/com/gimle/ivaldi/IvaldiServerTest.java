@@ -243,6 +243,67 @@ class IvaldiServerTest {
     throw new IllegalStateException("run against " + clusterId + " never left idle");
   }
 
+  /** Waits for a run to reach a settled terminal status, not merely off idle mid-transition. */
+  private void awaitSettledForBlueprint(String blueprintId) throws InterruptedException {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      String status = String.valueOf(runs.blueprintSnapshotJson(blueprintId).get("status"));
+      if (status.equals("failed") || status.equals("running") || status.equals("idle")) {
+        return;
+      }
+      Thread.sleep(25);
+    }
+    throw new IllegalStateException("run for " + blueprintId + " never settled");
+  }
+
+  private void awaitIdleForBlueprint(String blueprintId) throws InterruptedException {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      if ("idle".equals(runs.blueprintSnapshotJson(blueprintId).get("status"))) {
+        return;
+      }
+      Thread.sleep(25);
+    }
+    throw new IllegalStateException("run for " + blueprintId + " never settled to idle");
+  }
+
+  /**
+   * A cluster's infra is not owned by any one blueprint: once two deployments share it, deleting
+   * the cluster connection is refused until both are stopped, and each can be read and stopped
+   * individually by its own blueprint id without disturbing the other.
+   */
+  @Test
+  @Timeout(10)
+  void a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently() throws Exception {
+    HttpResponse<String> created =
+        post(
+            "/api/clusters", "{\"name\":\"shared\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+    List<RenderedFile> filesWithNoBundle = List.of(new RenderedFile("topology.yaml", "name: t"));
+
+    runs.start(id, Optional.of("bp-one"), filesWithNoBundle, Map.of());
+    awaitSettledForBlueprint("bp-one");
+    runs.start(id, Optional.of("bp-two"), filesWithNoBundle, Map.of());
+    awaitSettledForBlueprint("bp-two");
+
+    // Deleting the cluster is refused while either deployment is still tracked.
+    assertEquals(409, delete("/api/clusters/" + id).statusCode());
+
+    // Each deployment is readable by its own blueprint id alone.
+    HttpResponse<String> bpOne = get("/api/runs/for-blueprint/bp-one");
+    assertEquals(200, bpOne.statusCode());
+    assertEquals("failed", Json.asObject(Json.parse(bpOne.body())).get("status"));
+
+    // Stopping bp-one leaves bp-two untouched, and the cluster still refuses deletion.
+    assertEquals(200, delete("/api/runs/for-blueprint/bp-one").statusCode());
+    awaitIdleForBlueprint("bp-one");
+    assertEquals("failed", runs.blueprintSnapshotJson("bp-two").get("status"));
+    assertEquals(409, delete("/api/clusters/" + id).statusCode());
+
+    // Once the last deployment is stopped too, the cluster connection can finally be deleted.
+    assertEquals(200, delete("/api/runs/for-blueprint/bp-two").statusCode());
+    awaitIdleForBlueprint("bp-two");
+    assertEquals(200, delete("/api/clusters/" + id).statusCode());
+  }
+
   @Test
   @Timeout(10)
   void cluster_topology_is_null_until_a_run_records_one() throws Exception {

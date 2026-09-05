@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 926
+- **Total requirements**: 931
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 796
+- **Not covered by automated test**: 801
 - **Release-readiness (automated coverage)**: 14.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -43,8 +43,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 9 | 0 | 9 | 0.0% |
-| gimle-ivaldi-console | 8 | 0 | 8 | 0.0% |
+| gimle-ivaldi | 13 | 0 | 13 | 0.0% |
+| gimle-ivaldi-console | 9 | 0 | 9 | 0.0% |
 
 ## Checklist
 
@@ -2577,6 +2577,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-920 | A different blueprint cannot silently claim a cluster another blueprint still owns | Given a cluster with a settled run owned by blueprint A, When blueprint B starts a run against the same cluster, Then the start is refused and blueprint A's own run tracking is unchanged. Given a cluster with a settled run owned by blueprint A, When blueprint A starts a run against the same cluster again, Then it proceeds as an ordinary redeploy. | No |
 | [ ] | GIMLE-921 | Creating a blueprint at an id already taken is refused, not silently re-minted | Given a blueprint already saved at id X, When I POST a create request whose body also names id X, Then the request is refused with 409 and the original document is unchanged. | No |
 | [ ] | GIMLE-922 | A redeploy onto an already-running cluster still reports its live processes | Given a cluster already running an unchanged topology, When I redeploy the same blueprint, Then the run's processes list still names every live process. | No |
+| [ ] | GIMLE-928 | A cluster's infra can host more than one blueprint's own deployment | Given a cluster already running blueprint A's deployment, When blueprint B deploys the same topology onto that cluster, Then B's own deployment starts and runs independently of A's. | No |
+| [ ] | GIMLE-929 | A topology change is refused while another deployment still shares the cluster | Given a cluster with two blueprints deployed under the same topology, When one of them submits a run with a different topology, Then the run is refused and neither deployment's process tree is touched. | No |
+| [ ] | GIMLE-930 | Deleting a cluster connection is refused while any of its deployments is still live | Given a cluster with two deployments, one stopped and one still live, When I delete the cluster connection, Then the delete is refused with 409 naming the still-live deployment. | No |
+| [ ] | GIMLE-931 | Stopping a deployment on a shared cluster undeploys only its own release | Given two blueprints deployed on the same cluster, When I stop one of them, Then only its own release is undeployed and the other blueprint's deployment keeps running. | No |
 
 ### gimle-ivaldi-console
 
@@ -2592,3 +2596,4 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-925 | Deleting a node with connected edges undoes as one step, not two | Given a node with two edges attached, When I delete it, Then the node and both edges disappear together, and a single Ctrl+Z restores all three. | No |
 | [ ] | GIMLE-926 | Dragging a node checkpoints one undo step regardless of intermediate positions | Given a node dragged through several intermediate positions to a final one, When the drag ends, Then exactly one history entry is pushed, and undoing it restores the node's original position. Given a node clicked but never moved, When the click ends, Then no history entry is pushed. | No |
 | [ ] | GIMLE-927 | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own. Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id. | No |
+| [ ] | GIMLE-932 | The console tracks and stops each deployment on a shared cluster independently | Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one. | No |

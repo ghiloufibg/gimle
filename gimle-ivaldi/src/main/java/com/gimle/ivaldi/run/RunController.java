@@ -16,6 +16,7 @@ import com.gimle.hilmir.release.KeyRef;
 import com.gimle.hilmir.release.ReleaseLedger;
 import com.gimle.hilmir.release.ReleaseMeta;
 import com.gimle.hilmir.release.ReleaseReconciler;
+import com.gimle.hilmir.release.ReleaseRevision;
 import com.gimle.hilmir.release.RenderedBundle;
 import com.gimle.hilmir.release.RenderedSecretEntry;
 import com.gimle.hilmir.release.ResourceRef;
@@ -42,6 +43,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -62,8 +64,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * platform process tree, {@link BundleRenderer}/{@link ReleaseReconciler} for the application
  * deploy, {@link ControlPlaneApi#putFile} for jar-sourced artifact pushes, {@link
  * ControlPlaneApi#putJson}/{@link ControlPlaneApi#postJson} for the resources that aren't Bundle
- * workloads (see {@link #standaloneManifests}). One run at a time: a second {@link #start} while
- * one is {@linkplain RunStatus#isInFlight() in flight} is refused.
+ * workloads (see {@link #standaloneManifests}). One run at a time per deployment: a second {@link
+ * #start} for the same (cluster, blueprint) pair while one is {@linkplain RunStatus#isInFlight() in
+ * flight} is refused -- see "One cluster, many deployments" below for what a cluster itself may
+ * hold at once.
  *
  * <h2>Deploy-only vs. reboot</h2>
  *
@@ -74,6 +78,18 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * already-running processes; different (or nothing recorded yet) means a real reboot -- tearing the
  * previous process tree down first when one was recorded, then booting the new one -- before the
  * bundle is applied to the fresh cluster.
+ *
+ * <h2>One cluster, many deployments</h2>
+ *
+ * <p>A cluster's infra is not owned by any one blueprint. Once its topology is up, any number of
+ * blueprints may each deploy their own bundle onto it -- each tracked as its own run, keyed by
+ * (cluster, blueprint) rather than by cluster alone -- as long as every one of them renders the
+ * exact same topology (the deploy-only path above): a topology *change* would tear the shared
+ * process tree down and rebuild it, taking every other deployment on it down too, so that is
+ * refused outright while any other deployment on the cluster is still live (see {@link
+ * #conflictingRebootMessage}). Stopping one deployment on a shared cluster only undeploys its own
+ * release; the infra itself is torn down only when the deployment being stopped is the last live
+ * one on that cluster (see {@link #teardown}).
  *
  * <h2>Known limits</h2>
  *
@@ -110,15 +126,18 @@ public final class RunController {
   private final Path workspaceRoot;
 
   /**
-   * Every run this process is holding, keyed by the cluster it targets.
+   * Every run this process is holding, keyed by the (cluster, blueprint) pair it targets -- see
+   * {@link #deploymentKey}.
    *
-   * <p>Keyed by cluster rather than held in a single field because a cluster is what a run can
-   * collide with: two runs against one cluster fight over the same process tree and the same
-   * release, while runs against different clusters are independent and must both be reachable. A
-   * single field meant starting either kind abandoned the first with no way to stop it, and left
-   * every blueprint's Runner rendering whichever run happened to be current.
+   * <p>Keyed by deployment rather than by cluster alone because a cluster's infra can host more
+   * than one blueprint's own deployment at once (see the class javadoc's "One cluster, many
+   * deployments" section): two deployments against the same cluster still fight over the same
+   * process tree if their topologies ever disagree, but otherwise run independently, each with its
+   * own status, log and stop. A run addressed with no blueprint id (a direct, low-level API call
+   * rather than the console's own) falls back to a single anonymous slot per cluster, exactly the
+   * one run a cluster could ever hold before deployments existed.
    */
-  private final Map<String, ActiveRun> runsByCluster = new ConcurrentHashMap<>();
+  private final Map<String, ActiveRun> runsByDeployment = new ConcurrentHashMap<>();
 
   public RunController(ClusterStore clusters, Path dataRoot) {
     this.clusters = clusters;
@@ -135,10 +154,13 @@ public final class RunController {
    * Re-adopts a cluster this Ivaldi launched before it was itself restarted. The run state lives in
    * memory, so without this a restart left a live process tree that nothing could see or stop: the
    * API reported idle and refused the teardown while four JVMs held their ports. Everything needed
-   * is already on disk -- which topology was last applied to each cluster, and the process ledger
-   * that topology's own data root holds -- so the tree is picked back up rather than abandoned.
-   * Best-effort by construction: an unreadable topology or a ledger whose processes are all gone
-   * simply means there is nothing to adopt.
+   * is already on disk -- which topology was last applied to each cluster, which blueprints had a
+   * deployment recorded against it, and the process ledger that topology's own data root holds --
+   * so the tree is picked back up rather than abandoned. One {@link ActiveRun} is rebuilt per
+   * recorded blueprint (or a single anonymous one, for a cluster whose only deployment never named
+   * a blueprint), all sharing the same recovered process list, so each blueprint's own Runner page
+   * still finds its own run by id after the restart. Best-effort by construction: an unreadable
+   * topology or a ledger whose processes are all gone simply means there is nothing to adopt.
    */
   private void adoptRunningCluster() {
     for (Map<String, Object> cluster : clusters.list()) {
@@ -150,10 +172,10 @@ public final class RunController {
       if (applied.isEmpty()) {
         continue;
       }
-      // Recorded beside the applied topology when the run started, so the recovered cluster is
-      // still attributable to the blueprint that built it -- adopting it with no blueprint left it
-      // running and belonging to nothing, which no screen can then show.
-      Optional<String> owner = clusters.owningBlueprint(clusterId);
+      // Recorded beside the applied topology when each run started, so the recovered cluster's
+      // deployments are still attributable to the blueprints that built them -- adopting it with
+      // none left it running and belonging to nothing, which no screen could then show.
+      Set<String> deploymentBlueprintIds = clusters.deployments(clusterId);
       try {
         Topology topology =
             TopologyParser.parse(
@@ -168,20 +190,38 @@ public final class RunController {
           clusters.clearAppliedTopology(clusterId);
           continue;
         }
-        ActiveRun adopted = new ActiveRun(mintRunId(), clusterId, owner);
-        adopted.status = RunStatus.RUNNING;
-        adopted.processes = processInfos(alive, topology);
-        adopted.log.append(
-            "adopted "
-                + alive.size()
-                + " process(es) still running for cluster "
-                + clusterId
-                + " from a previous Ivaldi process");
-        runsByCluster.put(clusterId, adopted);
+        List<RunSnapshot.ProcessInfo> processInfos = processInfos(alive, topology);
+        List<Optional<String>> deploymentOwners =
+            deploymentBlueprintIds.isEmpty()
+                ? List.of(Optional.empty())
+                : deploymentBlueprintIds.stream().map(Optional::of).toList();
+        for (Optional<String> owner : deploymentOwners) {
+          ActiveRun adopted = new ActiveRun(mintRunId(), clusterId, owner);
+          adopted.status = RunStatus.RUNNING;
+          adopted.processes = processInfos;
+          adopted.log.append(
+              "adopted "
+                  + alive.size()
+                  + " process(es) still running for cluster "
+                  + clusterId
+                  + owner.map(o -> " (deployment " + o + ")").orElse("")
+                  + " from a previous Ivaldi process");
+          runsByDeployment.put(deploymentKey(clusterId, owner), adopted);
+        }
       } catch (RuntimeException e) {
         log.warn("could not adopt a running cluster for {}: {}", clusterId, e.getMessage());
       }
     }
+  }
+
+  /**
+   * The key a run against {@code clusterId} for {@code blueprintId} is tracked under -- see {@link
+   * #runsByDeployment}. A blueprint id is what disambiguates two deployments sharing one cluster's
+   * infra; a request naming none falls back to a single per-cluster slot, matching the one run a
+   * cluster could ever hold before deployments existed.
+   */
+  private static String deploymentKey(String clusterId, Optional<String> blueprintId) {
+    return clusterId + "::" + blueprintId.orElse("");
   }
 
   /** Thrown for a 409: a run is already in flight. */
@@ -199,13 +239,9 @@ public final class RunController {
   }
 
   /**
-   * Thrown for a 409: this cluster still has a run this process is tracking, live or failed-but-
-   * not-torn-down. Two callers throw it for two different reasons -- deleting the cluster
-   * connection out from under a run used to succeed silently, leaving the real process tree running
-   * with no cluster record and no run pointing at it; and starting a different blueprint against a
-   * cluster another blueprint still owns used to silently steal it, leaving the original
-   * blueprint's own tracking reading idle while its processes kept running -- so the message is
-   * built by each call site rather than hardcoded here.
+   * Thrown for a 409: deleting a cluster connection out from under a still-tracked deployment (live
+   * or failed-but-not-torn-down) used to succeed silently, leaving the real process tree running
+   * with no cluster record and no run pointing at it any more.
    */
   public static final class ClusterInUseException extends RuntimeException {
     public ClusterInUseException(String message) {
@@ -214,20 +250,28 @@ public final class RunController {
   }
 
   /**
-   * Refuses to proceed while {@code clusterId} still has a non-idle run -- see {@link
+   * Refuses to proceed while {@code clusterId} still has any non-idle deployment -- see {@link
    * ClusterInUseException}. {@code idle} is the only status safe to build over: every other status
    * either has a live process tree or (for a run this controller itself failed mid-transition) may
-   * still have one, and this process is the only thing that remembers where.
+   * still have one, and this process is the only thing that remembers where. Checked across every
+   * deployment on the cluster, not just one: a cluster shared by several blueprints must not be
+   * deleted while any of them is still live.
    */
   public synchronized void requireNoLiveRun(String clusterId) {
-    ActiveRun run = runsByCluster.get(clusterId);
-    if (run != null && run.status != RunStatus.IDLE) {
+    List<String> live =
+        runsByDeployment.values().stream()
+            .filter(run -> run.clusterId.equals(clusterId) && run.status != RunStatus.IDLE)
+            .map(run -> run.id)
+            .toList();
+    if (!live.isEmpty()) {
       throw new ClusterInUseException(
           "cluster "
               + clusterId
-              + " has a run this process is tracking ("
-              + run.id
-              + ") -- stop it before deleting the cluster");
+              + " has "
+              + live.size()
+              + " run(s) this process is tracking ("
+              + String.join(", ", live)
+              + ") -- stop them before deleting the cluster");
     }
   }
 
@@ -239,61 +283,60 @@ public final class RunController {
       Optional<String> blueprintId,
       List<RenderedFile> files,
       Map<String, String> values) {
-    ActiveRun existing = runsByCluster.get(clusterId);
-    // Scoped to the cluster: a run elsewhere is none of this one's business.
+    String key = deploymentKey(clusterId, blueprintId);
+    ActiveRun existing = runsByDeployment.get(key);
+    // Scoped to this exact deployment: a run elsewhere -- another blueprint's own deployment on
+    // the same cluster included -- is none of this one's business. Two different blueprints
+    // targeting the same cluster no longer collide here at all: each gets its own key, so a
+    // second blueprint deploying onto a cluster the first still owns a live deployment on simply
+    // starts its own, independently-tracked run (see the class javadoc's "One cluster, many
+    // deployments" section) rather than being refused or silently taking over anything. What
+    // still can collide is a *topology change* against a cluster another deployment shares --
+    // refused later, once the rendered topology is known (see #conflictingRebootMessage).
     if (existing != null && existing.status.isInFlight()) {
       throw new RunInProgressException(existing.id);
-    }
-    // A stable RUNNING (or FAILED-but-not-torn-down) run is not "in flight" by the check above,
-    // so a second blueprint targeting the same already-owned cluster used to sail straight through
-    // it and silently take over: runsByCluster.put below would replace the original blueprint's
-    // own ActiveRun, and recordOwningBlueprint would overwrite the .owner file, leaving the
-    // original blueprint reading idle while its own processes kept running, orphaned and
-    // unreachable from its own Runner page. The same blueprint re-running its own cluster (a
-    // normal redeploy) is unaffected: blueprintId then equals the existing run's own.
-    if (existing != null
-        && existing.status != RunStatus.IDLE
-        && existing.blueprintId.isPresent()
-        && !existing.blueprintId.equals(blueprintId)) {
-      throw new ClusterInUseException(
-          "cluster "
-              + clusterId
-              + " already has a run ("
-              + existing.id
-              + ") owned by blueprint "
-              + existing.blueprintId.get()
-              + " -- stop it before running a different blueprint against this cluster");
     }
     if (clusters.get(clusterId).isEmpty()) {
       throw new NotFoundException("no such cluster: " + clusterId);
     }
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
-    runsByCluster.put(clusterId, run);
-    blueprintId.ifPresent(id -> clusters.recordOwningBlueprint(clusterId, id));
+    runsByDeployment.put(key, run);
+    blueprintId.ifPresent(id -> clusters.recordDeployment(clusterId, id));
     run.worker = Thread.ofVirtual().start(() -> execute(run, files, values));
     return snapshotOf(run).toJsonMap();
   }
 
   /** Every run this process holds, newest first -- what the blueprint list and Clusters read. */
   public List<Map<String, Object>> allSnapshotsJson() {
-    return runsByCluster.values().stream()
+    return runsByDeployment.values().stream()
         .sorted(Comparator.comparing((ActiveRun r) -> r.startedAt).reversed())
         .map(run -> snapshotOf(run).toJsonMap())
         .toList();
   }
 
-  /** The run against {@code clusterId}, or an idle snapshot when this process holds none. */
+  /**
+   * The most recently started deployment against {@code clusterId}, or an idle snapshot when this
+   * process holds none. Ambiguous once a cluster hosts more than one deployment -- kept for direct,
+   * low-level callers that address a cluster with no blueprint of their own; every other caller
+   * should ask by blueprint instead (see {@link #blueprintSnapshotJson}), which stays unambiguous
+   * no matter how many deployments share the cluster.
+   */
   public Map<String, Object> clusterSnapshotJson(String clusterId) {
-    ActiveRun run = runsByCluster.get(clusterId);
-    return (run == null ? RunSnapshot.idle() : snapshotOf(run)).toJsonMap();
+    return runsByDeployment.values().stream()
+        .filter(run -> run.clusterId.equals(clusterId))
+        .max(Comparator.comparing(run -> run.startedAt))
+        .map(run -> snapshotOf(run).toJsonMap())
+        .orElseGet(() -> RunSnapshot.idle().toJsonMap());
   }
 
   /**
    * The run a given blueprint owns, or an idle snapshot. What a Runner screen asks for, so that a
-   * page never renders a run belonging to another blueprint.
+   * page never renders a run belonging to another blueprint -- and, unlike {@link
+   * #clusterSnapshotJson}, stays unambiguous no matter how many other blueprints share the same
+   * cluster.
    */
   public Map<String, Object> blueprintSnapshotJson(String blueprintId) {
-    return runsByCluster.values().stream()
+    return runsByDeployment.values().stream()
         .filter(run -> run.blueprintId.map(blueprintId::equals).orElse(false))
         .max(Comparator.comparing(run -> run.startedAt))
         .map(run -> snapshotOf(run).toJsonMap())
@@ -302,11 +345,12 @@ public final class RunController {
 
   /**
    * The most recently started run, kept for the single-run clients that predate the registry.
-   * Ambiguous by construction once more than one cluster is running, which is why every screen
-   * should ask by blueprint or by cluster instead.
+   * Ambiguous by construction once more than one deployment is running -- whether on different
+   * clusters or sharing one -- which is why every screen should ask by blueprint or by cluster
+   * instead.
    */
   public Map<String, Object> currentSnapshotJson() {
-    return runsByCluster.values().stream()
+    return runsByDeployment.values().stream()
         .max(Comparator.comparing(run -> run.startedAt))
         .map(run -> snapshotOf(run).toJsonMap())
         .orElseGet(() -> RunSnapshot.idle().toJsonMap());
@@ -323,7 +367,7 @@ public final class RunController {
   }
 
   private Optional<ActiveRun> byId(String runId) {
-    return runsByCluster.values().stream().filter(run -> run.id.equals(runId)).findFirst();
+    return runsByDeployment.values().stream().filter(run -> run.id.equals(runId)).findFirst();
   }
 
   /**
@@ -335,20 +379,48 @@ public final class RunController {
    */
   public synchronized Map<String, Object> stop() {
     ActiveRun latest =
-        runsByCluster.values().stream()
+        runsByDeployment.values().stream()
             .filter(run -> run.status != RunStatus.IDLE)
             .max(Comparator.comparing(run -> run.startedAt))
             .orElseThrow(() -> new NotFoundException("no run to stop"));
     return stopRun(latest);
   }
 
-  /** Stops the run against one cluster, which is how a Runner screen addresses its own. */
+  /**
+   * Stops the run belonging to one blueprint, wherever it is running -- the address a Runner screen
+   * already has, and the only one that stays unambiguous once a cluster can host more than one
+   * deployment.
+   */
+  public synchronized Map<String, Object> stopBlueprint(String blueprintId) {
+    ActiveRun run =
+        runsByDeployment.values().stream()
+            .filter(r -> r.blueprintId.map(blueprintId::equals).orElse(false))
+            .filter(r -> r.status != RunStatus.IDLE)
+            .findFirst()
+            .orElseThrow(
+                () -> new NotFoundException("no run to stop for blueprint: " + blueprintId));
+    return stopRun(run);
+  }
+
+  /**
+   * Stops every deployment this process is tracking against one cluster -- a bulk teardown for a
+   * direct, low-level caller addressing a cluster with no blueprint of their own, since once a
+   * cluster can host several deployments "the run for this cluster" is no longer a single thing to
+   * address by id alone the way {@link #stopBlueprint} still can.
+   */
   public synchronized Map<String, Object> stopCluster(String clusterId) {
-    ActiveRun run = runsByCluster.get(clusterId);
-    if (run == null || run.status == RunStatus.IDLE) {
+    List<ActiveRun> live =
+        runsByDeployment.values().stream()
+            .filter(run -> run.clusterId.equals(clusterId) && run.status != RunStatus.IDLE)
+            .toList();
+    if (live.isEmpty()) {
       throw new NotFoundException("no run to stop for cluster: " + clusterId);
     }
-    return stopRun(run);
+    Map<String, Object> last = null;
+    for (ActiveRun run : live) {
+      last = stopRun(run);
+    }
+    return last;
   }
 
   /**
@@ -358,7 +430,7 @@ public final class RunController {
    * stop it.
    */
   public void stopAll() {
-    for (ActiveRun run : List.copyOf(runsByCluster.values())) {
+    for (ActiveRun run : List.copyOf(runsByDeployment.values())) {
       if (run.status == RunStatus.IDLE) {
         continue;
       }
@@ -437,6 +509,18 @@ public final class RunController {
               || !normalizeTopology(appliedTopology.get())
                   .equals(normalizeTopology(topologyFile.content()));
 
+      // A topology *change* -- as opposed to this cluster's very first boot -- tears the whole
+      // process tree down and rebuilds it, taking every other blueprint's own deployment on it
+      // down too. Refused outright rather than silently done: see the class javadoc's "One
+      // cluster, many deployments" section.
+      if (reboot && appliedTopology.isPresent()) {
+        Optional<String> conflict =
+            conflictingRebootMessage(run.clusterId, otherLiveDeploymentBlueprintIds(run));
+        if (conflict.isPresent()) {
+          throw new RunFailedException(conflict.get());
+        }
+      }
+
       requireNotCancelled(run);
       run.status = RunStatus.BOOTING;
       if (reboot) {
@@ -482,6 +566,12 @@ public final class RunController {
         run.rebooted = true;
         run.log.append("booted " + records.size() + " process(es) on machine " + machine);
         clusters.recordAppliedTopology(run.clusterId, topologyFile.content());
+        // clearAppliedTopology above (when this reboot replaced a previous one) wiped the whole
+        // deployments set along with it -- correctly, since the reboot just took every previous
+        // deployment's own infra down -- but that included this run's own membership, recorded
+        // back in #start before the reboot decision was even made. Restored here so this run
+        // still shows up as a deployment on the cluster it just (re)booted.
+        run.blueprintId.ifPresent(id -> clusters.recordDeployment(run.clusterId, id));
       } else {
         run.log.append("topology unchanged -- deploying onto the running cluster without a reboot");
         // Reported the same way a fresh boot's processes are: this branch changes nothing about
@@ -527,6 +617,10 @@ public final class RunController {
           ValueOverrides.merge(bundle.values(), Optional.empty(), setFlags);
       RenderedBundle declared = BundleRenderer.render(bundle, merged, workspace);
       RenderedBundle rendered = dropUnsuppliedSecrets(declared, run);
+      // Recorded so a later stop of this exact run -- while another deployment still shares the
+      // cluster's infra -- knows which release to undeploy rather than tearing the whole cluster
+      // down (see #teardown).
+      run.releaseName = Optional.of(rendered.name());
 
       Optional<ReleaseMeta> meta = ReleaseLedger.readMeta(api, rendered.name());
       int revision;
@@ -615,15 +709,64 @@ public final class RunController {
     }
   }
 
+  /**
+   * Every other blueprint this process is still tracking a non-idle run for, against the same
+   * cluster as {@code run} -- what a topology change must never silently tear down from under, and
+   * what a stop must check before deciding whether it is safe to tear the shared infra down too.
+   */
+  private Set<String> otherLiveDeploymentBlueprintIds(ActiveRun run) {
+    return runsByDeployment.values().stream()
+        .filter(other -> other != run)
+        .filter(other -> other.clusterId.equals(run.clusterId))
+        .filter(other -> other.status != RunStatus.IDLE)
+        .map(other -> other.blueprintId.orElse("(unnamed run)"))
+        .collect(Collectors.toCollection(LinkedHashSet::new));
+  }
+
+  /**
+   * The refusal message for a topology change against a cluster {@code otherLiveBlueprintIds} still
+   * share, or empty when the change is safe -- pulled out of {@link #execute} so this exact refusal
+   * is directly testable without a live pipeline. A cluster can host many deployments once their
+   * topologies agree (see the class javadoc's "Deploy-only vs. reboot" section), but a topology
+   * *change* means tearing the whole process tree down and rebuilding it, which would take every
+   * other deployment's own infra down with it too.
+   */
+  static Optional<String> conflictingRebootMessage(
+      String clusterId, Set<String> otherLiveBlueprintIds) {
+    if (otherLiveBlueprintIds.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        "cluster "
+            + clusterId
+            + " is shared with other running deployment(s) ("
+            + String.join(", ", otherLiveBlueprintIds)
+            + ") whose infra this topology change would tear down -- stop them first, or make"
+            + " this blueprint's topology match the cluster's current one to deploy onto it"
+            + " without rebooting");
+  }
+
+  /**
+   * Stops one run. The cluster's own process tree is only actually torn down when this is the last
+   * live deployment on it -- while another blueprint's own deployment still shares the infra, this
+   * only undeploys this run's own release (see {@link #undeployReleaseQuietly}), leaving the shared
+   * process tree, and every other deployment on it, running.
+   */
   private void teardown(ActiveRun run) {
     try {
-      Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
-      if (appliedTopology.isEmpty()) {
-        run.log.append("nothing recorded as applied to this cluster -- nothing to stop");
+      if (!otherLiveDeploymentBlueprintIds(run).isEmpty()) {
+        undeployReleaseQuietly(run);
+        run.blueprintId.ifPresent(id -> clusters.removeDeployment(run.clusterId, id));
+        run.log.append("release undeployed -- cluster stays up for other deployments");
       } else {
-        downQuietly(run, appliedTopology.get());
-        clusters.clearAppliedTopology(run.clusterId);
-        run.log.append("cluster stopped");
+        Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
+        if (appliedTopology.isEmpty()) {
+          run.log.append("nothing recorded as applied to this cluster -- nothing to stop");
+        } else {
+          downQuietly(run, appliedTopology.get());
+          clusters.clearAppliedTopology(run.clusterId);
+          run.log.append("cluster stopped");
+        }
       }
       run.status = RunStatus.IDLE;
       run.processes = List.of();
@@ -632,6 +775,59 @@ public final class RunController {
       fail(run, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
     } finally {
       run.updatedAt = Instant.now();
+    }
+  }
+
+  /**
+   * Best-effort undeploy of this run's own release, leaving the cluster's shared infra untouched --
+   * what {@link #teardown} falls back to instead of a full {@code MachineLauncher.down} while
+   * another blueprint's own deployment still shares the cluster. A run adopted after a restart (see
+   * {@link #adoptRunningCluster}) never learned its own release name, so it has nothing to undeploy
+   * here beyond forgetting its own membership -- a documented, small gap rather than a crash.
+   */
+  private void undeployReleaseQuietly(ActiveRun run) {
+    if (run.releaseName.isEmpty()) {
+      run.log.append("no release recorded for this run -- nothing to undeploy");
+      return;
+    }
+    String releaseName = run.releaseName.get();
+    try {
+      Map<String, Object> cluster =
+          Json.asObject(Json.parse(clusters.get(run.clusterId).orElseThrow()));
+      String serverAddress = serverAddressOf(cluster, run.clusterId);
+      Optional<SSLContext> identity = Optional.empty();
+      Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
+      if (appliedTopology.isPresent()) {
+        Topology topology =
+            TopologyParser.parse(
+                new ByteArrayInputStream(appliedTopology.get().getBytes(StandardCharsets.UTF_8)));
+        identity = clientIdentityFor(topology, cluster, run);
+      }
+      ControlPlaneApi api = new ControlPlaneApi(serverAddress, identity);
+      Optional<ReleaseMeta> meta = ReleaseLedger.readMeta(api, releaseName);
+      if (meta.isEmpty()) {
+        run.log.append("release " + releaseName + " already gone -- nothing to undeploy");
+        return;
+      }
+      Optional<ReleaseRevision> current =
+          ReleaseLedger.readRevision(api, releaseName, meta.get().currentRevision());
+      if (current.isEmpty()) {
+        run.log.append(
+            "release "
+                + releaseName
+                + " has no revision "
+                + meta.get().currentRevision()
+                + " recorded -- nothing to undeploy");
+        return;
+      }
+      ReleaseReconciler.undeployRelease(api, releaseName, meta.get(), current.get(), false);
+      run.log.append("undeployed release " + releaseName);
+    } catch (RuntimeException e) {
+      // Best-effort, the same posture downQuietly already takes for a full infra teardown: a
+      // release that is already gone, or a control plane that has stopped answering, must not
+      // block this run from settling to idle.
+      run.log.append(
+          "undeploying release " + releaseName + " failed, continuing anyway: " + e.getMessage());
     }
   }
 
@@ -1210,6 +1406,9 @@ public final class RunController {
     volatile List<RunSnapshot.ProcessInfo> processes = List.of();
     volatile Instant processesCheckedAt;
     volatile Optional<Integer> revision = Optional.empty();
+    // Set once this run actually deploys a bundle -- see #undeployReleaseQuietly, which is the
+    // only reader.
+    volatile Optional<String> releaseName = Optional.empty();
     volatile Optional<String> error = Optional.empty();
     volatile Instant updatedAt = Instant.now();
     volatile boolean cancelRequested;

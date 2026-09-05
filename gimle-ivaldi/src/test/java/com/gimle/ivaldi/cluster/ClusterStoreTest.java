@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -150,5 +151,75 @@ class ClusterStoreTest {
     store.delete(id);
 
     assertEquals(Optional.empty(), store.appliedTopology(id));
+  }
+
+  @Test
+  void deployments_start_empty_and_accumulate_as_blueprints_record_themselves() {
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    String id = String.valueOf(created.get("id"));
+
+    assertEquals(Set.of(), store.deployments(id));
+
+    store.recordDeployment(id, "bp-one");
+    store.recordDeployment(id, "bp-two");
+
+    assertEquals(Set.of("bp-one", "bp-two"), store.deployments(id));
+  }
+
+  @Test
+  void recording_the_same_deployment_twice_does_not_duplicate_it() {
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    String id = String.valueOf(created.get("id"));
+
+    store.recordDeployment(id, "bp-one");
+    store.recordDeployment(id, "bp-one");
+
+    assertEquals(Set.of("bp-one"), store.deployments(id));
+  }
+
+  @Test
+  void removing_one_deployment_leaves_the_others_recorded() {
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    String id = String.valueOf(created.get("id"));
+    store.recordDeployment(id, "bp-one");
+    store.recordDeployment(id, "bp-two");
+
+    store.removeDeployment(id, "bp-one");
+
+    assertEquals(Set.of("bp-two"), store.deployments(id));
+  }
+
+  /**
+   * A reboot tears down the whole process tree, which is the state every previously-recorded
+   * deployment lived in -- so clearing the applied topology must forget all of them, not just the
+   * one whose run happened to trigger the reboot.
+   */
+  @Test
+  void clearing_the_applied_topology_forgets_every_deployment_too() {
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    String id = String.valueOf(created.get("id"));
+    store.recordAppliedTopology(id, "name: local\n");
+    store.recordDeployment(id, "bp-one");
+    store.recordDeployment(id, "bp-two");
+
+    store.clearAppliedTopology(id);
+
+    assertEquals(Set.of(), store.deployments(id));
+  }
+
+  @Test
+  void delete_also_removes_the_deployments_sidecar_file() {
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    String id = String.valueOf(created.get("id"));
+    store.recordDeployment(id, "bp-one");
+
+    store.delete(id);
+
+    assertEquals(Set.of(), store.deployments(id));
   }
 }

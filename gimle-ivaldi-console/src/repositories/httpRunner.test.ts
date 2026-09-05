@@ -70,3 +70,30 @@ describe("HttpRunnerClient.currentRun", () => {
     expect(snapshot?.status).toBe("running");
   });
 });
+
+// HttpRunnerClient.subscribe is not covered here: it schedules its poll loop via
+// window.setInterval, and this suite runs in a plain Node environment with no window (see
+// vitest.config.ts) -- the same reason no test here ever exercised it before this change either.
+// Its URL scoping is exercised the same way currentRun's is above, just inline in #poll; see that
+// method's own comment on why it now targets /api/runs/for-blueprint/{id}.
+
+describe("HttpRunnerClient.stopRun", () => {
+  const client = new HttpRunnerClient("http://127.0.0.1:8079");
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue(jsonResponse(idle));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stops this blueprint's own run, not the global latest", async () => {
+    await client.stopRun("run-1", "bp-orders");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:8079/api/runs/for-blueprint/bp-orders",
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "DELETE" });
+  });
+});

@@ -369,7 +369,14 @@ export class MockRunnerClient implements RunnerClient {
     return null;
   }
 
-  subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
+  // blueprintId is unused: the mock keeps its own self-contained session map keyed by runId
+  // alone, unlike HttpRunnerClient, which needs it to address the real backend's per-blueprint
+  // endpoint (see contracts.ts).
+  subscribe(
+    runId: string,
+    _blueprintId: string,
+    onEvent: (event: RunnerEvent) => void,
+  ): () => void {
     const session = this.sessions.get(runId);
     if (!session) {
       onEvent({ type: "error", message: `unknown run ${runId}` });
@@ -423,7 +430,7 @@ export class MockRunnerClient implements RunnerClient {
     return () => this.clear(runId);
   }
 
-  async stopRun(runId: string): Promise<RunSnapshot> {
+  async stopRun(runId: string, _blueprintId: string): Promise<RunSnapshot> {
     const session = this.sessions.get(runId);
     this.clear(runId);
     const snapshot: RunSnapshot = session

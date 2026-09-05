@@ -119,7 +119,7 @@ function currentPhaseFor(
 
 /**
  * Talks to the real gimle-ivaldi backend's same-origin /api/runs* surface. No SSE: gimle-ivaldi
- * reports a coarse status plus a plain-text log, so this polls GET /api/runs/current and
+ * reports a coarse status plus a plain-text log, so this polls GET /api/runs/for-blueprint/{id} and
  * GET /api/runs/{id}/log?cursor=N on an interval and replays them as the same snapshot/log/error
  * events a real event stream would emit -- useRunStore doesn't know the difference.
  *
@@ -173,12 +173,14 @@ export class HttpRunnerClient implements RunnerClient {
   }
 
   /**
-   * The run gimle-ivaldi is currently holding, or null when it holds none. Written against the
-   * real backend rather than Lovable's own `/v1/runs/current` sketch: there is one run at a time
-   * and `GET /api/runs/current` is its whole state, so a reloaded page can pick a live (or failed,
+   * The run gimle-ivaldi is currently holding for one blueprint, or null when it holds none.
+   * `GET /api/runs/for-blueprint/{id}` stays unambiguous even once a cluster hosts several
+   * blueprints' own deployments, so a reloaded page can pick a live (or failed,
    * still-holding-a-process-tree) run back up instead of showing "nothing ever ran". Steps are
    * rebuilt from the log by the subscription that follows, so an attached run's timeline fills in
-   * from its first poll -- see lib/runPhases.ts.
+   * from its first poll -- see lib/runPhases.ts. `blueprintId` is optional only for a direct,
+   * low-level caller with no blueprint of its own, which falls back to the ambiguous
+   * `/api/runs/current`.
    */
   async currentRun(blueprintId?: string): Promise<RunSnapshot | null> {
     try {
@@ -217,7 +219,11 @@ export class HttpRunnerClient implements RunnerClient {
     }
   }
 
-  subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
+  subscribe(
+    runId: string,
+    blueprintId: string,
+    onEvent: (event: RunnerEvent) => void,
+  ): () => void {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];
     let endpointsSettled = false;
@@ -228,8 +234,13 @@ export class HttpRunnerClient implements RunnerClient {
     const poll = async () => {
       if (stopped) return;
       try {
+        // Scoped to this blueprint, not the ambiguous /api/runs/current: a cluster can now host
+        // more than one deployment, so "the most recently started run across the whole backend"
+        // could belong to a different blueprint entirely, on the same cluster or a different one.
         const [snapshotRes, logRes] = await Promise.all([
-          fetch(this.url("/api/runs/current"), { headers: { accept: "application/json" } }),
+          fetch(this.url(`/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`), {
+            headers: { accept: "application/json" },
+          }),
           fetch(this.url(`/api/runs/${encodeURIComponent(runId)}/log?cursor=${cursor}`), {
             headers: { accept: "application/json" },
           }),
@@ -285,8 +296,14 @@ export class HttpRunnerClient implements RunnerClient {
     };
   }
 
-  async stopRun(runId: string): Promise<RunSnapshot> {
-    const res = await fetch(this.url("/api/runs/current"), { method: "DELETE" });
+  async stopRun(runId: string, blueprintId: string): Promise<RunSnapshot> {
+    // Scoped to this blueprint for the same reason #subscribe is: /api/runs/current would stop
+    // whichever deployment across the whole backend happened to start most recently, not
+    // necessarily this one.
+    const res = await fetch(
+      this.url(`/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`),
+      { method: "DELETE" },
+    );
     if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
     const raw = (await res.json()) as RawRunSnapshot;
     return this.toSnapshot({ ...raw, id: raw.id ?? runId }, [], []);

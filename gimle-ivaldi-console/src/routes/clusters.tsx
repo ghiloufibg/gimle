@@ -64,10 +64,11 @@ function ClustersPage() {
 
   // Which cluster is actually running something, and for whom. Without it this table showed a
   // live cluster exactly like one that had never been booted, and a cluster you had navigated
-  // away from was reachable from nowhere.
+  // away from was reachable from nowhere. A list, not a single match: a cluster's infra can now
+  // host more than one blueprint's own deployment at once.
   const refreshRuns = useActiveRunsStore((s) => s.refresh);
   const activeRuns = useActiveRunsStore((s) => s.runs);
-  const runFor = (clusterId: string) => activeRuns.find((r) => r.clusterId === clusterId);
+  const runsFor = (clusterId: string) => activeRuns.filter((r) => r.clusterId === clusterId);
   const blueprints = useBlueprintsListStore((s) => s.blueprints);
   const refreshBlueprints = useBlueprintsListStore((s) => s.refresh);
   const blueprintNames = Object.fromEntries(blueprints.map((b) => [b.id, b.name]));
@@ -235,22 +236,27 @@ function ClustersPage() {
                   {c.id === selectedId ? "Default target" : "Set as target"}
                 </label>
                 <div className="flex items-center gap-2">
-                  {runFor(c.id) && (
+                  {/* One badge per deployment: a cluster's infra can host more than one
+                      blueprint's own deployment at once (see RunController's own "One cluster,
+                      many deployments" section), so this is never just the single match a
+                      cluster's run used to be. */}
+                  {runsFor(c.id).map((run) => (
                     <Link
+                      key={run.runId}
                       to="/runner/$blueprintId"
-                      params={{ blueprintId: runFor(c.id)!.blueprintId ?? "" }}
-                      title="A run Ivaldi started owns this cluster"
+                      params={{ blueprintId: run.blueprintId ?? "" }}
+                      title="A run Ivaldi started is deployed on this cluster"
                       className={cn(
                         "rounded-sm px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
-                        RUN_STATUS_CLASS[runFor(c.id)!.status],
+                        RUN_STATUS_CLASS[run.status],
                       )}
                     >
-                      {runFor(c.id)!.status}
-                      {blueprintNames[runFor(c.id)!.blueprintId ?? ""]
-                        ? ` · ${blueprintNames[runFor(c.id)!.blueprintId ?? ""]}`
+                      {run.status}
+                      {blueprintNames[run.blueprintId ?? ""]
+                        ? ` · ${blueprintNames[run.blueprintId ?? ""]}`
                         : ""}
                     </Link>
-                  )}
+                  ))}
                   <span
                     className={cn(
                       "rounded-sm px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",

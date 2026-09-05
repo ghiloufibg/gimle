@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -303,22 +304,25 @@ class RunControllerTest {
   }
 
   /**
-   * A settled (not in-flight) run against one cluster never blocked a second start there at all --
-   * only {@code isInFlight()} was checked -- so a different blueprint pointed at an already-owned
-   * cluster silently took it over: the original blueprint's own tracking flipped to idle while its
-   * real process tree (if it had ever booted one) kept running, orphaned.
+   * A different blueprint targeting a cluster another blueprint already has a settled (not
+   * in-flight) run against used to be refused outright -- a cluster's infra is no longer "owned" by
+   * whichever blueprint deployed to it first, so this now simply starts its own,
+   * independently-tracked deployment (see the class javadoc's "One cluster, many deployments"
+   * section) rather than colliding with the first at all.
    */
   @Test
-  void a_different_blueprint_cannot_claim_a_cluster_another_blueprint_still_owns() {
+  void two_different_blueprints_can_each_run_against_the_same_shared_cluster() {
     clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
     controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
-    awaitSettled();
+    awaitSettled("bp-one");
 
-    assertThrows(
-        RunController.ClusterInUseException.class,
-        () -> controller.start("c1", Optional.of("bp-two"), filesMissingTheirJar(), Map.of()));
-    // Refused before anything about the original run changed.
-    assertEquals("bp-one", controller.clusterSnapshotJson("c1").get("blueprintId"));
+    controller.start("c1", Optional.of("bp-two"), filesMissingTheirJar(), Map.of());
+    Map<String, Object> second = awaitSettled("bp-two");
+
+    assertEquals("failed", second.get("status"));
+    // bp-one's own run is untouched by bp-two's start.
+    assertEquals("failed", controller.blueprintSnapshotJson("bp-one").get("status"));
+    assertEquals(2, controller.allSnapshotsJson().size());
   }
 
   /** The same blueprint re-running its own cluster -- an ordinary redeploy -- is unaffected. */
@@ -331,21 +335,58 @@ class RunControllerTest {
     controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
 
     assertEquals("bp-one", awaitSettled().get("blueprintId"));
+    // Still one deployment, not two -- a redeploy reuses its own key rather than minting another.
+    assertEquals(1, controller.allSnapshotsJson().size());
   }
 
   /**
-   * The blueprint that applied a topology is recorded beside it, so a cluster recovered after a
-   * restart still belongs to something -- adopted with no blueprint it could be stopped but never
-   * shown as running anywhere.
+   * The blueprint(s) whose run applied a deployment are recorded beside the cluster's topology, so
+   * a cluster recovered after a restart still belongs to something -- adopted with none recorded it
+   * could be stopped but never shown as running anywhere.
    */
   @Test
-  void starting_a_run_records_which_blueprint_owns_the_cluster() {
+  void starting_a_run_records_the_deployment_against_the_cluster() {
     clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
 
     controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
     awaitSettled();
 
-    assertEquals(Optional.of("bp-one"), clusters.owningBlueprint("c1"));
+    assertEquals(Set.of("bp-one"), clusters.deployments("c1"));
+  }
+
+  /**
+   * A cluster shared by several blueprints must not be deleted while any of them is still live --
+   * generalized from the single-run check this cluster's own {@link ClusterStore} once needed, now
+   * that a cluster can hold more than one.
+   */
+  @Test
+  void requiring_no_live_run_checks_every_deployment_on_the_cluster_not_just_one() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled("bp-one");
+    controller.start("c1", Optional.of("bp-two"), filesMissingTheirJar(), Map.of());
+    awaitSettled("bp-two");
+
+    // Both settled to "failed", which still counts as live -- neither was ever explicitly stopped.
+    assertThrows(
+        RunController.ClusterInUseException.class, () -> controller.requireNoLiveRun("c1"));
+  }
+
+  /**
+   * Pulled out of {@link RunController#execute} so this exact refusal is directly testable without
+   * booting a real cluster -- see the class javadoc's "One cluster, many deployments" section.
+   */
+  @Test
+  void a_topology_change_is_refused_while_another_deployment_still_shares_the_cluster() {
+    Optional<String> message = RunController.conflictingRebootMessage("c1", Set.of("bp-other"));
+
+    assertTrue(message.isPresent());
+    assertTrue(message.get().contains("bp-other"), message.get());
+  }
+
+  @Test
+  void a_topology_change_is_allowed_when_nothing_else_shares_the_cluster() {
+    assertEquals(Optional.empty(), RunController.conflictingRebootMessage("c1", Set.of()));
   }
 
   /**
@@ -399,8 +440,17 @@ class RunControllerTest {
   }
 
   private Map<String, Object> awaitSettled() {
+    return awaitSettled(controller::currentSnapshotJson);
+  }
+
+  /** Settles on one blueprint's own run specifically -- needed once more than one may be live. */
+  private Map<String, Object> awaitSettled(String blueprintId) {
+    return awaitSettled(() -> controller.blueprintSnapshotJson(blueprintId));
+  }
+
+  private Map<String, Object> awaitSettled(java.util.function.Supplier<Map<String, Object>> read) {
     for (int attempt = 0; attempt < 200; attempt++) {
-      Map<String, Object> snapshot = controller.currentSnapshotJson();
+      Map<String, Object> snapshot = read.get();
       String status = String.valueOf(snapshot.get("status"));
       if (status.equals("failed") || status.equals("running") || status.equals("idle")) {
         return snapshot;
@@ -412,7 +462,7 @@ class RunControllerTest {
         throw new IllegalStateException("interrupted waiting for the run to settle", e);
       }
     }
-    throw new IllegalStateException("run never settled: " + controller.currentSnapshotJson());
+    throw new IllegalStateException("run never settled: " + read.get());
   }
 
   private static final String TOPOLOGY =

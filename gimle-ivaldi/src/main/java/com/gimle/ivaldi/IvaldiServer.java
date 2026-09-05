@@ -331,17 +331,18 @@ public final class IvaldiServer implements AutoCloseable {
   }
 
   /**
-   * The run one blueprint owns. A Runner screen asks by blueprint rather than for "the current
-   * run", so a page never renders a run that belongs to a different blueprint -- which is how one
-   * blueprint's screen came to show another cluster's status, endpoints and Stop button.
+   * The run one blueprint owns: read it, or stop it. A Runner screen asks and stops by blueprint
+   * rather than by "the current run" or by cluster, so a page never renders -- or tears down -- a
+   * run that belongs to a different blueprint, which stays true even once several blueprints share
+   * one cluster (see {@code RunController}'s "One cluster, many deployments" section).
    */
   private void handleRunForBlueprint(HttpExchange exchange, String method, String blueprintId)
       throws IOException {
-    if (!"GET".equals(method)) {
-      respond(exchange, 405, "method not allowed");
-      return;
+    switch (method) {
+      case "GET" -> respondJson(exchange, 200, runs.blueprintSnapshotJson(blueprintId));
+      case "DELETE" -> respondJson(exchange, 200, runs.stopBlueprint(blueprintId));
+      default -> respond(exchange, 405, "method not allowed");
     }
-    respondJson(exchange, 200, runs.blueprintSnapshotJson(blueprintId));
   }
 
   /** The run against one cluster: read it, or stop that one specifically. */
