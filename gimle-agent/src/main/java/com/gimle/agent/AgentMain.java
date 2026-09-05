@@ -792,8 +792,8 @@ public final class AgentMain {
   // ---- control-plane registration/heartbeat/assignment fetch ----
 
   /**
-   * Retries registration until it succeeds, rather than letting a transient control-plane hiccup
-   * at exactly this moment take the node out of the cluster until a human notices. The steady-state
+   * Retries registration until it succeeds, rather than letting a transient control-plane hiccup at
+   * exactly this moment take the node out of the cluster until a human notices. The steady-state
    * tick loop already survives the same class of failure; there is no reason startup should be the
    * one moment a timeout is fatal. Backs off exponentially to a ceiling so a control plane that is
    * genuinely down is not hammered, and keeps retrying rather than giving up after a fixed count --
@@ -1329,8 +1329,8 @@ public final class AgentMain {
     return observation;
   }
 
-  static List<AssignedInstance> fetchAssignments(
-      HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
+  static List<AssignedInstance> fetchAssignments(HttpClient httpClient, URI baseUrl, String nodeId)
+      throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
             .timeout(HTTP_REQUEST_TIMEOUT)
