@@ -1,7 +1,7 @@
 package com.gimle.worker;
 
 import com.gimle.core.logging.InstanceMdcContext;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.fabric.transport.ModuleWorkExecutor;
 import io.opentelemetry.context.Context;
 import java.util.Map;
@@ -30,7 +30,7 @@ public final class BoundedModuleScheduler implements AutoCloseable {
   private final ExecutorService executor;
   private final Map<String, String> mdcTags;
 
-  public BoundedModuleScheduler(ModuleId id, int maxConcurrency) {
+  public BoundedModuleScheduler(ModuleInstanceId id, int maxConcurrency) {
     this(id, maxConcurrency, Map.of());
   }
 
@@ -39,7 +39,8 @@ public final class BoundedModuleScheduler implements AutoCloseable {
    * own -- empty for a caller that hasn't wired instance identity through yet, in which case such
    * lines fall back to PLATFORM (see {@code InstanceMdcContext}/{@code JsonLogEncoder}).
    */
-  public BoundedModuleScheduler(ModuleId id, int maxConcurrency, Map<String, String> mdcTags) {
+  public BoundedModuleScheduler(
+      ModuleInstanceId id, int maxConcurrency, Map<String, String> mdcTags) {
     if (maxConcurrency < 1) {
       throw new IllegalArgumentException("maxConcurrency must be at least 1: " + maxConcurrency);
     }

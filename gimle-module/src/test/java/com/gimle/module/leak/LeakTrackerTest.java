@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.ModuleLayerFactory;
@@ -41,7 +42,7 @@ class LeakTrackerTest {
                     .formatted(name))
             .withDescriptor(TestModuleBuilder.minimalDescriptor(name, "1.0.0"))
             .build(tempDir, name.replace('.', '_') + ".jar");
-    ModuleId id = new ModuleId(name, Version.parse("1.0.0"));
+    ModuleInstanceId id = ModuleInstanceId.unattached(new ModuleId(name, Version.parse("1.0.0")));
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     return ModuleLayerFactory.create(
         id, jar, List.of(platform), ClassLoader.getSystemClassLoader());
@@ -50,7 +51,9 @@ class LeakTrackerTest {
   @Test
   void no_leak_when_loader_is_actually_collected() throws InterruptedException {
     BlockingQueue<ModuleLeakDetected> detections = new LinkedBlockingQueue<>();
-    ModuleId id = new ModuleId("com.gimle.fixture.noleak", Version.parse("1.0.0"));
+    ModuleInstanceId id =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.noleak", Version.parse("1.0.0")));
 
     try (LeakTracker tracker = new LeakTracker(Duration.ofMillis(300), detections::add)) {
       ModuleLayerHandle handle = buildAndLoad("com.gimle.fixture.noleak");
@@ -67,7 +70,7 @@ class LeakTrackerTest {
   void leak_is_reported_when_loader_is_retained() throws InterruptedException {
     BlockingQueue<ModuleLeakDetected> detections = new LinkedBlockingQueue<>();
     String name = "com.gimle.fixture.leaked";
-    ModuleId id = new ModuleId(name, Version.parse("1.0.0"));
+    ModuleInstanceId id = ModuleInstanceId.unattached(new ModuleId(name, Version.parse("1.0.0")));
 
     // Deliberately kept reachable via this local for the whole try block, simulating a genuine
     // leak (some stray reference outliving the module's disposal).
@@ -98,7 +101,7 @@ class LeakTrackerTest {
             .build(tempDir, "controllerleak.jar");
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
 

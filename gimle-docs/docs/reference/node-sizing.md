@@ -65,8 +65,8 @@ these must hold:
 
 - the instances are on the same node (implicit — an agent only ever reuses its own workers),
 - the same tenant, or both untenanted,
-- no two instances of the same module in one worker (that would corrupt `WorkerRuntime`'s
-  per-`ModuleId` keying),
+- not the same placement twice (an instance may not share a worker with itself; two *replicas* of
+  one deployment are welcome to, and are exactly what Tier 1 is for),
 - the worker is holding fewer instances than the density cap,
 - the summed `resources.limit.memory` of everything already on that worker, plus the candidate's
   own, still fits inside the heap that worker was actually spawned with (see the budget below).

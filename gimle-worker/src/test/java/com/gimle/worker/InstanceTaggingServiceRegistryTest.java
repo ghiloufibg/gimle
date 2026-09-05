@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import java.util.Optional;
@@ -22,8 +23,8 @@ class InstanceTaggingServiceRegistryTest {
     String greet();
   }
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   private final SimpleServiceRegistry delegate = new SimpleServiceRegistry();
   private final InstanceIdentityRegistry identities = new InstanceIdentityRegistry();

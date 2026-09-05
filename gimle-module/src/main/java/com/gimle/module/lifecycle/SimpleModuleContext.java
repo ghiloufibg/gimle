@@ -1,7 +1,7 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.logging.InstanceMdcContext;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +44,7 @@ public final class SimpleModuleContext implements ModuleContext {
    */
   private static final Supplier<Optional<InstanceInfo>> NO_OP_INSTANCE_INFO = Optional::empty;
 
-  private final ModuleId id;
+  private final ModuleInstanceId id;
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
   private final Map<String, Path> dataDirectories;
@@ -58,18 +58,18 @@ public final class SimpleModuleContext implements ModuleContext {
   // pinning a disposed ModuleLayer's loader alive in a worker-wide registry.
   private final List<Consumer<ConfigChange>> configListeners = new CopyOnWriteArrayList<>();
 
-  public SimpleModuleContext(ModuleId id, ServiceRegistry serviceRegistry) {
+  public SimpleModuleContext(ModuleInstanceId id, ServiceRegistry serviceRegistry) {
     this(id, serviceRegistry, new ConcurrentHashMap<>());
   }
 
   public SimpleModuleContext(
-      ModuleId id, ServiceRegistry serviceRegistry, Map<String, String> configValues) {
+      ModuleInstanceId id, ServiceRegistry serviceRegistry, Map<String, String> configValues) {
     this(id, serviceRegistry, configValues, Map.<String, Path>of());
   }
 
   /** Convenience: a sole volume (named {@code data}) or none -- the single-volume test shape. */
   public SimpleModuleContext(
-      ModuleId id,
+      ModuleInstanceId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Optional<Path> dataDirectory) {
@@ -77,7 +77,7 @@ public final class SimpleModuleContext implements ModuleContext {
   }
 
   public SimpleModuleContext(
-      ModuleId id,
+      ModuleInstanceId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories) {
@@ -85,7 +85,7 @@ public final class SimpleModuleContext implements ModuleContext {
   }
 
   public SimpleModuleContext(
-      ModuleId id,
+      ModuleInstanceId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories,
@@ -99,7 +99,7 @@ public final class SimpleModuleContext implements ModuleContext {
    * the no-op relay gives everything.
    */
   public SimpleModuleContext(
-      ModuleId id,
+      ModuleInstanceId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories,
@@ -129,7 +129,7 @@ public final class SimpleModuleContext implements ModuleContext {
    * in-place rename) after this context already exists.
    */
   public SimpleModuleContext(
-      ModuleId id,
+      ModuleInstanceId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories,

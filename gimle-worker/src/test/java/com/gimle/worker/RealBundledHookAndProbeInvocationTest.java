@@ -3,7 +3,7 @@ package com.gimle.worker;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.LifecycleEvent;
@@ -116,7 +116,7 @@ class RealBundledHookAndProbeInvocationTest {
 
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new CopyOnWriteArrayList<>();

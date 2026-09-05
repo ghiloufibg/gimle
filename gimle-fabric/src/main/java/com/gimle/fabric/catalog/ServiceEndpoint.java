@@ -1,6 +1,6 @@
 package com.gimle.fabric.catalog;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.fabric.cluster.MemberId;
 import java.net.InetSocketAddress;
@@ -16,7 +16,7 @@ import java.util.Optional;
 public record ServiceEndpoint(
     MemberId node,
     String workerId,
-    ModuleId moduleId,
+    ModuleInstanceId moduleId,
     ServiceExport export,
     boolean ready,
     Optional<String> udsPath,

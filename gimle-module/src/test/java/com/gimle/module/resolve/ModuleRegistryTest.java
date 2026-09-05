@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.lifecycle.ModuleState;
 import java.util.NoSuchElementException;
 import org.junit.jupiter.api.Test;
@@ -19,8 +19,8 @@ class ModuleRegistryTest {
   void register_stores_as_installed() {
     ModuleRegistry registry = new ModuleRegistry();
     ModuleArtifact a = artifact("com.gimle.a", "1.0.0");
-    ModuleId id = registry.register(a);
-    assertEquals(a.id(), id);
+    ModuleInstanceId id = registry.register(a);
+    assertEquals(ModuleInstanceId.unattached(a.id()), id);
     assertEquals(ModuleState.INSTALLED, registry.state(id));
   }
 
@@ -45,7 +45,8 @@ class ModuleRegistryTest {
   @Test
   void unknown_module_id_throws() {
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId unknown = artifact("com.gimle.ghost", "1.0.0").id();
+    ModuleInstanceId unknown =
+        ModuleInstanceId.unattached(artifact("com.gimle.ghost", "1.0.0").id());
     assertThrows(NoSuchElementException.class, () -> registry.state(unknown));
   }
 
@@ -53,7 +54,7 @@ class ModuleRegistryTest {
   void named_transitions_update_state() {
     ModuleRegistry registry = new ModuleRegistry();
     ModuleArtifact a = artifact("com.gimle.a", "1.0.0");
-    ModuleId id = registry.register(a);
+    ModuleInstanceId id = registry.register(a);
 
     registry.markResolved(id, new ModuleWiring(id, java.util.Map.of()), nullHandle());
     assertEquals(ModuleState.RESOLVED, registry.state(id));
@@ -76,7 +77,7 @@ class ModuleRegistryTest {
   void mark_failed_is_reachable() {
     ModuleRegistry registry = new ModuleRegistry();
     ModuleArtifact a = artifact("com.gimle.a", "1.0.0");
-    ModuleId id = registry.register(a);
+    ModuleInstanceId id = registry.register(a);
     registry.markFailed(id);
     assertEquals(ModuleState.FAILED, registry.state(id));
   }

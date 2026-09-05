@@ -69,11 +69,12 @@ interface and the endpoint. Before this, an endpoint whose breaker had tripped s
 selected, and an operator asking "why is traffic not reaching instance X" had no way to tell that
 apart from the catalog never having learned about X or the instance never having become ready.
 
-`WorkerMetrics#evict(ModuleId)` removes a module's entire meter set (request/error counters, the
-latency timer, and the thread-count/metaspace gauges) once that `ModuleId` is uninstalled — never
+`WorkerMetrics#evict(ModuleInstanceId)` removes one instance's entire meter set (request/error
+counters, the latency timer, and the thread-count/metaspace gauges) once that instance is
+uninstalled — never
 on a mere stop, since a stopped-but-installed module can restart and resume its counters. Without
 this, a worker that redeploys the same module name across many versions over its lifetime would
-accumulate one permanent meter set per historical `(module, version)` pair forever;
+accumulate one permanent meter set per historical `(module, version, instance)` triple forever;
 `WorkerMain`'s `UninstallModule` handler calls it only after a successful uninstall.
 
 `gimle-controlplane`, `gimle-fafnir`, `gimle-mimir`, and `gimle-andvari` each carry their own

@@ -1,6 +1,6 @@
 package com.gimle.core.exception;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Requirement;
 import java.util.List;
 
@@ -21,7 +21,8 @@ public class GimleResolutionException extends RuntimeException {
     super(message, cause);
   }
 
-  public static GimleResolutionException unsatisfied(ModuleId dependent, Requirement requirement) {
+  public static GimleResolutionException unsatisfied(
+      ModuleInstanceId dependent, Requirement requirement) {
     return new GimleResolutionException(
         "module "
             + dependent
@@ -42,7 +43,7 @@ public class GimleResolutionException extends RuntimeException {
   }
 
   public static GimleResolutionException layerInstantiationFailed(
-      ModuleId moduleId, Throwable cause) {
+      ModuleInstanceId moduleId, Throwable cause) {
     // The cause's own message is folded into this one: readers of a summarized event (an instance
     // event's causeSummary, a log line) see only the outermost message, and the JPMS layer's
     // explanation -- a module-info name not matching the manifest's, an unsatisfiable requires --

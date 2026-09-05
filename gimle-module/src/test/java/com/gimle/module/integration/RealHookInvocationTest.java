@@ -3,7 +3,7 @@ package com.gimle.module.integration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.ModuleController;
@@ -59,7 +59,7 @@ class RealHookInvocationTest {
 
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleController controller =
         new ModuleController(

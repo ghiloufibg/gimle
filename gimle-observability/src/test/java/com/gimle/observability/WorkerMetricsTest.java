@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.search.Search;
@@ -14,8 +15,8 @@ import org.junit.jupiter.api.Test;
 
 class WorkerMetricsTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   @Test
   void record_request_increments_count_and_records_latency() {
@@ -165,7 +166,9 @@ class WorkerMetricsTest {
   void metrics_for_different_modules_are_tagged_independently() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
-    ModuleId other = new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0"));
+    ModuleInstanceId other =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0")));
 
     metrics.recordThreadCount(ID, 3);
     metrics.recordThreadCount(other, 9);
@@ -200,7 +203,9 @@ class WorkerMetricsTest {
   void evict_does_not_affect_a_different_modules_meters() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);
-    ModuleId other = new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0"));
+    ModuleInstanceId other =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0")));
     metrics.recordRequest(ID, Duration.ofMillis(10), false);
     metrics.recordThreadCount(ID, 3);
     metrics.recordRequest(other, Duration.ofMillis(10), false);

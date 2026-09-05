@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.ModuleContext.RelayResult;
 import com.gimle.module.lifecycle.SimpleModuleContext;
@@ -34,7 +35,7 @@ class VesselEndpointCacheTest {
 
   private static SimpleModuleContext contextWithRelay(Function<String, RelayResult> relay) {
     return new SimpleModuleContext(
-        new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
         new SimpleServiceRegistry(),
         new ConcurrentHashMap<>(),
         Map.of(),

@@ -2,7 +2,7 @@ package com.gimle.module.resolve;
 
 import com.gimle.core.exception.GimleResolutionException;
 import com.gimle.core.module.ModuleDescriptor;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Requirement;
 import com.gimle.module.lifecycle.ModuleState;
 import java.util.ArrayDeque;
@@ -29,23 +29,23 @@ public final class ModuleResolver {
     this.registry = registry;
   }
 
-  public ModuleWiring resolve(ModuleId targetId) {
+  public ModuleWiring resolve(ModuleInstanceId targetId) {
     detectCycle(targetId.name(), new ArrayDeque<>());
 
     ModuleDescriptor descriptor = registry.artifact(targetId).descriptor();
-    Map<Requirement, ModuleId> wired = new LinkedHashMap<>();
+    Map<Requirement, ModuleInstanceId> wired = new LinkedHashMap<>();
     for (Requirement requirement : descriptor.requires()) {
       wired.put(requirement, chooseCandidate(targetId, requirement));
     }
     return new ModuleWiring(targetId, wired);
   }
 
-  private ModuleId chooseCandidate(ModuleId dependent, Requirement requirement) {
-    Optional<ModuleId> best =
+  private ModuleInstanceId chooseCandidate(ModuleInstanceId dependent, Requirement requirement) {
+    Optional<ModuleInstanceId> best =
         registry.idsByName(requirement.moduleName()).stream()
             .filter(candidateId -> isResolvableState(registry.state(candidateId)))
             .filter(candidateId -> requirement.range().satisfies(candidateId.version()))
-            .max(Comparator.comparing(ModuleId::version));
+            .max(Comparator.comparing(ModuleInstanceId::version));
     return best.orElseThrow(() -> GimleResolutionException.unsatisfied(dependent, requirement));
   }
 
@@ -69,7 +69,7 @@ public final class ModuleResolver {
     }
     path.push(moduleName);
     try {
-      for (ModuleId id : registry.idsByName(moduleName)) {
+      for (ModuleInstanceId id : registry.idsByName(moduleName)) {
         for (Requirement requirement : registry.artifact(id).descriptor().requires()) {
           detectCycle(requirement.moduleName(), path);
         }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.catalog.ServiceCatalog;
@@ -54,8 +55,9 @@ import org.junit.jupiter.api.parallel.Resources;
 @ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServiceRegistryGlobalTracingTest {
 
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
   private static final ServiceExport GREETER_EXPORT =
       new ServiceExport(Greeter.class.getName(), Version.parse("1.0.0"));
 

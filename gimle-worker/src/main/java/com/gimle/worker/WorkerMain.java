@@ -7,7 +7,7 @@ import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceLogCloser;
 import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
@@ -163,7 +163,7 @@ public final class WorkerMain {
     // Every module this worker currently has ACTIVE -- fed to the metrics-reporter loop below,
     // which has no other way to know which module ids to report against (ModuleRegistry exposes
     // no "list everything" query, only lookups by a name/id it's told).
-    Set<ModuleId> activeModules = ConcurrentHashMap.newKeySet();
+    Set<ModuleInstanceId> activeModules = ConcurrentHashMap.newKeySet();
     ControllerAndRuntime controllerAndRuntime =
         buildControllerAndRuntime(
             registry,
@@ -349,7 +349,7 @@ public final class WorkerMain {
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry,
       InstanceLogCloser instanceLogCloser,
-      Set<ModuleId> activeModules,
+      Set<ModuleInstanceId> activeModules,
       ControlPlaneRelay relay,
       String nodeId,
       ThreadNameJfrAttributor jfrAttributor) {
@@ -444,7 +444,7 @@ public final class WorkerMain {
       FabricServer fabricServer,
       ControlChannelClient channel,
       String workerId,
-      Set<ModuleId> activeModules,
+      Set<ModuleInstanceId> activeModules,
       WorkerMetrics workerMetrics,
       WorkerRuntime runtime) {
     FabricServerTlsWatcher tlsWatcher = new FabricServerTlsWatcher();
@@ -471,7 +471,7 @@ public final class WorkerMain {
   private static void handleLifecycleEvent(
       LifecycleEvent event,
       AtomicReference<WorkerRuntime> runtimeRef,
-      Set<ModuleId> activeModules,
+      Set<ModuleInstanceId> activeModules,
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry,
       ThreadNameJfrAttributor jfrAttributor) {
@@ -532,7 +532,7 @@ public final class WorkerMain {
   private static void handleUninstalled(
       LifecycleEvent.Uninstalled event,
       AtomicReference<WorkerRuntime> runtimeRef,
-      Set<ModuleId> activeModules,
+      Set<ModuleInstanceId> activeModules,
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry,
       ThreadNameJfrAttributor jfrAttributor) {
@@ -573,14 +573,14 @@ public final class WorkerMain {
    */
   private static void metricsReportLoop(
       ControlChannelClient channel,
-      Set<ModuleId> activeModules,
+      Set<ModuleInstanceId> activeModules,
       WorkerMetrics workerMetrics,
       WorkerRuntime runtime) {
     com.sun.management.OperatingSystemMXBean osBean =
         (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
     Runtime jvmRuntime = Runtime.getRuntime();
-    Map<ModuleId, Double> lastRequestCount = new ConcurrentHashMap<>();
-    Map<ModuleId, Double> lastErrorCount = new ConcurrentHashMap<>();
+    Map<ModuleInstanceId, Double> lastRequestCount = new ConcurrentHashMap<>();
+    Map<ModuleInstanceId, Double> lastErrorCount = new ConcurrentHashMap<>();
     double intervalSeconds = METRICS_REPORT_INTERVAL.toMillis() / 1000.0;
     while (!Thread.currentThread().isInterrupted()) {
       try {
@@ -594,7 +594,7 @@ public final class WorkerMain {
         long cpuMillicoresUsed =
             cpuLoad < 0 ? 0 : Math.round(cpuLoad * osBean.getAvailableProcessors() * 1000);
         long memoryBytesUsed = jvmRuntime.totalMemory() - jvmRuntime.freeMemory();
-        for (ModuleId id : activeModules) {
+        for (ModuleInstanceId id : activeModules) {
           double requestCount = workerMetrics.requestCount(id);
           double errorCount = workerMetrics.errorCount(id);
           double requestRatePerSecond =
@@ -718,18 +718,27 @@ public final class WorkerMain {
       case ControlMessage.InstallModule m -> {
         try {
           ModuleArtifact artifact = ModuleArtifactReader.read(Path.of(m.artifactPath()));
-          // Registered before the module is, not after: registering the artifact is what emits
-          // the INSTALLED lifecycle event, and an event arriving before this instance has an
-          // identity has no deployment/index to attach to, so it was dropped -- which is why an
-          // instance's own timeline opened at RESOLVED and never showed the install at all. The
-          // artifact already carries the id the registry will hand back, so nothing has to be
-          // installed first to learn it.
+          // The instance key is what keeps two replicas of one deployment apart inside this
+          // worker: same artifact, same coordinate, but each needs its own layer, lifecycle state
+          // and exported services. Empty for a module installed with no deployment identity.
+          //
+          // Both the key and this instance's identity are settled before the artifact is
+          // registered, because registering it is what emits the INSTALLED lifecycle event: an
+          // event arriving before the instance has an identity has no deployment/index to attach
+          // to and is dropped, which is why an instance's timeline used to open at RESOLVED and
+          // never show the install at all.
+          String instanceKey =
+              m.deploymentName().isBlank()
+                  ? ""
+                  : ModuleInstanceId.of(
+                          artifact.id(), tenantId.orElse(""), m.deploymentName(), m.instanceIndex())
+                      .instanceKey();
+          ModuleInstanceId id = new ModuleInstanceId(artifact.id(), instanceKey);
           if (!m.deploymentName().isBlank()) {
             identityRegistry.register(
-                artifact.id(),
-                new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
+                id, new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
           }
-          ModuleId id = registry.register(artifact);
+          registry.register(artifact, instanceKey);
           channel.send(new ControlMessage.ModuleStateChanged(id, "INSTALLED"));
           channel.send(new ControlMessage.Ack(m.correlationId()));
         } catch (RuntimeException e) {
@@ -826,7 +835,7 @@ public final class WorkerMain {
    * same case).
    */
   private static Map<String, String> mdcTagsFor(
-      ModuleId id, InstanceIdentityRegistry identityRegistry) {
+      ModuleInstanceId id, InstanceIdentityRegistry identityRegistry) {
     return identityRegistry
         .lookup(id)
         .map(

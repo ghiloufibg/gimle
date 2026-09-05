@@ -1,7 +1,7 @@
 package com.gimle.worker;
 
 import com.gimle.core.logging.InstanceMdcContext;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import java.util.Map;
 import java.util.Optional;
@@ -12,9 +12,10 @@ import java.util.Optional;
  * same-worker direct calls (a plain reference returned from {@code lookup()}) and {@code
  * FabricServer}'s local-invoke path, since both ultimately call through this same registered
  * reference. A module whose identity isn't known yet (the agent hasn't wired instance identity
- * through, or {@code identities} has no entry for its {@link ModuleId}) is registered untagged
- * rather than failing -- matches this codebase's "degrade, don't fail, over instrumentation"
- * posture elsewhere (e.g. {@code ThreadNameJfrAttributor}'s JFR-unavailable fallback).
+ * through, or {@code identities} has no entry for its {@link ModuleInstanceId}) is registered
+ * untagged rather than failing -- matches this codebase's "degrade, don't fail, over
+ * instrumentation" posture elsewhere (e.g. {@code ThreadNameJfrAttributor}'s JFR-unavailable
+ * fallback).
  */
 public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
 
@@ -28,7 +29,7 @@ public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public <T> void register(ModuleId owner, Class<T> iface, T instance) {
+  public <T> void register(ModuleInstanceId owner, Class<T> iface, T instance) {
     T toRegister =
         identities
             .lookup(owner)
@@ -37,7 +38,7 @@ public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
     delegate.register(owner, iface, toRegister);
   }
 
-  private <T> T tag(ModuleId owner, Class<T> iface, T instance, InstanceIdentity identity) {
+  private <T> T tag(ModuleInstanceId owner, Class<T> iface, T instance, InstanceIdentity identity) {
     Map<String, String> tags =
         InstanceMdcContext.tagsFor(
             identity.deploymentName(),
@@ -64,17 +65,17 @@ public final class InstanceTaggingServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public void markUnready(ModuleId owner) {
+  public void markUnready(ModuleInstanceId owner) {
     delegate.markUnready(owner);
   }
 
   @Override
-  public void markReady(ModuleId owner) {
+  public void markReady(ModuleInstanceId owner) {
     delegate.markReady(owner);
   }
 
   @Override
-  public void remove(ModuleId owner) {
+  public void remove(ModuleInstanceId owner) {
     delegate.remove(owner);
     identities.remove(owner);
   }

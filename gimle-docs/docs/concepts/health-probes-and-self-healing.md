@@ -78,7 +78,7 @@ GC-pause-induced blip. `WorkerRuntime` counts *consecutive* liveness failures an
 
 ```java
 // gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java
-private void onLivenessResult(ModuleId id, boolean alive) {
+private void onLivenessResult(ModuleInstanceId id, boolean alive) {
   if (alive) {
     consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger()).set(0);
     return;

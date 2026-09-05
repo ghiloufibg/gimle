@@ -2,7 +2,7 @@ package com.gimle.fabric.transport;
 
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.exception.GimleFabricAuthorizationException;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import com.gimle.core.tls.CertificateIdentity;
@@ -96,12 +96,12 @@ public final class FabricServer implements AutoCloseable {
 
   private final ServiceRegistry localRegistry;
   private final ClassLoader interfaceLoader;
-  private final Function<ModuleId, Optional<ModuleContext>> contextLookup;
-  private final Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup;
+  private final Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup;
+  private final Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup;
   private final Optional<WorkerMetrics> metrics;
-  private final Function<ModuleId, List<ServiceExport>> exportsOf;
+  private final Function<ModuleInstanceId, List<ServiceExport>> exportsOf;
   private final Optional<String> selfTenantId;
-  private final Function<ModuleId, Optional<String>> deploymentNameOf;
+  private final Function<ModuleInstanceId, Optional<String>> deploymentNameOf;
   private final Semaphore connectionLimiter;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
   // Keyed by the same Closeable identity listeners holds, so close()/reloadTlsMaterial() can
@@ -142,8 +142,8 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup) {
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup) {
     this(localRegistry, interfaceLoader, contextLookup, executorLookup, Optional.empty());
   }
 
@@ -153,8 +153,8 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics) {
     this(localRegistry, interfaceLoader, contextLookup, executorLookup, metrics, id -> List.of());
   }
@@ -177,10 +177,10 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics,
-      Function<ModuleId, List<ServiceExport>> exportsOf) {
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf) {
     this(
         localRegistry,
         interfaceLoader,
@@ -208,10 +208,10 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Optional<String> selfTenantId) {
     this(
         localRegistry,
@@ -225,9 +225,9 @@ public final class FabricServer implements AutoCloseable {
   }
 
   /**
-   * {@code deploymentNameOf} resolves an inbound call's target {@code ModuleId} to the deployment
-   * name it was installed under (the worker's own {@code InstanceIdentityRegistry}, in production)
-   * -- unlike {@code selfTenantId}, this genuinely is per-request: a single worker JVM can host
+   * {@code deploymentNameOf} resolves an inbound call's target instance to the deployment name it
+   * was installed under (the worker's own {@code InstanceIdentityRegistry}, in production) --
+   * unlike {@code selfTenantId}, this genuinely is per-request: a single worker JVM can host
    * instances from several different deployments under Tier 1 density, so "which deployment does
    * this call's target belong to" can't be answered once at construction time the way "which tenant
    * does this worker serve" can. Used only to decide whether a per-deployment-scoped {@link
@@ -243,12 +243,12 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Optional<String> selfTenantId,
-      Function<ModuleId, Optional<String>> deploymentNameOf) {
+      Function<ModuleInstanceId, Optional<String>> deploymentNameOf) {
     this(
         localRegistry,
         interfaceLoader,
@@ -274,12 +274,12 @@ public final class FabricServer implements AutoCloseable {
   public FabricServer(
       ServiceRegistry localRegistry,
       ClassLoader interfaceLoader,
-      Function<ModuleId, Optional<ModuleContext>> contextLookup,
-      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Function<ModuleInstanceId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleInstanceId, Optional<ModuleWorkExecutor>> executorLookup,
       Optional<WorkerMetrics> metrics,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Optional<String> selfTenantId,
-      Function<ModuleId, Optional<String>> deploymentNameOf,
+      Function<ModuleInstanceId, Optional<String>> deploymentNameOf,
       int maxConnections) {
     if (maxConnections < 1) {
       throw new IllegalArgumentException("maxConnections must be at least 1: " + maxConnections);
@@ -691,7 +691,7 @@ public final class FabricServer implements AutoCloseable {
    * worker not wired with a real {@code exportsOf}) is permitted through unchanged -- this method
    * enforces exactly what the module itself declared, never a stricter default of its own.
    */
-  private void checkTenantPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
+  private void checkTenantPermitted(ModuleInstanceId owner, FabricFrame.InvokeRequest request) {
     for (ServiceExport export : exportsOf.apply(owner)) {
       if (!export.interfaceName().equals(request.interfaceName())) {
         continue;
@@ -719,7 +719,8 @@ public final class FabricServer implements AutoCloseable {
    * ever name an untenanted worker as its own {@code tenantId}, so there is nothing to check
    * against.
    */
-  private void checkNetworkPolicyPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
+  private void checkNetworkPolicyPermitted(
+      ModuleInstanceId owner, FabricFrame.InvokeRequest request) {
     checkIngressPermitted(owner, request);
     checkCallerEgressPermitted(request);
   }
@@ -731,7 +732,7 @@ public final class FabricServer implements AutoCloseable {
    * starts in. Without that fallback a tenant with no policies yet written could never be closed at
    * all, since a loop over an empty rule set denies nothing.
    */
-  private void checkIngressPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
+  private void checkIngressPermitted(ModuleInstanceId owner, FabricFrame.InvokeRequest request) {
     if (selfTenantId.isEmpty()) {
       return;
     }
@@ -874,7 +875,7 @@ public final class FabricServer implements AutoCloseable {
     Method method = iface.getMethod(request.methodName(), paramTypes);
     Object[] args = (Object[]) ObjectMarshalling.deserialize(request.serializedArgs(), ownerLoader);
 
-    ModuleId owner = owned.owner();
+    ModuleInstanceId owner = owned.owner();
     Optional<ModuleContext> ctx = contextLookup.apply(owner);
     ctx.ifPresent(ModuleContext::beginRequest);
     long startNanos = System.nanoTime();

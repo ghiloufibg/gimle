@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.resolve.ModuleRegistry;
@@ -34,7 +34,7 @@ class ModuleConfigRetractionTest {
 
   private static int counter = 0;
 
-  private record Fixture(ModuleController controller, ModuleId id) {}
+  private record Fixture(ModuleController controller, ModuleInstanceId id) {}
 
   private Fixture fixture() {
     String uniqueName = "com.gimle.fixture.config" + (counter++);
@@ -49,7 +49,7 @@ class ModuleConfigRetractionTest {
             .build(tempDir, uniqueName + ".jar");
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleController controller =
         new ModuleController(
             registry,

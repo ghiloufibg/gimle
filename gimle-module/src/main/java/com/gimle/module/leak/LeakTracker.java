@@ -1,6 +1,6 @@
 package com.gimle.module.leak;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.layer.ModuleLayerHandle;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
@@ -61,7 +61,7 @@ public final class LeakTracker implements AutoCloseable {
         this::sweep, sweepIntervalMillis, sweepIntervalMillis, TimeUnit.MILLISECONDS);
   }
 
-  public void track(ModuleId id, ModuleLayerHandle handle) {
+  public void track(ModuleInstanceId id, ModuleLayerHandle handle) {
     Set<String> packages =
         handle.layer().modules().stream()
             .flatMap(m -> m.getPackages().stream())
@@ -112,5 +112,5 @@ public final class LeakTracker implements AutoCloseable {
     correlator.close();
   }
 
-  private record LeakRecord(ModuleId id, Instant undeployedAt, Set<String> packages) {}
+  private record LeakRecord(ModuleInstanceId id, Instant undeployedAt, Set<String> packages) {}
 }

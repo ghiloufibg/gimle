@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -283,7 +284,8 @@ class GatewayHooksTlsTest {
 
   private SimpleModuleContext contextWithGreeterRoute(Map<String, String> extraConfig) {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
-    ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
+    ModuleInstanceId gatewayId =
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0")));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
     Map<String, String> config = new ConcurrentHashMap<>(extraConfig);
     config.put("gateway.port", "0");
@@ -341,7 +343,8 @@ class GatewayHooksTlsTest {
   private static SimpleModuleContext contextWithLiveConfig(
       ConcurrentHashMap<String, String> configValues) {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
-    ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
+    ModuleInstanceId gatewayId =
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0")));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
     return new SimpleModuleContext(gatewayId, registry, configValues);
   }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.time.TestClock;
@@ -197,7 +198,9 @@ class GossipMemberTest {
   void a_node_marked_dead_via_gossip_has_its_catalog_entries_evicted_without_a_breaker_trip()
       throws Exception {
     ServiceExport export = new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"));
-    ModuleId module = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+    ModuleInstanceId module =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
 
     GossipMember a = newMember("node-a");
     GossipMember b = newMember("node-b");
@@ -260,7 +263,9 @@ class GossipMemberTest {
     GossipMember b = newMember("node-b", config);
 
     ServiceExport early = new ServiceExport("com.gimle.example.Early", Version.parse("1.0.0"));
-    ModuleId module = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+    ModuleInstanceId module =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
 
     ServiceCatalog catalogOnA = new ServiceCatalog();
     a.attachCatalog(catalogOnA);

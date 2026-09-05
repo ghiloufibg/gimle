@@ -3,6 +3,7 @@ package com.gimle.worker;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.core.time.TestClock;
 import com.gimle.core.time.TestScheduler;
@@ -65,8 +66,9 @@ class FabricServerTlsWatcherTest {
    */
   private static final AtomicLong CORRELATION_IDS = new AtomicLong();
 
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.watcher-test", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.watcher-test", Version.parse("1.0.0")));
 
   @TempDir private Path tempDir;
 

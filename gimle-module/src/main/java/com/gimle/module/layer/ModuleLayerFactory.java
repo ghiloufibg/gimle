@@ -1,7 +1,7 @@
 package com.gimle.module.layer;
 
 import com.gimle.core.exception.GimleResolutionException;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import java.lang.module.Configuration;
 import java.lang.module.FindException;
 import java.lang.module.ModuleFinder;
@@ -37,7 +37,7 @@ public final class ModuleLayerFactory {
   private ModuleLayerFactory() {}
 
   public static ModuleLayerHandle create(
-      ModuleId id, Path jarPath, List<ModuleLayer> parentLayers, ClassLoader parentLoader) {
+      ModuleInstanceId id, Path jarPath, List<ModuleLayer> parentLayers, ClassLoader parentLoader) {
     try {
       ModuleFinder finder = ModuleFinder.of(jarPath);
       List<Configuration> parentConfigurations =

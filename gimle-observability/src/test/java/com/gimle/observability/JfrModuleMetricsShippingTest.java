@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
@@ -24,8 +25,8 @@ import org.junit.jupiter.api.Timeout;
  */
 class JfrModuleMetricsShippingTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   // Generous relative to jdk.ExecutionSample's 20ms configured period and
   // jdk.ObjectAllocationSample's own much finer default -- real sandboxes under CPU contention can

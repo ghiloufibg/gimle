@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.ContextKey;
@@ -23,8 +24,8 @@ import org.slf4j.MDC;
 
 class BoundedModuleSchedulerTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   @Test
   void max_concurrency_below_one_is_rejected() {

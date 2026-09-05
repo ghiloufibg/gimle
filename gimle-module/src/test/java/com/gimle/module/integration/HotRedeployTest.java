@@ -3,7 +3,7 @@ package com.gimle.module.integration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.ModuleController;
@@ -77,7 +77,7 @@ class HotRedeployTest {
             .withDescriptor(
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.0.0"))
             .build(tempDir, "catalog-1.0.0.jar");
-    ModuleId catalogV1 = registry.register(ModuleArtifactReader.read(catalogV1Jar));
+    ModuleInstanceId catalogV1 = registry.register(ModuleArtifactReader.read(catalogV1Jar));
     controller.resolve(catalogV1);
     controller.start(catalogV1);
 
@@ -87,7 +87,7 @@ class HotRedeployTest {
             .withDescriptor(ordersDescriptor("1.0.0"))
             .dependsOn(catalogV1Jar)
             .build(tempDir, "orders-1.0.0.jar");
-    ModuleId ordersV1 = registry.register(ModuleArtifactReader.read(ordersV1Jar));
+    ModuleInstanceId ordersV1 = registry.register(ModuleArtifactReader.read(ordersV1Jar));
     controller.resolve(ordersV1);
     controller.start(ordersV1);
 
@@ -98,7 +98,7 @@ class HotRedeployTest {
             .withDescriptor(
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.1.0"))
             .build(tempDir, "catalog-1.1.0.jar");
-    ModuleId catalogV2 = registry.register(ModuleArtifactReader.read(catalogV2Jar));
+    ModuleInstanceId catalogV2 = registry.register(ModuleArtifactReader.read(catalogV2Jar));
     controller.resolve(catalogV2);
     controller.start(catalogV2);
 
@@ -108,7 +108,7 @@ class HotRedeployTest {
             .withDescriptor(ordersDescriptor("1.1.0"))
             .dependsOn(catalogV1Jar)
             .build(tempDir, "orders-1.1.0.jar");
-    ModuleId ordersV2 = registry.register(ModuleArtifactReader.read(ordersV2Jar));
+    ModuleInstanceId ordersV2 = registry.register(ModuleArtifactReader.read(ordersV2Jar));
     var ordersV2Wiring = controller.resolve(ordersV2);
     controller.start(ordersV2);
 

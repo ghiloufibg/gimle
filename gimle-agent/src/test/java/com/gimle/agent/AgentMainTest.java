@@ -1012,10 +1012,39 @@ class AgentMainTest {
     assertTrue(reusable.isPresent());
   }
 
+  /**
+   * The one collision that must still be refused: the very same placement arriving twice. Two of
+   * those would contend for one set of the worker's per-instance state, which is the thing the
+   * instance key exists to keep apart.
+   */
   @Test
-  void a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica() {
-    // Two replicas of the same module landing in the same worker would corrupt WorkerRuntime's
-    // per-ModuleId keying -- must be excluded even though nothing else here disqualifies it.
+  void a_worker_already_hosting_this_exact_instance_is_never_reused_for_it_again() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor descriptor = descriptor("greeter", IsolationTier.TIER_1);
+    AssignedInstance replicaZero =
+        assignedInstance("greeter-deployment", descriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "greeter-deployment#0",
+        ownerInstance("greeter-deployment#0", replicaZero, descriptor, sharedConnection));
+
+    Optional<SupervisedInstance> reusable =
+        AgentMain.findReusableTier1Worker(
+            replicaZero,
+            descriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
+
+    assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void a_worker_already_hosting_a_sibling_replica_is_reused_for_the_next_one() {
+    // TIER_1 is classloader isolation with a shared crash domain by definition, so two replicas of
+    // one deployment are exactly what it is for. The worker keys its registry, layers and lifecycle
+    // state by instance, so the two do not collide; an operator wanting separate crash domains asks
+    // for TIER_2 or anti-affinity rather than getting it as a side effect of the density rule.
     WorkerConnection sharedConnection = fakeConnection();
     ModuleDescriptor descriptor = descriptor("greeter", IsolationTier.TIER_1);
     AssignedInstance replicaZero =
@@ -1037,7 +1066,7 @@ class AgentMainTest {
             AgentMain.DEFAULT_MAX_TIER1_DENSITY,
             DEFAULT_TIER1_BUDGET);
 
-    assertFalse(reusable.isPresent());
+    assertTrue(reusable.isPresent());
   }
 
   @Test
@@ -1951,7 +1980,9 @@ class AgentMainTest {
             assertTrue(received.get() instanceof ControlMessage.RenameInstance);
             ControlMessage.RenameInstance renameMessage =
                 (ControlMessage.RenameInstance) received.get();
-            assertEquals(v2.id(), renameMessage.id());
+            // The instance keeps the identity it was installed under; the rename carries its new
+            // deployment index in its own fields, not in the id.
+            assertEquals(AgentMain.moduleInstanceIdOf(surgeAssigned), renameMessage.id());
             assertEquals("orders-service", renameMessage.deploymentName());
             assertEquals(1, renameMessage.instanceIndex());
           }

@@ -1,6 +1,7 @@
 package com.gimle.core.protocol;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.tenant.NetworkPolicyRule;
@@ -269,16 +270,29 @@ public final class ControlMessageCodec {
     return fields.get(index);
   }
 
-  private static String encodeId(ModuleId id) {
-    return id.name() + "@" + id.version();
+  /**
+   * A running instance on the wire: {@code name@version} for one with no deployment identity, and
+   * {@code name@version|tenant/deployment#index} for one the control plane placed. The separator
+   * cannot occur in either half -- a version has no {@code |} and neither does a tenant id or
+   * deployment name -- and the key is appended rather than prepended so the version still ends at
+   * the last {@code @}.
+   */
+  private static String encodeId(ModuleInstanceId id) {
+    String coordinate = id.name() + "@" + id.version();
+    return id.instanceKey().isEmpty() ? coordinate : coordinate + "|" + id.instanceKey();
   }
 
-  private static ModuleId decodeId(String text) {
-    int at = text.lastIndexOf('@');
+  private static ModuleInstanceId decodeId(String text) {
+    int bar = text.indexOf('|');
+    String coordinate = bar < 0 ? text : text.substring(0, bar);
+    String instanceKey = bar < 0 ? "" : text.substring(bar + 1);
+    int at = coordinate.lastIndexOf('@');
     if (at < 0) {
       throw new IllegalArgumentException("malformed module id on wire: " + text);
     }
-    return new ModuleId(text.substring(0, at), Version.parse(text.substring(at + 1)));
+    return new ModuleInstanceId(
+        new ModuleId(coordinate.substring(0, at), Version.parse(coordinate.substring(at + 1))),
+        instanceKey);
   }
 
   /**

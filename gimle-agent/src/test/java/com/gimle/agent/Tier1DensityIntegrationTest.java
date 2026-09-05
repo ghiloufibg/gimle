@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -40,6 +40,78 @@ class Tier1DensityIntegrationTest {
   @Test
   void two_modules_share_one_worker_process_and_survive_one_being_stopped() throws Exception {
     assertTimeoutPreemptively(Duration.ofSeconds(60), this::runScenario);
+  }
+
+  /**
+   * Two replicas of one deployment are the same artifact by construction, so a worker that keyed
+   * its registry, layers and lifecycle state by module coordinate could not host both -- the second
+   * install read as an idempotent re-install of the first, and the two would have shared a single
+   * layer and a single lifecycle state. That is why siblings each got a worker of their own, which
+   * defeats the point of TIER_1: classloader isolation with a shared crash domain is exactly what
+   * TIER_1 is, and an operator wanting separate domains asks for TIER_2 or anti-affinity.
+   */
+  @Test
+  void two_replicas_of_one_deployment_share_a_worker_and_stop_independently() throws Exception {
+    assertTimeoutPreemptively(Duration.ofSeconds(60), this::runSiblingScenario);
+  }
+
+  private void runSiblingScenario() throws Exception {
+    Path jar =
+        TestModuleBuilder.module(
+                """
+                module com.gimle.fixture.density.replica {
+                }
+                """)
+            .withDescriptor(
+                TestModuleBuilder.minimalDescriptor("com.gimle.fixture.density.replica", "1.0.0"))
+            .build(tempDir, "replica.jar");
+
+    Path socketPath = Files.createTempDirectory("gimle-agent-uds-").resolve("c.sock");
+    List<String> baseCommand =
+        List.of(
+            javaExecutable(),
+            "-cp",
+            System.getProperty("java.class.path"),
+            "com.gimle.worker.WorkerMain",
+            "test-node",
+            "");
+    RestartTracker restartTracker =
+        new RestartTracker(
+            Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5), 3, Duration.ofMinutes(1));
+
+    try (ControlChannelServer server = new ControlChannelServer(socketPath)) {
+      WorkerProcessSupervisor supervisor =
+          new WorkerProcessSupervisor(
+              "worker-replica-it", () -> baseCommand, socketPath, restartTracker, id -> {});
+      try {
+        supervisor.start();
+        try (WorkerConnection connection = server.accept()) {
+          assertInstanceOf(ControlMessage.Hello.class, connection.receive().orElseThrow());
+
+          ModuleInstanceId replica0 = installAndStart(connection, jar, "corr-r0", "orders", 0);
+          ModuleInstanceId replica1 = installAndStart(connection, jar, "corr-r1", "orders", 1);
+
+          assertNotEquals(
+              replica0, replica1, "two replicas of one deployment must be distinct instances");
+
+          connection.send(new ControlMessage.StopModule("corr-stop-r0", replica0));
+          List<ControlMessage> stopMessages = receiveUntilAck(connection, "corr-stop-r0");
+          assertEquals(
+              List.of("STOPPING", "UNINSTALLED"),
+              stateChangesFor(stopMessages, replica0),
+              "stopMessages=" + stopMessages);
+          assertEquals(
+              List.of(),
+              stateChangesFor(stopMessages, replica1),
+              "stopping one replica must leave its sibling running");
+
+          connection.send(new ControlMessage.Ping("corr-ping"));
+          assertInstanceOf(ControlMessage.Pong.class, connection.receive().orElseThrow());
+        }
+      } finally {
+        supervisor.close();
+      }
+    }
   }
 
   private void runScenario() throws Exception {
@@ -85,13 +157,13 @@ class Tier1DensityIntegrationTest {
 
           // Install and start the first module over this connection -- the same shape
           // AgentMain#driveInstanceUp uses for a fresh worker.
-          ModuleId providerId = installAndStart(connection, providerJar, "corr-provider");
+          ModuleInstanceId providerId = installAndStart(connection, providerJar, "corr-provider");
 
           // A second module joins the *same already-open* connection -- exactly what
           // AgentMain#installIntoExistingWorker does for Tier 1 density, driven here directly
           // rather than through the agent, matching AgentWorkerIntegrationTest's own "drive the
           // protocol by hand" style.
-          ModuleId consumerId = installAndStart(connection, consumerJar, "corr-consumer");
+          ModuleInstanceId consumerId = installAndStart(connection, consumerJar, "corr-consumer");
 
           assertNotEquals(providerId, consumerId, "the two modules must be distinct");
 
@@ -123,14 +195,27 @@ class Tier1DensityIntegrationTest {
     }
   }
 
-  private static ModuleId installAndStart(
+  private static ModuleInstanceId installAndStart(
       WorkerConnection connection, Path jar, String correlationPrefix) throws IOException {
+    return installAndStart(connection, jar, correlationPrefix, "", -1);
+  }
+
+  private static ModuleInstanceId installAndStart(
+      WorkerConnection connection,
+      Path jar,
+      String correlationPrefix,
+      String deploymentName,
+      int instanceIndex)
+      throws IOException {
     connection.send(
         new ControlMessage.InstallModule(
-            correlationPrefix + "-install", jar.toAbsolutePath().toString()));
+            correlationPrefix + "-install",
+            jar.toAbsolutePath().toString(),
+            deploymentName,
+            instanceIndex));
     List<ControlMessage> installMessages =
         receiveUntilAck(connection, correlationPrefix + "-install");
-    ModuleId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
+    ModuleInstanceId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
 
     connection.send(new ControlMessage.ResolveModule(correlationPrefix + "-resolve", id));
     List<ControlMessage> resolveMessages =
@@ -173,7 +258,7 @@ class Tier1DensityIntegrationTest {
     }
   }
 
-  private static ModuleId extractModuleIdFromStateChange(
+  private static ModuleInstanceId extractModuleIdFromStateChange(
       List<ControlMessage> messages, String state) {
     return messages.stream()
         .filter(
@@ -185,7 +270,7 @@ class Tier1DensityIntegrationTest {
         .orElseThrow(() -> new AssertionError("no " + state + " state change in " + messages));
   }
 
-  private static List<String> stateChangesFor(List<ControlMessage> messages, ModuleId id) {
+  private static List<String> stateChangesFor(List<ControlMessage> messages, ModuleInstanceId id) {
     return messages.stream()
         .filter(
             m -> m instanceof ControlMessage.ModuleStateChanged changed && changed.id().equals(id))

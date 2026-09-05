@@ -18,6 +18,7 @@ import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
@@ -185,8 +186,7 @@ public final class AgentMain {
    * a deliberately conservative starting point rather than a measured optimum. See {@link
    * #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly, since this
    * only ever scans this agent's own {@code supervised} map; same tenant or both untenanted; never
-   * two instances of the same module, which would corrupt {@code WorkerRuntime}'s per-{@code
-   * ModuleId} keying; and the budget check above).
+   * the same placement twice; and the budget check above).
    */
   static final int DEFAULT_MAX_TIER1_DENSITY = 4;
 
@@ -2411,12 +2411,13 @@ public final class AgentMain {
       boolean allTier1 =
           group.stream().allMatch(i -> i.descriptor.isolationTier() == IsolationTier.TIER_1);
       boolean sameTenant = owner.assigned.tenantId().equals(assigned.tenantId());
-      // Installing the same ModuleId twice into one worker would corrupt WorkerRuntime's
-      // per-ModuleId keying (registry, identityRegistry, per-module schedulers) -- this can happen
-      // even with anti-affinity off, since two replicas of one module landing on the same node is
-      // already legal today; density must never let them land in the same *worker* too.
-      boolean noModuleConflict =
-          group.stream().noneMatch(i -> i.assigned.moduleId().equals(assigned.moduleId()));
+      // Two replicas of one deployment are welcome to share a worker: TIER_1 is by definition
+      // classloader isolation with a shared crash domain, and an operator who wants separate
+      // domains asks for TIER_2 or anti-affinity. What must never share a worker is one instance
+      // with itself -- the same placement arriving twice -- since the two would then contend for a
+      // single set of the worker's per-instance state.
+      boolean noInstanceConflict =
+          group.stream().noneMatch(i -> i.moduleInstanceId.equals(moduleInstanceIdOf(assigned)));
       boolean underDensityLimit = group.size() < maxTier1Density;
       // The density cap counts instances; this weighs them. Four 8Mi modules and four 900Mi
       // modules are the same to a count and nothing alike to a heap, so a worker is reused only
@@ -2428,7 +2429,7 @@ public final class AgentMain {
               workerSizeOf(owner, tier1Budget),
               group.stream().map(i -> i.descriptor).toList(),
               descriptor);
-      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit && fitsWorkerBudget) {
+      if (allTier1 && sameTenant && noInstanceConflict && underDensityLimit && fitsWorkerBudget) {
         return Optional.of(owner);
       }
     }
@@ -3275,15 +3276,14 @@ public final class AgentMain {
     pendingLifecycleCorrelations.put(resolveCorrelationId, key);
     connection.send(
         new ControlMessage.ResolveModule(
-            resolveCorrelationId, instance.assigned.moduleId(), dataDirectories));
+            resolveCorrelationId, instance.moduleInstanceId, dataDirectories));
     // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
     // Start, over this same ordered channel, so every module hook's config(key) lookups are
     // already backed by real values from the moment it starts.
     deliverConfig(instance, connection, httpClient, baseUrl, fafnirBaseUrl);
     String startCorrelationId = nextCorrelationId();
     pendingLifecycleCorrelations.put(startCorrelationId, key);
-    connection.send(
-        new ControlMessage.StartModule(startCorrelationId, instance.assigned.moduleId()));
+    connection.send(new ControlMessage.StartModule(startCorrelationId, instance.moduleInstanceId));
   }
 
   /**
@@ -3816,12 +3816,33 @@ public final class AgentMain {
   }
 
   /** Every {@code SupervisedInstance} sharing {@code connection} whose module is {@code id}. */
+  /**
+   * Which supervised instance a worker's report is about. Matched on the full instance identity,
+   * not just the module coordinate: two replicas of one deployment sharing a worker report the same
+   * coordinate, and a coordinate-only match would hand every one of the second replica's reports to
+   * the first.
+   */
   private static Optional<SupervisedInstance> findByModuleId(
-      Map<String, SupervisedInstance> supervised, WorkerConnection connection, ModuleId id) {
+      Map<String, SupervisedInstance> supervised,
+      WorkerConnection connection,
+      ModuleInstanceId id) {
     return supervised.values().stream()
         .filter(candidate -> candidate.connection == connection)
-        .filter(candidate -> candidate.assigned.moduleId().equals(id))
+        .filter(candidate -> candidate.moduleInstanceId.equals(id))
         .findFirst();
+  }
+
+  /**
+   * The identity the worker will key this instance by, derived here from the assignment the agent
+   * already holds. Computed identically on both sides -- there is nothing to send, and nothing that
+   * can drift.
+   */
+  static ModuleInstanceId moduleInstanceIdOf(AssignedInstance assigned) {
+    return ModuleInstanceId.of(
+        assigned.moduleId(),
+        assigned.tenantId().orElse(""),
+        assigned.deploymentName(),
+        assigned.instanceIndex());
   }
 
   private static void syncCatalogToWorker(SupervisedInstance instance, ServiceCatalog catalog) {
@@ -3855,7 +3876,7 @@ public final class AgentMain {
       SupervisedInstance instance,
       GossipMember gossipMember,
       ServiceCatalog catalog,
-      ModuleId moduleId,
+      ModuleInstanceId moduleId,
       ServiceExport export,
       boolean present) {
     if (instance.fabricWorkerId == null) {
@@ -3920,7 +3941,7 @@ public final class AgentMain {
         String stopCorrelationId = nextCorrelationId();
         pendingLifecycleCorrelations.put(stopCorrelationId, key);
         connection.send(
-            new ControlMessage.StopModule(stopCorrelationId, instance.assigned.moduleId()));
+            new ControlMessage.StopModule(stopCorrelationId, instance.moduleInstanceId));
         if (!awaitGracefulUninstall(instance, key) && instance.fabricWorkerId != null) {
           // The worker never confirmed UNINSTALLED within its grace period, so its own
           // ServiceUnregistered notification for this export -- WorkerRuntime#onUninstalled's
@@ -4339,9 +4360,11 @@ public final class AgentMain {
     if (connection != null) {
       try {
         connection.send(
+            // Addressed by the identity the worker installed it under, which a rename does not
+            // change -- what changes is the deployment name and index it reports itself as.
             new ControlMessage.RenameInstance(
                 nextCorrelationId(),
-                assigned.moduleId(),
+                instance.moduleInstanceId,
                 assigned.deploymentName(),
                 assigned.instanceIndex()));
       } catch (IOException e) {

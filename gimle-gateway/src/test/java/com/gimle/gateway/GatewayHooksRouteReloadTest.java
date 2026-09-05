@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
@@ -136,7 +137,8 @@ class GatewayHooksRouteReloadTest {
                 "gateway.controlPlaneEndpoint",
                 "127.0.0.1:" + controlPlane.getAddress().getPort()));
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
-    ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
+    ModuleInstanceId gatewayId =
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0")));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
     return new SimpleModuleContext(gatewayId, registry, configValues);
   }

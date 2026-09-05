@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.cluster.MemberId;
@@ -38,7 +39,7 @@ class ServiceCatalogCodecTest {
             new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0")),
             "node-1",
             "worker-1",
-            new ModuleId("greeter", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(new ModuleId("greeter", Version.parse("1.0.0"))),
             5L,
             true,
             NODE,

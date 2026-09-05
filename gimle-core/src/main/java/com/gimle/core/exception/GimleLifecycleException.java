@@ -1,6 +1,6 @@
 package com.gimle.core.exception;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 
 /**
  * A module lifecycle hook threw, or an illegal state transition was requested. Thrown synchronously
@@ -16,13 +16,13 @@ public class GimleLifecycleException extends RuntimeException {
   }
 
   public static GimleLifecycleException hookFailed(
-      ModuleId moduleId, String hookName, Throwable cause) {
+      ModuleInstanceId moduleId, String hookName, Throwable cause) {
     return new GimleLifecycleException(
         "module " + moduleId + " lifecycle hook '" + hookName + "' threw an exception", cause);
   }
 
   public static GimleLifecycleException illegalTransition(
-      ModuleId moduleId, String from, String to) {
+      ModuleInstanceId moduleId, String from, String to) {
     return new GimleLifecycleException(
         "module " + moduleId + " cannot transition from " + from + " to " + to, null);
   }

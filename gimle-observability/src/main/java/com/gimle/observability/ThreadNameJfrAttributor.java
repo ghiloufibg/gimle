@@ -1,6 +1,6 @@
 package com.gimle.observability;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
@@ -63,11 +63,11 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
     this.stream = started;
   }
 
-  public void registerModule(ModuleId id) {
+  public void registerModule(ModuleInstanceId id) {
     livePrefixes.add(prefixFor(id));
   }
 
-  public void unregisterModule(ModuleId id) {
+  public void unregisterModule(ModuleInstanceId id) {
     String prefix = prefixFor(id);
     livePrefixes.remove(prefix);
     threadNameToPrefix.values().removeIf(prefix::equals);
@@ -122,7 +122,7 @@ public final class ThreadNameJfrAttributor implements AutoCloseable {
     return Optional.empty();
   }
 
-  private static String prefixFor(ModuleId id) {
+  private static String prefixFor(ModuleInstanceId id) {
     return "gimle-" + id.name() + "-" + id.version() + "-";
   }
 

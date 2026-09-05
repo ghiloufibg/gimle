@@ -1,6 +1,6 @@
 package com.gimle.module.leak;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -9,7 +9,7 @@ import java.util.Optional;
  * detection window has elapsed, meaning it was not garbage collected as expected.
  */
 public record ModuleLeakDetected(
-    ModuleId id, Duration survivalTime, Optional<String> retainingPath) {
+    ModuleInstanceId id, Duration survivalTime, Optional<String> retainingPath) {
 
   public ModuleLeakDetected {
     if (id == null) {

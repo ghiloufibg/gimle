@@ -1,6 +1,6 @@
 package com.gimle.fabric.catalog;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.cluster.MemberState;
@@ -82,7 +82,7 @@ public final class ServiceCatalog implements PiggybackExtension {
   public void localRegister(
       MemberId node,
       String workerId,
-      ModuleId moduleId,
+      ModuleInstanceId moduleId,
       ServiceExport export,
       Optional<String> udsPath,
       InetSocketAddress tcpAddress) {
@@ -128,7 +128,7 @@ public final class ServiceCatalog implements PiggybackExtension {
 
   /** Called on {@code ControlMessage.ServiceUnregistered}. */
   public void localUnregister(
-      MemberId node, String workerId, ModuleId moduleId, ServiceExport export) {
+      MemberId node, String workerId, ModuleInstanceId moduleId, ServiceExport export) {
     apply(
         new CatalogDelta(
             export,
@@ -243,7 +243,7 @@ public final class ServiceCatalog implements PiggybackExtension {
   public void applyExternalUpdate(
       String nodeId,
       String workerId,
-      ModuleId moduleId,
+      ModuleInstanceId moduleId,
       ServiceExport export,
       long version,
       boolean present,
@@ -455,7 +455,7 @@ public final class ServiceCatalog implements PiggybackExtension {
     }
   }
 
-  private record InstanceKey(String nodeId, String workerId, ModuleId moduleId) {}
+  private record InstanceKey(String nodeId, String workerId, ModuleInstanceId moduleId) {}
 
   private record VersionedEntry(ServiceEndpoint endpoint, long version, boolean present) {}
 }

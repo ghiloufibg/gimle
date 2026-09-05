@@ -28,34 +28,29 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Regression for the M34 "wedged at INSTALLED forever, zero log output" symptom: a second Job
- * instance packed onto an already-running shared Tier 1 worker whose {@code ModuleId} (name,
- * version, and jar content) is identical to one still resident there from an earlier run -- exactly
- * what a recurring Job re-run produces once {@code AgentMain#stopInstance}'s bare {@code
- * StopModule} is nacked by a completed job (see {@link Tier1DensityJobCompletionIntegrationTest})
- * and leaves that {@code ModuleId} behind at {@code COMPLETED} instead of actually uninstalling it.
- * {@link com.gimle.module.resolve.ModuleRegistry#register} treats an identical-content re-install
- * as an idempotent no-op rather than resetting the module's state, so the later job's own {@code
- * ResolveModule} genuinely fails on the worker ({@code ModuleController#resolve} requires {@code
- * INSTALLED}, not {@code COMPLETED}) and comes back as a {@link ControlMessage.Nack}.
+ * A recurring Job's second run, packed onto the shared Tier 1 worker its first run is still
+ * resident on. This used to wedge: {@code AgentMain#stopInstance} sends a bare {@code StopModule}
+ * that a completed job nacks (see {@link Tier1DensityJobCompletionIntegrationTest}), leaving the
+ * first run behind at {@code COMPLETED}; the worker then keyed its registry by module coordinate,
+ * so the second run's install read as an idempotent re-install of that leftover and its {@code
+ * ResolveModule} genuinely failed ({@code ModuleController#resolve} requires {@code INSTALLED}, not
+ * {@code COMPLETED}).
  *
- * <p>{@link ControlMessage.Nack} carries no {@code ModuleId}, so under Tier 1 density {@link
- * AgentMain#readLoop} previously had only the connection-owning {@code SupervisedInstance} to apply
- * it to -- the wrong one, since the owner here is the earlier, already-{@code COMPLETED} job, not
- * the new one whose command actually failed. The owner's own {@code lifecycleState} guard ({@code
- * "INSTALLED".equals(...)}) never matched (it is {@code COMPLETED}), so the nack was silently
- * swallowed and the real, new instance stayed at {@code INSTALLED} forever -- exactly the reported
- * symptom: a healthy shared worker, a stuck instance, and nothing anywhere naming it.
+ * <p>Keying the worker by instance removes the collision at its source: the second run is a
+ * different instance of the same artifact, so it installs into its own state and starts normally
+ * alongside the leftover. What this test still holds onto is that the two are genuinely independent
+ * -- the second reaching {@code ACTIVE} must not disturb the first's terminal state, which is the
+ * same demux {@link ControlMessage.Nack} needs, since a nack carries no id of its own and can only
+ * be applied to whichever sibling's command actually failed.
  */
-class Tier1DensityModuleIdCollisionTest {
+class Tier1DensityRepeatJobRunTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
   @Test
   @Timeout(60)
-  void a_second_instance_of_the_same_module_id_is_marked_failed_not_wedged_at_installed()
-      throws Exception {
+  void a_repeat_job_run_starts_alongside_the_leftover_it_used_to_collide_with() throws Exception {
     Path jobJar =
         TestModuleBuilder.module(
                 """
@@ -171,9 +166,9 @@ class Tier1DensityModuleIdCollisionTest {
             // the collision below possible.
             supervised.remove("first-job#0");
 
-            // A second instance of the *identical* module (same name, version, and jar content)
-            // now joins the same worker -- exactly what AgentMain#installIntoExistingWorker does
-            // once findReusableTier1Worker offers this worker up again for a repeat Job run.
+            // The repeat run joins the same worker -- exactly what
+            // AgentMain#installIntoExistingWorker does once findReusableTier1Worker offers this
+            // worker up again.
             AgentMain.sendInstallStartSequence(
                 secondInstance,
                 "second-job#1",
@@ -183,17 +178,17 @@ class Tier1DensityModuleIdCollisionTest {
                 null,
                 volumeManager);
 
-            // Before the fix, this instance stayed at "INSTALLED" forever: the worker's own
-            // ResolveModule Nack (COMPLETED is not a legal state to resolve from) was applied to
-            // `firstInstance`, whose own lifecycleState guard never matched, so nothing happened.
+            // COMPLETED, not ACTIVE: this fixture's job hooks run to completion, so a repeat run
+            // that installs and starts cleanly passes straight through ACTIVE to its own terminal
+            // state -- the same run the first one made.
             Await.until(
-                () -> "FAILED".equals(secondInstance.lifecycleState),
+                () -> "COMPLETED".equals(secondInstance.lifecycleState),
                 Duration.ofSeconds(20),
-                "second instance should be reported FAILED, not wedged at INSTALLED, once its"
-                    + " install sequence collides with the first job's still-resident ModuleId");
+                "the repeat run is its own instance, so it installs and runs rather than"
+                    + " colliding with the first run's leftover state");
 
-            // The first (already-completed) instance must never be clobbered by the second's own
-            // failure -- proof the fix routes the nack to the right instance, not just any.
+            // The first run's terminal state must survive its sibling starting up in the same
+            // worker -- proof each instance's own reports reach only itself.
             assertEquals("COMPLETED", firstInstance.lifecycleState);
           } finally {
             readerThread.interrupt();

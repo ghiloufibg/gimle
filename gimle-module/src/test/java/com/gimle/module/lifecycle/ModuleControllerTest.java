@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.exception.GimleLifecycleException;
 import com.gimle.core.exception.GimleResolutionException;
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Requirement;
 import com.gimle.core.module.VersionRange;
 import com.gimle.module.artifact.ModuleArtifactReader;
@@ -55,14 +55,14 @@ class ModuleControllerTest {
   private record Fixture(
       ModuleRegistry registry,
       ModuleController controller,
-      ModuleId id,
+      ModuleInstanceId id,
       List<LifecycleEvent> events) {}
 
   private Fixture fixtureFor(String name) {
     Path jar = buildFixtureJar(name);
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new ArrayList<>();
@@ -150,7 +150,7 @@ class ModuleControllerTest {
                 baseArtifact.descriptor().jobHooksClass(),
                 baseArtifact.descriptor().volumes()),
             baseArtifact.sha256());
-    ModuleId id = registry.register(withMissingDep);
+    ModuleInstanceId id = registry.register(withMissingDep);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new ArrayList<>();

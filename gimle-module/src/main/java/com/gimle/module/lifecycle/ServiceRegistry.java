@@ -1,6 +1,7 @@
 package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.NoSuchElementException;
@@ -15,7 +16,17 @@ import java.util.Optional;
  */
 public interface ServiceRegistry {
 
-  <T> void register(ModuleId owner, Class<T> iface, T instance);
+  /**
+   * {@code owner} is the registering <em>instance</em>, not its artifact: two replicas of one
+   * deployment sharing a worker register the same interface from the same artifact, and everything
+   * below that removes or marks an owner's entries has to reach exactly one of them.
+   */
+  <T> void register(ModuleInstanceId owner, Class<T> iface, T instance);
+
+  /** For a module with no deployment identity -- see {@link ModuleInstanceId}'s own javadoc. */
+  default <T> void register(ModuleId owner, Class<T> iface, T instance) {
+    register(ModuleInstanceId.unattached(owner), iface, instance);
+  }
 
   /**
    * Selects among every ready, registered instance of {@code iface} — round-robin, not
@@ -51,12 +62,17 @@ public interface ServiceRegistry {
   Optional<OwnedInstance> lookupOwnedByInterfaceName(String interfaceName);
 
   /** One round-robin pick from {@link #lookupOwnedByInterfaceName}, paired with its owner. */
-  record OwnedInstance(ModuleId owner, Object instance) {}
+  record OwnedInstance(ModuleInstanceId owner, Object instance) {}
 
   /**
    * Stops handing out new references to {@code owner}'s services; existing callers are unaffected.
    */
-  void markUnready(ModuleId owner);
+  void markUnready(ModuleInstanceId owner);
+
+  /** For a module with no deployment identity -- see {@link ModuleInstanceId}'s own javadoc. */
+  default void markUnready(ModuleId owner) {
+    markUnready(ModuleInstanceId.unattached(owner));
+  }
 
   /**
    * Reverses {@link #markUnready}: {@code owner}'s services become eligible for {@link #lookup}
@@ -64,10 +80,20 @@ public interface ServiceRegistry {
    * the readiness probe loop keeps ticking after a module's own teardown starts, and a late
    * in-flight tick calling this on a gone owner must not resurrect a phantom entry.
    */
-  void markReady(ModuleId owner);
+  void markReady(ModuleInstanceId owner);
+
+  /** For a module with no deployment identity -- see {@link ModuleInstanceId}'s own javadoc. */
+  default void markReady(ModuleId owner) {
+    markReady(ModuleInstanceId.unattached(owner));
+  }
 
   /** Removes everything {@code owner} registered. */
-  void remove(ModuleId owner);
+  void remove(ModuleInstanceId owner);
+
+  /** For a module with no deployment identity -- see {@link ModuleInstanceId}'s own javadoc. */
+  default void remove(ModuleId owner) {
+    remove(ModuleInstanceId.unattached(owner));
+  }
 
   /**
    * Cross-tier, name-driven invocation for a caller that only has a service's identity as plain

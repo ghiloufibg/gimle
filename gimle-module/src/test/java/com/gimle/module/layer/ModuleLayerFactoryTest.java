@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.exception.GimleResolutionException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
@@ -42,7 +43,8 @@ class ModuleLayerFactoryTest {
             .withDescriptor(TestModuleBuilder.minimalDescriptor("com.gimle.fixture.leaf", "1.0.0"))
             .build(tempDir, "leaf.jar");
 
-    ModuleId id = new ModuleId("com.gimle.fixture.leaf", Version.parse("1.0.0"));
+    ModuleInstanceId id =
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.fixture.leaf", Version.parse("1.0.0")));
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleLayerHandle handle =
         ModuleLayerFactory.create(id, jar, List.of(platform), ClassLoader.getSystemClassLoader());
@@ -72,7 +74,9 @@ class ModuleLayerFactoryTest {
                 TestModuleBuilder.minimalDescriptor("com.gimle.fixture.catalog", "1.0.0"))
             .build(tempDir, "catalog.jar");
 
-    ModuleId depId = new ModuleId("com.gimle.fixture.catalog", Version.parse("1.0.0"));
+    ModuleInstanceId depId =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.catalog", Version.parse("1.0.0")));
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleLayerHandle depHandle =
         ModuleLayerFactory.create(
@@ -100,7 +104,9 @@ class ModuleLayerFactoryTest {
             .dependsOn(depJar)
             .build(tempDir, "orders.jar");
 
-    ModuleId orderId = new ModuleId("com.gimle.fixture.orders", Version.parse("1.0.0"));
+    ModuleInstanceId orderId =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.orders", Version.parse("1.0.0")));
     ModuleLayerHandle orderHandle =
         ModuleLayerFactory.create(
             orderId,
@@ -144,13 +150,15 @@ class ModuleLayerFactoryTest {
 
     ModuleLayerHandle v1 =
         ModuleLayerFactory.create(
-            new ModuleId("com.gimle.fixture.versioned", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(
+                new ModuleId("com.gimle.fixture.versioned", Version.parse("1.0.0"))),
             jarV1,
             List.of(platform),
             ClassLoader.getSystemClassLoader());
     ModuleLayerHandle v2 =
         ModuleLayerFactory.create(
-            new ModuleId("com.gimle.fixture.versioned", Version.parse("2.0.0")),
+            ModuleInstanceId.unattached(
+                new ModuleId("com.gimle.fixture.versioned", Version.parse("2.0.0"))),
             jarV2,
             List.of(platform),
             ClassLoader.getSystemClassLoader());
@@ -194,7 +202,9 @@ class ModuleLayerFactoryTest {
             .dependsOn(neededJar)
             .build(tempDir, "broken.jar");
 
-    ModuleId id = new ModuleId("com.gimle.fixture.broken", Version.parse("1.0.0"));
+    ModuleInstanceId id =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.broken", Version.parse("1.0.0")));
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
 
     // Deliberately omit the "needed" layer from the parents.

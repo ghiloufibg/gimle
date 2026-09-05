@@ -3,6 +3,7 @@ package com.gimle.worker;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import com.gimle.worker.testsupport.WiredWorkerRuntime;
@@ -111,7 +112,9 @@ class WorkerRuntimeReportedPortsTest {
             new InstanceIdentityRegistry(),
             identity -> {});
 
-    ModuleId unrelated = new ModuleId("com.gimle.fixture.doesnotexist", Version.parse("1.0.0"));
+    ModuleInstanceId unrelated =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.doesnotexist", Version.parse("1.0.0")));
     assertEquals(Map.of(), f.runtime().reportedPortsFor(unrelated));
   }
 }

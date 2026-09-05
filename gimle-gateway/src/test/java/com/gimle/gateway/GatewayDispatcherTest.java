@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.gateway.GatewayDispatcher.GatewayResponse;
 import com.gimle.gateway.GatewayRoute.FabricRoute;
@@ -64,16 +65,18 @@ class GatewayDispatcherTest {
   private static SimpleModuleContext contextWithGreeter(TestGreeter greeter) {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(
-        new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"))),
         TestGreeter.class,
         greeter);
     return new SimpleModuleContext(
-        new ModuleId("com.gimle.gateway", Version.parse("1.0.0")), registry);
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
+        registry);
   }
 
   private static SimpleModuleContext contextWithRelay(RelayResult relayResult) {
     return new SimpleModuleContext(
-        new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
         new SimpleServiceRegistry(),
         new ConcurrentHashMap<>(),
         Map.of(),
@@ -110,12 +113,14 @@ class GatewayDispatcherTest {
         };
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(
-        new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"))),
         TestGreeterAndPinger.class,
         service);
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")), registry);
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
+            registry);
     GatewayDispatcher dispatcher =
         new GatewayDispatcher(
             ctx,
@@ -276,7 +281,8 @@ class GatewayDispatcherTest {
     SimpleServiceRegistry emptyRegistry = new SimpleServiceRegistry();
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")), emptyRegistry);
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
+            emptyRegistry);
     GatewayDispatcher dispatcher =
         new GatewayDispatcher(
             ctx, List.of(new FabricRoute("/greet", GREETER_IFACE, 1, "greet", ParamType.STRING)));
@@ -295,7 +301,8 @@ class GatewayDispatcherTest {
         new ModuleId("com.gimle.example.adder", Version.parse("1.0.0")), TestAdder.class, adder);
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")), registry);
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
+            registry);
     GatewayDispatcher dispatcher =
         new GatewayDispatcher(
             ctx,
@@ -747,7 +754,8 @@ class GatewayDispatcherTest {
                           + "}}]"));
       SimpleModuleContext ctx =
           new SimpleModuleContext(
-              new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+              ModuleInstanceId.unattached(
+                  new ModuleId("com.gimle.gateway", Version.parse("1.0.0"))),
               new SimpleServiceRegistry(),
               new ConcurrentHashMap<>(),
               Map.of(),

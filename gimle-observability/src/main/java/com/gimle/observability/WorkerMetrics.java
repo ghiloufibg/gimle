@@ -1,6 +1,6 @@
 package com.gimle.observability;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -30,8 +30,8 @@ public final class WorkerMetrics {
   private final MeterRegistry registry;
   private final TaggedRequestMetrics metrics;
   private final TaggedRequestMetrics clientMetrics;
-  private final Map<ModuleId, AtomicLong> threadCounts = new ConcurrentHashMap<>();
-  private final Map<ModuleId, AtomicLong> metaspaceBytes = new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, AtomicLong> threadCounts = new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, AtomicLong> metaspaceBytes = new ConcurrentHashMap<>();
   private final Map<Tags, AtomicLong> circuitBreakerStates = new ConcurrentHashMap<>();
 
   public WorkerMetrics() {
@@ -60,7 +60,7 @@ public final class WorkerMetrics {
     return registry;
   }
 
-  public void recordRequest(ModuleId id, Duration latency, boolean error) {
+  public void recordRequest(ModuleInstanceId id, Duration latency, boolean error) {
     metrics.record(tagsFor(id), latency, error);
   }
 
@@ -71,14 +71,14 @@ public final class WorkerMetrics {
    * a known interval apart and divides the delta, the same pattern {@code recordThreadCount}'s own
    * gauge-vs-counter split already implies: this class exposes cumulative totals, not rates.
    */
-  public double requestCount(ModuleId id) {
+  public double requestCount(ModuleInstanceId id) {
     return metrics.count(tagsFor(id));
   }
 
   /**
    * Same shape as {@link #requestCount}, for the error-only counter {@link #recordRequest} feeds.
    */
-  public double errorCount(ModuleId id) {
+  public double errorCount(ModuleInstanceId id) {
     return metrics.errorCount(tagsFor(id));
   }
 
@@ -86,9 +86,9 @@ public final class WorkerMetrics {
    * The outbound-call counterpart of {@link #recordRequest}: a worker whose hosted module only ever
    * *calls out* through the fabric (never receives an inbound call itself, so {@link
    * #recordRequest} never fires for it) still produces real request-rate/latency/error telemetry
-   * this way, tagged by the callee interface name rather than a {@link ModuleId} -- the caller-side
-   * registry ({@code FabricServiceRegistry}) has no reliable calling-module identity to tag by,
-   * only the interface it dialed.
+   * this way, tagged by the callee interface name rather than a {@link ModuleInstanceId} -- the
+   * caller-side registry ({@code FabricServiceRegistry}) has no reliable calling-module identity to
+   * tag by, only the interface it dialed.
    */
   public void recordClientRequest(String interfaceName, Duration latency, boolean error) {
     clientMetrics.record(clientTagsFor(interfaceName), latency, error);
@@ -177,11 +177,11 @@ public final class WorkerMetrics {
     return Tags.of("interface", interfaceName, "endpoint", endpoint);
   }
 
-  public void recordThreadCount(ModuleId id, long count) {
+  public void recordThreadCount(ModuleInstanceId id, long count) {
     gaugeHolder(threadCounts, "gimle.module.threads", id).set(count);
   }
 
-  public void recordMetaspaceBytes(ModuleId id, long bytes) {
+  public void recordMetaspaceBytes(ModuleInstanceId id, long bytes) {
     gaugeHolder(metaspaceBytes, "gimle.module.metaspace.bytes", id).set(bytes);
   }
 
@@ -191,31 +191,40 @@ public final class WorkerMetrics {
    * many versions (or the same version repeatedly) doesn't accumulate one permanent meter set per
    * {@code (module, version)} forever. Called once {@code id} is uninstalled, never on a mere stop:
    * a stopped-but-still-installed module can restart and pick its counters back up, but an
-   * uninstalled one is gone for good and so is its ModuleId. {@link #clientMetrics} isn't touched
-   * here -- it's tagged by callee interface name, not {@link ModuleId}, since the caller side has
-   * no reliable calling-module identity to evict by (see {@link #recordClientRequest}'s own
-   * javadoc).
+   * uninstalled one is gone for good and so is its ModuleInstanceId. {@link #clientMetrics} isn't
+   * touched here -- it's tagged by callee interface name, not {@link ModuleInstanceId}, since the
+   * caller side has no reliable calling-module identity to evict by (see {@link
+   * #recordClientRequest}'s own javadoc).
    */
-  public void evict(ModuleId id) {
+  public void evict(ModuleInstanceId id) {
     Tags tags = tagsFor(id);
     metrics.evict(tags);
     evictGauge(threadCounts, "gimle.module.threads", id, tags);
     evictGauge(metaspaceBytes, "gimle.module.metaspace.bytes", id, tags);
   }
 
-  private AtomicLong gaugeHolder(Map<ModuleId, AtomicLong> holders, String name, ModuleId id) {
+  private AtomicLong gaugeHolder(
+      Map<ModuleInstanceId, AtomicLong> holders, String name, ModuleInstanceId id) {
     return holders.computeIfAbsent(
         id, key -> registry.gauge(name, tagsFor(id), new AtomicLong(), AtomicLong::get));
   }
 
-  private void evictGauge(Map<ModuleId, AtomicLong> holders, String name, ModuleId id, Tags tags) {
+  private void evictGauge(
+      Map<ModuleInstanceId, AtomicLong> holders, String name, ModuleInstanceId id, Tags tags) {
     if (holders.remove(id) == null) {
       return;
     }
     registry.find(name).tags(tags).gauges().forEach(registry::remove);
   }
 
-  private static Tags tagsFor(ModuleId id) {
-    return Tags.of("module", id.name(), "version", id.version().toString());
+  /**
+   * Two replicas of one deployment sharing a worker are the same module at the same version, so
+   * without the instance key their series would merge and each would report the other's traffic as
+   * its own. The key is empty for a module with no deployment identity, which keeps the tag set
+   * unchanged for every such module.
+   */
+  private static Tags tagsFor(ModuleInstanceId id) {
+    return Tags.of(
+        "module", id.name(), "version", id.version().toString(), "instance", id.instanceKey());
   }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.ControlMessage;
@@ -46,8 +47,9 @@ class FabricServiceRegistryTest {
 
   private static final ServiceExport GREETER_EXPORT =
       new ServiceExport(Greeter.class.getName(), Version.parse("1.0.0"));
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
 
   private final MemberId selfNode =
       new MemberId("node-a", new InetSocketAddress("127.0.0.1", 7946));
@@ -878,8 +880,12 @@ class FabricServiceRegistryTest {
     InetSocketAddress oldAddress = startBackend(name -> "old:" + name);
     InetSocketAddress newAddress = startBackend(name -> "new:" + name);
 
-    ModuleId oldOwner = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
-    ModuleId newOwner = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.1"));
+    ModuleInstanceId oldOwner =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
+    ModuleInstanceId newOwner =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.1")));
     MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
     ServiceCatalog catalog = new ServiceCatalog();
     catalog.localRegister(
@@ -921,13 +927,16 @@ class FabricServiceRegistryTest {
     // would exhibit.
     for (int generation = 0; generation < 4; generation++) {
       String workerId = "worker-gen" + generation;
-      ModuleId owner =
-          new ModuleId("com.gimle.example.greeter", Version.parse("1.0." + generation));
+      ModuleInstanceId owner =
+          ModuleInstanceId.unattached(
+              new ModuleId("com.gimle.example.greeter", Version.parse("1.0." + generation)));
       if (priorWorkerId != null) {
         catalog.localUnregister(
             nodeB,
             priorWorkerId,
-            new ModuleId("com.gimle.example.greeter", Version.parse("1.0." + (generation - 1))),
+            ModuleInstanceId.unattached(
+                new ModuleId(
+                    "com.gimle.example.greeter", Version.parse("1.0." + (generation - 1)))),
             GREETER_EXPORT);
       }
       catalog.localRegister(

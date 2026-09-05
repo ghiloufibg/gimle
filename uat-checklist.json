@@ -1211,7 +1211,7 @@
       "module": "gimle-agent",
       "category": "Worker Supervision",
       "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
-      "step": "Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap and shared-worker budget When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's owning instance for reuse, whether or not that worker has finished connecting yet Given the worker is at the density cap, over its shared-worker budget, already hosts the same moduleId, hosts a non-TIER_1 instance, or its owning instance is no longer present Then it is never reused Given twelve Tier-1 instances of distinct modules are all assigned in the same reconcile tick, with a density cap of four When each is placed via findReusableTier1Worker in turn Then they land on three shared workers, not twelve separate ones",
+      "step": "Given a Tier 1 worker already hosting one replica of a deployment, under the density cap and within its heap budget When another replica of that same deployment is assigned to this node Then it is packed onto the same worker rather than spawning a second JVM And each replica reaches ACTIVE on its own, with stopping one leaving the other running And the same placement arriving twice is still refused",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

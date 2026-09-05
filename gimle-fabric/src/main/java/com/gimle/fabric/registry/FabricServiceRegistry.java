@@ -1,7 +1,7 @@
 package com.gimle.fabric.registry;
 
 import com.gimle.core.exception.GimleClusterException;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.ControlMessage;
@@ -85,7 +85,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final String workerId;
   private final ServiceRegistry localRegistry;
   private final ServiceCatalog catalog;
-  private final Function<ModuleId, List<ServiceExport>> exportsOf;
+  private final Function<ModuleInstanceId, List<ServiceExport>> exportsOf;
   private final Consumer<ControlMessage> controlChannel;
   private final ClassLoader interfaceLoader;
   private final int breakerWindowSize;
@@ -108,7 +108,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final Map<ServiceEndpoint, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final LeastOutstandingRequestsSelector<ServiceEndpoint> selector =
       new LeastOutstandingRequestsSelector<>();
-  private final Map<ModuleId, Set<ServiceExport>> registeredExportsByOwner =
+  private final Map<ModuleInstanceId, Set<ServiceExport>> registeredExportsByOwner =
       new ConcurrentHashMap<>();
 
   public FabricServiceRegistry(
@@ -116,7 +116,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       String workerId,
       ServiceRegistry localRegistry,
       ServiceCatalog catalog,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Consumer<ControlMessage> controlChannel,
       ClassLoader interfaceLoader,
       int breakerWindowSize,
@@ -148,7 +148,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       String workerId,
       ServiceRegistry localRegistry,
       ServiceCatalog catalog,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Consumer<ControlMessage> controlChannel,
       ClassLoader interfaceLoader,
       int breakerWindowSize,
@@ -181,7 +181,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       String workerId,
       ServiceRegistry localRegistry,
       ServiceCatalog catalog,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Consumer<ControlMessage> controlChannel,
       ClassLoader interfaceLoader,
       int breakerWindowSize,
@@ -227,7 +227,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       String workerId,
       ServiceRegistry localRegistry,
       ServiceCatalog catalog,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Consumer<ControlMessage> controlChannel,
       ClassLoader interfaceLoader,
       int breakerWindowSize,
@@ -257,8 +257,8 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * {@code metrics} lets this registry record the client-side half of a cross-worker fabric call's
    * request rate/latency/error counters -- the {@link WorkerMetrics} counterpart of what {@code
    * FabricServer} already records for the server (inbound-dispatch) side, tagged by interface name
-   * rather than {@link ModuleId} since a lookup caller's own module identity isn't threaded through
-   * {@link #lookup}/{@link #invokeByName}. Absent (every other constructor) means a
+   * rather than an owning instance since a lookup caller's own module identity isn't threaded
+   * through {@link #lookup}/{@link #invokeByName}. Absent (every other constructor) means a
    * same-worker-only test or a worker not wired with a real {@code WorkerMetrics} instance records
    * nothing, exactly today's unchanged behavior.
    */
@@ -267,7 +267,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       String workerId,
       ServiceRegistry localRegistry,
       ServiceCatalog catalog,
-      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Function<ModuleInstanceId, List<ServiceExport>> exportsOf,
       Consumer<ControlMessage> controlChannel,
       ClassLoader interfaceLoader,
       int breakerWindowSize,
@@ -294,7 +294,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public <T> void register(ModuleId owner, Class<T> iface, T instance) {
+  public <T> void register(ModuleInstanceId owner, Class<T> iface, T instance) {
     localRegistry.register(owner, iface, instance);
     Optional<ServiceExport> export = exportFor(owner, iface);
     if (export.isEmpty()) {
@@ -562,7 +562,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public void markUnready(ModuleId owner) {
+  public void markUnready(ModuleInstanceId owner) {
     localRegistry.markUnready(owner);
     // Deliberately no catalog/wire effect: a same-worker readiness demotion is tolerated as
     // ordinary staleness the receiving endpoint's circuit breaker already handles, not a special
@@ -570,14 +570,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public void markReady(ModuleId owner) {
+  public void markReady(ModuleInstanceId owner) {
     localRegistry.markReady(owner);
     // Same local-only posture as markUnready above: no catalog/wire effect needed for the
     // reciprocal transition either.
   }
 
   @Override
-  public void remove(ModuleId owner) {
+  public void remove(ModuleInstanceId owner) {
     localRegistry.remove(owner);
     Set<ServiceExport> exports = registeredExportsByOwner.remove(owner);
     if (exports == null) {
@@ -599,7 +599,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return selfTenantId.isEmpty();
   }
 
-  private Optional<ServiceExport> exportFor(ModuleId owner, Class<?> iface) {
+  private Optional<ServiceExport> exportFor(ModuleInstanceId owner, Class<?> iface) {
     return exportsOf.apply(owner).stream()
         .filter(export -> export.interfaceName().equals(iface.getName()))
         .findFirst();

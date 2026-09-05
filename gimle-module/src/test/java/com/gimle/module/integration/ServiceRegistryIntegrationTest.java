@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.ModuleController;
@@ -75,7 +75,7 @@ class ServiceRegistryIntegrationTest {
             "com.gimle.fixture.provider",
             "com.gimle.module.integration.ServiceProviderHooks");
     ModuleArtifact providerArtifact = ModuleArtifactReader.read(providerJar);
-    ModuleId providerId = registry.register(providerArtifact);
+    ModuleInstanceId providerId = registry.register(providerArtifact);
     controller.resolve(providerId);
     controller.start(providerId); // registers the Greeter here
 
@@ -86,7 +86,7 @@ class ServiceRegistryIntegrationTest {
             "com.gimle.fixture.consumer",
             "com.gimle.module.integration.ServiceConsumerHooks");
     ModuleArtifact consumerArtifact = ModuleArtifactReader.read(consumerJar);
-    ModuleId consumerId = registry.register(consumerArtifact);
+    ModuleInstanceId consumerId = registry.register(consumerArtifact);
     controller.resolve(consumerId);
     controller.start(consumerId); // looks it up here
 
@@ -114,7 +114,7 @@ class ServiceRegistryIntegrationTest {
             "com.gimle.fixture.lonelyconsumer",
             "com.gimle.module.integration.ServiceConsumerHooks");
     ModuleArtifact consumerArtifact = ModuleArtifactReader.read(consumerJar);
-    ModuleId consumerId = registry.register(consumerArtifact);
+    ModuleInstanceId consumerId = registry.register(consumerArtifact);
     controller.resolve(consumerId);
     controller.start(consumerId);
 

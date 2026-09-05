@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleLifecycleException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
@@ -26,8 +27,9 @@ import org.junit.jupiter.api.Test;
  */
 class WorkerMainTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
   private static final InstanceIdentity IDENTITY =
       new InstanceIdentity("greeter", 0, Optional.empty());
 

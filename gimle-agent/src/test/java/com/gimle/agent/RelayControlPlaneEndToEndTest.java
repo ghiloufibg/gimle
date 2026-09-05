@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -145,7 +145,7 @@ class RelayControlPlaneEndToEndTest {
           try {
             assertInstanceOf(ControlMessage.Hello.class, stubAgent.awaitHello());
 
-            ModuleId id =
+            ModuleInstanceId id =
                 extractModuleIdFromStateChange(
                     stubAgent.sendAndAwaitAck(
                         new ControlMessage.InstallModule(
@@ -293,7 +293,7 @@ class RelayControlPlaneEndToEndTest {
     }
   }
 
-  private static ModuleId extractModuleIdFromStateChange(
+  private static ModuleInstanceId extractModuleIdFromStateChange(
       List<ControlMessage> messages, String state) {
     return messages.stream()
         .filter(

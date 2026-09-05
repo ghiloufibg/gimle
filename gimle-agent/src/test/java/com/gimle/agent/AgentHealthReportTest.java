@@ -83,7 +83,8 @@ class AgentHealthReportTest {
 
       sendRaw(
           workerSocket,
-          new ControlMessage.HealthReport(assignedInstance().moduleId(), true, false));
+          new ControlMessage.HealthReport(
+              AgentMain.moduleInstanceIdOf(assignedInstance()), true, false));
       Await.until(
           () -> !(Boolean) AgentMain.observationJson(instance).get("ready"), Duration.ofSeconds(5));
 
@@ -92,7 +93,9 @@ class AgentHealthReportTest {
       assertTrue((Boolean) observation.get("alive"), "HealthReport must never override alive");
 
       sendRaw(
-          workerSocket, new ControlMessage.HealthReport(assignedInstance().moduleId(), true, true));
+          workerSocket,
+          new ControlMessage.HealthReport(
+              AgentMain.moduleInstanceIdOf(assignedInstance()), true, true));
       Await.until(
           () -> (Boolean) AgentMain.observationJson(instance).get("ready"), Duration.ofSeconds(5));
     } finally {
@@ -133,7 +136,8 @@ class AgentHealthReportTest {
     try {
       sendRaw(
           workerSocket,
-          new ControlMessage.HealthReport(assignedInstance().moduleId(), true, false));
+          new ControlMessage.HealthReport(
+              AgentMain.moduleInstanceIdOf(assignedInstance()), true, false));
       Await.until(
           () -> !(Boolean) AgentMain.observationJson(instance).get("ready"), Duration.ofSeconds(5));
 
@@ -141,14 +145,16 @@ class AgentHealthReportTest {
       // -- the stale "not ready" reading from the previous ACTIVE window must not survive it.
       sendRaw(
           workerSocket,
-          new ControlMessage.ModuleStateChanged(assignedInstance().moduleId(), "STOPPING"));
+          new ControlMessage.ModuleStateChanged(
+              AgentMain.moduleInstanceIdOf(assignedInstance()), "STOPPING"));
       Await.until(() -> "STOPPING".equals(instance.lifecycleState), Duration.ofSeconds(5));
 
       assertEquals(Optional.empty(), instance.readinessReported);
 
       sendRaw(
           workerSocket,
-          new ControlMessage.ModuleStateChanged(assignedInstance().moduleId(), "ACTIVE"));
+          new ControlMessage.ModuleStateChanged(
+              AgentMain.moduleInstanceIdOf(assignedInstance()), "ACTIVE"));
       Await.until(() -> "ACTIVE".equals(instance.lifecycleState), Duration.ofSeconds(5));
 
       assertTrue(

@@ -7,6 +7,7 @@ import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
@@ -36,8 +37,8 @@ class WorkerCrashCatalogEvictionTest {
 
   private static final ServiceExport GREETER =
       new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"));
-  private static final ModuleId MODULE =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId MODULE =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
   private static final ResourceSpec RESOURCES = new ResourceSpec("16Mi", "500m");
   private static final MemberId SELF =
       new MemberId("node-a", new InetSocketAddress("127.0.0.1", 7946));

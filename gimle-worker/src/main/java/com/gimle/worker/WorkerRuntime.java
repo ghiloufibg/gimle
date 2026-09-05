@@ -4,7 +4,7 @@ import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.layer.ModuleLayerHandle;
 import com.gimle.module.lifecycle.CompletionStatus;
@@ -59,24 +59,26 @@ public final class WorkerRuntime {
   private final Duration defaultProbeInterval;
   private final Duration defaultProbeTimeout;
   private final int defaultLivenessFailureThreshold;
-  private final Consumer<ModuleId> onModuleRestartBudgetExhausted;
+  private final Consumer<ModuleInstanceId> onModuleRestartBudgetExhausted;
   private final Duration stableUptimeThreshold;
   private final InstanceIdentityRegistry identityRegistry;
   private final Consumer<InstanceIdentity> onInstanceUninstalled;
   private final HealthReportSink healthReportSink;
   private final LivenessRestartSink livenessRestartSink;
 
-  private final Map<ModuleId, BoundedModuleScheduler> schedulers = new ConcurrentHashMap<>();
-  private final Map<ModuleId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
-  private final Map<ModuleId, AtomicInteger> consecutiveLivenessFailures =
+  private final Map<ModuleInstanceId, BoundedModuleScheduler> schedulers =
+      new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, AtomicInteger> consecutiveLivenessFailures =
       new ConcurrentHashMap<>();
 
   // The threshold actually in force for each currently-ACTIVE module: its own manifest's
   // health.failureThreshold, or this worker's default where it declares none. Recorded at ACTIVE
   // rather than re-read on every failure so onLivenessResult never has to reach back into the
   // registry for an artifact a concurrent uninstall may already have removed.
-  private final Map<ModuleId, Integer> effectiveLivenessThresholds = new ConcurrentHashMap<>();
-  private final Set<ModuleId> restartsInFlight = ConcurrentHashMap.newKeySet();
+  private final Map<ModuleInstanceId, Integer> effectiveLivenessThresholds =
+      new ConcurrentHashMap<>();
+  private final Set<ModuleInstanceId> restartsInFlight = ConcurrentHashMap.newKeySet();
   private final ProbeLoop probeLoop = new ProbeLoop();
 
   public WorkerRuntime(
@@ -87,7 +89,7 @@ public final class WorkerRuntime {
       Duration defaultProbeInterval,
       Duration defaultProbeTimeout,
       int defaultLivenessFailureThreshold,
-      Consumer<ModuleId> onModuleRestartBudgetExhausted) {
+      Consumer<ModuleInstanceId> onModuleRestartBudgetExhausted) {
     this(
         controller,
         registry,
@@ -118,7 +120,7 @@ public final class WorkerRuntime {
       Duration defaultProbeInterval,
       Duration defaultProbeTimeout,
       int defaultLivenessFailureThreshold,
-      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      Consumer<ModuleInstanceId> onModuleRestartBudgetExhausted,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
     this(
@@ -152,7 +154,7 @@ public final class WorkerRuntime {
       Duration defaultProbeInterval,
       Duration defaultProbeTimeout,
       int defaultLivenessFailureThreshold,
-      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      Consumer<ModuleInstanceId> onModuleRestartBudgetExhausted,
       Duration stableUptimeThreshold,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
@@ -187,7 +189,7 @@ public final class WorkerRuntime {
       Duration defaultProbeInterval,
       Duration defaultProbeTimeout,
       int defaultLivenessFailureThreshold,
-      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      Consumer<ModuleInstanceId> onModuleRestartBudgetExhausted,
       Duration stableUptimeThreshold,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled,
@@ -216,7 +218,7 @@ public final class WorkerRuntime {
    */
   @FunctionalInterface
   public interface HealthReportSink {
-    void report(ModuleId id, boolean alive, boolean ready);
+    void report(ModuleInstanceId id, boolean alive, boolean ready);
   }
 
   /**
@@ -229,7 +231,7 @@ public final class WorkerRuntime {
    */
   @FunctionalInterface
   public interface LivenessRestartSink {
-    void restartTriggered(ModuleId id, int consecutiveFailures);
+    void restartTriggered(ModuleInstanceId id, int consecutiveFailures);
   }
 
   /**
@@ -238,7 +240,7 @@ public final class WorkerRuntime {
    * call's actual invocation through the same per-module concurrency budget {@link ProbeLoop}
    * already uses for health checks, rather than real request traffic bypassing it entirely.
    */
-  public Optional<BoundedModuleScheduler> schedulerFor(ModuleId id) {
+  public Optional<BoundedModuleScheduler> schedulerFor(ModuleInstanceId id) {
     return Optional.ofNullable(schedulers.get(id));
   }
 
@@ -250,7 +252,7 @@ public final class WorkerRuntime {
    * ControlMessage.MetricsReport} it already sends, without that loop needing to reach into {@link
    * ModuleController} directly.
    */
-  public Map<String, Integer> reportedPortsFor(ModuleId id) {
+  public Map<String, Integer> reportedPortsFor(ModuleInstanceId id) {
     return controller.context(id).map(ModuleContext::reportedPorts).orElse(Map.of());
   }
 
@@ -263,7 +265,7 @@ public final class WorkerRuntime {
     }
   }
 
-  private void onActive(ModuleId id) {
+  private void onActive(ModuleInstanceId id) {
     Map<String, String> mdcTags =
         identityRegistry
             .lookup(id)
@@ -368,7 +370,11 @@ public final class WorkerRuntime {
    * controller.forceFailed} call, the same durable {@code TransitionFailed} event on the far end.
    */
   private <T> Optional<T> instantiateOrFail(
-      ModuleId id, String kind, String className, ModuleLayerHandle handle, Class<T> expectedType) {
+      ModuleInstanceId id,
+      String kind,
+      String className,
+      ModuleLayerHandle handle,
+      Class<T> expectedType) {
     try {
       return Optional.of(instantiate(id, className, handle, expectedType));
     } catch (RuntimeException e) {
@@ -412,7 +418,7 @@ public final class WorkerRuntime {
    * APPLICATION log -- indistinguishable from the run never having happened at all when read back
    * through this instance's own per-instance log file.
    */
-  private void runJobHooks(ModuleId id, JobHooks hooks, Map<String, String> mdcTags) {
+  private void runJobHooks(ModuleInstanceId id, JobHooks hooks, Map<String, String> mdcTags) {
     ModuleContext ctx =
         controller
             .context(id)
@@ -453,13 +459,13 @@ public final class WorkerRuntime {
             });
   }
 
-  private void onStopping(ModuleId id) {
+  private void onStopping(ModuleInstanceId id) {
     probeLoop.stop(probeKey(id, "liveness"));
     probeLoop.stop(probeKey(id, "readiness"));
     serviceRegistry.markUnready(id);
   }
 
-  private void onUninstalled(ModuleId id) {
+  private void onUninstalled(ModuleInstanceId id) {
     // Looked up before serviceRegistry.remove(id) below, which is what actually clears
     // identityRegistry (InstanceTaggingServiceRegistry#remove) -- read it first or it's gone.
     identityRegistry.lookup(id).ifPresent(onInstanceUninstalled);
@@ -473,7 +479,7 @@ public final class WorkerRuntime {
     serviceRegistry.remove(id);
   }
 
-  private void onReadinessResult(ModuleId id, boolean ready) {
+  private void onReadinessResult(ModuleInstanceId id, boolean ready) {
     if (ready) {
       serviceRegistry.markReady(id);
     } else {
@@ -486,7 +492,7 @@ public final class WorkerRuntime {
     healthReportSink.report(id, true, ready);
   }
 
-  private void onLivenessResult(ModuleId id, boolean alive) {
+  private void onLivenessResult(ModuleInstanceId id, boolean alive) {
     if (alive) {
       consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger()).set(0);
       return;
@@ -506,7 +512,7 @@ public final class WorkerRuntime {
     restartModule(id);
   }
 
-  private void restartModule(ModuleId id) {
+  private void restartModule(ModuleInstanceId id) {
     // The probe loop keeps ticking the (still ACTIVE-until-the-attempt-actually-runs) module the
     // whole time an attempt is in flight, so without this guard every subsequent liveness failure
     // during that window would trigger its own concurrent stop()/resolve()/start() sequence,
@@ -605,7 +611,7 @@ public final class WorkerRuntime {
    * {@code WorkerProcessSupervisor}'s own {@code scheduleStabilityConfirmation} already applies one
    * tier up, mirrored here rather than duplicated by coincidence.
    */
-  private void scheduleModuleStabilityConfirmation(ModuleId id, RestartTracker tracker) {
+  private void scheduleModuleStabilityConfirmation(ModuleInstanceId id, RestartTracker tracker) {
     int attemptsAtRestart = tracker.attemptsInWindow();
     Thread.ofVirtual()
         .name("gimle-restart-stability-" + id.name() + "-" + id.version())
@@ -628,12 +634,12 @@ public final class WorkerRuntime {
         Duration.ofMillis(100), 2.0, Duration.ofSeconds(5), 5, Duration.ofSeconds(60));
   }
 
-  private static String probeKey(ModuleId id, String kind) {
+  private static String probeKey(ModuleInstanceId id, String kind) {
     return id + "#" + kind;
   }
 
   private static <T> T instantiate(
-      ModuleId id, String className, ModuleLayerHandle handle, Class<T> expectedType) {
+      ModuleInstanceId id, String className, ModuleLayerHandle handle, Class<T> expectedType) {
     try {
       Class<?> clazz = Class.forName(className, true, handle.loader());
       Object instance = clazz.getDeclaredConstructor().newInstance();

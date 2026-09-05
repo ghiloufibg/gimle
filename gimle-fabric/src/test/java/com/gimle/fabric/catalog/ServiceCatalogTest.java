@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.cluster.MemberId;
@@ -17,8 +18,8 @@ class ServiceCatalogTest {
 
   private static final ServiceExport GREETER =
       new ServiceExport("com.gimle.example.Greeter", Version.parse("1.0.0"));
-  private static final ModuleId MODULE =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId MODULE =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   private static MemberId node(String nodeId) {
     return new MemberId(nodeId, new InetSocketAddress("127.0.0.1", 7946));
@@ -185,8 +186,12 @@ class ServiceCatalogTest {
   void a_redeploy_leaves_only_the_replacement_instances_endpoint() {
     ServiceCatalog catalog = new ServiceCatalog();
     MemberId node = node("node-a");
-    ModuleId oldModule = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
-    ModuleId newModule = new ModuleId("com.gimle.example.orders", Version.parse("1.0.1"));
+    ModuleInstanceId oldModule =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
+    ModuleInstanceId newModule =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0.1")));
 
     catalog.localRegister(
         node,
@@ -224,10 +229,13 @@ class ServiceCatalogTest {
     String priorWorkerId = null;
     for (int generation = 0; generation < 4; generation++) {
       String workerId = "worker-gen" + generation;
-      ModuleId owner = new ModuleId("com.gimle.example.orders", Version.parse("1.0." + generation));
+      ModuleInstanceId owner =
+          ModuleInstanceId.unattached(
+              new ModuleId("com.gimle.example.orders", Version.parse("1.0." + generation)));
       if (priorWorkerId != null) {
-        ModuleId priorOwner =
-            new ModuleId("com.gimle.example.orders", Version.parse("1.0." + (generation - 1)));
+        ModuleInstanceId priorOwner =
+            ModuleInstanceId.unattached(
+                new ModuleId("com.gimle.example.orders", Version.parse("1.0." + (generation - 1))));
         catalog.localUnregister(node, priorWorkerId, priorOwner, GREETER);
       }
       catalog.localRegister(

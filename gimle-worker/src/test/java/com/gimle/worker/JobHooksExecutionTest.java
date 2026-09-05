@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.CompletionStatus;
 import com.gimle.module.lifecycle.LifecycleEvent;
@@ -128,7 +129,8 @@ class JobHooksExecutionTest {
     // buildFixtureJar's own uniqueName is name + (counter++) -- read counter's value before that
     // call to predict the exact ModuleId the fixture jar will register under, so an identity for
     // it can be registered before WiredWorkerRuntime.start dispatches onActive.
-    ModuleId id = new ModuleId(name + counter, Version.parse("1.0.0"));
+    ModuleInstanceId id =
+        ModuleInstanceId.unattached(new ModuleId(name + counter, Version.parse("1.0.0")));
     Path jar = buildFixtureJar(name);
 
     InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();

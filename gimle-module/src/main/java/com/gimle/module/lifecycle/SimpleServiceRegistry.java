@@ -1,6 +1,6 @@
 package com.gimle.module.lifecycle;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +22,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   private final Map<Class<?>, AtomicInteger> cursors = new ConcurrentHashMap<>();
 
   @Override
-  public synchronized <T> void register(ModuleId owner, Class<T> iface, T instance) {
+  public synchronized <T> void register(ModuleInstanceId owner, Class<T> iface, T instance) {
     List<Entry> entries =
         entriesByInterface.computeIfAbsent(iface, key -> new CopyOnWriteArrayList<>());
     entries.removeIf(entry -> entry.owner().equals(owner));
@@ -126,7 +126,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public synchronized void markUnready(ModuleId owner) {
+  public synchronized void markUnready(ModuleInstanceId owner) {
     for (List<Entry> entries : entriesByInterface.values()) {
       for (Entry entry : entries) {
         if (entry.owner().equals(owner)) {
@@ -137,7 +137,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public synchronized void markReady(ModuleId owner) {
+  public synchronized void markReady(ModuleInstanceId owner) {
     for (List<Entry> entries : entriesByInterface.values()) {
       for (Entry entry : entries) {
         if (entry.owner().equals(owner)) {
@@ -148,7 +148,7 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   }
 
   @Override
-  public synchronized void remove(ModuleId owner) {
+  public synchronized void remove(ModuleInstanceId owner) {
     for (List<Entry> entries : entriesByInterface.values()) {
       entries.removeIf(entry -> entry.owner().equals(owner));
     }
@@ -164,5 +164,5 @@ public final class SimpleServiceRegistry implements ServiceRegistry {
   // reflective invoke against whatever lookupByInterfaceName resolves) is already exactly this
   // class's same-worker-only behavior; see that default's own javadoc.
 
-  private record Entry(ModuleId owner, Object instance, AtomicBoolean ready) {}
+  private record Entry(ModuleInstanceId owner, Object instance, AtomicBoolean ready) {}
 }

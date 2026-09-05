@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.registry.Greeter;
 import com.gimle.fabric.trace.TraceContext;
@@ -138,8 +139,9 @@ class FabricTransportTlsTest {
   /** A fresh id per request -- see {@code FabricServerTest}'s own counter for why. */
   private static final AtomicLong CORRELATION_IDS = new AtomicLong();
 
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
 
   private FabricFrame.InvokeRequest invokeGreet(String arg) {
     return new FabricFrame.InvokeRequest(

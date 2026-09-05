@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import java.util.Map;
 import java.util.Optional;
@@ -26,11 +27,13 @@ class SimpleModuleContextTest {
       throws Throwable {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(
-        new ModuleId("com.gimle.echo", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.echo", Version.parse("1.0.0"))),
         Echoer.class,
         value -> "echo:" + value);
     SimpleModuleContext ctx =
-        new SimpleModuleContext(new ModuleId("com.gimle.caller", Version.parse("1.0.0")), registry);
+        new SimpleModuleContext(
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.caller", Version.parse("1.0.0"))),
+            registry);
 
     Optional<Object> result =
         ctx.invokeServiceByName(
@@ -47,7 +50,9 @@ class SimpleModuleContextTest {
   void invoke_service_by_name_on_an_unknown_interface_returns_empty() throws Throwable {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     SimpleModuleContext ctx =
-        new SimpleModuleContext(new ModuleId("com.gimle.caller", Version.parse("1.0.0")), registry);
+        new SimpleModuleContext(
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.caller", Version.parse("1.0.0"))),
+            registry);
 
     assertEquals(
         Optional.empty(),
@@ -59,13 +64,15 @@ class SimpleModuleContextTest {
   void invoke_service_by_name_propagates_a_thrown_application_exception() {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(
-        new ModuleId("com.gimle.echo", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.echo", Version.parse("1.0.0"))),
         Echoer.class,
         value -> {
           throw new IllegalStateException("boom: " + value);
         });
     SimpleModuleContext ctx =
-        new SimpleModuleContext(new ModuleId("com.gimle.caller", Version.parse("1.0.0")), registry);
+        new SimpleModuleContext(
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.caller", Version.parse("1.0.0"))),
+            registry);
 
     assertThrows(
         IllegalStateException.class,
@@ -82,7 +89,8 @@ class SimpleModuleContextTest {
   void reported_ports_are_empty_until_a_module_reports_one() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     assertEquals(Map.of(), ctx.reportedPorts());
   }
@@ -91,7 +99,8 @@ class SimpleModuleContextTest {
   void a_reported_port_is_retrievable_under_its_own_name() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     ctx.reportPort("HTTP_PORT", 8080);
 
@@ -102,7 +111,8 @@ class SimpleModuleContextTest {
   void reporting_the_same_name_twice_replaces_the_earlier_value_rather_than_accumulating() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     ctx.reportPort("HTTP_PORT", 8080);
     ctx.reportPort("HTTP_PORT", 8081);
@@ -114,7 +124,8 @@ class SimpleModuleContextTest {
   void multiple_reported_ports_are_all_retrievable_by_their_own_names() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     ctx.reportPort("HTTP_PORT", 8080);
     ctx.reportPort("ADMIN_PORT", 9090);
@@ -126,7 +137,8 @@ class SimpleModuleContextTest {
   void reporting_a_blank_name_is_rejected() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     assertThrows(IllegalArgumentException.class, () -> ctx.reportPort(" ", 8080));
   }
@@ -135,7 +147,8 @@ class SimpleModuleContextTest {
   void reporting_a_port_outside_the_valid_range_is_rejected() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     assertThrows(IllegalArgumentException.class, () -> ctx.reportPort("HTTP_PORT", 0));
     assertThrows(IllegalArgumentException.class, () -> ctx.reportPort("HTTP_PORT", 70000));
@@ -147,7 +160,7 @@ class SimpleModuleContextTest {
     configValues.put("db.url", "jdbc:h2:mem:");
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
             new SimpleServiceRegistry(),
             configValues);
 
@@ -162,7 +175,8 @@ class SimpleModuleContextTest {
   void instance_info_is_empty_when_no_identity_collaborator_was_wired() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
 
     assertEquals(Optional.empty(), ctx.instanceInfo());
   }
@@ -173,7 +187,7 @@ class SimpleModuleContextTest {
         new java.util.concurrent.atomic.AtomicReference<>(Optional.empty());
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
             new SimpleServiceRegistry(),
             new java.util.concurrent.ConcurrentHashMap<>(),
             Map.of(),
@@ -197,7 +211,7 @@ class SimpleModuleContextTest {
   void named_data_directories_resolve_by_name_and_the_no_arg_accessor_needs_a_sole_volume() {
     SimpleModuleContext multiVolume =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
             new SimpleServiceRegistry(),
             new java.util.concurrent.ConcurrentHashMap<>(),
             Map.of(
@@ -213,7 +227,7 @@ class SimpleModuleContextTest {
 
     SimpleModuleContext soleVolume =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
             new SimpleServiceRegistry(),
             new java.util.concurrent.ConcurrentHashMap<>(),
             Map.of("data", java.nio.file.Path.of("/var/gimle/volumes/orders/0/data")));
@@ -226,7 +240,8 @@ class SimpleModuleContextTest {
   void reported_ports_returned_to_a_caller_are_a_snapshot_not_a_live_view() {
     SimpleModuleContext ctx =
         new SimpleModuleContext(
-            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+            ModuleInstanceId.unattached(new ModuleId("com.gimle.web", Version.parse("1.0.0"))),
+            new SimpleServiceRegistry());
     ctx.reportPort("HTTP_PORT", 8080);
 
     Map<String, Integer> snapshot = ctx.reportedPorts();
@@ -248,7 +263,7 @@ class SimpleModuleContextTest {
       System.clearProperty("gimle.transport.protocol");
       SimpleModuleContext ctx =
           new SimpleModuleContext(
-              new ModuleId("com.gimle.caller", Version.parse("1.0.0")),
+              ModuleInstanceId.unattached(new ModuleId("com.gimle.caller", Version.parse("1.0.0"))),
               new SimpleServiceRegistry());
 
       assertEquals(Optional.empty(), ctx.clientSslContext());

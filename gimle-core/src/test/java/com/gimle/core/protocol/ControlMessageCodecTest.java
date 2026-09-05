@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.tenant.NetworkPolicyRule;
@@ -20,8 +21,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 class ControlMessageCodecTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.4.2-rc1"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.orders", Version.parse("1.4.2-rc1")));
 
   static Stream<ControlMessage> allMessageVariants() {
     return Stream.of(
@@ -160,7 +162,9 @@ class ControlMessageCodecTest {
 
   @Test
   void module_id_with_qualifier_round_trips() {
-    ModuleId qualified = new ModuleId("com.gimle.example.orders", Version.parse("2.0.0-beta.3"));
+    ModuleInstanceId qualified =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.example.orders", Version.parse("2.0.0-beta.3")));
     ControlMessage.ResolveModule original = new ControlMessage.ResolveModule("corr-1", qualified);
     assertEquals(original, ControlMessageCodec.decode(ControlMessageCodec.encode(original)));
   }

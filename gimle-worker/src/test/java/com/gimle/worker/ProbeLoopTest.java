@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.core.time.TestClock;
 import com.gimle.core.time.TestScheduler;
@@ -37,8 +38,8 @@ import org.junit.jupiter.api.Timeout;
  */
 class ProbeLoopTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   /** Seconds-scale, like a real manifest's {@code probes.periodSeconds}. */
   private static final Duration INTERVAL = Duration.ofSeconds(10);

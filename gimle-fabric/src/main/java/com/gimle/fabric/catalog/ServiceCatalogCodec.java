@@ -1,6 +1,7 @@
 package com.gimle.fabric.catalog;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.cluster.MemberId;
@@ -44,6 +45,7 @@ final class ServiceCatalogCodec {
         out.writeUTF(delta.workerId());
         out.writeUTF(delta.moduleId().name());
         out.writeUTF(delta.moduleId().version().toString());
+        out.writeUTF(delta.moduleId().instanceKey());
         out.writeLong(delta.version());
         out.writeBoolean(delta.present());
         out.writeUTF(delta.node().gossipAddress().getHostString());
@@ -101,7 +103,9 @@ final class ServiceCatalogCodec {
                 : new ServiceExport(interfaceName, version, allowedTenantIds);
         String nodeId = in.readUTF();
         String workerId = in.readUTF();
-        ModuleId moduleId = new ModuleId(in.readUTF(), Version.parse(in.readUTF()));
+        ModuleInstanceId moduleId =
+            new ModuleInstanceId(
+                new ModuleId(in.readUTF(), Version.parse(in.readUTF())), in.readUTF());
         long deltaVersion = in.readLong();
         boolean present = in.readBoolean();
         String gossipHost = in.readUTF();

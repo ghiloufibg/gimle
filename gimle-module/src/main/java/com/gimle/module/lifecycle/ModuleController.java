@@ -2,7 +2,7 @@ package com.gimle.module.lifecycle;
 
 import com.gimle.core.exception.GimleLifecycleException;
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.layer.ModuleLayerFactory;
 import com.gimle.module.layer.ModuleLayerHandle;
 import com.gimle.module.resolve.ModuleRegistry;
@@ -47,7 +47,7 @@ public final class ModuleController {
   private static final Logger log = LoggerFactory.getLogger(ModuleController.class);
 
   /** The default {@code onDisposed} for a caller that doesn't care about layer disposal. */
-  private static final BiConsumer<ModuleId, ModuleLayerHandle> NO_OP_ON_DISPOSED =
+  private static final BiConsumer<ModuleInstanceId, ModuleLayerHandle> NO_OP_ON_DISPOSED =
       (id, handle) -> {};
 
   /**
@@ -62,8 +62,8 @@ public final class ModuleController {
    * collaborator -- an empty answer, matching {@link ModuleContext#instanceInfo}'s documented
    * "identity not known here" case rather than failing.
    */
-  private static final Function<ModuleId, Optional<ModuleContext.InstanceInfo>> NO_OP_IDENTITY =
-      id -> Optional.empty();
+  private static final Function<ModuleInstanceId, Optional<ModuleContext.InstanceInfo>>
+      NO_OP_IDENTITY = id -> Optional.empty();
 
   private final ModuleRegistry registry;
   private final ModuleResolver resolver;
@@ -71,13 +71,15 @@ public final class ModuleController {
   private final ClassLoader parentLoader;
   private final Duration drainTimeout;
   private final Consumer<LifecycleEvent> eventSink;
-  private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
+  private final BiConsumer<ModuleInstanceId, ModuleLayerHandle> onDisposed;
   private final ServiceRegistry serviceRegistry;
   private final ControlPlaneRelayClient relay;
-  private final Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup;
+  private final Function<ModuleInstanceId, Optional<ModuleContext.InstanceInfo>> identityLookup;
 
-  private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
-  private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, ModuleLifecycleHooks> hooksByModule =
+      new ConcurrentHashMap<>();
+  private final Map<ModuleInstanceId, SimpleModuleContext> contextsByModule =
+      new ConcurrentHashMap<>();
 
   /**
    * Shared across every {@link SimpleModuleContext} this controller creates -- a config/secret
@@ -112,7 +114,7 @@ public final class ModuleController {
       ClassLoader parentLoader,
       Duration drainTimeout,
       Consumer<LifecycleEvent> eventSink,
-      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed) {
+      BiConsumer<ModuleInstanceId, ModuleLayerHandle> onDisposed) {
     this(
         registry,
         resolver,
@@ -150,7 +152,7 @@ public final class ModuleController {
       ClassLoader parentLoader,
       Duration drainTimeout,
       Consumer<LifecycleEvent> eventSink,
-      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      BiConsumer<ModuleInstanceId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry) {
     this(
         registry,
@@ -178,7 +180,7 @@ public final class ModuleController {
       ClassLoader parentLoader,
       Duration drainTimeout,
       Consumer<LifecycleEvent> eventSink,
-      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      BiConsumer<ModuleInstanceId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry,
       ControlPlaneRelayClient relay) {
     this(
@@ -208,10 +210,10 @@ public final class ModuleController {
       ClassLoader parentLoader,
       Duration drainTimeout,
       Consumer<LifecycleEvent> eventSink,
-      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      BiConsumer<ModuleInstanceId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry,
       ControlPlaneRelayClient relay,
-      Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup) {
+      Function<ModuleInstanceId, Optional<ModuleContext.InstanceInfo>> identityLookup) {
     this.registry = registry;
     this.resolver = resolver;
     this.platformLayer = platformLayer;
@@ -264,7 +266,7 @@ public final class ModuleController {
     }
   }
 
-  public ModuleWiring resolve(ModuleId id) {
+  public ModuleWiring resolve(ModuleInstanceId id) {
     return resolve(id, Map.of());
   }
 
@@ -276,7 +278,7 @@ public final class ModuleController {
    * SimpleModuleContext#dataDirectory(String)} before {@code onInstall} fires below, so a hook can
    * rely on it from its very first callback.
    */
-  public ModuleWiring resolve(ModuleId id, Map<String, Path> dataDirectories) {
+  public ModuleWiring resolve(ModuleInstanceId id, Map<String, Path> dataDirectories) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
@@ -289,7 +291,7 @@ public final class ModuleController {
 
     List<ModuleLayer> parentLayers = new ArrayList<>();
     parentLayers.add(platformLayer);
-    for (ModuleId depId : new LinkedHashSet<>(wiring.wiredDependencies().values())) {
+    for (ModuleInstanceId depId : new LinkedHashSet<>(wiring.wiredDependencies().values())) {
       ModuleLayerHandle depHandle =
           registry
               .layerHandle(depId)
@@ -347,7 +349,7 @@ public final class ModuleController {
     return wiring;
   }
 
-  public void start(ModuleId id) {
+  public void start(ModuleInstanceId id) {
     requireState(id, ModuleState.RESOLVED, ModuleState.STARTING);
     registry.markStarting(id);
     emit(new LifecycleEvent.Starting(id, Instant.now()));
@@ -380,7 +382,7 @@ public final class ModuleController {
    * ACTIVE -&gt; STOPPING -&gt; UNINSTALLED in one call: drains, then disposes regardless of
    * outcome.
    */
-  public void stop(ModuleId id) {
+  public void stop(ModuleInstanceId id) {
     requireState(id, ModuleState.ACTIVE, ModuleState.STOPPING);
     Instant deadline = Instant.now().plus(drainTimeout);
     registry.markStopping(id);
@@ -415,7 +417,7 @@ public final class ModuleController {
   }
 
   /** FAILED (or any pre-ACTIVE state) -&gt; UNINSTALLED, with no drain wait. */
-  public void uninstall(ModuleId id) {
+  public void uninstall(ModuleInstanceId id) {
     ModuleState current = registry.state(id);
     if (current == ModuleState.ACTIVE) {
       throw GimleLifecycleException.illegalTransition(
@@ -424,7 +426,7 @@ public final class ModuleController {
     finishUninstall(id);
   }
 
-  private void finishUninstall(ModuleId id) {
+  private void finishUninstall(ModuleInstanceId id) {
     Optional<ModuleLifecycleHooks> hooks = Optional.ofNullable(hooksByModule.remove(id));
     ModuleContext ctx = contextsByModule.remove(id);
     if (hooks.isPresent()) {
@@ -466,7 +468,8 @@ public final class ModuleController {
     }
   }
 
-  private Optional<ModuleLifecycleHooks> instantiateHooks(ModuleId id, ModuleLayerHandle handle) {
+  private Optional<ModuleLifecycleHooks> instantiateHooks(
+      ModuleInstanceId id, ModuleLayerHandle handle) {
     Optional<String> hooksClassName = registry.artifact(id).descriptor().lifecycleHooksClass();
     if (hooksClassName.isEmpty()) {
       return Optional.empty();
@@ -494,7 +497,7 @@ public final class ModuleController {
    * in-flight counter {@link #stop}'s drain wait already reads, rather than that counter only ever
    * being incremented by a hosted module's own hook code and never by real external traffic.
    */
-  public Optional<ModuleContext> context(ModuleId id) {
+  public Optional<ModuleContext> context(ModuleInstanceId id) {
     return Optional.ofNullable(contextsByModule.get(id));
   }
 
@@ -510,7 +513,7 @@ public final class ModuleController {
    * lets {@code HealthReconciler}'s machine-tier reschedule fire -- the escalation this method
    * exists to unblock.
    */
-  public void forceFailed(ModuleId id, String reason) {
+  public void forceFailed(ModuleInstanceId id, String reason) {
     requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
     markFailedAndEmit(
         id, ModuleState.ACTIVE, ModuleState.FAILED, new IllegalStateException(reason));
@@ -530,7 +533,7 @@ public final class ModuleController {
    * the terminal state, the same "assignment gone -&gt; agent stops it" mechanism ordinary
    * scale-down already relies on.
    */
-  public void complete(ModuleId id, CompletionStatus status) {
+  public void complete(ModuleInstanceId id, CompletionStatus status) {
     if (status == CompletionStatus.SUCCEEDED) {
       requireState(id, ModuleState.ACTIVE, ModuleState.COMPLETED);
       registry.markCompleted(id);
@@ -545,14 +548,15 @@ public final class ModuleController {
     }
   }
 
-  private void requireState(ModuleId id, ModuleState expected, ModuleState attemptingTo) {
+  private void requireState(ModuleInstanceId id, ModuleState expected, ModuleState attemptingTo) {
     ModuleState current = registry.state(id);
     if (current != expected) {
       throw GimleLifecycleException.illegalTransition(id, current.name(), attemptingTo.name());
     }
   }
 
-  private void markFailedAndEmit(ModuleId id, ModuleState from, ModuleState to, Throwable cause) {
+  private void markFailedAndEmit(
+      ModuleInstanceId id, ModuleState from, ModuleState to, Throwable cause) {
     registry.markFailed(id);
     emit(new LifecycleEvent.TransitionFailed(id, from, to, cause, Instant.now()));
   }

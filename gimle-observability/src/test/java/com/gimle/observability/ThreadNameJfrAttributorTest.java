@@ -3,6 +3,7 @@ package com.gimle.observability;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -15,8 +16,8 @@ import org.junit.jupiter.api.Test;
  */
 class ThreadNameJfrAttributorTest {
 
-  private static final ModuleId ID =
-      new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+  private static final ModuleInstanceId ID =
+      ModuleInstanceId.unattached(new ModuleId("com.gimle.example.orders", Version.parse("1.0.0")));
 
   @Test
   void construction_and_shutdown_do_not_throw() {

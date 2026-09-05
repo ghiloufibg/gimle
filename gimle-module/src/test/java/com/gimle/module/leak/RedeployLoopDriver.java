@@ -1,7 +1,7 @@
 package com.gimle.module.leak;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.ModuleController;
@@ -46,7 +46,7 @@ public final class RedeployLoopDriver {
               event -> {});
 
       ModuleArtifact artifact = ModuleArtifactReader.read(jarPath);
-      ModuleId id = registry.register(artifact);
+      ModuleInstanceId id = registry.register(artifact);
       controller.resolve(id);
       controller.start(id);
       controller.stop(id);

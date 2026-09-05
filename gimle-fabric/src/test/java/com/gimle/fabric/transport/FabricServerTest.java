@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.tenant.NetworkPolicyRule;
@@ -67,8 +68,9 @@ class FabricServerTest {
    */
   private static final AtomicLong CORRELATION_IDS = new AtomicLong();
 
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
   private static final TraceContext TRACE = new TraceContext(1L, 2L, 3L, (byte) 1);
 
   private FabricServer server;

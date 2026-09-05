@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.integration.Greeter;
 import com.gimle.module.lifecycle.LifecycleEvent;
@@ -96,7 +96,7 @@ class WorkerRuntimeTest {
 
   private record IdentityFixture(
       ModuleController controller,
-      ModuleId id,
+      ModuleInstanceId id,
       InstanceIdentity identity,
       AtomicInteger uninstallCount,
       AtomicReference<InstanceIdentity> uninstalledIdentity) {}
@@ -113,7 +113,7 @@ class WorkerRuntimeTest {
     // the same ordering WorkerMain itself uses (register the identity, then resolve/start) -- so
     // this reads the id straight off the artifact rather than delegating jar-reading to
     // WiredWorkerRuntime.start, which only registers the artifact into its own internal registry.
-    ModuleId id = ModuleArtifactReader.read(jar).id();
+    ModuleInstanceId id = ModuleInstanceId.unattached(ModuleArtifactReader.read(jar).id());
     InstanceIdentity identity = new InstanceIdentity("orders-service", 3, Optional.of("acme"));
     InstanceIdentityRegistry identityRegistry = new InstanceIdentityRegistry();
     identityRegistry.register(id, identity);
@@ -210,7 +210,7 @@ class WorkerRuntimeTest {
   /** Shared plumbing for the two restart-budget tests below -- only the tracked bits differ. */
   private record BudgetFixture(
       ModuleRegistry registry,
-      ModuleId id,
+      ModuleInstanceId id,
       List<LifecycleEvent> events,
       AtomicInteger exhaustedCount) {}
 

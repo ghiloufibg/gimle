@@ -51,6 +51,15 @@ final class SupervisedInstance {
   final String workerKey;
 
   /**
+   * How the worker hosting this instance keys it -- captured at construction and never recomputed.
+   * A rename replaces {@link #assigned} in place with a new deployment index, but the running
+   * module in the worker is the same one it always was, installed under the identity it had then;
+   * deriving this on demand from the current assignment would silently start addressing an instance
+   * that does not exist there.
+   */
+  final com.gimle.core.module.ModuleInstanceId moduleInstanceId;
+
+  /**
    * The size the worker JVM hosting this instance was actually spawned at -- its {@code -Xmx} and
    * {@code ActiveProcessorCount}, not this instance's own declared limit, which under Tier 1
    * density is only one of several claims against that one heap. Copied from the instance that
@@ -159,6 +168,7 @@ final class SupervisedInstance {
       String workerKey,
       ResourceSpec workerLimit) {
     this.assigned = assigned;
+    this.moduleInstanceId = AgentMain.moduleInstanceIdOf(assigned);
     this.supervisor = supervisor;
     this.server = server;
     this.descriptor = descriptor;

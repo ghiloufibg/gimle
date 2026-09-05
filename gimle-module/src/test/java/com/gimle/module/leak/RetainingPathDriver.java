@@ -1,6 +1,7 @@
 package com.gimle.module.leak;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.layer.ModuleLayerFactory;
 import com.gimle.module.layer.ModuleLayerHandle;
@@ -40,7 +41,9 @@ public final class RetainingPathDriver {
     Path jarPath = Path.of(args[0]);
     long attemptBudgetMillis = Long.parseLong(args[1]);
 
-    ModuleId id = new ModuleId("com.gimle.fixture.retaining", Version.parse("1.0.0"));
+    ModuleInstanceId id =
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.fixture.retaining", Version.parse("1.0.0")));
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ModuleLayerHandle handle =
         ModuleLayerFactory.create(

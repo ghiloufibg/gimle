@@ -83,7 +83,13 @@ class AgentMetricsReportPortFoldingTest {
       sendRaw(
           workerSocket,
           new ControlMessage.MetricsReport(
-              assignedInstance().moduleId(), 0L, 0L, 0.0, 0, 0.0, Map.of("HTTP_PORT", 8080)));
+              AgentMain.moduleInstanceIdOf(assignedInstance()),
+              0L,
+              0L,
+              0.0,
+              0,
+              0.0,
+              Map.of("HTTP_PORT", 8080)));
 
       Await.until(() -> !instance.ports.isEmpty(), Duration.ofSeconds(5));
       assertEquals(Map.of("HTTP_PORT", 8080), instance.ports);

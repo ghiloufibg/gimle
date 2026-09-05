@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.fabric.catalog.ServiceCatalog;
@@ -58,8 +59,9 @@ class FabricServiceRegistryRetryTest {
       new ServiceExport(Greeter.class.getName(), Version.parse("1.0.0"));
   private static final ServiceExport RETRYABLE_EXPORT =
       new ServiceExport(RetryableGreeter.class.getName(), Version.parse("1.0.0"));
-  private static final ModuleId OWNER =
-      new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+  private static final ModuleInstanceId OWNER =
+      ModuleInstanceId.unattached(
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")));
 
   private final MemberId selfNode =
       new MemberId("node-a", new InetSocketAddress("127.0.0.1", 7946));

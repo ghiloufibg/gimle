@@ -1,7 +1,7 @@
 package com.gimle.worker.testsupport;
 
 import com.gimle.core.module.ModuleArtifact;
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.lifecycle.LifecycleEvent;
@@ -33,17 +33,17 @@ public final class WiredWorkerRuntime {
   private WiredWorkerRuntime() {}
 
   /** One {@link WorkerRuntime.HealthReportSink#report} call, captured for a test to assert on. */
-  public record HealthUpdate(ModuleId id, boolean alive, boolean ready) {}
+  public record HealthUpdate(ModuleInstanceId id, boolean alive, boolean ready) {}
 
   /** One {@link WorkerRuntime.LivenessRestartSink#restartTriggered} call, likewise captured. */
-  public record LivenessRestart(ModuleId id, int consecutiveFailures) {}
+  public record LivenessRestart(ModuleInstanceId id, int consecutiveFailures) {}
 
   public record Result(
       ModuleRegistry registry,
       ModuleController controller,
       WorkerRuntime runtime,
       ServiceRegistry serviceRegistry,
-      ModuleId id,
+      ModuleInstanceId id,
       List<LifecycleEvent> events,
       List<HealthUpdate> healthUpdates,
       List<LivenessRestart> livenessRestarts) {}
@@ -61,7 +61,7 @@ public final class WiredWorkerRuntime {
       Path jar,
       int livenessFailureThreshold,
       Optional<Duration> stableUptimeThreshold,
-      Consumer<ModuleId> onRestartBudgetExhausted,
+      Consumer<ModuleInstanceId> onRestartBudgetExhausted,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
     return start(
@@ -85,12 +85,12 @@ public final class WiredWorkerRuntime {
       Duration defaultProbeTimeout,
       int livenessFailureThreshold,
       Optional<Duration> stableUptimeThreshold,
-      Consumer<ModuleId> onRestartBudgetExhausted,
+      Consumer<ModuleInstanceId> onRestartBudgetExhausted,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleId id = registry.register(artifact);
+    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ServiceRegistry serviceRegistry = new SimpleServiceRegistry();

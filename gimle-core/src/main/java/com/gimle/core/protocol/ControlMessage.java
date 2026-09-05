@@ -1,6 +1,6 @@
 package com.gimle.core.protocol;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.util.List;
@@ -38,9 +38,10 @@ public sealed interface ControlMessage {
 
   record Nack(String correlationId, String reason) implements ControlMessage {}
 
-  record ModuleStateChanged(ModuleId id, String state) implements ControlMessage {}
+  record ModuleStateChanged(ModuleInstanceId id, String state) implements ControlMessage {}
 
-  record HealthReport(ModuleId id, boolean alive, boolean ready) implements ControlMessage {}
+  record HealthReport(ModuleInstanceId id, boolean alive, boolean ready)
+      implements ControlMessage {}
 
   /**
    * {@code requestRatePerSecond}/{@code errorRatePerSecond}/{@code queueDepth} feed autoscaling
@@ -55,7 +56,7 @@ public sealed interface ControlMessage {
    * reportPort} at all.
    */
   record MetricsReport(
-      ModuleId id,
+      ModuleInstanceId id,
       long cpuMillicoresUsed,
       long memoryBytesUsed,
       double requestRatePerSecond,
@@ -71,12 +72,12 @@ public sealed interface ControlMessage {
       ports = Map.copyOf(ports);
     }
 
-    public MetricsReport(ModuleId id, long cpuMillicoresUsed, long memoryBytesUsed) {
+    public MetricsReport(ModuleInstanceId id, long cpuMillicoresUsed, long memoryBytesUsed) {
       this(id, cpuMillicoresUsed, memoryBytesUsed, 0.0, 0, 0.0, Map.of());
     }
 
     public MetricsReport(
-        ModuleId id,
+        ModuleInstanceId id,
         long cpuMillicoresUsed,
         long memoryBytesUsed,
         double requestRatePerSecond,
@@ -86,7 +87,7 @@ public sealed interface ControlMessage {
 
     /** The pre-{@code ports} full-detail shape, kept for existing call sites. */
     public MetricsReport(
-        ModuleId id,
+        ModuleInstanceId id,
         long cpuMillicoresUsed,
         long memoryBytesUsed,
         double requestRatePerSecond,
@@ -117,9 +118,11 @@ public sealed interface ControlMessage {
    * these into its own service catalog, gossips them cluster-wide, and relays catalog deltas it
    * learns from gossip back down to its supervised workers over this same per-instance channel.
    */
-  record ServiceRegistered(ModuleId moduleId, ServiceExport export) implements ControlMessage {}
+  record ServiceRegistered(ModuleInstanceId moduleId, ServiceExport export)
+      implements ControlMessage {}
 
-  record ServiceUnregistered(ModuleId moduleId, ServiceExport export) implements ControlMessage {}
+  record ServiceUnregistered(ModuleInstanceId moduleId, ServiceExport export)
+      implements ControlMessage {}
 
   record Pong(String correlationId) implements ControlMessage {}
 
@@ -190,14 +193,15 @@ public sealed interface ControlMessage {
    * need it as early as {@code onInstall}. Empty for every module that declares no {@code
    * volumes:}; the two-argument constructor preserves that shape.
    */
-  record ResolveModule(String correlationId, ModuleId id, Map<String, String> dataDirectories)
+  record ResolveModule(
+      String correlationId, ModuleInstanceId id, Map<String, String> dataDirectories)
       implements ControlMessage {
 
     public ResolveModule {
       dataDirectories = Map.copyOf(dataDirectories);
     }
 
-    public ResolveModule(String correlationId, ModuleId id) {
+    public ResolveModule(String correlationId, ModuleInstanceId id) {
       this(correlationId, id, Map.of());
     }
   }
@@ -209,14 +213,15 @@ public sealed interface ControlMessage {
    * deploymentName}/{@code instanceIndex} log-tagging identity established (via {@code
    * InstanceIdentityRegistry}); the module itself is never resolved, started, or stopped again.
    */
-  record RenameInstance(String correlationId, ModuleId id, String deploymentName, int instanceIndex)
+  record RenameInstance(
+      String correlationId, ModuleInstanceId id, String deploymentName, int instanceIndex)
       implements ControlMessage {}
 
-  record StartModule(String correlationId, ModuleId id) implements ControlMessage {}
+  record StartModule(String correlationId, ModuleInstanceId id) implements ControlMessage {}
 
-  record StopModule(String correlationId, ModuleId id) implements ControlMessage {}
+  record StopModule(String correlationId, ModuleInstanceId id) implements ControlMessage {}
 
-  record UninstallModule(String correlationId, ModuleId id) implements ControlMessage {}
+  record UninstallModule(String correlationId, ModuleInstanceId id) implements ControlMessage {}
 
   record Ping(String correlationId) implements ControlMessage {}
 
@@ -232,7 +237,7 @@ public sealed interface ControlMessage {
   record CatalogUpdate(
       String nodeId,
       String workerId,
-      ModuleId moduleId,
+      ModuleInstanceId moduleId,
       ServiceExport export,
       long version,
       boolean present,

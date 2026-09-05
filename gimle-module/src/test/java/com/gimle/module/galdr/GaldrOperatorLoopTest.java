@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.ControlPlaneRelayClient;
 import com.gimle.module.lifecycle.ModuleContext;
@@ -66,7 +67,8 @@ class GaldrOperatorLoopTest {
 
   private static ModuleContext contextOver(ScriptedRelay relay) {
     return new SimpleModuleContext(
-        new ModuleId("com.gimle.test.operator", Version.parse("1.0.0")),
+        ModuleInstanceId.unattached(
+            new ModuleId("com.gimle.test.operator", Version.parse("1.0.0"))),
         new SimpleServiceRegistry(),
         new ConcurrentHashMap<>(),
         Map.of(),

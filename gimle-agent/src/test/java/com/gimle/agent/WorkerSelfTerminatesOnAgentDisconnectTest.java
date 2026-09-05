@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -81,7 +81,7 @@ class WorkerSelfTerminatesOnAgentDisconnectTest {
           connection.send(
               new ControlMessage.InstallModule("corr-install", jar.toAbsolutePath().toString()));
           List<ControlMessage> installMessages = receiveUntilAck(connection, "corr-install");
-          ModuleId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
+          ModuleInstanceId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
 
           connection.send(new ControlMessage.ResolveModule("corr-resolve", id));
           receiveUntilAck(connection, "corr-resolve");
@@ -218,7 +218,7 @@ class WorkerSelfTerminatesOnAgentDisconnectTest {
     }
   }
 
-  private static ModuleId extractModuleIdFromStateChange(
+  private static ModuleInstanceId extractModuleIdFromStateChange(
       List<ControlMessage> messages, String state) {
     return messages.stream()
         .filter(
@@ -230,7 +230,7 @@ class WorkerSelfTerminatesOnAgentDisconnectTest {
         .orElseThrow(() -> new AssertionError("no " + state + " state change in " + messages));
   }
 
-  private static List<String> stateChangesFor(List<ControlMessage> messages, ModuleId id) {
+  private static List<String> stateChangesFor(List<ControlMessage> messages, ModuleInstanceId id) {
     return messages.stream()
         .filter(
             m -> m instanceof ControlMessage.ModuleStateChanged changed && changed.id().equals(id))

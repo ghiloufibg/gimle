@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.restart.RestartTracker;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -76,7 +76,7 @@ class Tier1DensityJobCompletionIntegrationTest {
           // A real Job assignment: deploymentName/instanceIndex carry jobName/attempt, exactly
           // as ApiServer#handleAssignments maps a JobRun -- installAndStartJob below registers
           // the InstanceIdentity that entails, the same as the real agent does.
-          ModuleId firstJobId =
+          ModuleInstanceId firstJobId =
               installAndStartJob(connection, jobJar, "first-job", "corr-first", 0);
           awaitCompleted(connection, firstJobId);
 
@@ -96,7 +96,7 @@ class Tier1DensityJobCompletionIntegrationTest {
           // AgentMain#installIntoExistingWorker does once findReusableTier1Worker offers this
           // worker up again. If the leaked first job were the mechanism behind M34, this
           // install/resolve/start sequence would never complete.
-          ModuleId secondJobId =
+          ModuleInstanceId secondJobId =
               installAndStartJob(connection, laterJar, "second-job", "corr-second", 1);
           awaitCompleted(connection, secondJobId);
         }
@@ -133,7 +133,7 @@ class Tier1DensityJobCompletionIntegrationTest {
         .build(tempDir, moduleName + ".jar");
   }
 
-  private static ModuleId installAndStartJob(
+  private static ModuleInstanceId installAndStartJob(
       WorkerConnection connection,
       Path jar,
       String deploymentName,
@@ -148,7 +148,7 @@ class Tier1DensityJobCompletionIntegrationTest {
             instanceIndex));
     List<ControlMessage> installMessages =
         receiveUntilAck(connection, correlationPrefix + "-install");
-    ModuleId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
+    ModuleInstanceId id = extractModuleIdFromStateChange(installMessages, "INSTALLED");
 
     connection.send(new ControlMessage.ResolveModule(correlationPrefix + "-resolve", id));
     receiveUntilAck(connection, correlationPrefix + "-resolve");
@@ -159,7 +159,8 @@ class Tier1DensityJobCompletionIntegrationTest {
   }
 
   /** Waits for the {@code COMPLETED} transition a job's own hook run drives, on its own thread. */
-  private static void awaitCompleted(WorkerConnection connection, ModuleId id) throws IOException {
+  private static void awaitCompleted(WorkerConnection connection, ModuleInstanceId id)
+      throws IOException {
     while (true) {
       ControlMessage message = receiveNextNonEventMessage(connection);
       if (message instanceof ControlMessage.ModuleStateChanged changed
@@ -209,7 +210,7 @@ class Tier1DensityJobCompletionIntegrationTest {
     }
   }
 
-  private static ModuleId extractModuleIdFromStateChange(
+  private static ModuleInstanceId extractModuleIdFromStateChange(
       List<ControlMessage> messages, String state) {
     return messages.stream()
         .filter(
