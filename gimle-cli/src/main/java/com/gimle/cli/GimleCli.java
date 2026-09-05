@@ -111,6 +111,7 @@ import java.util.function.Supplier;
  *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
  *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
  *   gimle secret rotate-key
+ *   gimle secret rewrap
  *   gimle secret retire-key &lt;keyId&gt;
  *   gimle configmap list &lt;tenantId&gt;
  *   gimle configmap get &lt;tenantId&gt; &lt;name&gt;
@@ -1280,6 +1281,7 @@ public final class GimleCli {
           secret export <tenantId> --out <file>
           secret import <tenantId> --in <file>
           secret rotate-key
+          secret rewrap
           secret retire-key <keyId>
           configmap list <tenantId>
           configmap get <tenantId> <name>

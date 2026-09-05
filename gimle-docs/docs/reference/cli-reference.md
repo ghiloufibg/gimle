@@ -161,6 +161,7 @@ gimle secret versions <tenantId> <key>
 gimle secret export <tenantId> --out <file>
 gimle secret import <tenantId> --in <file>
 gimle secret rotate-key
+gimle secret rewrap
 gimle secret retire-key <keyId>
 gimle configmap list <tenantId>
 gimle configmap get <tenantId> <name>
@@ -286,12 +287,17 @@ supports POSIX ones; and an existing path is refused rather than silently overwr
 once imported is the operator's job — treat it like the master key file itself.
 
 `rotate-key` generates a new master encryption
-key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is
-destructive in a different, sharper way than `delete`: it stops Fafnir from trusting that key id at
-all, so any value still encrypted under it — one `rotate-key` alone never re-encrypts — becomes
-permanently unrecoverable through this surface from that moment on. Retiring the currently active
-key is rejected outright; rotate first, confirm nothing still depends on the old key, then retire
-it.
+key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is the
+sharper operation: it destroys that key id's material, so a value still encrypted under it would
+become permanently unreadable. Rather than doing that silently, retirement is **refused** while any
+stored value still depends on the key, and the error names how many.
+
+`rewrap` clears that: it re-encrypts every stored secret version that is not already under the
+active key, without minting a new key the way a second `rotate-key` would. It is idempotent, so an
+interrupted run is finished by running it again. The normal sequence is `rotate-key`, then
+`retire-key` — rotation sweeps as it goes, so there is usually nothing left behind; `rewrap` is what
+clears the residue rotation's own sweep can miss (a value written concurrently, after the sweep had
+already passed that entry). Retiring the currently active key, or key id 0, is rejected outright.
 
 Like `secret`, `configmap` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
 `list` here returns names scoped to one tenant-owned ConfigMap object, not the flat per-key rows

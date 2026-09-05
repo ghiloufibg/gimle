@@ -195,8 +195,8 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -700,6 +700,8 @@ public final class ApiServer implements AutoCloseable {
         "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
     target.createContext(
         "/secrets/retire-key", instrument("secrets-retire-key", this::handleRetireSecretsKeyProxy));
+    target.createContext(
+        "/secrets/rewrap", instrument("secrets-rewrap", this::handleRewrapSecretsProxy));
     target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
     target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMapsProxy));
     target.createContext(
@@ -7475,6 +7477,15 @@ public final class ApiServer implements AutoCloseable {
    */
   private void handleRetireSecretsKeyProxy(HttpExchange exchange) {
     forwardGlobalAdminRoute(exchange, "/secrets/retire-key", ResourceKind.SECRET);
+  }
+
+  /**
+   * Sibling of the two above, same global gate: re-encrypting every tenant's secrets under the
+   * active key is what makes retiring an older one safe, so it is the same class of operation and
+   * relays the same way.
+   */
+  private void handleRewrapSecretsProxy(HttpExchange exchange) {
+    forwardGlobalAdminRoute(exchange, "/secrets/rewrap", ResourceKind.SECRET);
   }
 
   // ---- /seal/public-key, /seal/rotate-key, /seal/retire-key ----

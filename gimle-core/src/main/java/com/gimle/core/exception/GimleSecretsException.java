@@ -168,6 +168,25 @@ public class GimleSecretsException extends RuntimeException {
    * diagnosable case a caller can act on: the value simply can't be recovered any more, not that
    * something is malformed.
    */
+  /**
+   * Retirement destroys a key's material, so anything still encrypted under it would become
+   * permanently unreadable. Refused while such data exists, naming how much, rather than silently
+   * discarding it -- the caller re-encrypts under the active key first.
+   */
+  public static GimleSecretsException keyStillEncryptsData(
+      String keyKind, int keyId, int encryptedCount) {
+    return new GimleSecretsException(
+        "cannot retire "
+            + keyKind
+            + " key id "
+            + keyId
+            + ": "
+            + encryptedCount
+            + (encryptedCount == 1 ? " stored value is" : " stored values are")
+            + " still encrypted under it and would become permanently unreadable -- re-encrypt"
+            + " them under the active key first (gimle secret rewrap)");
+  }
+
   public static GimleSecretsException keyRetired(String keyKind, int keyId) {
     return new GimleSecretsException(
         keyKind + " key id " + keyId + " has been retired and can no longer decrypt data");

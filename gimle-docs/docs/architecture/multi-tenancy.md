@@ -276,9 +276,13 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
   local development only), the key is still written but the restriction is skipped with a logged
   warning rather than a hard failure. `POST /secrets/rotate-key` generates a new active key and
   re-encrypts every existing secret under it; old keys are kept, never deleted, so any entry the
-  rotation walk hasn't reached yet still decrypts correctly under its original key. `POST
-  /secrets/retire-key` is the sharper operation: it deletes that id's key file on the replica that
-  handled the call, *and* proposes a `PutSecretsKeyRetirement` mutation through the Raft-replicated
+  rotation walk hasn't reached yet still decrypts correctly under its original key. `POST /secrets/rewrap` runs that same
+  re-encryption sweep without minting a new key, for the residue a rotation's own sweep can miss.
+  `POST
+  /secrets/retire-key` is the sharper operation, and is refused outright while any stored value is
+  still encrypted under the id being retired — destroying the key would destroy that data, not
+  merely revoke access to it. Once nothing depends on it, retirement deletes that id's key file on
+  the replica that handled the call, *and* proposes a `PutSecretsKeyRetirement` mutation through the Raft-replicated
   store — the same small denylist-in-the-log pattern `StateStore#putCertificateRevocation` already
   established for revoked certificates, with no key material of its own touching the replicated log.
   `FafnirCrypto#decrypt` checks that store-backed flag fresh on every call rather than a field loaded

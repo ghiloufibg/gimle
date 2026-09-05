@@ -82,6 +82,7 @@ public final class SecretCommand {
       case "export" -> export(rest);
       case "import" -> importSecrets(rest);
       case "rotate-key" -> rotateKey();
+      case "rewrap" -> rewrap();
       case "retire-key" -> retireKey(rest);
       default -> throw new CliException(usage());
     }
@@ -423,6 +424,25 @@ public final class SecretCommand {
     resultBody.put("activeKeyId", activeKeyId);
     OutputFormat.printResult(
         output, resultBody, "secrets key rotated (active key id " + activeKeyId + ")", out);
+  }
+
+  private void rewrap() {
+    String response = client.expectSuccess(client.post("/secrets/rewrap", ""));
+    Map<String, Object> body = Json.asObject(Json.parse(response));
+    Object rewrapped = body.get("rewrapped");
+    Map<String, Object> resultBody = new LinkedHashMap<>();
+    resultBody.put("result", "rewrapped");
+    resultBody.put("kind", "secret");
+    resultBody.put("rewrapped", rewrapped);
+    resultBody.put("activeKeyId", body.get("activeKeyId"));
+    OutputFormat.printResult(
+        output,
+        resultBody,
+        "re-encrypted "
+            + rewrapped
+            + " secret value(s) under active key "
+            + body.get("activeKeyId"),
+        out);
   }
 
   private void retireKey(List<String> args) {

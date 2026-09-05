@@ -272,14 +272,12 @@ class FafnirServerSealTest {
 
   @Test
   @Timeout(15)
-  void a_symmetric_key_retired_after_rotation_strands_a_value_still_encrypted_under_it()
+  void retiring_a_symmetric_key_is_refused_while_a_value_is_still_encrypted_under_it()
       throws Exception {
-    // The destructive-consequence case for the *other* key ring: unlike sealing-key retirement
-    // (which only blocks not-yet-applied blobs), retiring a symmetric key can strand data already
-    // at rest under it -- this is expected, not a bug, and is exactly why retiring the active key
-    // (and id 0 specifically) is rejected outright. Rotate once so a value encrypted next lands
-    // under a non-zero, later-retireable id; rotate again so that id is no longer active. Fafnir
-    // recognizes its own retired id and reports it as a specific 400, not an opaque 500.
+    // Retiring a symmetric key destroys its material, so a value still at rest under it would
+    // become permanently unreadable. Refused while that value exists, and readable again through a
+    // rewrap -- the operator re-encrypts, then retires. Rotate once so a value encrypted next lands
+    // under a non-zero, later-retireable id; rotate again so that id is no longer active.
     HttpResponse<String> firstRotate = send("POST", "/secrets/rotate-key", "");
     assertEquals(200, firstRotate.statusCode());
     int encryptingKeyId =
@@ -329,12 +327,20 @@ class FafnirServerSealTest {
                         .getBytes(StandardCharsets.UTF_8),
                     false)));
 
-    HttpResponse<String> retireResponse =
+    HttpResponse<String> refused =
         send("POST", "/secrets/retire-key", Json.write(Map.of("keyId", encryptingKeyId)));
-    assertEquals(200, retireResponse.statusCode());
+    assertEquals(400, refused.statusCode());
+    assertTrue(refused.body().contains("still encrypted under it"), refused.body());
 
-    HttpResponse<String> getResponse = send("GET", "/secrets/acme/plain-secret", null);
-    assertEquals(400, getResponse.statusCode());
-    assertTrue(getResponse.body().contains("retired"));
+    // The value is untouched by the refusal.
+    assertEquals(200, send("GET", "/secrets/acme/plain-secret", null).statusCode());
+
+    assertEquals(200, send("POST", "/secrets/rewrap", "").statusCode());
+
+    HttpResponse<String> retired =
+        send("POST", "/secrets/retire-key", Json.write(Map.of("keyId", encryptingKeyId)));
+    assertEquals(200, retired.statusCode(), retired.body());
+    // Still readable: rewrapping moved it onto the active key before the old one went away.
+    assertEquals(200, send("GET", "/secrets/acme/plain-secret", null).statusCode());
   }
 }
