@@ -7,6 +7,9 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,20 +18,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * FUNC-62 regression: {@code onStart} used to parse {@code gateway.routes} exactly once and bake it
- * into a fixed set of {@code HttpServer} contexts, with no listener, poll, or re-parse anywhere
- * afterward -- an operator's route-config update had zero effect on an already-running instance.
- * {@link GatewayHooks}'s package-private constructor lets these tests shrink the reload interval to
- * milliseconds; production always uses {@code GatewayHooks#DEFAULT_ROUTE_RELOAD_INTERVAL} via the
- * public no-arg constructor. {@code gateway.routes} is re-read from the exact same {@link
- * ConcurrentHashMap} {@link SimpleModuleContext#config} reads live from -- mutating it here is
- * exactly what {@code ConfigRelay}'s own delivery does to a real running instance.
+ * A gateway's route table must follow the Ingresses declared for its tenant while it runs, not be
+ * baked in once at {@code onStart} -- an operator's route change had no effect at all on an
+ * already-running instance, which for a DaemonSet-deployed fleet of independently-restarting
+ * gateways meant the fleet disagreed about what it served. {@link GatewayHooks}'s package-private
+ * constructor lets these tests shrink the reload interval to milliseconds; production always uses
+ * {@code GatewayHooks#DEFAULT_ROUTE_RELOAD_INTERVAL} via the public no-arg constructor.
  *
  * <p>{@code @ResourceLock(SYSTEM_PROPERTIES)} for the same reason {@code GatewayHooksTlsTest}
  * carries it: {@code createHttpServer} reads the process-global {@code gimle.transport.protocol}
@@ -44,26 +48,33 @@ class GatewayHooksRouteReloadTest {
   private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(2);
 
   private GatewayHooks hooks;
+  private HttpServer controlPlane;
+
+  /** What the stub control plane currently declares, swapped mid-test to drive a reload. */
+  private final AtomicReference<String> declaredPaths = new AtomicReference<>("");
 
   @AfterEach
-  void stopGateway() {
+  void stopEverything() {
     if (hooks != null) {
       hooks.onStop(null);
+    }
+    if (controlPlane != null) {
+      controlPlane.stop(0);
     }
   }
 
   @Test
-  void a_route_added_to_the_config_becomes_reachable_without_a_restart() throws Exception {
-    ConcurrentHashMap<String, String> configValues = configWithRoutes(routeLine("/greet"));
+  void a_route_added_to_the_ingress_becomes_reachable_without_a_restart() throws Exception {
+    declaredPaths.set("/greet");
     hooks = new GatewayHooks(RELOAD_INTERVAL);
-    hooks.onStart(contextWithGreeterRoute(configValues));
+    hooks.onStart(contextPointingAtStubControlPlane());
     HttpClient client = HttpClient.newHttpClient();
 
-    assertEquals(200, send(client, "/greet").statusCode());
+    awaitStatus(client, "/greet", 200);
     // The new path genuinely doesn't exist yet -- no HttpServer context is registered for it.
     assertEquals(404, send(client, "/greet2").statusCode());
 
-    configValues.put("gateway.routes", routeLine("/greet") + routeLine("/greet2"));
+    declaredPaths.set("/greet,/greet2");
 
     awaitStatus(client, "/greet2", 200);
     // The untouched path's already-registered context keeps working through the swap too.
@@ -71,50 +82,81 @@ class GatewayHooksRouteReloadTest {
   }
 
   @Test
-  void a_route_removed_from_the_config_stops_being_reachable() throws Exception {
-    ConcurrentHashMap<String, String> configValues =
-        configWithRoutes(routeLine("/greet") + routeLine("/greet2"));
+  void a_route_removed_from_the_ingress_stops_being_reachable() throws Exception {
+    declaredPaths.set("/greet,/greet2");
     hooks = new GatewayHooks(RELOAD_INTERVAL);
-    hooks.onStart(contextWithGreeterRoute(configValues));
+    hooks.onStart(contextPointingAtStubControlPlane());
     HttpClient client = HttpClient.newHttpClient();
-    assertEquals(200, send(client, "/greet2").statusCode());
+    awaitStatus(client, "/greet2", 200);
 
-    configValues.put("gateway.routes", routeLine("/greet"));
+    declaredPaths.set("/greet");
 
     awaitStatus(client, "/greet2", 404);
     assertEquals(200, send(client, "/greet").statusCode());
   }
 
+  /**
+   * An unreachable control plane is not a reason to stop serving: the routes already applied stay
+   * in place until it answers again, rather than the fleet emptying its route table the moment the
+   * control plane restarts.
+   */
   @Test
-  void a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving()
-      throws Exception {
-    ConcurrentHashMap<String, String> configValues = configWithRoutes(routeLine("/greet"));
+  void an_unreachable_control_plane_leaves_the_previous_table_serving() throws Exception {
+    declaredPaths.set("/greet");
     hooks = new GatewayHooks(RELOAD_INTERVAL);
-    hooks.onStart(contextWithGreeterRoute(configValues));
+    hooks.onStart(contextPointingAtStubControlPlane());
     HttpClient client = HttpClient.newHttpClient();
-    assertEquals(200, send(client, "/greet").statusCode());
+    awaitStatus(client, "/greet", 200);
 
-    configValues.put("gateway.routes", "NOT A VALID ROUTE LINE");
-    // Give the reload task several ticks to (fail to) apply the bad config.
+    controlPlane.stop(0);
+    controlPlane = null;
     Thread.sleep(RELOAD_INTERVAL.toMillis() * 10);
 
     assertEquals(200, send(client, "/greet").statusCode());
   }
 
-  private static String routeLine(String path) {
-    return "FABRIC " + path + " " + TestGreeter.class.getName() + " 1 greet STRING\n";
-  }
+  private SimpleModuleContext contextPointingAtStubControlPlane() throws IOException {
+    controlPlane = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    controlPlane.createContext(
+        "/ingresses",
+        exchange -> {
+          byte[] body = ingressesJson().getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    controlPlane.start();
 
-  private static ConcurrentHashMap<String, String> configWithRoutes(String routesConfig) {
-    return new ConcurrentHashMap<>(Map.of("gateway.port", "0", "gateway.routes", routesConfig));
-  }
-
-  private static SimpleModuleContext contextWithGreeterRoute(
-      ConcurrentHashMap<String, String> configValues) {
+    ConcurrentHashMap<String, String> configValues =
+        new ConcurrentHashMap<>(
+            Map.of(
+                "gateway.port",
+                "0",
+                "gateway.controlPlaneEndpoint",
+                "127.0.0.1:" + controlPlane.getAddress().getPort()));
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
     return new SimpleModuleContext(gatewayId, registry, configValues);
+  }
+
+  private String ingressesJson() {
+    String paths = declaredPaths.get();
+    String routes =
+        paths.isEmpty()
+            ? ""
+            : Stream.of(paths.split(","))
+                .map(
+                    path ->
+                        "{\"kind\":\"FABRIC\",\"path\":\""
+                            + path
+                            + "\",\"prefix\":false,\"interfaceName\":\""
+                            + TestGreeter.class.getName()
+                            + "\",\"majorVersion\":1,\"methodName\":\"greet\","
+                            + "\"paramType\":\"STRING\"}")
+                .collect(Collectors.joining(","));
+    return "[{\"name\":\"greeter\",\"tenantId\":\"default\",\"routes\":[" + routes + "]}]";
   }
 
   private HttpResponse<String> send(HttpClient client, String path) throws Exception {

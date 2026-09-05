@@ -55,7 +55,8 @@ class EnableGatewayCommandTest {
     assertTrue(fake.hasArtifact("com.gimle.gateway", "1.0.0"));
     assertTrue(fake.hasWorkload("DaemonSet", "gimle-gateway"));
     assertEquals("8090", fake.configValue("gimle-system", "gateway.port"));
-    assertEquals("", fake.configValue("gimle-system", "gateway.routes"));
+    assertEquals(
+        "127.0.0.1:8080", fake.configValue("gimle-system", "gateway.controlPlaneEndpoint"));
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.gimle-gateway.meta") != null);
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.gimle-gateway.rev.1") != null);
 
@@ -116,7 +117,8 @@ class EnableGatewayCommandTest {
   void set_flags_named_after_the_real_config_keys_override_the_bundles_own_defaults()
       throws Exception {
     // The values a `--set` flag targets here are named identically to the config keys
-    // GatewayHooks actually reads ("gateway.port"/"gateway.routes"), the names an operator
+    // GatewayHooks actually reads ("gateway.port"/"gateway.controlPlaneEndpoint"), the names an
+    // operator
     // reading this command's own usage text or gimle-system's stored config would know -- not a
     // shorter internal alias that appears nowhere an operator would ever see it.
     fake = new FakeControlPlane();
@@ -131,13 +133,11 @@ class EnableGatewayCommandTest {
             "--set",
             "gateway.port=9100",
             "--set",
-            "gateway.routes=FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING"),
+            "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
         capture(new ByteArrayOutputStream()));
 
     assertEquals("9100", fake.configValue("gimle-system", "gateway.port"));
-    assertEquals(
-        "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING",
-        fake.configValue("gimle-system", "gateway.routes"));
+    assertEquals("10.0.0.5:8080", fake.configValue("gimle-system", "gateway.controlPlaneEndpoint"));
   }
 
   @Test

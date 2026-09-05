@@ -1,13 +1,18 @@
 import { create } from "zustand";
 import type { DaemonSet, DaemonSetInstance } from "@/types";
-import { configRepo, daemonSetsRepo, endpointsRepo, servicesRepo } from "@/repositories";
+import {
+  configRepo,
+  daemonSetsRepo,
+  endpointsRepo,
+  ingressesRepo,
+  servicesRepo,
+} from "@/repositories";
 import { describeApiError, storeErrorMessage } from "@/lib/api-error";
 import { ApiError } from "@/repositories/http/apiClient";
 import {
-  parseGatewayRoutes,
+  toGatewayRoutes,
   routeTarget,
   type GatewayRoute,
-  type GatewayRouteError,
 } from "@/addons/gateway/routes-config";
 
 /**
@@ -22,7 +27,6 @@ import {
 export const GATEWAY_MODULE_ID = "com.gimle.gateway";
 export const GATEWAY_DAEMONSET_NAME = "gimle-gateway";
 export const GATEWAY_CONFIG_TENANT = "gimle-system";
-export const GATEWAY_ROUTES_KEY = "gateway.routes";
 export const GATEWAY_PORT_KEY = "gateway.port";
 
 /**
@@ -50,8 +54,7 @@ export interface GatewayRouteRow {
 
 interface State {
   rows: GatewayRouteRow[];
-  parseErrors: GatewayRouteError[];
-  /** Null until loaded; false when tenant `gimle-system` carries no `gateway.routes` key at all. */
+  /** Null until loaded; false when no Ingress is declared for the gateway's tenant at all. */
   routesConfigured: boolean | null;
   listenPort: string | null;
   instances: DaemonSetInstance[];
@@ -113,7 +116,6 @@ async function readGateway(): Promise<
   Pick<
     State,
     | "rows"
-    | "parseErrors"
     | "routesConfigured"
     | "listenPort"
     | "instances"
@@ -127,11 +129,11 @@ async function readGateway(): Promise<
     // The system tenant's config is a handful of keys; one page is the whole of it.
     pageSize: 500,
   });
-  const routesEntry = config.items.find((e) => e.key === GATEWAY_ROUTES_KEY);
   const listenPort = config.items.find((e) => e.key === GATEWAY_PORT_KEY)?.value ?? null;
 
   const daemonSet = await fetchGatewayDaemonSet();
-  const { routes, errors } = parseGatewayRoutes(routesEntry?.value ?? "");
+  const ingresses = await ingressesRepo.fetchAll(GATEWAY_CONFIG_TENANT);
+  const routes = toGatewayRoutes(ingresses);
 
   const services = await servicesRepo.fetchAll();
   const serviceTenants = new Map(services.map((s) => [s.name, s.tenantId]));
@@ -157,8 +159,7 @@ async function readGateway(): Promise<
 
   return {
     rows,
-    parseErrors: errors,
-    routesConfigured: routesEntry !== undefined,
+    routesConfigured: ingresses.length > 0,
     listenPort,
     instances: daemonSet?.instances ?? [],
     deployed: daemonSet !== null,
@@ -187,7 +188,6 @@ async function fetchGatewayDaemonSet(): Promise<DaemonSet | null> {
 
 export const useGatewayStore = create<State>((set, get) => ({
   rows: [],
-  parseErrors: [],
   routesConfigured: null,
   listenPort: null,
   instances: [],

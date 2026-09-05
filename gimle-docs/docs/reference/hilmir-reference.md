@@ -556,11 +556,14 @@ disable <extension>`) leaves room for more without changing this one's own flags
    `tenantId: gimle-system`, `placement.requiredLabels: [edge]`, `module: {name, version}` with no
    `artifactPath` set (admission resolves it through the registry coordinate just pushed — the
    production path every node actually takes, not a local dev-tree file path), plus the two
-   `gimle-system/gateway.port`/`gateway.routes` config keys `GatewayHooks` reads at startup,
+   `gimle-system/gateway.port`/`gateway.controlPlaneEndpoint` config keys `GatewayHooks` reads at
+   startup,
    defaulted to `8090`/`""` (no routes) and overridable through the same `--values <file>`/`--set
    k=v` mechanism every other release verb uses — the bundle's own `values:` block names its two
-   keys `gateway.port`/`gateway.routes` identically to the config keys they feed, so `--set
-   gateway.routes=<routes>`/`--set gateway.port=<port>` are the flags that actually take effect.
+   keys `gateway.port`/`gateway.controlPlaneEndpoint` identically to the config keys they feed, so
+   `--set gateway.controlPlaneEndpoint=<host:port>`/`--set gateway.port=<port>` are the flags that
+   actually take effect. The route table itself is not a config key — declare it as `Ingress`
+   resources.
 
 Enabling again after the jar under `--modules-dir` has been rebuilt at a new version re-derives the
 coordinate from that new jar, pushes it, and takes the **upgrade** path against the existing

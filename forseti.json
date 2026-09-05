@@ -320,7 +320,8 @@
           "GIMLE-688",
           "GIMLE-689",
           "GIMLE-700",
-          "GIMLE-719"
+          "GIMLE-719",
+          "GIMLE-845"
         ]
       },
       "jpms-and-classloading": {
@@ -647,7 +648,8 @@
       "oracle": "Workloads stay available across the rolling binary upgrade (store restarts respect quorum); the rollback returns to the prior binary, not merely a prior manifest.",
       "requirements": [
         "GIMLE-397",
-        "GIMLE-580"
+        "GIMLE-580",
+        "GIMLE-844"
       ]
     },
     {
@@ -1475,15 +1477,14 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist. Then declare the same routes again as an `Ingress` resource instead of gateway.routes config, including one deliberately malformed route and one colliding with a config-declared path; re-submit the Ingress with a stale expectedVersion.",
-      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. The console's Gateway screen lists the same table it was given, names the route resolving to nothing and the rejected duplicate line, and never claims a FABRIC target resolves; its sidebar entry sits under an Edge group. An Ingress-declared route behaves identically to the same route declared in config; the malformed one is refused at submission naming the field, not accepted and silently unmatched; the config-declared route wins the collision; the stale re-submit is refused rather than overwriting.",
+      "objective": "Declare the gateway's routes as an `Ingress`: a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix. Edit the Ingress live; submit a deliberately malformed route; re-submit with a stale expectedVersion; stop the control plane while the gateway is serving. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist. Confirm there is no config key that accepts a route table at all.",
+      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the gateway's own probes report ready. A malformed route is refused at submission naming the field, not accepted and silently unmatched; the stale re-submit is refused rather than overwriting; a control plane that goes away leaves the already-applied table serving rather than emptying it. The console's Gateway screen lists the same table it was given, names the route resolving to nothing, never claims a FABRIC target resolves, and offers no rejected-line panel because no such line can exist; its sidebar entry sits under an Edge group. Writing routes to a `gateway.routes` config key has no effect on any gateway.",
       "requirements": [
         "GIMLE-356",
         "GIMLE-357",
         "GIMLE-358",
         "GIMLE-360",
         "GIMLE-362",
-        "GIMLE-363",
         "GIMLE-364",
         "GIMLE-366",
         "GIMLE-367",

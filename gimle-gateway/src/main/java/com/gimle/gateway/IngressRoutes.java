@@ -7,13 +7,9 @@ import java.util.List;
 
 /**
  * Turns the control plane's declared {@link IngressRule}s into this module's own {@link
- * GatewayRoute}s -- the declarative counterpart to {@link GatewayRouteConfig}, which parses the
- * same three route kinds out of a flat config string.
- *
- * <p>Both paths converge here on purpose. An Ingress and a {@code gateway.routes} line describe the
- * same thing, and the moment they produced two subtly different route objects, a route would behave
- * differently depending on how it was declared -- so this converts and hands off to exactly the
- * types {@link GatewayDispatcher} already dispatches, adding no route semantics of its own.
+ * GatewayRoute}s -- the whole of how a route reaches this module. It converts and hands off to
+ * exactly the types {@link GatewayDispatcher} already dispatches, adding no route semantics of its
+ * own.
  *
  * <p>Validation is deliberately not repeated here: {@link IngressRule}'s own compact constructor
  * already rejects a rule missing the fields its kind requires, and it does so at the API boundary

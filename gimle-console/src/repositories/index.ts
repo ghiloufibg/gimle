@@ -30,6 +30,7 @@ import { HttpSealRepository } from "./http/seal";
 import { HttpEventsRepository } from "./http/events";
 import { HttpMetricsRepository } from "./http/metrics";
 import { HttpAuthzVocabularyRepository } from "./http/authzVocabulary";
+import { HttpIngressesRepository } from "./http/ingresses";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -54,6 +55,7 @@ export const accountsRepo = new HttpAccountsRepository();
 export const artifactsRepo = new HttpArtifactsRepository();
 export const servicesRepo = new HttpServicesRepository();
 export const endpointsRepo = new HttpEndpointsRepository();
+export const ingressesRepo = new HttpIngressesRepository();
 export const networkPoliciesRepo = new HttpNetworkPoliciesRepository();
 export const customResourcesRepo = new HttpCustomResourcesRepository();
 export const limitRangesRepo = new HttpLimitRangesRepository();

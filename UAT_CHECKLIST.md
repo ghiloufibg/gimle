@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 843
+- **Total requirements**: 844
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 713
+- **Not covered by automated test**: 714
 - **Release-readiness (automated coverage)**: 15.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,13 +20,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 25 | 2 | 23 | 8.0% |
 | gimle-agent | 62 | 6 | 56 | 9.7% |
 | gimle-mimir | 70 | 36 | 34 | 51.4% |
-| gimle-fabric | 42 | 1 | 41 | 2.4% |
-| gimle-controlplane | 124 | 17 | 107 | 13.7% |
+| gimle-fabric | 43 | 1 | 42 | 2.3% |
+| gimle-controlplane | 125 | 17 | 108 | 13.6% |
 | gimle-fafnir | 34 | 11 | 23 | 32.4% |
 | gimle-andvari | 25 | 2 | 23 | 8.0% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
-| gimle-gateway | 21 | 0 | 21 | 0.0% |
+| gimle-gateway | 20 | 0 | 20 | 0.0% |
 | gimle-cli | 44 | 0 | 44 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -1032,6 +1032,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool. | No |
 | [ ] | GIMLE-700 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Given a breaker still OPEN (cooldown not elapsed, no HALF_OPEN trial ever claimed) and a call reaches it anyway (panic mode's own bypass); When that call succeeds; Then the breaker closes immediately rather than staying OPEN. Given a breaker that has re-opened at least once (backoff already doubled) and a panic-mode-admitted call against it succeeds while still OPEN; When the breaker closes as a result; Then its backoff resets to the base cooldown, identical to an ordinary HALF_OPEN success. | No |
+| [ ] | GIMLE-845 | A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup | Given a same-machine replica saturated by callers other than this one, and an idle remote replica When this caller makes repeated calls through one long-lived proxy Then after the first call teaches it the target's reported backlog, every later call routes to the idle remote replica And no call fails and no circuit breaker opens | No |
 
 #### Service fabric / gossip membership
 
@@ -1277,6 +1278,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-788 | Cluster-wide instance lifecycle event read | Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies. | No |
 | [ ] | GIMLE-790 | A durable, replica-agnostic read of whether an AlertRule is currently firing | Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403. | No |
 | [ ] | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection. | No |
+| [ ] | GIMLE-844 | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | Given a registered node whose agent is heartbeating normally When store leadership moves and the new leader holds no heartbeat for it Then the node reads PENDING rather than STALE, and its assignments are not released And once the observation window has had time to fill with the node still silent, it reads UNKNOWN and is treated as dark | No |
 
 #### Orchestration / Internal-Infra
 
@@ -1783,7 +1785,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-363 | Route-table config DSL parsing | Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and "#" comments When GatewayRouteConfig.parse(text) is called Then blank/comment lines are ignored and each remaining line becomes the correct route type And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number | No |
 | [ ] | GIMLE-364 | Duplicate route-path rejection at config-parse time | Given a config with two lines both declaring path "/api/orders" (one FABRIC, one VESSEL, or same-kind duplicates) When GatewayRouteConfig.parse is called Then it throws GatewayConfigException before any route table is built | No |
 
 #### Gateway / routing
@@ -1803,7 +1804,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-360 | Round-robin load balancing over ready vessel endpoints | Given two ready endpoints for a deployment When four consecutive requests are dispatched Then both endpoints are hit, alternating in round-robin order And an endpoint missing the named port or missing a host is never selected | No |
 | [ ] | GIMLE-361 | Stale-cache fallback on endpoint-refresh failure | Given a cached endpoint list from a prior successful refresh When the TTL expires and the next refresh returns 504 Then resolve() still returns the previously-cached Ready endpoint, with a warning logged But if no list was ever cached and the refresh fails, resolve() returns Unavailable | No |
 | [ ] | GIMLE-362 | Vessel-route error surfacing (no ready endpoint / connect failure) | Given a deployment with zero live/ready endpoints When a vessel route is dispatched Then the response is 503 Given a resolved endpoint that refuses the TCP connection When the proxy call is attempted Then the response is a clean 502, not an uncaught exception | No |
-| [ ] | GIMLE-365 | Gateway HTTP server bootstrap via module lifecycle hooks | Given required config keys gateway.port and gateway.routes are present When onStart(ctx) runs Then an HttpServer binds on 0.0.0.0:{port}, one context per configured route, using a virtual-thread-per-task executor And onStop() stops the server and flips readiness to false And a missing/non-integer gateway.port throws GatewayConfigException before binding | No |
+| [ ] | GIMLE-365 | Gateway HTTP server bootstrap via module lifecycle hooks | Given required config keys gateway.port and gateway.controlPlaneEndpoint are present When onStart(ctx) runs Then an HttpServer binds on 0.0.0.0:{port} with no route contexts yet, using a virtual-thread-per-task executor And the first reload tick registers one context per distinct path of the declared Ingresses | No |
 | [ ] | GIMLE-366 | Gateway liveness and readiness probes | Given GatewayHooks has not yet run onStart Then GatewayReadinessProbe.isReady() returns false When onStart completes successfully (port bound) Then GatewayReadinessProbe.isReady() returns true And GatewayLivenessProbe.isAlive() always returns true | No |
 | [ ] | GIMLE-367 | HTTP status-code error mapping across the dispatcher | Given a request to a path with no configured route Then the response is 404 Given a fabric route invoked with the wrong HTTP verb Then the response is 405 Given a downstream fabric call that throws Then the response is 502 | No |
 | [ ] | GIMLE-369 | Vessel proxy: no TLS, no header forwarding (v1 scope limitation) | Given a vessel target that reads a custom request header When a request carrying that header is proxied through the gateway Then the header is not forwarded to the target (only method/path/body cross) And the connection to the target is always plain HTTP, never HTTPS | No |
@@ -1821,7 +1822,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-679 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
+| [ ] | GIMLE-679 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table When an Ingress is updated to add a new route Then the new route becomes reachable on the same listener within one reload interval, with no restart And when the control plane becomes unreachable, the already-applied table keeps serving | No |
 
 #### Transport Security
 
@@ -2105,7 +2106,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-758 | An expired console session is explained once, in plain language | Given a signed-in operator whose session has expired When any request returns 401 Then no technical toast is shown And the login screen explains that the session expired | No |
 | [ ] | GIMLE-759 | Console screens keep themselves current | Given a deployment scaled from another surface When its console screen is open with auto-refresh on Then the change appears without operator action And a poll never clobbers a form the operator is editing | No |
 | [ ] | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400 | No |
-| [ ] | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance | No |
+| [ ] | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Given an Ingress declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a FABRIC route is reported unresolvable rather than guessed at | No |
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 | [ ] | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names | No |
 | [ ] | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |

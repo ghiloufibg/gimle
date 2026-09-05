@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 843,
+  "requirementCount": 845,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -6351,11 +6351,11 @@
       "module": "gimle-gateway",
       "feature": "Route-table config DSL parsing",
       "category": "Config",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Removed",
+      "statusNote": "Removed. The flat `gateway.routes` config value no longer exists: a route table written as opaque text could only ever be checked when a gateway happened to parse it, so a typo reached the cluster as an accepted write and surfaced seconds later as a route that silently never matched. `GatewayRouteConfig` and its test are deleted; routes are declared only as `Ingress` resources (GIMLE-785), which admission validates at submission.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and \"#\" comments",
+      "gapNote": "Behaviour removed; nothing left to cover.",
       "otherTestCoverage": "`GatewayRouteConfigTest#parses_a_mix_of_fabric_and_vessel_routes_ignoring_blank_lines_and_comments`, `#an_unknown_kind_token_is_rejected`, `#a_fabric_line_with_the_wrong_number_of_fields_is_rejected`, `#a_non_integer_fabric_version_is_rejected`, `#a_fabric_param_type_outside_the_v1_restriction_is_rejected_at_parse_time`",
       "sourceLocations": [
         "`GatewayRouteConfig.java`"
@@ -6381,8 +6381,8 @@
       "module": "gimle-gateway",
       "feature": "Gateway HTTP server bootstrap via module lifecycle hooks",
       "category": "Gateway/Routing",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Modified. `onStart` now requires `gateway.port` and `gateway.controlPlaneEndpoint`, binds its listener with an empty route table, and lets the first reload tick fetch the declared Ingresses -- rather than parsing a `gateway.routes` config value. Binding before the route table arrives is deliberate: the listener answers 404 while the control plane is still being reached, instead of the whole module failing to start because a route table was momentarily unreadable.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given required config keys gateway.port and gateway.routes are present",
@@ -7127,7 +7127,7 @@
       "feature": "Gateway extension enable (`hilmir enable gateway`)",
       "category": "Release Management",
       "status": "Modified",
-      "statusNote": "M56 fix: the synthesized bundle's own values: block named its two keys port/routes, an internal alias appearing nowhere an operator would ever see it -- --set gateway.routes=<value>/--set gateway.port=<value>, the exact names this command's own usage text and gimle-system's stored config both use, silently landed in the merged values map under a key nothing referenced. The values keys are now named identically to the config keys they feed (gateway.port/gateway.routes).",
+      "statusNote": "Modified. The synthesized bundle's `values:`/`config:` keys are now `gateway.port`/`gateway.controlPlaneEndpoint`; there is no routes key, since a route table is declared as `Ingress` resources rather than as config. The naming rule the original fix established is unchanged -- a values key is named identically to the config key it feeds, so `--set gateway.controlPlaneEndpoint=<host:port>` is the flag that actually takes effect.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Gateway extension enable (`hilmir enable gateway`)\".",
@@ -11780,8 +11780,8 @@
       "module": "gimle-gateway",
       "feature": "Gateway route table reloads on a config change without a restart",
       "category": "Networking",
-      "status": "New",
-      "statusNote": "New requirement: closes FUNC-62 -- gateway.routes was parsed once at instance startup with no reload path, so a config update reached only whichever DaemonSet instances happened to restart.",
+      "status": "Modified",
+      "statusNote": "Modified. The reload loop now re-reads the declared Ingresses rather than a `gateway.routes` config value, and distinguishes a control plane it could not read from one declaring no routes: the first leaves the working table serving, the second empties it. Without that distinction, making Ingress the only source would have taken a whole gateway fleet down for the duration of a control-plane restart.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that boots a gateway DaemonSet, updates its gateway.routes config through the real API, and asserts (without restarting any instance) that the new route becomes reachable on every replica.",
@@ -13396,8 +13396,8 @@
       "module": "gimle-console",
       "feature": "A Gateway console screen showing the declared route table and what each route currently resolves to",
       "category": "Web Console / Frontend",
-      "status": "New",
-      "statusNote": "New requirement: Complete. The screen reads the `gateway.routes` config key under tenant `gimle-system` -- the same key a gateway instance reads -- and parses it client-side with `gateway-routes.ts`, a TypeScript port of `GatewayRouteConfig`'s own line format (HOST segment, FABRIC/VESSEL/SERVICE kinds, `/*` prefix paths, duplicate-route rejection). Each route's target is then resolved against the control plane's own live state: a SERVICE route through `GET /services/{name}/endpoints`, a VESSEL route through `GET /endpoints/{name}` counting only instances that report both a node address and the route's own named port -- the same two things a gateway instance needs before it can proxy. A FABRIC route is reported as unresolvable rather than guessed at: the control plane holds no view of the fabric registry. Deliberately read-only (editing the table is `gimle set config`), and no change to `gimle-gateway` was needed for any of it. A line the gateway would reject is surfaced with its line number rather than dropped, since the gateway refuses the whole table on any one of them; an undeployed gateway and a missing `gateway.routes` key are each reported as a state, not an error.",
+      "status": "Modified",
+      "statusNote": "Modified. The screen now reads the `Ingress` resources declared for tenant `gimle-system` through a new `HttpIngressesRepository` -- the same resources a gateway instance polls -- rather than parsing a `gateway.routes` config string client-side. The client-side parser and its rejected-line panel are gone with it: a malformed route can no longer be written, so there is no such thing as a line the gateway would reject. Target resolution against the control plane's own live endpoints is unchanged, including that a FABRIC route's target is never claimed to resolve.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "gateway-routes.test.ts covers one route of each kind, HOST constraints, `/*` prefix normalization, FABRIC's prefix rejection, every malformed-line shape, duplicate detection and the legitimate same-path/different-host and exact-beside-prefix pairs. useGatewayStore.test.ts covers a SERVICE route resolving to live endpoints (with its own tenant carried onto the endpoints read), a Service that does not exist versus one with no live endpoint, VESSEL counting only instances reporting the route's named port, a FABRIC route never claimed as resolved, one target's read failing without blanking the table, unparseable lines surfacing, an undeployed gateway reported as a state, a missing routes key, a failed config read as the screen's error, and a failed poll leaving the last good table in place. endpoints.test.ts covers the repository's own placed-but-unheartbeated and unknown-workload shapes.",
@@ -13623,7 +13623,7 @@
       "feature": "Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string",
       "category": "Networking",
       "status": "New",
-      "statusNote": "New requirement: Implemented. `gateway.routes` was flat text pushed through `/config/*` -- the Ingress-shaped gap. A config value is opaque to the platform: validated only when a gateway happens to parse it, a typo surfacing as a route that silently never matches, no way to answer \"what routes exist\" without reading a string, and no version to compare so two operators editing it race. `IngressSpec` (gimle-mimir) is now a first-class Raft-replicated resource carrying a list of `IngressRule` (gimle-core, the wire type -- gimle-gateway depends on gimle-core and never on gimle-mimir's manifest types, the same split NetworkPolicyRule has from NetworkPolicySpec). Full store wiring: StateMutation.PutIngress/RemoveIngress, StateStore, StateSnapshot, DomainCodec, RaftCodec mutation tags and snapshot, StoreRpc/StoreCodec/StoreNode/StoreClient. `ApiServer` serves POST/GET/DELETE `/ingresses` under a new `ResourceKind.INGRESS` -- its own kind rather than folded into SERVICE, on the reasoning NETWORK_POLICY already establishes -- written through `IngressRegistry`'s lease-guarded compare-and-set, so a stale expectedVersion is a 409 rather than a lost update, and a malformed route is a 400 naming the field because IngressRule validates in its own compact constructor. A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges declared routes into its existing level-triggered reload: each fetch returns the full set so a missed poll self-heals, and an unreachable control plane leaves the working table untouched rather than tearing it down. Config-declared routes win a collision on `(host, path, prefix)` -- an operator editing config on a live gateway is acting on the machine in front of them, and a cluster-wide resource silently overriding that would make the local edit look broken. Both declaration paths converge on the same GatewayRoute objects, so a route behaves identically however it was declared. CLI: `gimle get ingresses`, `delete ingress`, and `apply -f` for `kind: Ingress`; deliberately no flag-built `set ingress`, since a route's six kind-dependent fields read worse on a command line than in the manifest this kind exists to accept.",
+      "statusNote": "Implemented. `gateway.routes` was flat text pushed through `/config/*` -- the Ingress-shaped gap. A config value is opaque to the platform: validated only when a gateway happens to parse it, a typo surfacing as a route that silently never matches, no way to answer \"what routes exist\" without reading a string, and no version to compare so two operators editing it race. `IngressSpec` (gimle-mimir) is now a first-class Raft-replicated resource carrying a list of `IngressRule` (gimle-core, the wire type -- gimle-gateway depends on gimle-core and never on gimle-mimir's manifest types, the same split NetworkPolicyRule has from NetworkPolicySpec). Full store wiring: StateMutation.PutIngress/RemoveIngress, StateStore, StateSnapshot, DomainCodec, RaftCodec mutation tags and snapshot, StoreRpc/StoreCodec/StoreNode/StoreClient. `ApiServer` serves POST/GET/DELETE `/ingresses` under a new `ResourceKind.INGRESS` -- its own kind rather than folded into SERVICE, on the reasoning NETWORK_POLICY already establishes -- written through `IngressRegistry`'s lease-guarded compare-and-set, so a stale expectedVersion is a 409 rather than a lost update, and a malformed route is a 400 naming the field because IngressRule validates in its own compact constructor. A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges declared routes into its existing level-triggered reload: each fetch returns the full set so a missed poll self-heals, and an unreachable control plane leaves the working table untouched rather than tearing it down. This is now the only way a route is declared: the `gateway.routes` config path is removed (GIMLE-363), so a route table cannot be written unvalidated at all. CLI: `gimle get ingresses`, `delete ingress`, and `apply -f` for `kind: Ingress`; deliberately no flag-built `set ingress`, since a route's six kind-dependent fields read worse on a command line than in the manifest this kind exists to accept.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "New IngressRoutesTest asserts each of the three route kinds converts to exactly what the config parser produces for the equivalent line (the property that keeps a route behaving identically however declared), that a host constraint and a prefix both survive, that an unknown paramType is rejected rather than defaulted to NONE, that every declared ParamType converts, and that an empty declaration yields no routes. DomainCodecTest gained an_ingress_with_every_route_kind_round_trips, which mixes all three kinds in one spec so a codec reading fields back in the wrong order is caught.",
@@ -14620,6 +14620,46 @@
         "`gimle-andvari-console/src/stores/artifactsStore.ts` (`selectRecentPushes`)"
       ],
       "otherTestCoverage": "gimle-andvari-console/src/stores/artifactsStore.test.ts"
+    },
+    {
+      "id": "GIMLE-844",
+      "module": "gimle-controlplane",
+      "feature": "Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. Node heartbeats are leader-local and never replicated, so a store replica taking over leadership holds none for any node while every node registration, which is replicated, is still there. Read naively that says every node in the cluster went dark at the same instant: nodes flapped HEALTHY -> STALE -> UNKNOWN -> HEALTHY for minutes while their agents had never stopped reporting, and `ReplicaCountReconciler` treated every assignment as unconfirmed. `StateStore` now records when it started collecting heartbeats (`nodeObservationWindowStart`) and restarts that window when the node takes over as leader (`StoreNode` clears the map and restamps on the non-leader -> leader transition), exposed leader-routed as `GetNodeObservationWindow`. A shared `NodeFreshness` weighs an absent heartbeat against that window: a registered node inside it reads PENDING and is never acted on, an unregistered node or one past the window is dark exactly as before, and a heartbeat that did arrive and has since gone stale is stale however young the window is. The verdict is computed once by the control plane and reported as `status` on `GET /nodes`, so the CLI, hugin and the console read it instead of each deriving it from a timestamp they cannot interpret with their own copy of the staleness threshold.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "`NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/node/NodeFreshness.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`beginNodeObservationWindow`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`noteLeadershipForHeartbeatObservation`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/nodes` `status`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/NodeRow.java`"
+      ],
+      "gapNote": "No Holmgang .feature scenario bounces a store leader and asserts node status across it."
+    },
+    {
+      "id": "GIMLE-845",
+      "module": "gimle-fabric",
+      "feature": "A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup",
+      "category": "Service fabric",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. A fabric caller weighed only the requests it had in flight to an endpoint itself, so a replica saturated by other callers looked completely idle: traffic kept arriving at a busy same-machine replica until calls started failing and its circuit breaker tripped, and the caller saw errors where a load-based handoff would have been invisible. A response (`InvokeResponse`/`InvokeError`) now carries the target's own inbound queue depth, read from the module's bounded scheduler through a new `ModuleWorkExecutor#queueDepth`, and the caller folds the last reported value into its load score alongside its outstanding count -- the two cover disjoint blind spots. `LeastOutstandingRequestsSelector` gained a load-function overload so the final pick, not just the locality tier, sees that score. Endpoint selection also runs per call rather than once when the proxy was created: a consumer holds one proxy for the life of the instance, so an endpoint fixed at lookup time made every load signal unreadable after the first request. The endpoint the lookup chose is spent on the first call so the round-robin cursor is not advanced twice per call.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "`FabricServiceRegistryTest` gained `a_replica_saturated_by_other_callers_loses_to_an_idle_remote_one`, which stands a backend up reporting a fixed backlog while this caller has nothing in flight to it -- proven to fail against the pre-fix code. `FabricCodecTest` round-trips the new field.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/ModuleWorkExecutor.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`queueDepthFor`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java` (`effectiveLoad`, `chooseForThisCall`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/balance/LeastOutstandingRequestsSelector.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/BoundedModuleScheduler.java` (`asWorkExecutor`)"
+      ],
+      "gapNote": "No Holmgang .feature scenario saturates one replica and asserts a failure-free handoff to another."
     }
   ]
 }

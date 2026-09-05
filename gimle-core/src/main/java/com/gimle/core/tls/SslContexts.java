@@ -134,10 +134,10 @@ public final class SslContexts {
    * to replace its live per-hostname certificate bindings -- what lets a config-driven caller (see
    * {@code gimle-gateway}'s {@code GatewayHooks}) pick up a changed {@code gateway.tlsCertificates}
    * value on an already-running listener the same way it already picks up a changed {@code
-   * gateway.routes} table, with no rebind: SNI selection happens fresh on every new handshake (see
-   * {@link SniKeyManager}), so there is nothing about the already-bound socket that needs to
-   * change. The cluster-wide default certificate this context was built with is fixed for its whole
-   * lifetime -- only the per-hostname bindings are reloadable.
+   * gateway.tlsCertificates} bindings, with no rebind: SNI selection happens fresh on every new
+   * handshake (see {@link SniKeyManager}), so there is nothing about the already-bound socket that
+   * needs to change. The cluster-wide default certificate this context was built with is fixed for
+   * its whole lifetime -- only the per-hostname bindings are reloadable.
    */
   public static final class ReloadableSniContext {
     private final SSLContext sslContext;

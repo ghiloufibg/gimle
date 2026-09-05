@@ -7,8 +7,11 @@ import com.gimle.core.module.Version;
  * reproducing {@code gimle-gateway}'s own real manifest shape ({@code DaemonSet}, {@code tenantId:
  * gimle-system}, {@code placement.requiredLabels: [edge]}, no {@code artifactPath} so admission
  * resolves the module through the registry coordinate it was just pushed to) plus the two {@code
- * gimle-system/gateway.port}/{@code gateway.routes} config entries {@code GatewayHooks} reads at
- * startup, with sensible defaults.
+ * gimle-system/gateway.port}/{@code gateway.controlPlaneEndpoint} config entries {@code
+ * GatewayHooks} reads at startup, with sensible defaults. There is no routes entry: a gateway's
+ * route table is declared as {@code Ingress} resources, which are validated where they are
+ * submitted rather than accepted as opaque text and rejected seconds later by whichever gateway
+ * happened to parse them.
  *
  * <p>Text, not a directly-constructed {@code Bundle} record: {@code
  * com.gimle.hilmir.release.BundleRenderer}'s {@code ${values.*}} substitution logic is
@@ -31,7 +34,7 @@ final class GatewayBundleTemplate {
   static final String TENANT_ID = "gimle-system";
 
   private static final String DEFAULT_PORT = "8090";
-  private static final String DEFAULT_ROUTES = "";
+  private static final String DEFAULT_CONTROL_PLANE_ENDPOINT = "127.0.0.1:8080";
 
   private GatewayBundleTemplate() {}
 
@@ -42,15 +45,19 @@ final class GatewayBundleTemplate {
     yaml.append("version: ").append(moduleVersion).append('\n');
     yaml.append("values:\n");
     // The values keys are named identically to the config keys they feed -- "gateway.port"/
-    // "gateway.routes", not a shorter internal alias -- so `--set gateway.routes=...`, the name an
-    // operator actually knows (it's the same key GatewayHooks reads and the one this command's own
-    // usage text names), lands in the merged values map under the exact key ${values.*} looks up,
-    // rather than being silently absorbed as an unrelated, never-referenced values entry.
+    // "gateway.controlPlaneEndpoint", not a shorter internal alias -- so `--set gateway.port=...`,
+    // the name an operator actually knows (it's the same key GatewayHooks reads and the one this
+    // command's own usage text names), lands in the merged values map under the exact key
+    // ${values.*} looks up, rather than being silently absorbed as an unrelated, never-referenced
+    // values entry.
     yaml.append("  gateway.port: \"").append(DEFAULT_PORT).append("\"\n");
-    yaml.append("  gateway.routes: \"").append(DEFAULT_ROUTES).append("\"\n");
+    yaml.append("  gateway.controlPlaneEndpoint: \"")
+        .append(DEFAULT_CONTROL_PLANE_ENDPOINT)
+        .append("\"\n");
     yaml.append("config:\n");
     appendConfigEntry(yaml, "gateway.port", "${values.gateway.port}");
-    appendConfigEntry(yaml, "gateway.routes", "${values.gateway.routes}");
+    appendConfigEntry(
+        yaml, "gateway.controlPlaneEndpoint", "${values.gateway.controlPlaneEndpoint}");
     yaml.append("workloads:\n");
     yaml.append("  - manifest: |\n");
     appendIndented(yaml, workloadManifestYaml(moduleName, moduleVersion));

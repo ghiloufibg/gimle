@@ -24,8 +24,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -61,17 +59,24 @@ import org.slf4j.MDC;
  *
  * <ul>
  *   <li>{@code gateway.port} -- the TCP port this instance's {@code HttpServer}/{@code HttpsServer}
- *       binds on {@code 0.0.0.0}. Read once, at {@code onStart}: unlike {@code gateway.routes}
- *       below, changing the listen port of a running instance is a rebind, not a route-table swap,
- *       and stays a redeploy the same way it always has.
- *   <li>{@code gateway.routes} -- the route table, in {@link GatewayRouteConfig}'s own format.
+ *       binds on {@code 0.0.0.0}. Read once, at {@code onStart}: unlike the route table, changing
+ *       the listen port of a running instance is a rebind, not a route-table swap, and stays a
+ *       redeploy the same way it always has.
+ *   <li>{@code gateway.controlPlaneEndpoint} -- {@code host:port} of the control plane whose
+ *       declared {@code Ingress} resources make up this instance's route table. There is no config
+ *       key carrying routes themselves: a route table written as opaque text could only ever be
+ *       checked when a gateway happened to parse it, so a typo reached the cluster as an accepted
+ *       write and surfaced seconds later as a route that silently never matched. An {@code Ingress}
+ *       is validated where it is submitted, and is listed and RBAC-gated like any other resource.
  *       Re-read on a fixed background interval ({@link #DEFAULT_ROUTE_RELOAD_INTERVAL}) for as long
  *       as this instance runs, not just once at {@code onStart} -- see {@link
  *       #reloadRoutesIfChanged} for why a route table baked in once at startup was a real gap for a
  *       {@code DaemonSet}-deployed, independently-restarting fleet of gateway instances.
+ *   <li>{@code gateway.tenantId} -- optional; whose {@code Ingress} resources this instance serves,
+ *       defaulting to the default tenant.
  *   <li>{@code gateway.tlsCertificates} -- optional; per-hostname certificate bindings in {@link
  *       GatewayTlsConfig}'s own format, used only when TLS is on. Re-read on the same background
- *       interval {@code gateway.routes} is (see {@link #reloadRoutesIfChanged}): unlike {@code
+ *       interval the route table is (see {@link #reloadRoutesIfChanged}): unlike {@code
  *       gateway.port}, swapping which certificate SNI selection resolves a hostname to is not a
  *       rebind -- selection already happens fresh on every new handshake (see {@code SniKeyManager}
  *       in {@code gimle-core}) -- so a config change reaches an already-running instance the same
@@ -117,13 +122,11 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   // Both accessed only from onStart and from reloadRoutesIfChanged, each of which holds this
   // instance's own monitor for the whole of its access -- ordinary fields, not volatile, are
   // enough, and every read of either one sees the last write under that same monitor.
+  // appliedRoutesConfig is the fingerprint of the route table currently serving traffic, left null
+  // by onStart so the first reload tick applies the declared Ingresses rather than deciding nothing
+  // has changed since it bound with none.
   private String appliedRoutesConfig;
   private Set<String> registeredPaths = Set.of();
-
-  // The fingerprint of the last route configuration this instance refused, so the refusal is
-  // reported once rather than on every reload tick for as long as it stays refused. Cleared the
-  // moment any configuration parses, so a value that breaks again is reported again.
-  private String rejectedRoutesConfig;
 
   // Same synchronized-access discipline as appliedRoutesConfig/registeredPaths above. tlsContext is
   // null for a plaintext listener (nothing to reload) and otherwise fixed once onStart sets it --
@@ -157,15 +160,15 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   @Override
   public synchronized void onStart(ModuleContext ctx) {
     int port = requiredIntConfig(ctx, "gateway.port");
-    String routesConfig = requiredConfig(ctx, "gateway.routes");
-    List<GatewayRoute> routes = GatewayRouteConfig.parse(routesConfig);
+    requiredConfig(ctx, "gateway.controlPlaneEndpoint");
     String tlsCertificatesConfig = ctx.config("gateway.tlsCertificates").orElse("");
     List<HostCertificate> hostCertificates = GatewayTlsConfig.parse(tlsCertificatesConfig);
+    // Bound with no routes at all: every route this instance will serve is declared as an Ingress,
+    // and the first reload tick is what fetches them. Binding first anyway means the listener is up
+    // (answering 404) while the control plane is still being reached, rather than the whole module
+    // failing to start because a route table was momentarily unreadable.
+    List<GatewayRoute> routes = List.of();
     dispatcher = new GatewayDispatcher(ctx, routes);
-    // Deliberately not the applied fingerprint: onStart binds from config alone so the gateway is
-    // serving before it has ever talked to a control plane, and leaving this unset makes the first
-    // reload tick apply the merged table -- config plus declared Ingresses -- rather than deciding
-    // nothing changed and never picking the Ingresses up.
     appliedRoutesConfig = null;
     registeredPaths = distinctPaths(routes);
     appliedTlsCertificatesConfig = tlsCertificatesConfig;
@@ -243,13 +246,13 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   }
 
   /**
-   * Re-reads {@code gateway.routes} and, if it differs from what this instance last applied,
+   * Re-reads the declared Ingresses and, if they differ from what this instance last applied,
    * rebuilds the route table and swaps it in -- closing the gap the original implementation had:
-   * {@code onStart} parsed {@code gateway.routes} exactly once and baked it into a fixed set of
-   * {@code HttpServer} contexts, with no listener, poll, or re-parse anywhere afterward, unlike
-   * {@code NetworkPolicyRule}s or TLS material, both of which already have an explicit push/reload
-   * path. Since this module is deployed as a {@code DaemonSet} across every edge-labeled node for
-   * real multi-instance HA behind one external entry point, and DaemonSet instances restart
+   * {@code onStart} read the route table exactly once and baked it into a fixed set of {@code
+   * HttpServer} contexts, with no listener, poll, or re-parse anywhere afterward, unlike {@code
+   * NetworkPolicyRule}s or TLS material, both of which already have an explicit push/reload path.
+   * Since this module is deployed as a {@code DaemonSet} across every edge-labeled node for real
+   * multi-instance HA behind one external entry point, and DaemonSet instances restart
    * independently (crash, node maintenance, a manual bounce), a route-config update that never
    * reaches an already-running instance is a <i>potentially indefinite</i> window where different
    * edge nodes behind the same load balancer silently serve different route tables -- a real
@@ -279,23 +282,23 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * route table that is currently serving traffic, so a failed fetch is indistinguishable from "no
    * Ingresses declared" only in the sense that both leave the previous table in place.
    */
-  private List<GatewayRoute> fetchIngressRoutes(ModuleContext ctx) {
+  private Optional<List<GatewayRoute>> fetchIngressRoutes(ModuleContext ctx) {
     Optional<String> endpoint = ctx.config("gateway.controlPlaneEndpoint");
     if (endpoint.isEmpty()) {
-      return List.of();
+      return Optional.empty();
     }
     String tenantId = ctx.config("gateway.tenantId").orElse(Tenant.DEFAULT_TENANT_ID);
     try {
       HttpIngressSource source =
           new HttpIngressSource(
               HttpClient.newHttpClient(), URI.create("http://" + endpoint.get() + "/"));
-      return source.fetch(tenantId).map(IngressRoutes::toGatewayRoutes).orElse(List.of());
+      return source.fetch(tenantId).map(IngressRoutes::toGatewayRoutes);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return List.of();
+      return Optional.empty();
     } catch (IOException | RuntimeException e) {
       log.warn("gimle-gateway could not read declared ingresses: {}", e.getMessage());
-      return List.of();
+      return Optional.empty();
     }
   }
 
@@ -337,48 +340,19 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
 
   private synchronized void reloadRoutesIfChanged(ModuleContext ctx) {
     reloadTlsCertificatesIfChanged(ctx);
-    String routesConfig = ctx.config("gateway.routes").orElse("");
-    List<GatewayRoute> declaredRoutes = fetchIngressRoutes(ctx);
-    // Both sources are compared together: an Ingress edit with an unchanged config string still has
-    // to reach the route table, and a config edit with unchanged Ingresses still has to as well.
-    String fingerprint = routesConfig + "\u0000" + declaredRoutes;
+    // Empty means the control plane could not be read, which is emphatically not the same as it
+    // declaring no routes: emptying the table on an unreachable control plane would take the whole
+    // gateway fleet down for the duration of a control-plane restart. A control plane that answers
+    // with no ingresses does empty the table, because that is what it was asked.
+    Optional<List<GatewayRoute>> declared = fetchIngressRoutes(ctx);
+    if (declared.isEmpty()) {
+      return;
+    }
+    List<GatewayRoute> newRoutes = declared.get();
+    String fingerprint = newRoutes.toString();
     if (fingerprint.equals(appliedRoutesConfig)) {
       return;
     }
-    List<GatewayRoute> newRoutes;
-    try {
-      newRoutes = new ArrayList<>(GatewayRouteConfig.parse(routesConfig));
-      // Config-declared routes win a collision: an operator editing gateway.routes on a live
-      // gateway is acting on the machine in front of them, and having a cluster-wide Ingress
-      // silently override that would make the local edit look broken.
-      Set<String> configPaths = new HashSet<>();
-      for (GatewayRoute route : newRoutes) {
-        configPaths.add(route.host().orElse("") + " " + route.path() + " " + route.prefix());
-      }
-      for (GatewayRoute route : declaredRoutes) {
-        if (configPaths.add(route.host().orElse("") + " " + route.path() + " " + route.prefix())) {
-          newRoutes.add(route);
-        } else {
-          log.warn(
-              "gimle-gateway ignored an ingress route for {}: gateway.routes already declares it",
-              route.path());
-        }
-      }
-    } catch (GatewayConfigException e) {
-      // Warned once per distinct bad value, not once per tick: this method is level-triggered and
-      // re-reads the same rejected config every few seconds for as long as it stays broken, which
-      // would bury the instance's own log under one repeated line. The fingerprint is remembered
-      // rather than folded into appliedRoutesConfig so that a later edit back to the same broken
-      // value warns again -- it is news the second time too.
-      if (!fingerprint.equals(rejectedRoutesConfig)) {
-        rejectedRoutesConfig = fingerprint;
-        log.warn(
-            "gimle-gateway rejected a gateway.routes update, keeping the previous route table: {}",
-            e.getMessage());
-      }
-      return;
-    }
-    rejectedRoutesConfig = null;
     Set<String> newPaths = distinctPaths(newRoutes);
     for (String path : newPaths) {
       if (!registeredPaths.contains(path)) {
@@ -391,7 +365,7 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
       }
     }
     dispatcher = new GatewayDispatcher(ctx, newRoutes);
-    appliedRoutesConfig = routesConfig;
+    appliedRoutesConfig = fingerprint;
     registeredPaths = newPaths;
     log.info("gimle-gateway reloaded its route table ({} route(s))", newRoutes.size());
   }

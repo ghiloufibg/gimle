@@ -25,6 +25,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -76,11 +77,15 @@ class GatewayHooksTlsTest {
 
   private GatewayHooks hooks;
 
+  private final List<StubIngressControlPlane> stubControlPlanes = new ArrayList<>();
+
   @AfterEach
   void stopGatewayAndClearTransportProperties() {
     if (hooks != null) {
       hooks.onStop(null);
     }
+    stubControlPlanes.forEach(StubIngressControlPlane::close);
+    stubControlPlanes.clear();
     System.clearProperty(PROTOCOL_PROPERTY);
     System.clearProperty(CERT_FILE_PROPERTY);
     System.clearProperty(KEY_FILE_PROPERTY);
@@ -95,7 +100,7 @@ class GatewayHooksTlsTest {
     configureServerTls(ca);
     TlsSettings clientSettings = issueLeaf(ca, "caller");
 
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(contextWithGreeterRoute());
 
     SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
@@ -105,8 +110,7 @@ class GatewayHooksTlsTest {
             .POST(HttpRequest.BodyPublishers.ofString("Freya"))
             .build();
 
-    HttpResponse<String> response =
-        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    HttpResponse<String> response = sendOnceRouteIsLive(client, request);
 
     assertEquals(200, response.statusCode());
     assertEquals("hello, Freya", response.body());
@@ -125,7 +129,7 @@ class GatewayHooksTlsTest {
     TlsSettings shop = issueLeaf(ca, "shop.example.com", List.of("shop.example.com"));
     TlsSettings client = issueLeaf(ca, "caller", List.of());
 
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(
         contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders, shop))));
 
@@ -146,7 +150,7 @@ class GatewayHooksTlsTest {
     TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
     TlsSettings client = issueLeaf(ca, "caller", List.of());
 
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
 
     assertEquals("CN=gimle-gateway", presentedCertificateSubject(Optional.empty(), client));
@@ -163,7 +167,7 @@ class GatewayHooksTlsTest {
     TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
     TlsSettings client = issueLeaf(ca, "caller", List.of());
 
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
 
     assertEquals(
@@ -175,7 +179,7 @@ class GatewayHooksTlsTest {
   void a_gateway_tlscertificates_update_is_picked_up_without_a_restart() throws Exception {
     // M55 regression: gateway.tlsCertificates used to be parsed exactly once at onStart, so a
     // config change reaching an already-running instance (the same live-delivery path
-    // gateway.routes already reloads through) had no effect at all -- every hostname kept getting
+    // the route table already reloads through) had no effect at all -- every hostname kept getting
     // whichever certificate set (or lack of one) happened to be in place at boot.
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(
@@ -240,7 +244,7 @@ class GatewayHooksTlsTest {
     TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
     TlsSettings clientSettings = issueLeaf(ca, "caller", List.of());
 
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
 
     HttpClient client =
@@ -250,8 +254,7 @@ class GatewayHooksTlsTest {
             .POST(HttpRequest.BodyPublishers.ofString("Frigg"))
             .build();
 
-    HttpResponse<String> response =
-        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    HttpResponse<String> response = sendOnceRouteIsLive(client, request);
 
     assertEquals(200, response.statusCode());
     assertEquals("hello, Frigg", response.body());
@@ -259,7 +262,7 @@ class GatewayHooksTlsTest {
 
   @Test
   void plaintext_gateway_still_works_when_tls_is_not_configured() throws Exception {
-    hooks = new GatewayHooks();
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
     hooks.onStart(contextWithGreeterRoute());
 
     HttpClient client = HttpClient.newHttpClient();
@@ -268,25 +271,23 @@ class GatewayHooksTlsTest {
             .POST(HttpRequest.BodyPublishers.ofString("Odin"))
             .build();
 
-    HttpResponse<String> response =
-        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    HttpResponse<String> response = sendOnceRouteIsLive(client, request);
 
     assertEquals(200, response.statusCode());
     assertEquals("hello, Odin", response.body());
   }
 
-  private static SimpleModuleContext contextWithGreeterRoute() {
+  private SimpleModuleContext contextWithGreeterRoute() {
     return contextWithGreeterRoute(Map.of());
   }
 
-  private static SimpleModuleContext contextWithGreeterRoute(Map<String, String> extraConfig) {
+  private SimpleModuleContext contextWithGreeterRoute(Map<String, String> extraConfig) {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
     Map<String, String> config = new ConcurrentHashMap<>(extraConfig);
     config.put("gateway.port", "0");
-    config.put(
-        "gateway.routes", "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n");
+    config.put("gateway.controlPlaneEndpoint", startStubControlPlane().endpoint());
     return new SimpleModuleContext(gatewayId, registry, new ConcurrentHashMap<>(config));
   }
 
@@ -297,14 +298,44 @@ class GatewayHooksTlsTest {
    * reference to, so a later {@code configValues.put(...)} is exactly what {@code ConfigRelay}'s
    * own delivery does to a real running instance's shared config map.
    */
-  private static ConcurrentHashMap<String, String> configWithTlsCertificates(
+  private ConcurrentHashMap<String, String> configWithTlsCertificates(
       String tlsCertificatesConfig) {
     ConcurrentHashMap<String, String> configValues = new ConcurrentHashMap<>();
     configValues.put("gateway.port", "0");
-    configValues.put(
-        "gateway.routes", "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n");
+    configValues.put("gateway.controlPlaneEndpoint", startStubControlPlane().endpoint());
     configValues.put("gateway.tlsCertificates", tlsCertificatesConfig);
     return configValues;
+  }
+
+  /**
+   * Sends {@code request}, retrying while the gateway still answers 404. A route reaches a gateway
+   * on its first reload tick rather than at {@code onStart}, so a request sent the instant the
+   * module starts can legitimately arrive before the route table does -- which is a race about test
+   * timing, not about the certificate selection these tests are actually asserting.
+   */
+  private HttpResponse<String> sendOnceRouteIsLive(HttpClient client, HttpRequest request)
+      throws Exception {
+    long deadlineNanos = System.nanoTime() + AWAIT_TIMEOUT.toNanos();
+    HttpResponse<String> response;
+    do {
+      response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 404) {
+        return response;
+      }
+      Thread.sleep(10);
+    } while (System.nanoTime() < deadlineNanos);
+    return response;
+  }
+
+  /**
+   * Routes reach a gateway only as declared Ingresses, so every test here needs a control plane to
+   * read one from -- these tests are about certificate selection, and the single {@code /greet}
+   * route is just something for a request to land on.
+   */
+  private StubIngressControlPlane startStubControlPlane() {
+    StubIngressControlPlane controlPlane = new StubIngressControlPlane(List.of("/greet"));
+    stubControlPlanes.add(controlPlane);
+    return controlPlane;
   }
 
   private static SimpleModuleContext contextWithLiveConfig(

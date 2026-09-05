@@ -2,14 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/repositories", () => ({
   configRepo: { fetchPage: vi.fn() },
+  ingressesRepo: { fetchAll: vi.fn() },
   daemonSetsRepo: { fetchPage: vi.fn() },
   servicesRepo: { fetchAll: vi.fn(), fetchEndpoints: vi.fn() },
   endpointsRepo: { fetch: vi.fn() },
 }));
 
-import { configRepo, daemonSetsRepo, endpointsRepo, servicesRepo } from "@/repositories";
+import {
+  configRepo,
+  daemonSetsRepo,
+  endpointsRepo,
+  ingressesRepo,
+  servicesRepo,
+} from "@/repositories";
 import { ApiError } from "@/repositories/http/apiClient";
-import { GATEWAY_PORT_KEY, GATEWAY_ROUTES_KEY, useGatewayStore } from "./store";
+import { GATEWAY_PORT_KEY, useGatewayStore } from "./store";
+import type { IngressRouteJson } from "./routes-config";
 import type { ConfigEntry, DaemonSet } from "@/types";
 
 function configEntry(key: string, value: string): ConfigEntry {
@@ -44,11 +52,14 @@ function daemonSet(ready: boolean, name = "gimle-gateway"): DaemonSet {
   };
 }
 
-function seed(routes: string) {
+function seed(routes: IngressRouteJson[]) {
   vi.mocked(configRepo.fetchPage).mockResolvedValue({
-    items: [configEntry(GATEWAY_ROUTES_KEY, routes), configEntry(GATEWAY_PORT_KEY, "8090")],
+    items: [configEntry(GATEWAY_PORT_KEY, "8090")],
     nextCursor: null,
   });
+  vi.mocked(ingressesRepo.fetchAll).mockResolvedValue([
+    { name: "edge", tenantId: "gimle-system", version: 0, routes },
+  ]);
   vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({
     items: [daemonSet(true)],
     nextCursor: null,
@@ -63,7 +74,6 @@ describe("useGatewayStore", () => {
   beforeEach(() => {
     useGatewayStore.setState({
       rows: [],
-      parseErrors: [],
       routesConfigured: null,
       listenPort: null,
       instances: [],
@@ -80,7 +90,7 @@ describe("useGatewayStore", () => {
   });
 
   it("resolves a SERVICE route against its live endpoint set", async () => {
-    seed("SERVICE /api/orders orders-api\n");
+    seed([{ kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" }]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "orders-api",
       port: 8080,
@@ -103,7 +113,7 @@ describe("useGatewayStore", () => {
   });
 
   it("flags a route whose Service does not exist at all", async () => {
-    seed("SERVICE /api/nowhere ghost-api\n");
+    seed([{ kind: "SERVICE", path: "/api/nowhere", serviceName: "ghost-api" }]);
 
     await useGatewayStore.getState().load();
 
@@ -115,7 +125,7 @@ describe("useGatewayStore", () => {
   });
 
   it("separates a Service with no live endpoint from a missing one", async () => {
-    seed("SERVICE /api/reports reports-api\n");
+    seed([{ kind: "SERVICE", path: "/api/reports", serviceName: "reports-api" }]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "reports-api",
       port: 8080,
@@ -128,7 +138,9 @@ describe("useGatewayStore", () => {
   });
 
   it("counts only VESSEL endpoints reporting the route's own named port", async () => {
-    seed("VESSEL /static assets-vessel HTTP_PORT\n");
+    seed([
+      { kind: "VESSEL", path: "/static", deploymentName: "assets-vessel", portName: "HTTP_PORT" },
+    ]);
     vi.mocked(endpointsRepo.fetch).mockResolvedValue([
       { instanceIndex: 0, nodeId: "node-a", host: "10.0.1.4", ports: { HTTP_PORT: 8080 } },
       { instanceIndex: 1, nodeId: "node-b", host: "10.0.1.9", ports: { ADMIN_PORT: 9000 } },
@@ -144,7 +156,16 @@ describe("useGatewayStore", () => {
   });
 
   it("never claims to resolve a FABRIC route", async () => {
-    seed("FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
+    seed([
+      {
+        kind: "FABRIC",
+        path: "/greet",
+        interfaceName: "com.gimle.examples.greeter.Greeter",
+        majorVersion: 1,
+        methodName: "greet",
+        paramType: "STRING",
+      },
+    ]);
 
     await useGatewayStore.getState().load();
 
@@ -152,7 +173,10 @@ describe("useGatewayStore", () => {
   });
 
   it("keeps the rest of the table when one target's read fails", async () => {
-    seed("SERVICE /api/orders orders-api\nSERVICE /api/reports reports-api\n");
+    seed([
+      { kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" },
+      { kind: "SERVICE", path: "/api/reports", serviceName: "reports-api" },
+    ]);
     vi.mocked(servicesRepo.fetchEndpoints).mockImplementation(async (name: string) => {
       if (name === "orders-api") throw new ApiError(500, "boom");
       return { name, port: 8080, endpoints: [{ host: "10.0.1.4", port: 8080 }] };
@@ -166,18 +190,8 @@ describe("useGatewayStore", () => {
     expect(error).toBeNull();
   });
 
-  it("surfaces unparseable lines instead of dropping them", async () => {
-    seed("SERVICE /api/orders\n");
-
-    await useGatewayStore.getState().load();
-
-    const { rows, parseErrors } = useGatewayStore.getState();
-    expect(rows).toEqual([]);
-    expect(parseErrors[0].line).toBe(1);
-  });
-
   it("reports an undeployed gateway as a state, not an error", async () => {
-    seed("SERVICE /api/orders orders-api\n");
+    seed([{ kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" }]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "orders-api",
       port: 8080,
@@ -194,8 +208,9 @@ describe("useGatewayStore", () => {
     expect(rows).toHaveLength(1);
   });
 
-  it("reports a missing gateway.routes key rather than an empty table", async () => {
+  it("reports a tenant with no declared Ingress rather than an empty table", async () => {
     vi.mocked(configRepo.fetchPage).mockResolvedValue({ items: [], nextCursor: null });
+    vi.mocked(ingressesRepo.fetchAll).mockResolvedValue([]);
     vi.mocked(daemonSetsRepo.fetchPage).mockResolvedValue({
       items: [daemonSet(true)],
       nextCursor: null,
@@ -218,7 +233,7 @@ describe("useGatewayStore", () => {
   });
 
   it("leaves the last good table in place when a poll fails", async () => {
-    seed("SERVICE /api/orders orders-api\n");
+    seed([{ kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" }]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "orders-api",
       port: 8080,
@@ -234,7 +249,10 @@ describe("useGatewayStore", () => {
   });
 
   it("resolves one shared read for two routes naming the same target", async () => {
-    seed("SERVICE /api/orders orders-api\nSERVICE /api/orders/* orders-api\n");
+    seed([
+      { kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" },
+      { kind: "SERVICE", path: "/api/orders", prefix: true, serviceName: "orders-api" },
+    ]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "orders-api",
       port: 8080,
@@ -252,7 +270,7 @@ describe("useGatewayStore", () => {
   });
 
   it("finds a gateway DaemonSet whatever it is named, by the module it runs", async () => {
-    seed("SERVICE /api/orders orders-api\n");
+    seed([{ kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" }]);
     vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
       name: "orders-api",
       port: 8080,

@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * {@code get ingresses [<name>] [--tenant <id>]}, {@code delete ingress <name> [--tenant <id>]},
  * and {@code apply -f <manifest.yaml>} for {@code kind: Ingress} -- the declarative replacement for
- * hand-authoring the gateway's own {@code gateway.routes} config string.
+ * the only way a gateway route is declared.
  *
  * <p>There is deliberately no {@code set ingress} verb building a route list from flags. A route
  * carries up to six fields whose meaning depends on its kind, and expressing several of them on one

@@ -12,39 +12,52 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * Converting declared {@link IngressRule}s into the gateway's own routes. The property that matters
- * is that a route behaves identically however it was declared -- an Ingress and a {@code
- * gateway.routes} line must produce the same route object, not two subtly different ones.
+ * Converting declared {@link IngressRule}s into the gateway's own routes -- the only way a route
+ * reaches this module, so the conversion must carry every field the wire record holds through to
+ * the type the dispatcher actually matches on.
  */
 class IngressRoutesTest {
 
   @Test
-  void a_service_rule_becomes_the_same_route_the_config_parser_produces() {
+  void a_service_rule_becomes_a_service_route() {
     List<GatewayRoute> routes =
         IngressRoutes.toGatewayRoutes(
             List.of(IngressRule.service(Optional.empty(), "/api", false, "orders")));
 
-    assertEquals(GatewayRouteConfig.parse("SERVICE /api orders"), routes);
+    assertEquals(
+        List.of(new GatewayRoute.ServiceRoute(Optional.empty(), "/api", false, "orders")), routes);
   }
 
   @Test
-  void a_vessel_rule_becomes_the_same_route_the_config_parser_produces() {
+  void a_vessel_rule_becomes_a_vessel_route() {
     List<GatewayRoute> routes =
         IngressRoutes.toGatewayRoutes(
             List.of(IngressRule.vessel(Optional.empty(), "/app", false, "billing", "HTTP_PORT")));
 
-    assertEquals(GatewayRouteConfig.parse("VESSEL /app billing HTTP_PORT"), routes);
+    assertEquals(
+        List.of(
+            new GatewayRoute.VesselRoute(Optional.empty(), "/app", false, "billing", "HTTP_PORT")),
+        routes);
   }
 
   @Test
-  void a_fabric_rule_becomes_the_same_route_the_config_parser_produces() {
+  void a_fabric_rule_becomes_a_fabric_route() {
     List<GatewayRoute> routes =
         IngressRoutes.toGatewayRoutes(
             List.of(
                 IngressRule.fabric(
                     Optional.empty(), "/greet", "com.acme.Greeter", 1, "greet", "STRING")));
 
-    assertEquals(GatewayRouteConfig.parse("FABRIC /greet com.acme.Greeter 1 greet STRING"), routes);
+    assertEquals(
+        List.of(
+            new GatewayRoute.FabricRoute(
+                Optional.empty(),
+                "/greet",
+                "com.acme.Greeter",
+                1,
+                "greet",
+                GatewayRoute.FabricRoute.ParamType.STRING)),
+        routes);
   }
 
   @Test
@@ -56,7 +69,9 @@ class IngressRoutesTest {
     GatewayRoute route = routes.get(0);
     assertEquals(Optional.of("shop.example"), route.host());
     assertTrue(route.prefix());
-    assertEquals(GatewayRouteConfig.parse("HOST shop.example SERVICE /api/* orders"), routes);
+    assertEquals(
+        List.of(new GatewayRoute.ServiceRoute(Optional.of("shop.example"), "/api", true, "orders")),
+        routes);
   }
 
   @Test

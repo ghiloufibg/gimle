@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
@@ -129,8 +130,30 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
     putPlainConfig(
         baseUrl,
         Tenant.RESERVED_SYSTEM_TENANT_ID,
-        "gateway.routes",
-        "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n");
+        "gateway.controlPlaneEndpoint",
+        // The gateway reads its route table straight from the control plane, so it needs the
+        // endpoint rather than a copy of the routes -- host:port, without the scheme baseUrl
+        // carries.
+        baseUrl.replace("http://", ""));
+    // The route table is a declared Ingress, not a config string: a gateway follows whatever its
+    // tenant declares, and the route table is validated where it is submitted rather than accepted
+    // as opaque text and rejected later by whichever gateway happened to parse it.
+    postIngress(
+        baseUrl,
+        Map.of(
+            "name",
+            "greeter-edge",
+            "tenantId",
+            Tenant.RESERVED_SYSTEM_TENANT_ID,
+            "routes",
+            List.of(
+                Map.of(
+                    "kind", "FABRIC",
+                    "path", "/greet",
+                    "interfaceName", "com.gimle.examples.greeter.Greeter",
+                    "majorVersion", 1,
+                    "methodName", "greet",
+                    "paramType", "STRING"))));
 
     submitDaemonSetWithRetry(
         baseUrl,

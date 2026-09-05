@@ -1,112 +1,137 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseGatewayRoutes,
+  routeKey,
   routePathDisplay,
   routeTarget,
+  toGatewayRoutes,
+  type Ingress,
   type ServiceRoute,
   type VesselRoute,
 } from "./routes-config";
 
-describe("parseGatewayRoutes", () => {
-  it("parses one route of each kind", () => {
-    const { routes, errors } = parseGatewayRoutes(
-      [
-        "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING",
-        "VESSEL /static assets-vessel HTTP_PORT",
-        "SERVICE /api/orders orders-api",
-      ].join("\n"),
-    );
-    expect(errors).toEqual([]);
+function ingress(name: string, routes: Ingress["routes"]): Ingress {
+  return { name, tenantId: "gimle-system", version: 0, routes };
+}
+
+describe("toGatewayRoutes", () => {
+  it("flattens one route of each kind, keeping its declaring ingress", () => {
+    const routes = toGatewayRoutes([
+      ingress("edge", [
+        {
+          kind: "FABRIC",
+          path: "/greet",
+          interfaceName: "com.gimle.examples.greeter.Greeter",
+          majorVersion: 1,
+          methodName: "greet",
+          paramType: "STRING",
+        },
+        { kind: "VESSEL", path: "/static", deploymentName: "assets-vessel", portName: "HTTP_PORT" },
+        { kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" },
+      ]),
+    ]);
+
     expect(routes.map((r) => r.kind)).toEqual(["FABRIC", "VESSEL", "SERVICE"]);
-    expect(routes.map((r) => r.line)).toEqual([1, 2, 3]);
+    expect(routes.map((r) => r.ingressName)).toEqual(["edge", "edge", "edge"]);
     expect((routes[2] as ServiceRoute).serviceName).toBe("orders-api");
   });
 
-  it("skips blank lines and comments without consuming line numbers", () => {
-    const { routes } = parseGatewayRoutes("# a table\n\nSERVICE /api/orders orders-api\n");
-    expect(routes).toHaveLength(1);
-    expect(routes[0].line).toBe(3);
+  it("keeps routes from several ingresses apart by their declaring resource", () => {
+    const routes = toGatewayRoutes([
+      ingress("shop", [{ kind: "SERVICE", path: "/api", serviceName: "orders-api" }]),
+      ingress("admin", [{ kind: "SERVICE", path: "/admin", serviceName: "admin-api" }]),
+    ]);
+
+    expect(routes.map(routeKey)).toEqual(["shop#0", "admin#0"]);
   });
 
-  it("reads a HOST segment as a host constraint, leaving unconstrained routes null", () => {
-    const { routes } = parseGatewayRoutes(
-      "HOST shop.example.com SERVICE /checkout checkout-api\nSERVICE /api/orders orders-api",
-    );
+  it("reads a host constraint, leaving an unconstrained route null", () => {
+    const routes = toGatewayRoutes([
+      ingress("edge", [
+        {
+          kind: "SERVICE",
+          path: "/checkout",
+          host: "shop.example.com",
+          serviceName: "checkout-api",
+        },
+        { kind: "SERVICE", path: "/api/orders", serviceName: "orders-api" },
+      ]),
+    ]);
+
     expect(routes[0].host).toBe("shop.example.com");
     expect(routes[1].host).toBeNull();
   });
 
-  it("reads a trailing /* as prefix matching, normalizing a bare catch-all to the root", () => {
-    const { routes } = parseGatewayRoutes(
-      "VESSEL /api/* api-vessel HTTP_PORT\nSERVICE /* fallback",
-    );
-    expect(routes[0]).toMatchObject({ path: "/api", prefix: true });
-    expect(routes[1]).toMatchObject({ path: "/", prefix: true });
-    expect(routePathDisplay(routes[0])).toBe("/api/*");
-    expect(routePathDisplay(routes[1])).toBe("/*");
+  /**
+   * A FABRIC route is permanently exact-path-only, so a prefix flag arriving on one is the control
+   * plane and this console disagreeing -- rendering it as a prefix would claim the gateway matches
+   * paths it never will.
+   */
+  it("never treats a fabric route as a prefix route", () => {
+    const routes = toGatewayRoutes([
+      ingress("edge", [
+        {
+          kind: "FABRIC",
+          path: "/greet",
+          prefix: true,
+          interfaceName: "com.acme.Greeter",
+          majorVersion: 1,
+          methodName: "greet",
+          paramType: "NONE",
+        },
+      ]),
+    ]);
+
+    expect(routes[0].prefix).toBe(false);
   });
 
-  it("rejects prefix matching on a FABRIC route", () => {
-    const { routes, errors } = parseGatewayRoutes("FABRIC /greet/* a.B 1 greet NONE");
-    expect(routes).toEqual([]);
-    expect(errors[0].message).toContain("do not support prefix matching");
-  });
+  /**
+   * A route kind the control plane accepted but this console has no renderer for is a console that
+   * is behind, not a cluster that is wrong -- dropping it beats drawing a row of blanks.
+   */
+  it("drops a route kind it does not know rather than rendering it broken", () => {
+    const routes = toGatewayRoutes([
+      ingress("edge", [
+        { kind: "GRPC", path: "/rpc" },
+        { kind: "SERVICE", path: "/api", serviceName: "orders-api" },
+      ]),
+    ]);
 
-  it("reports a malformed line and keeps parsing the rest of the table", () => {
-    const { routes, errors } = parseGatewayRoutes(
-      ["SERVICE /api/orders", "SERVICE /api/ledger ledger-worker"].join("\n"),
-    );
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({ line: 1, text: "SERVICE /api/orders" });
-    expect(errors[0].message).toContain("expected 3 fields");
     expect(routes).toHaveLength(1);
-  });
-
-  it.each([
-    ["MYSTERY /x y", "unknown route kind"],
-    ["HOST", "HOST must be followed by a hostname"],
-    ["HOST shop.example.com", "missing route kind after HOST"],
-    ["SERVICE api/orders orders-api", "must start with '/'"],
-    ["FABRIC /greet a.B x greet NONE", "majorVersion must be an integer"],
-    ["FABRIC /greet a.B 1 greet WIDGET", "paramType must be one of"],
-    ["VESSEL /api//* api-vessel HTTP_PORT", "must not end with '/'"],
-  ])("rejects %s", (line, expected) => {
-    const { errors } = parseGatewayRoutes(line);
-    expect(errors[0].message).toContain(expected);
-  });
-
-  it("rejects a second route at the same path, host and match mode", () => {
-    const { routes, errors } = parseGatewayRoutes(
-      "SERVICE /api/orders orders-api\nSERVICE /api/orders other-api",
-    );
-    expect(routes).toHaveLength(1);
-    expect(errors[0].message).toContain("duplicate route path '/api/orders'");
-  });
-
-  it("allows the same path under a different host, and an exact route beside a prefix one", () => {
-    const { routes, errors } = parseGatewayRoutes(
-      [
-        "SERVICE /api/orders orders-api",
-        "HOST shop.example.com SERVICE /api/orders shop-orders-api",
-        "SERVICE /api/orders/* orders-subtree",
-      ].join("\n"),
-    );
-    expect(errors).toEqual([]);
-    expect(routes).toHaveLength(3);
+    expect(routes[0].path).toBe("/api");
   });
 });
 
-describe("routeTarget", () => {
+describe("route display", () => {
   it("names each kind's target", () => {
-    const { routes } = parseGatewayRoutes(
-      [
-        "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING",
-        "VESSEL /static assets-vessel HTTP_PORT",
-        "SERVICE /api/orders orders-api",
-      ].join("\n"),
-    );
-    expect(routeTarget(routes[0])).toBe("com.gimle.examples.greeter.Greeter v1 greet()");
-    expect(routeTarget(routes[1] as VesselRoute)).toBe("assets-vessel (HTTP_PORT)");
-    expect(routeTarget(routes[2])).toBe("orders-api");
+    const [fabric, vessel, service] = toGatewayRoutes([
+      ingress("edge", [
+        {
+          kind: "FABRIC",
+          path: "/greet",
+          interfaceName: "com.acme.Greeter",
+          majorVersion: 2,
+          methodName: "greet",
+          paramType: "STRING",
+        },
+        { kind: "VESSEL", path: "/static", deploymentName: "assets", portName: "HTTP_PORT" },
+        { kind: "SERVICE", path: "/api", serviceName: "orders-api" },
+      ]),
+    ]);
+
+    expect(routeTarget(fabric)).toBe("com.acme.Greeter v2 greet()");
+    expect(routeTarget(vessel as VesselRoute)).toBe("assets (HTTP_PORT)");
+    expect(routeTarget(service)).toBe("orders-api");
+  });
+
+  it("shows a prefix route with its trailing wildcard, and a catch-all as bare /*", () => {
+    const [prefixed, catchAll] = toGatewayRoutes([
+      ingress("edge", [
+        { kind: "SERVICE", path: "/api", prefix: true, serviceName: "orders-api" },
+        { kind: "SERVICE", path: "/", prefix: true, serviceName: "fallback-api" },
+      ]),
+    ]);
+
+    expect(routePathDisplay(prefixed)).toBe("/api/*");
+    expect(routePathDisplay(catchAll)).toBe("/*");
   });
 });

@@ -5,11 +5,25 @@
 #
 #   PUT /config/gimle-system/gateway.port
 #     {"value": "8090", "encrypted": false}
-#   PUT /config/gimle-system/gateway.routes
-#     {"value": "FABRIC /greet com.gimle.examples.greeter.Greeter 1 greet STRING\n", "encrypted": false}
+#   PUT /config/gimle-system/gateway.controlPlaneEndpoint
+#     {"value": "127.0.0.1:8080", "encrypted": false}
 #
-# See GatewayHooks's own javadoc for the two keys' exact meaning, and GatewayRouteConfig's own
-# javadoc for the route-table format the second one holds.
+# The route table is not a config key: it is declared as Ingress resources, which are validated
+# where they are submitted rather than accepted as opaque text and rejected later by whichever
+# gateway happened to parse them. One route, submitted with `gimle apply -f`:
+#
+#   kind: Ingress
+#   name: greeter-edge
+#   tenantId: gimle-system
+#   routes:
+#     - kind: FABRIC
+#       path: /greet
+#       interfaceName: com.gimle.examples.greeter.Greeter
+#       majorVersion: 1
+#       methodName: greet
+#       paramType: STRING
+#
+# See GatewayHooks's own javadoc for the config keys' exact meaning.
 #
 # TLS termination at this instance's own listener is not a config key at all: it follows the same
 # cluster-wide -Dgimle.transport.protocol=tls system property (plus -Dgimle.tls.certFile/keyFile/

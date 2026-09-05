@@ -72,36 +72,50 @@ optional default.
 
 ## Route configuration
 
-`GatewayRouteConfig.parse` reads the `gateway.routes` config key in a deliberately simple,
-line-oriented format — not YAML/JSON, not a general route DSL:
+Routes are declared as `Ingress` resources, one per tenant, and reach a gateway by polling the
+control plane's `GET /ingresses` (`HttpIngressSource`, converted by `IngressRoutes`). There is no
+config key carrying routes: a route table written as opaque text could only ever be checked when a
+gateway happened to parse it, so a typo reached the cluster as an accepted write and surfaced
+seconds later as a route that silently never matched. An `Ingress` is validated where it is
+submitted, and is listed and RBAC-gated like any other resource.
 
-```
-[HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
-[HOST <hostname>] VESSEL <httpPath[/*]> <deploymentName> <portName>
-[HOST <hostname>] SERVICE <httpPath[/*]> <serviceName>
+```yaml
+kind: Ingress
+name: edge
+tenantId: gimle-system
+routes:
+  - kind: FABRIC
+    path: /greet
+    interfaceName: com.gimle.examples.greeter.Greeter
+    majorVersion: 1
+    methodName: greet
+    paramType: STRING
+  - kind: VESSEL
+    host: orders.example.com
+    path: /api/orders
+    prefix: true
+    deploymentName: orders-service
+    portName: HTTP_PORT
+  - kind: SERVICE
+    path: /api/payments
+    serviceName: payments
 ```
 
-```
-# kind    path          interface/deployment/service                 version  method  paramType
-FABRIC    /greet        com.gimle.examples.greeter.Greeter           1        greet   STRING
-HOST orders.example.com VESSEL /api/orders/* orders-service HTTP_PORT
-SERVICE   /api/payments payments
-```
-
-Two routes at the same path with the *same* host constraint (including two both left
-unconstrained) *and* the same exact-vs-prefix mode are a config error, rejected at parse time. Two
-routes at the same path with *different* host constraints are the ordinary virtual-hosting shape —
-not a duplicate; likewise, an exact route and a prefix route sharing the same base path and host are
-not a duplicate either (an exact match on a collection's own root served one way, everything nested
-under it proxied another way), resolved unambiguously by exact-beats-prefix precedence. Blank lines
-and `#` comments are ignored.
+Two routes at the same path with *different* host constraints are the ordinary virtual-hosting
+shape — not a conflict; likewise, an exact route and a prefix route sharing the same base path and
+host are a deliberate pair (an exact match on a collection's own root served one way, everything
+nested under it proxied another way), resolved unambiguously by exact-beats-prefix precedence. Two
+routes that do collide outright are resolved by the same precedence rather than refused at
+submission: neither is wrong on its own, and rejecting the second would make the outcome depend on
+which was submitted first.
 
 ## Lifecycle and transport
 
 `GatewayHooks` is this module's `ModuleLifecycleHooks`: `onStart` reads `gateway.port` and
-`gateway.routes` from `ctx.config(...)` (both required — there is no fixed default port, since an
-operator must pick a non-colliding port across co-located `DaemonSet` instances), parses the route
-table, and binds one `HttpServer`/`HttpsServer` context per distinct path (not per route — a
+`gateway.controlPlaneEndpoint` from `ctx.config(...)` (both required — there is no fixed default
+port, since an operator must pick a non-colliding port across co-located `DaemonSet` instances),
+binds its listener with an empty route table, and lets the first reload tick fetch the declared
+Ingresses. It binds one `HttpServer`/`HttpsServer` context per distinct path (not per route — a
 host-constrained route and its sibling can share a path, since `HttpServer#createContext` rejects a
 second context at an already-bound path; `GatewayDispatcher` itself resolves which route of a
 path's set actually serves a given request).
@@ -140,7 +154,7 @@ route, and failing its handshake closed would take that fallback routing down wi
 
 Bindings carry no `caFile` of their own — trust is cluster-wide and already carried by
 `gimle.tls.caFile`; what varies per virtual host is only the identity the gateway presents.
-`gateway.tlsCertificates` is re-read on the same background interval `gateway.routes` is: SNI
+`gateway.tlsCertificates` is re-read on the same background interval the route table is: SNI
 selection already runs fresh on every new handshake, so swapping which certificate a hostname
 resolves to is not a rebind the way changing `gateway.port` is — a config change reaches an
 already-running instance the same way a route-table change does.
@@ -169,7 +183,6 @@ on.
 | Type | Role |
 |---|---|
 | `GatewayRoute` | Sealed interface — `FabricRoute`/`VesselRoute`/`ServiceRoute` |
-| `GatewayRouteConfig` | Parses `gateway.routes` text into `GatewayRoute`s |
 | `GatewayDispatcher` | Path/host route selection and per-kind dispatch; deliberately free of `com.sun.net.httpserver` types so it's testable without a bound socket |
 | `GatewayHooks` | `ModuleLifecycleHooks` — binds the listener, wires the dispatcher, TLS termination |
 | `VesselEndpointCache` / `ServiceEndpointCache` | TTL-cached endpoint resolution for VESSEL/SERVICE routes |

@@ -5,11 +5,10 @@ import { Waypoints } from "lucide-react";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
-import { routePathDisplay, routeTarget } from "@/addons/gateway/routes-config";
+import { routeKey, routePathDisplay, routeTarget } from "@/addons/gateway/routes-config";
 import {
   GATEWAY_CONFIG_TENANT,
   GATEWAY_MODULE_ID,
-  GATEWAY_ROUTES_KEY,
   readyInstances,
   useGatewayStore,
   type GatewayRouteRow,
@@ -58,7 +57,6 @@ function isBroken(row: GatewayRouteRow): boolean {
 export function GatewayPage() {
   const {
     rows,
-    parseErrors,
     routesConfigured,
     listenPort,
     instances,
@@ -90,7 +88,7 @@ export function GatewayPage() {
         title="Gateway"
         subtitle={
           <>
-            Route table read from <span className="font-mono">{GATEWAY_ROUTES_KEY}</span> under
+            Route table declared as <span className="font-mono">Ingress</span> resources under
             tenant <span className="font-mono">{GATEWAY_CONFIG_TENANT}</span>, resolved against the
             control plane's own live endpoints.
           </>
@@ -151,37 +149,19 @@ export function GatewayPage() {
 
       {loaded && routesConfigured === false && (
         <div className="mb-4 rounded border border-status-warn/40 bg-status-warn-bg/40 px-3 py-2 text-xs text-status-warn">
-          Tenant <span className="font-mono">{GATEWAY_CONFIG_TENANT}</span> carries no{" "}
-          <span className="font-mono">{GATEWAY_ROUTES_KEY}</span> key, so every request reaching a
-          gateway instance answers 404. Write one on the{" "}
-          <Link to="/config" className="underline">
-            Config
-          </Link>{" "}
-          screen.
+          Tenant <span className="font-mono">{GATEWAY_CONFIG_TENANT}</span> declares no{" "}
+          <span className="font-mono">Ingress</span>, so every request reaching a gateway instance
+          answers 404. Submit one with{" "}
+          <span className="font-mono">gimle apply -f ingress.yaml</span>.
         </div>
       )}
 
-      {parseErrors.length > 0 && (
-        <div className="mb-4 rounded border border-status-bad/40 bg-status-bad-bg/40 px-3 py-2 text-xs text-status-bad">
-          <p className="mb-1 font-medium">
-            {parseErrors.length} line{parseErrors.length === 1 ? "" : "s"} the gateway rejects — it
-            refuses the whole table on any one of these, so no route is served until they are fixed.
-          </p>
-          <ul className="space-y-0.5 font-mono">
-            {parseErrors.map((e) => (
-              <li key={e.line}>
-                line {e.line}: {e.message} — <span className="opacity-70">{e.text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <Panel
         title="Route table"
         aside={
           <span className="font-mono text-[10px] text-muted-foreground">
-            {GATEWAY_ROUTES_KEY} @ {GATEWAY_CONFIG_TENANT}
+            Ingress @ {GATEWAY_CONFIG_TENANT}
           </span>
         }
         className="mb-6"
@@ -199,7 +179,7 @@ export function GatewayPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.route.line} className="border-t border-border hover:bg-muted/30">
+                <tr key={routeKey(row.route)} className="border-t border-border hover:bg-muted/30">
                   <td className="px-2 py-1.5">
                     <KindPill kind={row.route.kind} broken={isBroken(row)} />
                   </td>

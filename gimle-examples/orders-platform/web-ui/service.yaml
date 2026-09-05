@@ -13,7 +13,7 @@
 # for ServiceEndpointResolver to ever resolve a live endpoint from this Service.
 #
 # Once created, GET /services/web-ui/endpoints resolves to wherever the real instance actually
-# landed, and the gateway.routes example in ../README.md can proxy to it by name instead of a
+# landed, and the ingress example in ../README.md can proxy to it by name instead of a
 # node-specific address -- see that section for the full external-reachability story this Service
 # is the first half of.
 name: web-ui

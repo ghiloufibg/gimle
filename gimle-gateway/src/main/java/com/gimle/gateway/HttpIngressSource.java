@@ -17,7 +17,7 @@ import java.util.Optional;
 
 /**
  * Reads the routes declared as {@code Ingress} resources from the control plane, so a gateway
- * serves them alongside whatever its own {@code gateway.routes} config declares.
+ * serves them as its whole route table.
  *
  * <p>Polled rather than pushed, on the same level-triggered posture {@code gimle-bifrost}'s own
  * {@code HttpServiceSource} takes: each fetch returns the full current set and replaces what the

@@ -205,11 +205,12 @@ to identity, applied to cross-tenant fabric traffic.
 
 ### Ingress: routes as a resource
 
-`gateway.routes` is a flat, hand-authored config string, and that is the Ingress-shaped gap
-Kubernetes fills with a resource. A config value is opaque to the platform: it is validated only
-when a gateway happens to parse it, a typo surfaces as a route that silently never matches, nothing
-can answer "what routes exist" without reading a string, and there is no version to compare so two
-operators editing it race.
+A gateway's route table used to be a flat, hand-authored config string, which is exactly the
+Ingress-shaped gap Kubernetes fills with a resource. A config value is opaque to the platform: it is
+validated only when a gateway happens to parse it, a typo surfaces as a route that silently never
+matches, nothing can answer "what routes exist" without reading a string, and there is no version to
+compare so two operators editing it race. That path is gone: an `Ingress` is the only way to declare
+a route.
 
 An `Ingress` closes all four. It is a first-class resource — Raft-replicated through `gimle-mimir`,
 RBAC-gated under its own `ResourceKind.INGRESS` (its own kind rather than folded into `SERVICE`, on
@@ -234,12 +235,10 @@ routes:
 A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
 declared routes into its own table on the same level-triggered reload tick it already uses for
 config changes — each fetch returns the full current set, so a missed poll self-heals and an
-unreachable control plane leaves the working table untouched rather than tearing it down. Routes
-declared in `gateway.routes` win a collision with an Ingress declaring the same
-`(host, path, prefix)`: an operator editing config on a live gateway is acting on the machine in
-front of them, and a cluster-wide resource silently overriding that would make the local edit look
-broken. Both paths converge on the same `GatewayRoute` objects (`IngressRoutes` converts; the config
-parser parses), so a route behaves identically however it was declared.
+unreachable control plane leaves the working table untouched rather than tearing it down. Two
+Ingresses declaring the same `(host, path, prefix)` are resolved by the gateway's own dispatch
+precedence rather than refused at submission: neither is wrong on its own, and rejecting the second
+would make the outcome depend on which was submitted first.
 
 ### `gimle-bifrost`: the per-node service proxy
 
@@ -410,13 +409,11 @@ a Kubernetes Ingress path or an nginx `location` prefix uses — and matches its
 everything nested under it by path segment (`/api/orders/*` matches `/api/orders` and
 `/api/orders/42`, but not `/api/orders2`).
 
-Route configuration is a single `ctx.config("gateway.routes")` value (delivered the same tenant-
-scoped way any other plain config is — see [Multi-tenancy and quotas](./multi-tenancy.md)), one
-route per line, starting with an optional `HOST` prefix and then an explicit kind token. `GatewayHooks`
-re-reads this value on a fixed background interval for as long as an instance runs, not just once at
-startup: a change reaches an already-running instance the same way any other config update does
-(`ConfigRelay` re-delivers it, the worker's shared config map is overwritten, and the next read
-observes it), and `GatewayHooks` diffs the new route set against what it already applied — adding an
+Routes come from the `Ingress` resources declared for the gateway's tenant, fetched from
+`ctx.config("gateway.controlPlaneEndpoint")`. `GatewayHooks` re-reads them on a fixed background
+interval for as long as an instance runs, not just once at startup: a change reaches an
+already-running instance without a redeploy (the next poll returns the full current set), and
+`GatewayHooks` diffs the new route set against what it already applied — adding an
 `HttpServer` context for a genuinely new path, removing one for a path no longer present, and
 swapping in a rebuilt `GatewayDispatcher` for everything else — without ever rebinding the listener
 itself. This matters specifically because the gateway is deployed as a `DaemonSet` across every
@@ -424,13 +421,16 @@ edge-labeled node for real multi-instance HA behind one external entry point, an
 instances restart independently (crash, node maintenance, a manual bounce): without this, a route
 table baked in once at each instance's own startup meant different edge nodes behind the same load
 balancer could silently serve different route tables for as long as their next restart happened not
-to coincide. A malformed update is rejected and logged, keeping whatever route table already served
+to coincide. An unreachable control plane leaves whatever route table already served
 the last successful parse.
 
-```text
-[HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
-[HOST <hostname>] VESSEL <httpPath[/*]> <deploymentName> <portName>
-[HOST <hostname>] SERVICE <httpPath[/*]> <serviceName>
+```yaml
+routes:
+  - {kind: FABRIC,  host: <hostname>, path: <httpPath>, interfaceName: <interface>,
+     majorVersion: <n>, methodName: <method>, paramType: <paramType>}
+  - {kind: VESSEL,  host: <hostname>, path: <httpPath>, prefix: <bool>,
+     deploymentName: <deployment>, portName: <portName>}
+  - {kind: SERVICE, host: <hostname>, path: <httpPath>, prefix: <bool>, serviceName: <service>}
 ```
 
 **`FABRIC` routes.** `paramType` is `NONE` (served on `GET`) or one of
@@ -440,7 +440,8 @@ that single argument) — the same v1 restriction this module's own
 never a general JSON-to-POJO mapping. A target method's return type follows the same restriction
 (`void` or one simple type); `GatewayDispatcher` serializes whatever the fabric call actually
 returns rather than needing a return type declared up front. A `FABRIC` route's `httpPath` may never
-carry a `/*` suffix — rejected at parse time — since this route kind is permanently exact-path-only:
+ever be a prefix route — rejected at submission — since this route kind is permanently
+exact-path-only:
 it names one specific method call, not a resource subtree, and the dispatcher never reads the
 inbound path beyond the one the route is registered under, so a path segment past a would-be prefix
 would carry no meaning.
@@ -498,7 +499,7 @@ single-certificate listener that already existed. Selection never *rejects* a co
 `SNIMatcher` is installed): an unrecognized hostname is still served by a host-unconstrained route,
 and failing its handshake closed would take that fallback routing down with it. Bindings carry no
 CA of their own; trust stays cluster-wide, and only the presented identity varies per virtual host.
-`gateway.tlsCertificates` is re-read on the same background interval `gateway.routes` is: SNI
+`gateway.tlsCertificates` is re-read on the same background interval the route table is: SNI
 selection already picks a certificate fresh on every new handshake, so swapping which certificate a
 hostname resolves to needs no listener rebind, and a config change reaches an already-running
 instance the same way a route-table change does.

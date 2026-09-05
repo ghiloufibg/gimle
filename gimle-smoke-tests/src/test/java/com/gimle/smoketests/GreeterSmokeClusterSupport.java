@@ -2596,9 +2596,25 @@ abstract class GreeterSmokeClusterSupport {
    * A real, plain (non-encrypted) tenant-scoped config write via {@code PUT /config/{tenantId}/
    * {key}} -- the same API {@link #provisionTenantAndSecret} already exercises inline for {@link
    * #PLAIN_CONFIG_KEY}, pulled out here as a reusable primitive for {@code GatewayFabricRouteIT},
-   * which needs to write two such keys ({@code gateway.port}/{@code gateway.routes}) rather than
-   * just the one this class's other callers need.
+   * which needs to write two such keys ({@code gateway.port}/{@code gateway.controlPlaneEndpoint})
+   * rather than just the one this class's other callers need.
    */
+  /**
+   * Submits one {@code Ingress} through the real API -- how a gateway's route table is declared.
+   */
+  void postIngress(String baseUrl, Map<String, Object> body) throws Exception {
+    HttpResponse<String> response =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/ingresses"))
+                .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      throw new IllegalStateException(
+          "ingress submission failed: " + response.statusCode() + " " + response.body());
+    }
+  }
+
   void putPlainConfig(String baseUrl, String tenantId, String key, String value) throws Exception {
     String configBody = Json.write(Map.of("value", value, "encrypted", false));
     HttpResponse<String> response =

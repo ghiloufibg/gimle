@@ -26,7 +26,7 @@
 # demonstrates Bifrost's own fail-closed behavior (com.gimle.agent.bifrost.BifrostProxy) --
 # if Bifrost is enabled on the node hosting web-ui, this policy makes it refuse to proxy web-ui's
 # Service to any same-node caller, since Bifrost has no caller identity to check the policy's
-# allow list against. It has no effect on the gateway.routes SERVICE route in ../README.md, which
+# allow list against. It has no effect on the SERVICE ingress route in ../README.md, which
 # is unrelated to NetworkPolicySpec by design -- gateway exposure is an operator's own opt-in
 # publishing decision, not inter-tenant fabric traffic.
 name: web-ui-deny-cross-tenant

@@ -145,12 +145,16 @@ node the scheduler actually placed the instance on.
 2. **Add a gateway route.** `gimle-gateway` is an ordinary opt-in `DaemonSet` module elsewhere in
    this repo, not deployed by this app itself; if one is already running in your cluster (see
    `gimle-docs/docs/architecture/service-fabric.md` for how it's brought up), add these lines to
-   its `gateway.routes` config value:
+   declare an `Ingress` for its tenant:
 
-   ```
-   SERVICE /api/inventory web-ui
-   SERVICE /api/orders    web-ui
-   SERVICE /             web-ui
+   ```yaml
+   kind: Ingress
+   name: orders-platform
+   tenantId: gimle-system
+   routes:
+     - {kind: SERVICE, path: /api/inventory, serviceName: web-ui}
+     - {kind: SERVICE, path: /api/orders, serviceName: web-ui}
+     - {kind: SERVICE, path: /, serviceName: web-ui}
    ```
 
    Now the gateway's own already-published address is the one thing that needs reaching from

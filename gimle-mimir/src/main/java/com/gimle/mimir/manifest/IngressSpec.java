@@ -5,9 +5,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * A declared set of HTTP routes for the gateway to serve -- the Ingress analogue, and the
- * declarative replacement for hand-authoring {@code gateway.routes} as flat text pushed through
- * {@code /config/*}.
+ * A declared set of HTTP routes for the gateway to serve -- the Ingress analogue, and the only way
+ * a gateway route is declared, replacing an earlier flat-text config value.
  *
  * <p>The difference that matters is not the format. A config value is opaque to the platform: it is
  * validated only when a gateway happens to parse it, a typo surfaces as a route that silently never

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 843,
+    "totalRequirements": 844,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 713,
+    "notCoveredByAutomatedTest": 714,
     "releaseReadinessPercent": 15.4
   },
   "items": [
@@ -3990,17 +3990,6 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-363",
-      "module": "gimle-gateway",
-      "category": "Config",
-      "feature": "Route-table config DSL parsing",
-      "step": "Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and \"#\" comments When GatewayRouteConfig.parse(text) is called Then blank/comment lines are ignored and each remaining line becomes the correct route type And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number",
-      "automatedCoverage": false,
-      "signedOff": false,
-      "signedOffBy": null,
-      "signedOffAt": null
-    },
-    {
       "id": "GIMLE-364",
       "module": "gimle-gateway",
       "category": "Config",
@@ -4016,7 +4005,7 @@
       "module": "gimle-gateway",
       "category": "Gateway/Routing",
       "feature": "Gateway HTTP server bootstrap via module lifecycle hooks",
-      "step": "Given required config keys gateway.port and gateway.routes are present When onStart(ctx) runs Then an HttpServer binds on 0.0.0.0:{port}, one context per configured route, using a virtual-thread-per-task executor And onStop() stops the server and flips readiness to false And a missing/non-integer gateway.port throws GatewayConfigException before binding",
+      "step": "Given required config keys gateway.port and gateway.controlPlaneEndpoint are present When onStart(ctx) runs Then an HttpServer binds on 0.0.0.0:{port} with no route contexts yet, using a virtual-thread-per-task executor And the first reload tick registers one context per distinct path of the declared Ingresses",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -7470,7 +7459,7 @@
       "module": "gimle-gateway",
       "category": "Networking",
       "feature": "Gateway route table reloads on a config change without a restart",
-      "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
+      "step": "Given a running gateway instance serving a route table When an Ingress is updated to add a new route Then the new route becomes reachable on the same listener within one reload interval, with no restart And when the control plane becomes unreachable, the already-applied table keeps serving",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8504,7 +8493,7 @@
       "module": "gimle-console",
       "category": "Web Console / Frontend",
       "feature": "A Gateway console screen showing the declared route table and what each route currently resolves to",
-      "step": "Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance",
+      "step": "Given an Ingress declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a FABRIC route is reported unresolvable rather than guessed at",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -9275,6 +9264,28 @@
       "category": "Web Console",
       "feature": "The registry overview tells a failed or in-flight catalog read apart from an empty one",
       "step": "Given the artifact registry is unreachable, When the console overview loads, Then the recent-pushes panel reports the read failure rather than an empty push list. Given a catalog with several modules, When the overview loads, Then the panel lists the newest pushes first and states how many of the catalog's modules it is showing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-844",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane",
+      "step": "Given a registered node whose agent is heartbeating normally When store leadership moves and the new leader holds no heartbeat for it Then the node reads PENDING rather than STALE, and its assignments are not released And once the observation window has had time to fill with the node still silent, it reads UNKNOWN and is treated as dark",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-845",
+      "module": "gimle-fabric",
+      "category": "Service fabric",
+      "feature": "A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup",
+      "step": "Given a same-machine replica saturated by callers other than this one, and an idle remote replica When this caller makes repeated calls through one long-lived proxy Then after the first call teaches it the target's reported backlog, every later call routes to the idle remote replica And no call fails and no circuit breaker opens",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
