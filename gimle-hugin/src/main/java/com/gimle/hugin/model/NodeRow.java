@@ -41,7 +41,7 @@ public record NodeRow(
    * cordoned a node wants to see that, not a heartbeat verdict that says nothing about why the
    * scheduler is avoiding it.
    */
-  public String state(final Instant now) {
+  public String state() {
     if (cordoned) {
       return "CORDONED";
     }
@@ -58,7 +58,7 @@ public record NodeRow(
    * it says the control plane has only just started listening, which is not the node's fault and
    * would otherwise paint every node in the cluster amber after a store election.
    */
-  public boolean isStale(final Instant now) {
+  public boolean isStale() {
     return "STALE".equals(status) || "UNKNOWN".equals(status);
   }
 

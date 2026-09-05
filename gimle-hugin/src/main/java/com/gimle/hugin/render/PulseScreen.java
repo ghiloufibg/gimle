@@ -93,8 +93,7 @@ public final class PulseScreen {
     List<String> lines = new ArrayList<>();
     lines.add(sectionLabel("CLUSTER"));
 
-    long nodesReady =
-        cluster.nodes().stream().filter(node -> "READY".equals(node.state(now))).count();
+    long nodesReady = cluster.nodes().stream().filter(node -> "READY".equals(node.state())).count();
     lines.add(
         reading(
             "nodes ready",

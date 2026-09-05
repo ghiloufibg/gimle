@@ -205,7 +205,7 @@ public final class ClusterScreen {
   private String nodeLine(
       final NodeRow node, final boolean selected, final Viewport viewport, final Instant now) {
     NodeLayout layout = NodeLayout.forWidth(viewport.columns());
-    String state = node.state(now);
+    String state = node.state();
     Style base = selected ? Style.fg(Palette.FOREGROUND).on(Palette.SELECTION) : Style.PLAIN;
     Line line =
         new Line(painter)
@@ -240,7 +240,7 @@ public final class ClusterScreen {
         .cell(
             node.heartbeatAge(now).map(Text::age).orElse(Text.ABSENT),
             layout.heartbeat(),
-            Style.fg(node.isStale(now) ? Palette.WARN : Palette.MUTED_FOREGROUND))
+            Style.fg(node.isStale() ? Palette.WARN : Palette.MUTED_FOREGROUND))
         .build();
   }
 

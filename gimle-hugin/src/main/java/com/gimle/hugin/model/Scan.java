@@ -56,7 +56,7 @@ public final class Scan {
   private static void nodeFindings(
       final ClusterSnapshot cluster, final Instant now, final List<ScanFinding> findings) {
     for (NodeRow node : cluster.nodes()) {
-      if (node.isStale(now)) {
+      if (node.isStale()) {
         // The agent has stopped reporting, so every instance this node claims to run is a claim
         // nothing has confirmed since. That makes it the first thing to look at, not a warning.
         findings.add(

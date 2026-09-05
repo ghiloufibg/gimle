@@ -60,7 +60,7 @@ public final class NodeScreen {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    String state = node.state(now);
+    String state = node.state();
     return TitleBar.of(painter, "node")
         .subject(node.nodeId())
         .scope(ui)
@@ -72,13 +72,12 @@ public final class NodeScreen {
   private List<String> detail(final NodeRow node, final Instant now) {
     List<String> lines = new ArrayList<>();
     lines.add(sectionLabel("NODE"));
-    lines.add(
-        field("state", node.state(now), Style.fg(StatusVariant.ofNodeState(node.state(now)))));
+    lines.add(field("state", node.state(), Style.fg(StatusVariant.ofNodeState(node.state()))));
     lines.add(
         field(
             "heartbeat",
             node.heartbeatAge(now).map(Text::age).map(age -> age + " ago").orElse(Text.ABSENT),
-            Style.fg(node.isStale(now) ? Palette.WARN : Palette.MUTED_FOREGROUND)));
+            Style.fg(node.isStale() ? Palette.WARN : Palette.MUTED_FOREGROUND)));
     lines.add("");
     lines.add(sectionLabel("CAPACITY"));
     if (!node.hasCapacity()) {

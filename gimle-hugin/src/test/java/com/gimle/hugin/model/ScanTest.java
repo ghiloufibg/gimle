@@ -372,31 +372,24 @@ class ScanTest {
   }
 
   private static NodeRow freshNode(final String nodeId) {
-    return node(nodeId, false, Optional.of(NOW));
+    return node(nodeId, false, "HEALTHY", Optional.of(NOW));
   }
 
   private static NodeRow staleNode(final String nodeId) {
-    return node(nodeId, false, Optional.of(NOW.minusSeconds(300)));
+    return node(nodeId, false, "STALE", Optional.of(NOW.minusSeconds(300)));
   }
 
   private static NodeRow cordonedNode(final String nodeId) {
-    return node(nodeId, true, Optional.of(NOW));
+    return node(nodeId, true, "HEALTHY", Optional.of(NOW));
   }
 
   private static NodeRow node(
-      final String nodeId, final boolean cordoned, final Optional<Instant> heartbeat) {
+      final String nodeId,
+      final boolean cordoned,
+      final String status,
+      final Optional<Instant> heartbeat) {
     return new NodeRow(
-        nodeId,
-        cordoned,
-        100L,
-        4000L,
-        100L,
-        8000L,
-        1,
-        heartbeat.isPresent() ? "HEALTHY" : "UNKNOWN",
-        heartbeat,
-        List.of(),
-        List.of(),
+        nodeId, cordoned, 100L, 4000L, 100L, 8000L, 1, status, heartbeat, List.of(), List.of(),
         List.of());
   }
 

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.protocol.Json;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,7 +78,7 @@ class SnapshotReaderTest {
 
     assertFalse(node.hasCapacity());
     assertEquals(Optional.empty(), node.lastHeartbeatAt());
-    assertEquals("UNKNOWN", node.state(Instant.now()));
+    assertEquals("UNKNOWN", node.state());
   }
 
   @Test
