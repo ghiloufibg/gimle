@@ -1665,9 +1665,11 @@ class GimleCliTest {
 
   @Test
   void set_networkpolicy_then_get_networkpolicies_round_trips_then_delete() throws Exception {
-    // A policy's allow list may only name tenants that exist, so the referenced tenant is
-    // declared first -- the same order a real operator works in.
-    createTenant("partner");
+    // Both the policy's own owning tenant and every tenant its allow list names must exist first.
+    // "acme" is this harness's one creatable real tenant (plaintext mode allows exactly one), so
+    // the allow list names "default" -- seeded by the control plane itself, and therefore a real
+    // tenant a policy may legitimately reference without tripping that single-tenant rule.
+    createTenant("acme");
 
     int setExit =
         run(
@@ -1677,7 +1679,7 @@ class GimleCliTest {
             "--tenant",
             "acme",
             "--allowed-caller-tenant",
-            "partner");
+            "default");
     assertEquals(0, setExit, stderr());
     assertTrue(stdout().contains("networkpolicy/acme-policy configured"));
 
@@ -1691,7 +1693,7 @@ class GimleCliTest {
         run("-o", "json", "get", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(0, getSingleExit);
     assertTrue(stdout().contains("\"tenantId\":\"acme\""));
-    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"partner\"]"));
+    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"default\"]"));
 
     int deleteExit = run("delete", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(0, deleteExit);
@@ -1703,9 +1705,11 @@ class GimleCliTest {
 
   @Test
   void apply_networkpolicy_then_get_networkpolicies_round_trips() throws Exception {
-    // A policy's allow list may only name tenants that exist, so the referenced tenant is
-    // declared first -- the same order a real operator works in.
-    createTenant("partner");
+    // Both the policy's own owning tenant and every tenant its allow list names must exist first.
+    // "acme" is this harness's one creatable real tenant (plaintext mode allows exactly one), so
+    // the allow list names "default" -- seeded by the control plane itself, and therefore a real
+    // tenant a policy may legitimately reference without tripping that single-tenant rule.
+    createTenant("acme");
 
     Path manifest = tempDir.resolve("applied-networkpolicy.yaml");
     Files.writeString(
@@ -1714,7 +1718,7 @@ class GimleCliTest {
         kind: NetworkPolicy
         name: applied-policy
         tenantId: acme
-        allowedCallerTenantIds: [partner]
+        allowedCallerTenantIds: [default]
         """);
 
     int applyExit = run("apply", "-f", manifest.toString());
@@ -1726,7 +1730,7 @@ class GimleCliTest {
         run("-o", "json", "get", "networkpolicy", "applied-policy", "--tenant", "acme");
     assertEquals(0, getSingleExit);
     assertTrue(stdout().contains("\"tenantId\":\"acme\""));
-    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"partner\"]"));
+    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"default\"]"));
   }
 
   @Test
@@ -1754,9 +1758,11 @@ class GimleCliTest {
 
   @Test
   void set_networkpolicy_carries_interface_scoping_and_egress_restrictions() throws Exception {
-    // A policy's allow list may only name tenants that exist, so the referenced tenant is
-    // declared first -- the same order a real operator works in.
-    createTenant("partner");
+    // Both the policy's own owning tenant and every tenant its allow list names must exist first.
+    // "acme" is this harness's one creatable real tenant (plaintext mode allows exactly one), so
+    // the allow list names "default" -- seeded by the control plane itself, and therefore a real
+    // tenant a policy may legitimately reference without tripping that single-tenant rule.
+    createTenant("acme");
 
     int setExit =
         run(
@@ -1768,7 +1774,7 @@ class GimleCliTest {
             "--service-interface",
             "com.acme.Orders",
             "--allowed-callee-tenant",
-            "partner",
+            "default",
             "--deny-all-callers");
     assertEquals(0, setExit, stderr());
 
@@ -1776,7 +1782,7 @@ class GimleCliTest {
     int getExit = run("-o", "json", "get", "networkpolicy", "acme-egress", "--tenant", "acme");
     assertEquals(0, getExit);
     assertTrue(stdout().contains("\"serviceInterfaceNames\":[\"com.acme.Orders\"]"), stdout());
-    assertTrue(stdout().contains("\"allowedCalleeTenantIds\":[\"partner\"]"), stdout());
+    assertTrue(stdout().contains("\"allowedCalleeTenantIds\":[\"default\"]"), stdout());
     assertTrue(stdout().contains("\"allowedCallerTenantIds\":[]"), stdout());
   }
 
