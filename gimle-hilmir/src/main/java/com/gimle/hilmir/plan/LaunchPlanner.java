@@ -266,6 +266,12 @@ public final class LaunchPlanner {
         // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap
         // through this control plane.
         command.add("-Dgimle.tls.caKeyFile=" + materialDir(topology).resolve("ca.key"));
+        // Without this the control plane never loads the bootstrap account the PKI step wrote, so
+        // the password printed at the end of that step -- the documented way into every console --
+        // is refused by every login.
+        command.add(
+            "-Dgimle.bootstrap.accountFile="
+                + materialDir(topology).resolve("bootstrap-account.yaml"));
       }
       command.addAll(topology.jvmFlags(ProcessRole.CONTROL_PLANE));
       command.add(dataRootFlag(dataDir));

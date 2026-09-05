@@ -54,6 +54,7 @@ public final class UpgradeCommand {
                             + " recorded in its ledger"));
 
     List<ResourceRef> toPrune = ReleaseReconciler.computePrune(rendered, previous);
+    List<KeyRef> keysToPrune = ReleaseReconciler.computeKeyPrune(rendered, previous);
 
     if (flags.isSet("--dry-run")) {
       ReleasePlan.printWithPrune(rendered, toPrune, json, out);
@@ -61,13 +62,15 @@ public final class UpgradeCommand {
     }
 
     ReleaseReconciler.UpgradeOutcome outcome =
-        ReleaseReconciler.upgradeExisting(api, rendered, meta, toPrune, flags.isSet("--wait"), out);
+        ReleaseReconciler.upgradeExisting(
+            api, rendered, meta, toPrune, keysToPrune, flags.isSet("--wait"), out);
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", "upgraded");
     body.put("release", rendered.name());
     body.put("revision", outcome.revision());
     body.put("pruned", outcome.pruned().stream().map(ResourceRef::toJson).toList());
+    body.put("prunedKeys", outcome.prunedKeys().stream().map(KeyRef::toJson).toList());
     ReleaseOutput.printResult(
         json,
         body,

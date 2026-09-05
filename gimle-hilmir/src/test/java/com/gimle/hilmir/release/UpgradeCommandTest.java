@@ -97,6 +97,75 @@ class UpgradeCommandTest {
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.rev.2") != null);
   }
 
+  private static final String BUNDLE_WITH_RENAMED_SECRET =
+      """
+      kind: Bundle
+      name: greeter-suite
+      version: 2.0.0
+      tenants:
+        - id: acme
+          quota: {maxMemoryBytes: 1, maxCpuMillicores: 1, maxInstances: 1}
+      config:
+        - {tenant: acme, key: greeting, value: hei}
+      secrets:
+        - {tenant: acme, key: api-token-v2, value: s3cret}
+      workloads:
+        - manifest: |
+            kind: Deployment
+            name: greeter-provider
+      """;
+
+  /**
+   * The orphan this closes is worse than a leftover row: a config lookup falls back to the vault
+   * for the same key, so a secret a release stopped declaring goes on silently answering reads
+   * meant for the config entry the operator can actually see.
+   */
+  @Test
+  void upgrade_prunes_a_secret_and_a_config_key_the_new_bundle_no_longer_declares()
+      throws Exception {
+    fake = new FakeControlPlane();
+    String v1Text =
+        """
+        kind: Bundle
+        name: greeter-suite
+        version: 1.0.0
+        tenants:
+          - id: acme
+            quota: {maxMemoryBytes: 1, maxCpuMillicores: 1, maxInstances: 1}
+        config:
+          - {tenant: acme, key: greeting, value: hello}
+          - {tenant: acme, key: retired, value: gone}
+        secrets:
+          - {tenant: acme, key: api-token, value: s3cret}
+        workloads:
+          - manifest: |
+              kind: Deployment
+              name: greeter-provider
+        """;
+    Path v1 = writeBundle(v1Text, "v1.yaml");
+    DeployCommand.run(
+        List.of("-f", v1.toString(), "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+
+    Path v2 = writeBundle(BUNDLE_WITH_RENAMED_SECRET, "v2.yaml");
+    assertEquals(
+        0,
+        UpgradeCommand.run(
+            List.of("-f", v2.toString(), "--server", fake.address()),
+            capture(new ByteArrayOutputStream())));
+
+    assertTrue(deleted("/secrets/acme/api-token"), fake.requests.toString());
+    assertTrue(deleted("/config/acme/retired"), fake.requests.toString());
+    // The key both revisions declare is left exactly where it is.
+    assertFalse(deleted("/config/acme/greeting"), fake.requests.toString());
+    assertFalse(deleted("/secrets/acme/api-token-v2"), fake.requests.toString());
+  }
+
+  private boolean deleted(String path) {
+    return fake.requests.stream()
+        .anyMatch(r -> r.method().equals("DELETE") && r.path().equals(path));
+  }
+
   @Test
   void upgrade_requires_an_existing_release() throws Exception {
     fake = new FakeControlPlane();

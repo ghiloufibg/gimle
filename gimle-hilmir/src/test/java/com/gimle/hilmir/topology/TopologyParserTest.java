@@ -372,4 +372,38 @@ class TopologyParserTest {
         GimleManifestException.class,
         () -> parse("name: bad\nstore:\n  replicas:\n    - {machine: m1, raftPort: nine}\n"));
   }
+
+  /**
+   * Field names repeat across every role and every replica, so the field alone told a reader what
+   * was wrong and gave them nowhere to go and fix it -- and a document with several roles reports
+   * exactly one fault, whichever the parser reached first.
+   */
+  @Test
+  void a_rejected_field_names_the_replica_it_was_read_from() {
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () ->
+                parse(
+                    """
+                    name: bad
+                    controlPlane:
+                      replicas:
+                        - {machine: m1}
+                        - {port: 8081}
+                    """));
+
+    assertTrue(e.getMessage().contains("controlPlane.replicas[1]"), e.getMessage());
+    assertTrue(e.getMessage().contains("machine"), e.getMessage());
+  }
+
+  @Test
+  void a_rejected_agent_field_names_the_agent_entry_it_was_read_from() {
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () -> parse("name: bad\nagents:\n  - {machine: m1, nodeId: n1}\n  - {machine: m2}\n"));
+
+    assertTrue(e.getMessage().contains("agents[1]"), e.getMessage());
+  }
 }

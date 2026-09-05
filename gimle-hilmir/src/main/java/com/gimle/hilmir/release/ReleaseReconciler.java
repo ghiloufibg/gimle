@@ -25,7 +25,7 @@ public final class ReleaseReconciler {
   public record DeployOutcome(int revision) {}
 
   /** The revision written and the resources removed by {@link #upgradeExisting}. */
-  public record UpgradeOutcome(int revision, List<ResourceRef> pruned) {}
+  public record UpgradeOutcome(int revision, List<ResourceRef> pruned, List<KeyRef> prunedKeys) {}
 
   /**
    * Applies a brand-new release: tenant, then config, then secrets, then workloads (creating the
@@ -76,15 +76,48 @@ public final class ReleaseReconciler {
   }
 
   /**
+   * The config and vault keys {@code previous} applied that {@code rendered} no longer declares.
+   *
+   * <p>Computed from the bundle as the operator declared it, which is not always the one that gets
+   * applied: a caller that withholds a secret whose value it does not currently hold (leaving what
+   * the vault already stores) must still pass the declaring bundle here, or the key it deliberately
+   * left alone would read as one the release dropped.
+   */
+  public static List<KeyRef> computeKeyPrune(RenderedBundle rendered, ReleaseRevision previous) {
+    List<KeyRef> current = new ArrayList<>();
+    for (RenderedConfigEntry entry : rendered.config()) {
+      current.add(new KeyRef(entry.tenant(), entry.key()));
+    }
+    for (RenderedSecretEntry entry : rendered.secrets()) {
+      current.add(new KeyRef(entry.tenant(), entry.key()));
+    }
+    List<KeyRef> stale = new ArrayList<>();
+    for (RenderedConfigEntry entry : previous.config()) {
+      KeyRef ref = new KeyRef(entry.tenant(), entry.key());
+      if (!current.contains(ref)) {
+        stale.add(ref);
+      }
+    }
+    for (SecretRef entry : previous.secrets()) {
+      KeyRef ref = new KeyRef(entry.tenant(), entry.key());
+      if (!current.contains(ref) && !stale.contains(ref)) {
+        stale.add(ref);
+      }
+    }
+    return List.copyOf(stale);
+  }
+
+  /**
    * Applies an existing release's new content over its previous one: apply, then prune {@code
-   * toPrune} (see {@link #computePrune}), an optional per-workload wait, and finally writes the
-   * next revision plus its meta pointer row.
+   * toPrune} and {@code keysToPrune} (see {@link #computePrune} and {@link #computeKeyPrune}), an
+   * optional per-workload wait, and finally writes the next revision plus its meta pointer row.
    */
   public static UpgradeOutcome upgradeExisting(
       ControlPlaneApi api,
       RenderedBundle rendered,
       ReleaseMeta meta,
       List<ResourceRef> toPrune,
+      List<KeyRef> keysToPrune,
       boolean wait,
       PrintStream out) {
     BundleApplier.applyTenants(api, rendered.tenants());
@@ -92,6 +125,10 @@ public final class ReleaseReconciler {
     BundleApplier.applySecrets(api, rendered.secrets());
     BundleApplier.applyWorkloads(api, rendered.workloads());
     BundleApplier.deleteWorkloads(api, toPrune);
+    // After the applies, so a key this revision moved between the config store and the vault is
+    // written under its new home before the old one is taken away.
+    BundleApplier.deleteConfig(api, keysToPrune);
+    BundleApplier.deleteSecrets(api, keysToPrune);
 
     // Recorded before the wait for the same reason deployFresh does: a timed-out wait must not
     // leave the ledger pointing at the previous revision while the new one is already live.
@@ -113,7 +150,7 @@ public final class ReleaseReconciler {
         rendered.name(),
         new ReleaseMeta(rendered.name(), rendered.version(), nextRevision, tenantIds));
     awaitIfRequested(api, rendered, wait, out);
-    return new UpgradeOutcome(nextRevision, toPrune);
+    return new UpgradeOutcome(nextRevision, toPrune, keysToPrune);
   }
 
   /**

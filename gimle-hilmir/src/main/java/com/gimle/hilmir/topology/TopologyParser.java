@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -133,7 +134,8 @@ public final class TopologyParser {
       throw new GimleManifestException("'tls' must be a mapping");
     }
     requireNoUnknownKeys(map, Set.of("materialDir"), "tls");
-    return Optional.of(new TlsMaterial(resolvePath(requireString(map, "materialDir"))));
+    return Optional.of(
+        at("tls", () -> new TlsMaterial(resolvePath(requireString(map, "materialDir")))));
   }
 
   private static List<Machine> parseMachines(final Map<?, ?> root) {
@@ -145,18 +147,23 @@ public final class TopologyParser {
       throw new GimleManifestException("'machines' must be a list");
     }
     final List<Machine> machines = new ArrayList<>();
+    int index = 0;
     for (final Object entry : entries) {
+      final String context = "machines[" + index++ + "]";
       if (!(entry instanceof Map<?, ?> machine)) {
         throw new GimleManifestException("each 'machines' entry must be a mapping");
       }
       requireNoUnknownKeys(
-          machine, Set.of("name", "host", "sshHostKeyFingerprint", "ssh"), "machines[]");
+          machine, Set.of("name", "host", "sshHostKeyFingerprint", "ssh"), context);
       machines.add(
-          new Machine(
-              requireString(machine, "name"),
-              requireString(machine, "host"),
-              optionalString(machine, "sshHostKeyFingerprint"),
-              parseSsh(machine, "machines[].ssh")));
+          at(
+              context,
+              () ->
+                  new Machine(
+                      requireString(machine, "name"),
+                      requireString(machine, "host"),
+                      optionalString(machine, "sshHostKeyFingerprint"),
+                      parseSsh(machine, context + ".ssh"))));
     }
     return machines;
   }
@@ -171,12 +178,15 @@ public final class TopologyParser {
     }
     requireNoUnknownKeys(
         map, Set.of("javaExecutable", "classpath", "dataRoot", "useBundledJre", "ssh"), "runtime");
-    return new RuntimeSettings(
-        optionalString(map, "javaExecutable"),
-        optionalString(map, "classpath"),
-        optionalString(map, "dataRoot").map(TopologyParser::resolvePath),
-        optionalBoolean(map, "useBundledJre", false),
-        parseSsh(map, "runtime.ssh"));
+    return at(
+        "runtime",
+        () ->
+            new RuntimeSettings(
+                optionalString(map, "javaExecutable"),
+                optionalString(map, "classpath"),
+                optionalString(map, "dataRoot").map(TopologyParser::resolvePath),
+                optionalBoolean(map, "useBundledJre", false),
+                parseSsh(map, "runtime.ssh")));
   }
 
   /**
@@ -195,12 +205,15 @@ public final class TopologyParser {
     requireNoUnknownKeys(
         map, Set.of("user", "port", "identityFile", "installDir", "archive"), context);
     return Optional.of(
-        new SshSettings(
-            optionalString(map, "user"),
-            optionalInt(map, "port"),
-            optionalString(map, "identityFile"),
-            optionalString(map, "installDir"),
-            optionalString(map, "archive")));
+        at(
+            context,
+            () ->
+                new SshSettings(
+                    optionalString(map, "user"),
+                    optionalInt(map, "port"),
+                    optionalString(map, "identityFile"),
+                    optionalString(map, "installDir"),
+                    optionalString(map, "archive"))));
   }
 
   private static List<StoreReplica> parseStoreReplicas(final Map<?, ?> root) {
@@ -220,17 +233,23 @@ public final class TopologyParser {
       throw new GimleManifestException("'store.replicas' must be a list");
     }
     final List<StoreReplica> replicas = new ArrayList<>();
+    int index = 0;
     for (final Object entry : entries) {
+      final String context = "store.replicas[" + index++ + "]";
       if (!(entry instanceof Map<?, ?> replica)) {
         throw new GimleManifestException("each 'store.replicas' entry must be a mapping");
       }
       requireNoUnknownKeys(
-          replica, Set.of("machine", "raftPort", "clientPort", "healthPort"), "store.replicas[]");
-      final String machine = requireString(replica, "machine");
-      final int raftPort = optionalInt(replica, "raftPort").orElse(DEFAULT_STORE_RAFT_PORT);
-      final int clientPort = optionalInt(replica, "clientPort").orElse(DEFAULT_STORE_CLIENT_PORT);
+          replica, Set.of("machine", "raftPort", "clientPort", "healthPort"), context);
       replicas.add(
-          new StoreReplica(machine, raftPort, clientPort, optionalInt(replica, "healthPort")));
+          at(
+              context,
+              () ->
+                  new StoreReplica(
+                      requireString(replica, "machine"),
+                      optionalInt(replica, "raftPort").orElse(DEFAULT_STORE_RAFT_PORT),
+                      optionalInt(replica, "clientPort").orElse(DEFAULT_STORE_CLIENT_PORT),
+                      optionalInt(replica, "healthPort"))));
     }
     return replicas;
   }
@@ -258,15 +277,21 @@ public final class TopologyParser {
       throw new GimleManifestException("'" + sectionKey + ".replicas' must be a list");
     }
     final List<ServiceReplica> replicas = new ArrayList<>();
+    int index = 0;
     for (final Object entry : entries) {
+      final String context = sectionKey + ".replicas[" + index++ + "]";
       if (!(entry instanceof Map<?, ?> replica)) {
         throw new GimleManifestException(
             "each '" + sectionKey + ".replicas' entry must be a mapping");
       }
-      requireNoUnknownKeys(replica, Set.of("machine", "port"), sectionKey + ".replicas[]");
-      final String machine = requireString(replica, "machine");
-      final int port = optionalInt(replica, "port").orElse(defaultPort);
-      replicas.add(new ServiceReplica(machine, port));
+      requireNoUnknownKeys(replica, Set.of("machine", "port"), context);
+      replicas.add(
+          at(
+              context,
+              () ->
+                  new ServiceReplica(
+                      requireString(replica, "machine"),
+                      optionalInt(replica, "port").orElse(defaultPort))));
     }
     return replicas;
   }
@@ -280,7 +305,8 @@ public final class TopologyParser {
       throw new GimleManifestException("'fafnir' must be a mapping");
     }
     requireNoUnknownKeys(map, Set.of("keyFile", "replicas"), "fafnir");
-    final Optional<Path> keyFile = optionalString(map, "keyFile").map(TopologyParser::resolvePath);
+    final Optional<Path> keyFile =
+        at("fafnir", () -> optionalString(map, "keyFile").map(TopologyParser::resolvePath));
     final List<ServiceReplica> replicas =
         parseReplicasList(map.get("replicas"), "fafnir", DEFAULT_FAFNIR_PORT);
     return new FafnirRole(keyFile, replicas);
@@ -295,15 +321,22 @@ public final class TopologyParser {
       throw new GimleManifestException("'agents' must be a list");
     }
     final List<AgentPlacement> agents = new ArrayList<>();
+    int index = 0;
     for (final Object entry : entries) {
+      final String context = "agents[" + index++ + "]";
       if (!(entry instanceof Map<?, ?> agent)) {
         throw new GimleManifestException("each 'agents' entry must be a mapping");
       }
-      requireNoUnknownKeys(agent, Set.of("machine", "nodeId", "gossipPort", "labels"), "agents[]");
-      final String machine = requireString(agent, "machine");
-      final String nodeId = requireString(agent, "nodeId");
-      final int gossipPort = optionalInt(agent, "gossipPort").orElse(DEFAULT_GOSSIP_PORT);
-      agents.add(new AgentPlacement(machine, nodeId, gossipPort, stringList(agent, "labels")));
+      requireNoUnknownKeys(agent, Set.of("machine", "nodeId", "gossipPort", "labels"), context);
+      agents.add(
+          at(
+              context,
+              () ->
+                  new AgentPlacement(
+                      requireString(agent, "machine"),
+                      requireString(agent, "nodeId"),
+                      optionalInt(agent, "gossipPort").orElse(DEFAULT_GOSSIP_PORT),
+                      stringList(agent, "labels"))));
     }
     return agents;
   }
@@ -324,6 +357,20 @@ public final class TopologyParser {
       flags.put(ProcessRole.fromField(roleName), stringList(jvm, roleName));
     }
     return flags;
+  }
+
+  /**
+   * Prefixes whatever {@code parse} rejects with where in the document the fault is. Every scalar
+   * helper below reports a field name alone, and names like {@code machine}, {@code port} or {@code
+   * name} repeat across every role and every replica -- so a single mistyped field left a reader
+   * knowing exactly what was wrong and nowhere to go and fix it.
+   */
+  private static <T> T at(final String context, final Supplier<T> parse) {
+    try {
+      return parse.get();
+    } catch (final GimleManifestException e) {
+      throw new GimleManifestException(context + ": " + e.getMessage(), e);
+    }
   }
 
   /** Rejects any key in {@code map} outside {@code allowed} -- see the class javadoc for why. */

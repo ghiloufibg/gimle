@@ -140,6 +140,11 @@ public final class PkiBootstrapMain {
       // every such decision must be attributable to Andvari's own certificate Subject.
       issueLeaf(
           outputDir, ca, "andvari-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+      // The store gets its own identity for the same reason every other role does. Presenting the
+      // control plane's leaf instead made a compromised store key a control-plane identity, and
+      // left neither authorization nor audit able to tell the two apart.
+      issueLeaf(
+          outputDir, ca, "store-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
     }
     issueLeaf(
         outputDir,

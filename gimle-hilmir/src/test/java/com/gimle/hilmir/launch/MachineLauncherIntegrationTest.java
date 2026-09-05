@@ -196,7 +196,7 @@ class MachineLauncherIntegrationTest {
     final RunRecord deadRecord =
         new RunRecord(
             "store-0", "STORE", 999_999_999L, List.of("java", "-version"), "store-0.log", "");
-    RunLedger.write(tempDir, List.of(deadRecord));
+    RunLedger.write(tempDir, "m1", List.of(deadRecord));
 
     final ByteArrayOutputStream output = new ByteArrayOutputStream();
     MachineLauncher.down(tempDir, capture(output));
@@ -215,7 +215,7 @@ class MachineLauncherIntegrationTest {
             List.of("java", "-version"),
             "store-0.log",
             "127.0.0.1:1");
-    RunLedger.write(tempDir, List.of(deadRecord));
+    RunLedger.write(tempDir, "m1", List.of(deadRecord));
 
     final ByteArrayOutputStream output = new ByteArrayOutputStream();
     MachineLauncher.status(tempDir, capture(output));
@@ -258,7 +258,7 @@ class MachineLauncherIntegrationTest {
               // Deliberately not the fixture's own bound port -- port 1 requires privileges no
               // test runner has, so nothing is ever listening there.
               "127.0.0.1:1");
-      RunLedger.write(tempDir, List.of(stillListedButNotServing));
+      RunLedger.write(tempDir, "m1", List.of(stillListedButNotServing));
 
       final ByteArrayOutputStream output = new ByteArrayOutputStream();
       MachineLauncher.status(tempDir, capture(output));

@@ -20,36 +20,81 @@ import java.util.Map;
  */
 final class RunLedger {
 
-  private static final String FILE_NAME = "hilmir-run.json";
+  private static final String FILE_PREFIX = "hilmir-run-";
+  private static final String FILE_SUFFIX = ".json";
 
   private RunLedger() {}
 
-  static void write(final Path dataRoot, final List<RunRecord> records) {
+  /**
+   * One ledger file per machine, not one per data root.
+   *
+   * <p>Bringing a second machine up under the same data root -- which is what a multi-machine
+   * topology run on one host does -- overwrote the first machine's record, so its processes
+   * survived with nothing pointing at them and the teardown that followed reported success having
+   * killed one of them.
+   */
+  private static Path fileFor(final Path dataRoot, final String machineName) {
+    return dataRoot.resolve(FILE_PREFIX + machineName + FILE_SUFFIX);
+  }
+
+  private static List<Path> ledgerFiles(final Path dataRoot) {
+    if (!Files.isDirectory(dataRoot)) {
+      return List.of();
+    }
+    try (java.util.stream.Stream<Path> entries = Files.list(dataRoot)) {
+      return entries
+          .filter(
+              path -> {
+                final String name = String.valueOf(path.getFileName());
+                return name.startsWith(FILE_PREFIX) && name.endsWith(FILE_SUFFIX);
+              })
+          .sorted()
+          .toList();
+    } catch (final IOException e) {
+      throw new HilmirException("failed listing run ledgers under " + dataRoot, e);
+    }
+  }
+
+  static void write(final Path dataRoot, final String machineName, final List<RunRecord> records) {
     final List<Object> json = new ArrayList<>();
     for (final RunRecord record : records) {
       json.add(toJson(record));
     }
     try {
       Files.createDirectories(dataRoot);
-      Files.writeString(dataRoot.resolve(FILE_NAME), Json.write(json), StandardCharsets.UTF_8);
+      Files.writeString(fileFor(dataRoot, machineName), Json.write(json), StandardCharsets.UTF_8);
     } catch (final IOException e) {
       throw new HilmirException("failed writing run ledger under " + dataRoot, e);
     }
   }
 
+  /**
+   * Every process recorded under {@code dataRoot}, across every machine brought up against it --
+   * the data root is what {@code down} and {@code status} address, so they act on all of it.
+   */
   static List<RunRecord> read(final Path dataRoot) {
-    final Path file = dataRoot.resolve(FILE_NAME);
-    final String text;
-    try {
-      text = Files.readString(file, StandardCharsets.UTF_8);
-    } catch (final IOException e) {
+    final List<Path> files = ledgerFiles(dataRoot);
+    if (files.isEmpty()) {
       throw new HilmirException(
           "no run recorded at "
               + dataRoot
               + " (expected "
-              + file
-              + "); has 'hilmir up' been run with this --data-root?",
-          e);
+              + fileFor(dataRoot, "<machine>")
+              + "); has 'hilmir up' been run with this --data-root?");
+    }
+    final List<RunRecord> records = new ArrayList<>();
+    for (final Path file : files) {
+      records.addAll(readFile(file));
+    }
+    return records;
+  }
+
+  private static List<RunRecord> readFile(final Path file) {
+    final String text;
+    try {
+      text = Files.readString(file, StandardCharsets.UTF_8);
+    } catch (final IOException e) {
+      throw new HilmirException("failed reading run ledger at " + file, e);
     }
     try {
       final List<Object> parsed = Json.asArray(Json.parse(text));
@@ -70,7 +115,7 @@ final class RunLedger {
    * only the latter still throws.
    */
   static List<RunRecord> tryRead(final Path dataRoot) {
-    if (Files.notExists(dataRoot.resolve(FILE_NAME))) {
+    if (ledgerFiles(dataRoot).isEmpty()) {
       return List.of();
     }
     return read(dataRoot);
@@ -85,22 +130,24 @@ final class RunLedger {
    * #write}), only the caller is spared reconstructing the full list itself.
    */
   static void replace(final Path dataRoot, final String id, final RunRecord newRecord) {
-    final List<RunRecord> existing = read(dataRoot);
-    final List<RunRecord> updated = new ArrayList<>();
-    boolean replaced = false;
-    for (final RunRecord record : existing) {
-      if (record.id().equals(id)) {
-        updated.add(newRecord);
-        replaced = true;
-      } else {
-        updated.add(record);
+    for (final Path file : ledgerFiles(dataRoot)) {
+      final List<RunRecord> existing = readFile(file);
+      if (existing.stream().noneMatch(record -> record.id().equals(id))) {
+        continue;
       }
+      final List<Object> updated = new ArrayList<>();
+      for (final RunRecord record : existing) {
+        updated.add(toJson(record.id().equals(id) ? newRecord : record));
+      }
+      try {
+        Files.writeString(file, Json.write(updated), StandardCharsets.UTF_8);
+      } catch (final IOException e) {
+        throw new HilmirException("failed writing run ledger at " + file, e);
+      }
+      return;
     }
-    if (!replaced) {
-      throw new HilmirException(
-          "no run ledger entry with id '" + id + "' under " + dataRoot + " to replace");
-    }
-    write(dataRoot, updated);
+    throw new HilmirException(
+        "no run ledger entry with id '" + id + "' under " + dataRoot + " to replace");
   }
 
   /**
@@ -110,28 +157,33 @@ final class RunLedger {
    * data root was brought up and has nothing running" rather than "no run was ever recorded here."
    */
   static void remove(final Path dataRoot, final String id) {
-    final List<RunRecord> remaining = new ArrayList<>();
-    boolean removed = false;
-    for (final RunRecord record : read(dataRoot)) {
-      if (record.id().equals(id)) {
-        removed = true;
-      } else {
-        remaining.add(record);
+    for (final Path file : ledgerFiles(dataRoot)) {
+      final List<RunRecord> existing = readFile(file);
+      final List<RunRecord> remaining =
+          existing.stream().filter(record -> !record.id().equals(id)).toList();
+      if (remaining.size() == existing.size()) {
+        continue;
       }
+      try {
+        Files.writeString(
+            file, Json.write(remaining.stream().map(RunLedger::toJson).toList()),
+            StandardCharsets.UTF_8);
+      } catch (final IOException e) {
+        throw new HilmirException("failed writing run ledger at " + file, e);
+      }
+      return;
     }
-    if (!removed) {
-      throw new HilmirException(
-          "no run ledger entry with id '" + id + "' under " + dataRoot + " to remove");
-    }
-    write(dataRoot, remaining);
+    throw new HilmirException(
+        "no run ledger entry with id '" + id + "' under " + dataRoot + " to remove");
   }
 
   static void delete(final Path dataRoot) {
-    final Path file = dataRoot.resolve(FILE_NAME);
-    try {
-      Files.deleteIfExists(file);
-    } catch (final IOException e) {
-      throw new HilmirException("failed deleting run ledger at " + file, e);
+    for (final Path file : ledgerFiles(dataRoot)) {
+      try {
+        Files.deleteIfExists(file);
+      } catch (final IOException e) {
+        throw new HilmirException("failed deleting run ledger at " + file, e);
+      }
     }
   }
 

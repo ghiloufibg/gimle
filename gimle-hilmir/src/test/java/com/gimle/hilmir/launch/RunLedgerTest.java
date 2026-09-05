@@ -34,7 +34,7 @@ class RunLedgerTest {
 
   @Test
   void round_trips_every_field_of_every_record_through_json() {
-    RunLedger.write(tempDir, List.of(STORE, AGENT));
+    RunLedger.write(tempDir, "m1", List.of(STORE, AGENT));
 
     final List<RunRecord> read = RunLedger.read(tempDir);
 
@@ -44,7 +44,7 @@ class RunLedgerTest {
   @Test
   void writing_creates_the_data_root_if_it_does_not_yet_exist() {
     final Path nested = tempDir.resolve("nested/data/root");
-    RunLedger.write(nested, List.of(STORE));
+    RunLedger.write(nested, "m1", List.of(STORE));
 
     assertTrue(Files.isDirectory(nested));
     assertEquals(List.of(STORE), RunLedger.read(nested));
@@ -52,7 +52,7 @@ class RunLedgerTest {
 
   @Test
   void an_empty_record_list_round_trips_to_an_empty_list() {
-    RunLedger.write(tempDir, List.of());
+    RunLedger.write(tempDir, "m1", List.of());
 
     assertEquals(List.of(), RunLedger.read(tempDir));
   }
@@ -67,7 +67,7 @@ class RunLedgerTest {
   @Test
   void reading_a_corrupt_ledger_file_reports_it_as_corrupt_rather_than_propagating_a_raw_error()
       throws Exception {
-    Files.writeString(tempDir.resolve("hilmir-run.json"), "not json at all {{{");
+    Files.writeString(tempDir.resolve("hilmir-run-m1.json"), "not json at all {{{");
 
     final HilmirException e = assertThrows(HilmirException.class, () -> RunLedger.read(tempDir));
 
@@ -76,7 +76,7 @@ class RunLedgerTest {
 
   @Test
   void removing_one_entry_leaves_every_other_record_untouched() {
-    RunLedger.write(tempDir, List.of(STORE, AGENT));
+    RunLedger.write(tempDir, "m1", List.of(STORE, AGENT));
 
     RunLedger.remove(tempDir, "store-0");
 
@@ -85,7 +85,7 @@ class RunLedgerTest {
 
   @Test
   void removing_the_last_entry_leaves_an_empty_ledger_rather_than_no_ledger_at_all() {
-    RunLedger.write(tempDir, List.of(STORE));
+    RunLedger.write(tempDir, "m1", List.of(STORE));
 
     RunLedger.remove(tempDir, "store-0");
 
@@ -94,7 +94,7 @@ class RunLedgerTest {
 
   @Test
   void removing_an_unknown_id_reports_it_rather_than_silently_rewriting_the_ledger() {
-    RunLedger.write(tempDir, List.of(STORE));
+    RunLedger.write(tempDir, "m1", List.of(STORE));
 
     final HilmirException e =
         assertThrows(HilmirException.class, () -> RunLedger.remove(tempDir, "store-9"));
@@ -110,7 +110,7 @@ class RunLedgerTest {
 
   @Test
   void deleting_removes_the_ledger_file() {
-    RunLedger.write(tempDir, List.of(STORE));
+    RunLedger.write(tempDir, "m1", List.of(STORE));
     RunLedger.delete(tempDir);
 
     assertThrows(HilmirException.class, () -> RunLedger.read(tempDir));
@@ -126,7 +126,7 @@ class RunLedgerTest {
             List.of("java", "-cp", "cp", "com.gimle.controlplane.ControlPlaneMain"),
             "controlplane-0.log",
             "127.0.0.1:8080");
-    RunLedger.write(tempDir, List.of(STORE, AGENT, controlPlane));
+    RunLedger.write(tempDir, "m1", List.of(STORE, AGENT, controlPlane));
 
     final RunRecord restartedStore =
         new RunRecord(
@@ -143,12 +143,39 @@ class RunLedgerTest {
 
   @Test
   void replacing_a_nonexistent_id_fails_clearly_and_leaves_the_ledger_untouched() {
-    RunLedger.write(tempDir, List.of(STORE, AGENT));
+    RunLedger.write(tempDir, "m1", List.of(STORE, AGENT));
 
     final HilmirException e =
         assertThrows(HilmirException.class, () -> RunLedger.replace(tempDir, "store-99", STORE));
 
     assertTrue(e.getMessage().contains("store-99"));
     assertEquals(List.of(STORE, AGENT), RunLedger.read(tempDir));
+  }
+
+  /**
+   * One ledger per machine. Bringing a second machine up under the same data root -- what a
+   * multi-machine topology run on one host does -- used to overwrite the first machine's record, so
+   * its processes survived with nothing pointing at them.
+   */
+  @Test
+  void a_second_machine_does_not_overwrite_the_first_machines_record() {
+    RunLedger.write(tempDir, "m1", List.of(STORE));
+    RunLedger.write(tempDir, "m2", List.of(AGENT));
+
+    List<RunRecord> all = RunLedger.read(tempDir);
+
+    assertEquals(2, all.size());
+    assertTrue(all.stream().anyMatch(r -> r.id().equals(STORE.id())));
+    assertTrue(all.stream().anyMatch(r -> r.id().equals(AGENT.id())));
+  }
+
+  @Test
+  void deleting_removes_every_machines_ledger_under_the_data_root() {
+    RunLedger.write(tempDir, "m1", List.of(STORE));
+    RunLedger.write(tempDir, "m2", List.of(AGENT));
+
+    RunLedger.delete(tempDir);
+
+    assertThrows(HilmirException.class, () -> RunLedger.read(tempDir));
   }
 }

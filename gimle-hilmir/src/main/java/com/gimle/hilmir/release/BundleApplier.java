@@ -70,6 +70,24 @@ final class BundleApplier {
     }
   }
 
+  /**
+   * Deletes config keys a release no longer declares. {@code expectSuccess} is deliberately not
+   * used: an entry an operator already removed by hand answers 404, which is the end state this
+   * call is asking for, not a reason to fail the upgrade.
+   */
+  static void deleteConfig(ControlPlaneApi api, List<KeyRef> keys) {
+    for (KeyRef key : keys) {
+      api.delete("/config/" + key.tenant() + "/" + key.key());
+    }
+  }
+
+  /** Deletes vault keys a release no longer declares -- see {@link #deleteConfig} on 404s. */
+  static void deleteSecrets(ControlPlaneApi api, List<KeyRef> keys) {
+    for (KeyRef key : keys) {
+      api.delete("/secrets/" + key.tenant() + "/" + key.key());
+    }
+  }
+
   static void deleteTenants(ControlPlaneApi api, List<String> tenantIds) {
     for (String tenantId : tenantIds) {
       api.expectSuccess(api.delete("/tenants/" + tenantId));

@@ -5,6 +5,7 @@ import com.gimle.hilmir.release.Bundle;
 import com.gimle.hilmir.release.BundleParser;
 import com.gimle.hilmir.release.BundleRenderer;
 import com.gimle.hilmir.release.ControlPlaneApi;
+import com.gimle.hilmir.release.KeyRef;
 import com.gimle.hilmir.release.ReleaseFlags;
 import com.gimle.hilmir.release.ReleaseLedger;
 import com.gimle.hilmir.release.ReleaseMeta;
@@ -262,11 +263,13 @@ public final class SyncCommand {
     }
 
     List<ResourceRef> toPrune = ReleaseReconciler.computePrune(rendered, previous);
+    List<KeyRef> keysToPrune = ReleaseReconciler.computeKeyPrune(rendered, previous);
     ReleaseReconciler.UpgradeOutcome outcome =
-        ReleaseReconciler.upgradeExisting(api, rendered, meta, toPrune, wait, out);
+        ReleaseReconciler.upgradeExisting(api, rendered, meta, toPrune, keysToPrune, wait, out);
     Map<String, Object> body = resultBody("upgraded", rendered.name(), file);
     body.put("revision", outcome.revision());
     body.put("pruned", outcome.pruned().stream().map(ResourceRef::toJson).toList());
+    body.put("prunedKeys", outcome.prunedKeys().stream().map(KeyRef::toJson).toList());
     ReleaseOutput.printResult(
         json,
         body,

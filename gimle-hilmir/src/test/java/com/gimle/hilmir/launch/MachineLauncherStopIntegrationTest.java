@@ -178,9 +178,15 @@ class MachineLauncherStopIntegrationTest {
   void stop_for_a_role_the_machine_never_ran_names_what_is_actually_recorded() {
     RunLedger.write(
         tempDir,
+        "m1",
         List.of(
             new RunRecord(
-                "store-0", "STORE", 999_999_999L, List.of("java", "-version"), "store-0.log", "")));
+                "store-0",
+                "STORE",
+                999_999_999L,
+                List.of("java", "-version"),
+                "store-0.log",
+                "")));
 
     final HilmirException e =
         assertThrows(

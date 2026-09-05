@@ -137,7 +137,7 @@ public final class MachineLauncher {
       // every process already spawned and confirmed ready in earlier iterations is lost with
       // zero on-disk record, leaving `down`/`status` unable to find them.
       if (!succeeded && !records.isEmpty()) {
-        RunLedger.write(runtime.dataRoot(), records);
+        RunLedger.write(runtime.dataRoot(), machineName, records);
         out.println(
             "wrote partial run ledger for "
                 + records.size()
@@ -146,7 +146,7 @@ public final class MachineLauncher {
                 + " after failure");
       }
     }
-    RunLedger.write(runtime.dataRoot(), records);
+    RunLedger.write(runtime.dataRoot(), machineName, records);
     out.println(
         "wrote run ledger for " + records.size() + " process(es) under " + runtime.dataRoot());
     return records;
@@ -768,6 +768,32 @@ public final class MachineLauncher {
    */
   public static List<RunRecord> recordedProcesses(final Path dataRoot) {
     return RunLedger.read(dataRoot);
+  }
+
+  /**
+   * Whether one recorded process is up right now: its pid still resolves to a live process, and --
+   * for a kind that declares a port-based signal at all -- that port still accepts a connection. A
+   * point-in-time answer with no retry, so a supervising tool can re-ask it whenever it is asked
+   * rather than reporting whatever was true at launch.
+   */
+  public static boolean isRunning(final RunRecord record) {
+    return isRunning(record.pid(), record.readinessAddress());
+  }
+
+  /** {@link #isRunning(RunRecord)} for a caller holding only the two fields it reads. */
+  public static boolean isRunning(final long pid, final String readinessAddress) {
+    if (!ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
+      return false;
+    }
+    if (readinessAddress.isBlank()) {
+      return true;
+    }
+    try {
+      return ReadinessPoller.isPortOpen(readinessAddress);
+    } catch (final RuntimeException unprobeable) {
+      // An unparseable address is a defect in the record, not evidence the process is down.
+      return true;
+    }
   }
 
   public static void status(final Path dataRoot, final PrintStream out) {

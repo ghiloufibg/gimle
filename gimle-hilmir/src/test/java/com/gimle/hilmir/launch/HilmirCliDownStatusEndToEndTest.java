@@ -46,6 +46,7 @@ class HilmirCliDownStatusEndToEndTest {
 
       RunLedger.write(
           tempDir,
+          "m1",
           List.of(
               new RunRecord(
                   "store-0",

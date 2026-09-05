@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -43,47 +44,52 @@ public final class TopologyValidator {
             .collect(Collectors.toCollection(LinkedHashSet::new));
 
     if (topology.machines().isEmpty()) {
-      findings.add(error("NO_MACHINES", "topology declares no machines"));
+      findings.add(error("NO_MACHINES", "topology declares no machines", "machines"));
     }
     checkDuplicateMachines(topology, findings);
 
     final List<String> storeMachines =
         topology.store().replicas().stream().map(StoreReplica::machine).toList();
-    checkRole("store", storeMachines, "NO_STORE", machineNames, totalMachines, findings);
+    checkRole("store", "store", storeMachines, "NO_STORE", machineNames, totalMachines, findings);
     if (storeMachines.size() == 1) {
-      findings.add(warning("SINGLE_STORE", "exactly one store replica: no quorum or failover"));
+      findings.add(
+          warning("SINGLE_STORE", "exactly one store replica: no quorum or failover", "store"));
     }
     if (!storeMachines.isEmpty() && storeMachines.size() % 2 == 0) {
       findings.add(
           warning(
               "STORE_EVEN_REPLICAS",
-              "an even store replica count gains no quorum benefit over one fewer replica"));
+              "an even store replica count gains no quorum benefit over one fewer replica",
+              "store"));
     }
 
     final List<String> controlPlaneMachines =
         topology.controlPlane().replicas().stream().map(ServiceReplica::machine).toList();
     checkRole(
         "control plane",
+        "controlPlane",
         controlPlaneMachines,
         "NO_CONTROL_PLANE",
         machineNames,
         totalMachines,
         findings);
     if (controlPlaneMachines.size() == 1) {
-      findings.add(warning("SINGLE_CONTROL_PLANE", "exactly one control-plane replica"));
+      findings.add(
+          warning("SINGLE_CONTROL_PLANE", "exactly one control-plane replica", "controlPlane"));
     }
 
     final List<String> fafnirMachines =
         topology.fafnir().replicas().stream().map(ServiceReplica::machine).toList();
-    checkRole("fafnir", fafnirMachines, "NO_FAFNIR", machineNames, totalMachines, findings);
+    checkRole(
+        "fafnir", "fafnir", fafnirMachines, "NO_FAFNIR", machineNames, totalMachines, findings);
 
     final List<String> muninnMachines =
         topology.muninn().replicas().stream().map(ServiceReplica::machine).toList();
-    checkRole("muninn", muninnMachines, null, machineNames, totalMachines, findings);
+    checkRole("muninn", "muninn", muninnMachines, null, machineNames, totalMachines, findings);
 
     final List<String> andvariMachines =
         topology.andvari().replicas().stream().map(ServiceReplica::machine).toList();
-    checkRole("andvari", andvariMachines, null, machineNames, totalMachines, findings);
+    checkRole("andvari", "andvari", andvariMachines, null, machineNames, totalMachines, findings);
 
     checkAgents(topology, machineNames, totalMachines, findings);
     checkPortConflicts(topology, findings);
@@ -99,6 +105,7 @@ public final class TopologyValidator {
    */
   private static void checkRole(
       final String roleLabel,
+      final String resource,
       final List<String> replicaMachines,
       final String noneErrorCode,
       final Set<String> machineNames,
@@ -106,7 +113,7 @@ public final class TopologyValidator {
       final List<Finding> out) {
     if (replicaMachines.isEmpty()) {
       if (noneErrorCode != null) {
-        out.add(error(noneErrorCode, "no " + roleLabel + " replicas declared"));
+        out.add(error(noneErrorCode, "no " + roleLabel + " replicas declared", resource));
       }
       return;
     }
@@ -114,7 +121,9 @@ public final class TopologyValidator {
       if (!machineNames.contains(machine)) {
         out.add(
             error(
-                "UNKNOWN_MACHINE", roleLabel + " replica references unknown machine: " + machine));
+                "UNKNOWN_MACHINE",
+                roleLabel + " replica references unknown machine: " + machine,
+                resource));
       }
     }
     if (replicaMachines.size() >= 2 && anyDuplicated(replicaMachines)) {
@@ -122,7 +131,8 @@ public final class TopologyValidator {
           new Finding(
               "REPLICAS_COLOCATED",
               totalMachines > 1 ? Severity.ERROR : Severity.WARNING,
-              roleLabel + " has two or more replicas placed on the same machine"));
+              roleLabel + " has two or more replicas placed on the same machine",
+              Optional.of(resource)));
     }
   }
 
@@ -133,7 +143,9 @@ public final class TopologyValidator {
       final List<Finding> out) {
     final List<AgentPlacement> agents = topology.agents();
     if (agents.isEmpty()) {
-      out.add(warning("NO_AGENTS", "no agents declared: the cluster can never place a workload"));
+      out.add(
+          warning(
+              "NO_AGENTS", "no agents declared: the cluster can never place a workload", "agents"));
       return;
     }
     for (final AgentPlacement agent : agents) {
@@ -141,14 +153,15 @@ public final class TopologyValidator {
         out.add(
             error(
                 "UNKNOWN_MACHINE",
-                "agent " + agent.nodeId() + " references unknown machine: " + agent.machine()));
+                "agent " + agent.nodeId() + " references unknown machine: " + agent.machine(),
+                "agents"));
       }
     }
     final Set<String> seenNodeIds = new HashSet<>();
     final Set<String> reportedDuplicates = new HashSet<>();
     for (final AgentPlacement agent : agents) {
       if (!seenNodeIds.add(agent.nodeId()) && reportedDuplicates.add(agent.nodeId())) {
-        out.add(error("DUPLICATE_NODE_ID", "duplicate agent node id: " + agent.nodeId()));
+        out.add(error("DUPLICATE_NODE_ID", "duplicate agent node id: " + agent.nodeId(), "agents"));
       }
     }
     final List<String> agentMachines = agents.stream().map(AgentPlacement::machine).toList();
@@ -158,7 +171,8 @@ public final class TopologyValidator {
               "AGENTS_COLOCATED",
               totalMachines > 1 ? Severity.ERROR : Severity.WARNING,
               "more than one agent is placed on the same machine -- the platform's model is one"
-                  + " node agent per machine"));
+                  + " node agent per machine",
+              Optional.of("agents")));
     }
   }
 
@@ -231,7 +245,10 @@ public final class TopologyValidator {
     }
     if (topology.tls().isEmpty()) {
       out.add(
-          error("MTLS_NO_MATERIAL_DIR", "transport is mtls but no tls.materialDir is configured"));
+          error(
+              "MTLS_NO_MATERIAL_DIR",
+              "transport is mtls but no tls.materialDir is configured",
+              "tls"));
     }
     for (final Machine machine : topology.machines()) {
       if (isIpLiteral(machine.host())) {
@@ -244,7 +261,8 @@ public final class TopologyValidator {
                     + machine.host()
                     + "' is an IP literal: the platform's PKI mints DNS-only subject alternative"
                     + " names, so hostname verification against an IP literal will fail under"
-                    + " mtls -- use a DNS hostname instead"));
+                    + " mtls -- use a DNS hostname instead",
+                "machines"));
       }
     }
   }
@@ -268,7 +286,8 @@ public final class TopologyValidator {
     final Set<String> reported = new HashSet<>();
     for (final Machine machine : topology.machines()) {
       if (!seen.add(machine.name()) && reported.add(machine.name())) {
-        out.add(error("DUPLICATE_MACHINE", "duplicate machine name: " + machine.name()));
+        out.add(
+            error("DUPLICATE_MACHINE", "duplicate machine name: " + machine.name(), "machines"));
       }
     }
   }
@@ -277,7 +296,11 @@ public final class TopologyValidator {
     return new Finding(code, Severity.ERROR, message);
   }
 
-  private static Finding warning(final String code, final String message) {
-    return new Finding(code, Severity.WARNING, message);
+  private static Finding error(final String code, final String message, final String resource) {
+    return new Finding(code, Severity.ERROR, message, Optional.of(resource));
+  }
+
+  private static Finding warning(final String code, final String message, final String resource) {
+    return new Finding(code, Severity.WARNING, message, Optional.of(resource));
   }
 }

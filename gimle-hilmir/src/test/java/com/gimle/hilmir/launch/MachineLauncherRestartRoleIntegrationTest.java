@@ -196,6 +196,7 @@ class MachineLauncherRestartRoleIntegrationTest {
     // Only store-0 was ever recorded as running -- controlplane-0 has no ledger entry to restart.
     RunLedger.write(
         tempDir,
+        "m1",
         List.of(
             new RunRecord(
                 "store-0", "STORE", 123L, List.of("java", "-version"), "store-0.log", "")));

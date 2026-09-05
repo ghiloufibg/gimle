@@ -299,8 +299,8 @@ class LaunchPlannerTest {
             "-Dgimle.tls.keyFile=" + tlsPath("controlplane-host1.example.com.key"),
             "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
 
-    // The store presents its own leaf, never the control plane's: borrowing it made a store
-    // replica indistinguishable on the wire from the process that authenticates to it.
+    // The store presents its own leaf, not the control plane's: sharing that identity made a
+    // compromised store key a control-plane identity, indistinguishable to authorization and audit.
     final List<String> storeTlsFlags =
         List.of(
             "-Dgimle.transport.protocol=tls",
@@ -317,6 +317,12 @@ class LaunchPlannerTest {
     final ProcessCommand controlPlane = only(plan, "m1", "controlplane-0");
     assertTrue(controlPlane.command().containsAll(controlPlaneTlsFlags));
     assertTrue(controlPlane.command().contains("-Dgimle.tls.caKeyFile=" + tlsPath("ca.key")));
+    // Without this the bootstrap account the PKI step wrote is never loaded, so the password it
+    // printed is refused by every console login.
+    assertTrue(
+        controlPlane
+            .command()
+            .contains("-Dgimle.bootstrap.accountFile=" + tlsPath("bootstrap-account.yaml")));
 
     final List<String> fafnirTlsFlags =
         List.of(
