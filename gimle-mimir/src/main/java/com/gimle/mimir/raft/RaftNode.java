@@ -105,6 +105,13 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * started in the first place is a much slower one-off, bounded by {@link
    * #LEADERSHIP_CONTACT_GRACE} instead -- applying this window to it judges every new leader
    * against a deadline its own transport cannot meet.
+   *
+   * <p>The same reasoning applies to any single round trip, not only a tenure's first: one attempt
+   * may legitimately run far longer than this window (see {@link
+   * PeerConnection#worstCaseCallDuration()}), so a peer with an attempt still in flight is counted
+   * as reachable by {@link #checkQuorumTick} via {@link #peerAttemptStartedAt}. Judged by completed
+   * round trips alone, a leader self-demotes whenever a heartbeat merely runs slow -- while that
+   * very heartbeat is still on its way to succeeding.
    */
   private static final Duration CHECK_QUORUM_WINDOW =
       Duration.ofMillis(2L * ELECTION_TIMEOUT_MAX_MS);
@@ -251,6 +258,19 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * time this bookkeeping does.
    */
   private final Map<String, Instant> lastContactAt = new HashMap<>();
+
+  /**
+   * When each peer's currently-outstanding RPC attempt was dispatched, absent once it has resolved.
+   * Read by {@link #checkQuorumTick}: a peer whose attempt is still legitimately in flight has not
+   * answered *yet*, which is not the same as having gone silent, and one attempt is allowed to run
+   * far longer than {@link #CHECK_QUORUM_WINDOW} before it reports anything at all (see {@link
+   * PeerConnection#worstCaseCallDuration()}). Counting such a peer as unreachable self-demotes a
+   * perfectly healthy leader whenever a round trip merely runs slow -- a loaded host, a GC pause --
+   * even though the very same call goes on to succeed. A peer that fails *fast* (an immediate
+   * connection refusal) clears its entry immediately and is judged within the ordinary window like
+   * any other silence, so genuine unreachability is detected exactly as promptly as before.
+   */
+  private final Map<String, Instant> peerAttemptStartedAt = new HashMap<>();
 
   /**
    * Read-index bookkeeping (see {@link #awaitReadIndex}), guarded by {@link #lock} and cleared on
@@ -1195,6 +1215,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       startPeerSenderThreadLocked(peerEntry.getKey(), peerEntry.getValue());
     }
     lastContactAt.clear();
+    peerAttemptStartedAt.clear();
     currentTermRequestsSent.clear();
     currentTermResponses.clear();
     leadershipEstablishedAt = clock.instant();
@@ -1242,9 +1263,18 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       }
       Instant earliestAcceptable = clock.instant().minus(CHECK_QUORUM_WINDOW);
       long recentlyContacted = 0;
+      Instant attemptStillRunningSince =
+          clock.instant().minus(PeerConnection.worstCaseCallDuration());
       for (String peerId : votingPeers.keySet()) {
         Instant last = lastContactAt.get(peerId);
         if (last != null && !last.isBefore(earliestAcceptable)) {
+          recentlyContacted++;
+          continue;
+        }
+        // No recent completed round trip -- but an attempt dispatched within its own worst case is
+        // still running, and a running attempt is not evidence the peer is gone.
+        Instant dispatched = peerAttemptStartedAt.get(peerId);
+        if (dispatched != null && !dispatched.isBefore(attemptStillRunningSince)) {
           recentlyContacted++;
         }
       }
@@ -1423,6 +1453,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       // a request counted after it recorded its baseline having genuinely left this node after
       // that moment, which only holds if the count precedes the send.
       currentTermRequestsSent.merge(peerId, 1L, Long::sum);
+      peerAttemptStartedAt.put(peerId, clock.instant());
     } finally {
       lock.unlock();
     }
@@ -1437,6 +1468,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       lock.lock();
       try {
         peerFirstAttemptFailed.add(peerId);
+        peerAttemptStartedAt.remove(peerId);
       } finally {
         lock.unlock();
       }
@@ -1450,6 +1482,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       // recorded before any of the staleness checks below so even a stale-term/stale-role response
       // still counts (this leader's *previous* term successfully reached that peer, too).
       lastContactAt.put(peerId, clock.instant());
+      peerAttemptStartedAt.remove(peerId);
       if (response.term() > raftLog.currentTerm()) {
         stepDownLocked(response.term());
         return;
@@ -1512,6 +1545,12 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       int end = (int) Math.min(offset + SNAPSHOT_CHUNK_BYTES, snapshotBytes.length);
       byte[] chunk = Arrays.copyOfRange(snapshotBytes, (int) offset, end);
       done = end == snapshotBytes.length;
+      lock.lock();
+      try {
+        peerAttemptStartedAt.put(peerId, clock.instant());
+      } finally {
+        lock.unlock();
+      }
       try {
         response =
             client.installSnapshot(
@@ -1523,6 +1562,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         lock.lock();
         try {
           peerFirstAttemptFailed.add(peerId);
+          peerAttemptStartedAt.remove(peerId);
         } finally {
           lock.unlock();
         }
@@ -1533,6 +1573,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         // Same check-quorum bookkeeping as sendOnce's own response handling -- a chunk response
         // arriving at all proves this peer is reachable, regardless of what it turns out to say.
         lastContactAt.put(peerId, clock.instant());
+        peerAttemptStartedAt.remove(peerId);
         if (response.term() > raftLog.currentTerm()) {
           stepDownLocked(response.term());
           return;
