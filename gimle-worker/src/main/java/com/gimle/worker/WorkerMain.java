@@ -677,7 +677,7 @@ public final class WorkerMain {
             localRegistry,
             interfaceLoader,
             controller::context,
-            id -> runtime.schedulerFor(id).map(scheduler -> scheduler::submit),
+            id -> runtime.schedulerFor(id).map(BoundedModuleScheduler::asWorkExecutor),
             Optional.of(metrics),
             owner -> registry.artifact(owner).descriptor().exports(),
             tenantId,

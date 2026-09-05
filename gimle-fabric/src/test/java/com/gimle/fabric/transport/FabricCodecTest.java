@@ -45,7 +45,7 @@ class FabricCodecTest {
             new String[] {"java.lang.String"},
             new byte[] {4, 5, 6},
             Optional.of("tenant-a")),
-        new FabricFrame.InvokeResponse(42L, everyByteValue),
+        new FabricFrame.InvokeResponse(42L, everyByteValue, 7),
         new FabricFrame.InvokeError(42L, everyByteValue));
   }
 
@@ -175,8 +175,8 @@ class FabricCodecTest {
   @Test
   void two_frames_written_back_to_back_are_read_independently() throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    FabricCodec.write(buffer, new FabricFrame.InvokeResponse(1L, new byte[] {9}));
-    FabricCodec.write(buffer, new FabricFrame.InvokeResponse(2L, new byte[] {10}));
+    FabricCodec.write(buffer, new FabricFrame.InvokeResponse(1L, new byte[] {9}, 0));
+    FabricCodec.write(buffer, new FabricFrame.InvokeResponse(2L, new byte[] {10}, 0));
 
     ByteArrayInputStream in = new ByteArrayInputStream(buffer.toByteArray());
     FabricFrame first = FabricCodec.read(in);

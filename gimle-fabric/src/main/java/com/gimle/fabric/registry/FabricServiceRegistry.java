@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -613,6 +614,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private static final int EXCLUDED_LOAD_SENTINEL = Integer.MAX_VALUE;
 
   /**
+   * The most recent backlog each endpoint reported about itself, capped the same way {@link
+   * #breakers} is so a long-lived worker that keeps meeting new endpoints can't grow it without
+   * bound. Evicting the wrong entry costs nothing but one stale reading, replaced by that
+   * endpoint's very next response.
+   */
+  private final Map<ServiceEndpoint, Integer> reportedLoad = new ConcurrentHashMap<>();
+
+  /**
    * Prefers same-machine endpoints (this class's existing locality tier), but spills into the
    * remote tier once every same-machine candidate is already busier than the least-loaded remote
    * one -- otherwise a single lightly-loaded same-machine replica would absorb 100% of traffic
@@ -652,10 +661,40 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return spilled;
   }
 
+  /**
+   * How busy an endpoint is, as far as this caller can tell: its own in-flight requests there, plus
+   * the backlog that endpoint itself last reported. Both are counts of work queued ahead of a new
+   * request, and they cover disjoint blind spots -- the outstanding count sees a burst this caller
+   * has just sent and the target has not answered yet, the reported depth sees every *other*
+   * caller's traffic, which is exactly what made a saturated same-machine replica look idle here
+   * and absorb requests until they started failing.
+   *
+   * <p>An endpoint that has never answered a call contributes no report, which reads as zero: the
+   * same starting assumption it had before, corrected by its first response.
+   */
   private int effectiveLoad(ServiceEndpoint endpoint) {
-    return breakerFor(endpoint).isExcluded()
-        ? EXCLUDED_LOAD_SENTINEL
-        : selector.outstandingCount(endpoint);
+    if (breakerFor(endpoint).isExcluded()) {
+      return EXCLUDED_LOAD_SENTINEL;
+    }
+    return selector.outstandingCount(endpoint) + reportedLoad.getOrDefault(endpoint, 0);
+  }
+
+  private void recordReportedLoad(ServiceEndpoint endpoint, FabricFrame response) {
+    switch (response) {
+      case FabricFrame.InvokeResponse r -> reportedLoad.put(endpoint, r.reportedQueueDepth());
+      case FabricFrame.InvokeError r -> reportedLoad.put(endpoint, r.reportedQueueDepth());
+      case FabricFrame.InvokeRequest ignored -> {
+        // Not a response at all; decodeResponse rejects it on its own terms.
+        return;
+      }
+    }
+    if (reportedLoad.size() > MAX_BREAKER_ENTRIES) {
+      Iterator<ServiceEndpoint> it = reportedLoad.keySet().iterator();
+      if (it.hasNext()) {
+        it.next();
+        it.remove();
+      }
+    }
   }
 
   private ServiceEndpoint selectAllowedCandidate(List<ServiceEndpoint> candidates) {
@@ -688,7 +727,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     }
     List<ServiceEndpoint> remaining = new ArrayList<>(healthy);
     while (!remaining.isEmpty()) {
-      ServiceEndpoint chosen = selector.select(remaining);
+      ServiceEndpoint chosen = selector.select(remaining, this::effectiveLoad);
       if (breakerFor(chosen).allowRequest()) {
         return chosen;
       }
@@ -784,8 +823,23 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   private <T> T createProxy(Class<T> iface, ServiceEndpoint endpoint, EndpointChooser chooser) {
+    // Holds the endpoint the lookup already picked, to be spent on the first call. Every call after
+    // it re-runs selection, because a consumer typically looks a service up once and holds the
+    // proxy for the life of the instance: an endpoint fixed at lookup time is an endpoint fixed
+    // forever, so every signal the selection weighs -- outstanding requests, a backlog the target
+    // reported about itself, a breaker that has since opened -- would be read once and never acted
+    // on again, and a replica that became saturated after the lookup would keep receiving every
+    // request until its calls started failing.
+    AtomicReference<ServiceEndpoint> unspentLookupChoice = new AtomicReference<>(endpoint);
     InvocationHandler handler =
-        (proxy, method, args) -> invokeRemote(iface, endpoint, chooser, method, args);
+        (proxy, method, args) ->
+            invokeRemote(
+                iface,
+                chooseForThisCall(unspentLookupChoice, chooser, endpoint),
+                chooser,
+                method,
+                args);
+
     // iface's own classloader, not the fixed worker-wide interfaceLoader: iface may be a type
     // private to one hosted module's own layer (the common case for a module-defined service
     // contract, since gimle-api doesn't exist yet to host such contracts on a shared platform
@@ -819,6 +873,23 @@ public final class FabricServiceRegistry implements ServiceRegistry {
             declaresIdempotent(method),
             chooser);
     return invokeOverWire(call, endpoint);
+  }
+
+  /**
+   * The endpoint the lookup already chose if it has not been used yet, otherwise a fresh selection.
+   * Falls back to that original choice when selection currently yields nothing -- a lookup that
+   * succeeded must keep working even in the window where every candidate happens to be excluded.
+   */
+  private static ServiceEndpoint chooseForThisCall(
+      AtomicReference<ServiceEndpoint> unspentLookupChoice,
+      EndpointChooser chooser,
+      ServiceEndpoint lookupChoice) {
+    ServiceEndpoint unspent = unspentLookupChoice.getAndSet(null);
+    if (unspent != null) {
+      return unspent;
+    }
+    ServiceEndpoint chosen = chooser.choose(Set.of());
+    return chosen != null ? chosen : lookupChoice;
   }
 
   /**
@@ -978,6 +1049,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       // against the breaker would open it on a validation exception exactly as readily as on a dead
       // socket.
       breaker.recordSuccess();
+      recordReportedLoad(endpoint, response);
       return response;
     } catch (IOException e) {
       breaker.recordFailure();

@@ -41,7 +41,7 @@ class InvocationDeduplicatorTest {
   }
 
   private static FabricFrame response(String payload) {
-    return new FabricFrame.InvokeResponse(1L, payload.getBytes());
+    return new FabricFrame.InvokeResponse(1L, payload.getBytes(), 0);
   }
 
   @Test

@@ -104,11 +104,13 @@ public final class FabricCodec {
           out.writeByte(TAG_INVOKE_RESPONSE);
           out.writeLong(r.correlationId());
           writeBytes(out, r.serializedReturn());
+          out.writeInt(r.reportedQueueDepth());
         }
         case FabricFrame.InvokeError r -> {
           out.writeByte(TAG_INVOKE_ERROR);
           out.writeLong(r.correlationId());
           writeBytes(out, r.serializedThrowable());
+          out.writeInt(r.reportedQueueDepth());
         }
       }
     } catch (IOException e) {
@@ -148,8 +150,10 @@ public final class FabricCodec {
               serializedArgs,
               callerTenantId);
         }
-        case TAG_INVOKE_RESPONSE -> new FabricFrame.InvokeResponse(in.readLong(), readBytes(in));
-        case TAG_INVOKE_ERROR -> new FabricFrame.InvokeError(in.readLong(), readBytes(in));
+        case TAG_INVOKE_RESPONSE ->
+            new FabricFrame.InvokeResponse(in.readLong(), readBytes(in), in.readInt());
+        case TAG_INVOKE_ERROR ->
+            new FabricFrame.InvokeError(in.readLong(), readBytes(in), in.readInt());
         default -> throw new IllegalArgumentException("unknown fabric frame tag: " + tag);
       };
     } catch (IOException e) {

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.ToIntFunction;
 
 /**
  * Least-outstanding-requests selection among a candidate set, with ties broken round-robin. Used by
@@ -28,18 +29,28 @@ public final class LeastOutstandingRequestsSelector<E> {
   private final AtomicInteger roundRobinCursor = new AtomicInteger();
 
   public E select(List<E> candidates) {
+    return select(candidates, candidate -> counterFor(candidate).get());
+  }
+
+  /**
+   * Selects on {@code load} instead of this selector's own outstanding counts, for a caller that
+   * knows more about a candidate's real load than the requests it has in flight there itself -- a
+   * backlog the candidate reported about itself, say, which covers every other caller's traffic and
+   * is exactly what an outstanding count cannot see. Ties still break round-robin.
+   */
+  public E select(List<E> candidates, ToIntFunction<E> load) {
     if (candidates.isEmpty()) {
       throw new NoSuchElementException("no candidates to select from");
     }
-    int minOutstanding = Integer.MAX_VALUE;
+    int minLoad = Integer.MAX_VALUE;
     List<E> tied = new ArrayList<>();
     for (E candidate : candidates) {
-      int count = counterFor(candidate).get();
-      if (count < minOutstanding) {
-        minOutstanding = count;
+      int count = load.applyAsInt(candidate);
+      if (count < minLoad) {
+        minLoad = count;
         tied.clear();
         tied.add(candidate);
-      } else if (count == minOutstanding) {
+      } else if (count == minLoad) {
         tied.add(candidate);
       }
     }

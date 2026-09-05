@@ -75,13 +75,35 @@ public sealed interface FabricFrame {
     }
   }
 
-  /** A successful invocation's return value, {@code ObjectOutputStream}-serialized. */
-  record InvokeResponse(long correlationId, byte[] serializedReturn) implements FabricFrame {}
+  /**
+   * A successful invocation's return value, {@code ObjectOutputStream}-serialized, plus the
+   * target's own reading of how much inbound work is queued ahead of the next request it receives.
+   *
+   * <p>That second field is what lets a caller balance on the target's real backlog rather than
+   * only on the requests it has in flight there itself. The two are not the same thing and the
+   * difference is the whole point: a replica saturated by *other* callers looks completely idle to
+   * a client counting its own outstanding requests, so traffic keeps arriving until calls start
+   * failing and the circuit breaker trips -- a failure the caller sees, where a load-based handoff
+   * to a less busy replica would have been invisible. Reported on the response rather than polled
+   * out of band so it costs nothing and is never staler than the last call actually made.
+   */
+  record InvokeResponse(long correlationId, byte[] serializedReturn, int reportedQueueDepth)
+      implements FabricFrame {}
 
   /**
    * The invoked method threw: the original {@link Throwable} itself, serialized, so the proxy-side
    * caller can re-throw it with its real type/message/stack trace intact rather than a wrapped
    * remote-call exception.
    */
-  record InvokeError(long correlationId, byte[] serializedThrowable) implements FabricFrame {}
+  record InvokeError(long correlationId, byte[] serializedThrowable, int reportedQueueDepth)
+      implements FabricFrame {
+
+    /**
+     * For an error raised before the call ever reached a module -- an unresolvable service, a
+     * rejected tenant -- where there is no target whose backlog could be reported.
+     */
+    public InvokeError(long correlationId, byte[] serializedThrowable) {
+      this(correlationId, serializedThrowable, 0);
+    }
+  }
 }

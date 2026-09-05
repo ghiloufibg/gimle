@@ -2,6 +2,7 @@ package com.gimle.worker;
 
 import com.gimle.core.logging.InstanceMdcContext;
 import com.gimle.core.module.ModuleId;
+import com.gimle.fabric.transport.ModuleWorkExecutor;
 import io.opentelemetry.context.Context;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -57,6 +58,25 @@ public final class BoundedModuleScheduler implements AutoCloseable {
    */
   public int queuedCount() {
     return concurrencyBound.getQueueLength();
+  }
+
+  /**
+   * This scheduler as the inbound-call executor {@code FabricServer} runs work through, including
+   * the {@link #queuedCount()} reading it reports back to callers so their load balancing sees this
+   * module's real backlog rather than only their own in-flight requests to it.
+   */
+  public ModuleWorkExecutor asWorkExecutor() {
+    return new ModuleWorkExecutor() {
+      @Override
+      public <T> Future<T> submit(Callable<T> task) {
+        return BoundedModuleScheduler.this.submit(task);
+      }
+
+      @Override
+      public int queueDepth() {
+        return queuedCount();
+      }
+    };
   }
 
   public <T> Future<T> submit(Callable<T> task) {

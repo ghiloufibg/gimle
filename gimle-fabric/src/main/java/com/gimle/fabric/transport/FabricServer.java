@@ -664,17 +664,18 @@ public final class FabricServer implements AutoCloseable {
       Object result = invokeLocally(request);
       span.setStatus(StatusCode.OK);
       return new FabricFrame.InvokeResponse(
-          request.correlationId(), ObjectMarshalling.serialize(result));
+          request.correlationId(), ObjectMarshalling.serialize(result), queueDepthFor(request));
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       span.recordException(cause);
       span.setStatus(StatusCode.ERROR);
       return new FabricFrame.InvokeError(
-          request.correlationId(), ObjectMarshalling.serialize(cause));
+          request.correlationId(), ObjectMarshalling.serialize(cause), queueDepthFor(request));
     } catch (RuntimeException | ReflectiveOperationException e) {
       span.recordException(e);
       span.setStatus(StatusCode.ERROR);
-      return new FabricFrame.InvokeError(request.correlationId(), ObjectMarshalling.serialize(e));
+      return new FabricFrame.InvokeError(
+          request.correlationId(), ObjectMarshalling.serialize(e), queueDepthFor(request));
     } finally {
       span.end();
     }
@@ -822,6 +823,21 @@ public final class FabricServer implements AutoCloseable {
 
   private static boolean isSameTenant(Optional<String> peerTenantId, String tenantId) {
     return peerTenantId.isPresent() && peerTenantId.get().equals(tenantId);
+  }
+
+  /**
+   * What this worker tells the caller about how loaded the module serving {@code request} is, so
+   * the caller's own balancing can steer away from a saturated replica before it starts failing
+   * calls. Read after the invocation rather than before, so it reflects the backlog a caller's
+   * *next* request would join; zero whenever the target can't be resolved or runs unbounded, which
+   * simply leaves the caller with the signal it already had.
+   */
+  private int queueDepthFor(FabricFrame.InvokeRequest request) {
+    return localRegistry
+        .lookupOwnedByInterfaceName(request.interfaceName())
+        .flatMap(owned -> executorLookup.apply(owned.owner()))
+        .map(ModuleWorkExecutor::queueDepth)
+        .orElse(0);
   }
 
   private Object invokeLocally(FabricFrame.InvokeRequest request)

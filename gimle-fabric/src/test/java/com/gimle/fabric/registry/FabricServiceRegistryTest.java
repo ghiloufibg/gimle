@@ -13,6 +13,7 @@ import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.catalog.ServiceEndpoint;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.transport.FabricServer;
+import com.gimle.fabric.transport.ModuleWorkExecutor;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import java.io.IOException;
@@ -24,8 +25,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -105,6 +109,38 @@ class FabricServiceRegistryTest {
     return (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
   }
 
+  /**
+   * A backend that reports a fixed inbound backlog on every response, standing in for a replica
+   * kept busy by callers other than this one -- which is the load this registry cannot see any
+   * other way, since its own outstanding-request count against such a replica is zero.
+   */
+  private InetSocketAddress startBackendReporting(Greeter impl, int queueDepth) throws IOException {
+    SimpleServiceRegistry backing = new SimpleServiceRegistry();
+    backing.register(OWNER, Greeter.class, impl);
+    ModuleWorkExecutor executor =
+        new ModuleWorkExecutor() {
+          @Override
+          public <T> Future<T> submit(Callable<T> task) {
+            FutureTask<T> ran = new FutureTask<>(task);
+            ran.run();
+            return ran;
+          }
+
+          @Override
+          public int queueDepth() {
+            return queueDepth;
+          }
+        };
+    FabricServer server =
+        new FabricServer(
+            backing,
+            Greeter.class.getClassLoader(),
+            id -> Optional.empty(),
+            id -> Optional.of(executor));
+    servers.add(server);
+    return (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+  }
+
   @Test
   @Timeout(10)
   void same_worker_tier_wins_over_same_machine_and_remote() throws IOException {
@@ -154,6 +190,40 @@ class FabricServiceRegistryTest {
       Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
       assertEquals("same-machine:x", greeter.greet("x"));
     }
+  }
+
+  /**
+   * The saturation this caller cannot see for itself: the same-machine replica is loaded by other
+   * callers, so this registry's own outstanding count against it is zero and it looks perfectly
+   * idle. Balancing on that alone kept sending every request into the busy replica until calls
+   * started failing and its breaker tripped -- the caller saw errors where a handoff to the idle
+   * remote replica would have been invisible.
+   */
+  @Test
+  @Timeout(15)
+  void a_replica_saturated_by_other_callers_loses_to_an_idle_remote_one() throws Exception {
+    InetSocketAddress busySameMachine = startBackendReporting(name -> "same-machine:" + name, 32);
+    InetSocketAddress idleRemote = startBackendReporting(name -> "remote:" + name, 0);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-other", OWNER, GREETER_EXPORT, Optional.empty(), busySameMachine);
+    catalog.localRegister(
+        new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947)),
+        "worker-b",
+        OWNER,
+        GREETER_EXPORT,
+        Optional.empty(),
+        idleRemote);
+
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+
+    // The first call has no report to go on and takes the same-machine preference, which is what
+    // teaches this registry how loaded that replica is. Every call after it must route around it.
+    assertEquals("same-machine:first", greeter.greet("first"));
+    assertEquals("remote:second", greeter.greet("second"));
+    assertEquals("remote:third", greeter.greet("third"));
   }
 
   @Test
