@@ -38,6 +38,18 @@ never generating a CSR of its own. `gimle-mimir` submits its own rotation CSRs t
 own) — CA custody stays on the API-server side even after the etcd-store-extraction split,
 mirroring how Kubernetes' own CSR API lives on `kube-apiserver`, not `etcd`.
 
+### One leaf per role and hostname
+
+`hilmir pki init` mints a separate leaf for every (role, hostname) pair — `controlplane-`, `store-`,
+`fafnir-`, `muninn-` and `andvari-`, each named `<role>-<hostname>.crt/.key` — so every process's
+identity is attributable to its own certificate Subject rather than one borrowed from another role.
+Only the control-plane leaf carries a group (`O=gimle:controlplane`, which its own artifact pulls
+need); the rest carry a bare `CN=<hostname>`, because they authorize nothing on group membership.
+
+The store is included here for the same reason as the rest: presenting the control plane's leaf
+would make a store replica indistinguishable on the wire from the very process that authenticates
+to it, and would hand it that role's grants for free.
+
 ### Per-worker certificates
 
 A worker JVM presents its own leaf certificate on the fabric's cross-machine mTLS hops, not the

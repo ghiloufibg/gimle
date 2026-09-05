@@ -265,7 +265,21 @@ class LaunchPlannerTest {
             "-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt"),
             "-Dgimle.tls.keyFile=" + tlsPath("controlplane-host1.example.com.key"),
             "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
-    assertTrue(only(plan, "m1", "store-0").command().containsAll(controlPlaneTlsFlags));
+
+    // The store presents its own leaf, never the control plane's: borrowing it made a store
+    // replica indistinguishable on the wire from the process that authenticates to it.
+    final List<String> storeTlsFlags =
+        List.of(
+            "-Dgimle.transport.protocol=tls",
+            "-Dgimle.tls.certFile=" + tlsPath("store-host1.example.com.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("store-host1.example.com.key"),
+            "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
+    final ProcessCommand store = only(plan, "m1", "store-0");
+    assertTrue(store.command().containsAll(storeTlsFlags));
+    assertFalse(
+        store
+            .command()
+            .contains("-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt")));
 
     final ProcessCommand controlPlane = only(plan, "m1", "controlplane-0");
     assertTrue(controlPlane.command().containsAll(controlPlaneTlsFlags));

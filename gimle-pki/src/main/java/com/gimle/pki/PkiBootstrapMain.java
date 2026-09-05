@@ -114,12 +114,17 @@ public final class PkiBootstrapMain {
           "controlplane-" + hostname,
           "O=" + BuiltinRoles.GROUP_CONTROLPLANE + ",CN=" + hostname,
           List.of(hostname, "localhost"));
-      // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
-      // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
-      // local dev, per that class's own code comment): every action Fafnir takes being attributable
-      // to its own certificate Subject, not a borrowed one, is directly load-bearing for its audit
-      // story, since it's the one component whose entire job is being the trust boundary for secret
-      // material.
+      // The store gets its own leaf rather than presenting the control plane's: borrowing it made
+      // the store claim, on the wire, to be the very process that authenticates to it, so a peer
+      // could not tell a store replica apart from a control-plane client and neither side's
+      // identity meant anything. Its Subject carries no O= -- the store authorizes nothing on
+      // group membership, it only needs to be identifiable as itself.
+      issueLeaf(
+          outputDir, ca, "store-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+      // Fafnir gets its own distinct identity from cluster-bootstrap time: every action Fafnir
+      // takes being attributable to its own certificate Subject, not a borrowed one, is directly
+      // load-bearing for its audit story, since it's the one component whose entire job is being
+      // the trust boundary for secret material.
       issueLeaf(
           outputDir, ca, "fafnir-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
       // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
@@ -144,7 +149,7 @@ public final class PkiBootstrapMain {
     final String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     out.println(
-        "wrote cluster CA, control-plane/fafnir/muninn/andvari material for "
+        "wrote cluster CA, control-plane/store/fafnir/muninn/andvari material for "
             + options.hostnames().size()
             + " hostname(s), and initial-operator material to "
             + outputDir);

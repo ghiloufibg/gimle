@@ -96,10 +96,7 @@ public final class LaunchPlanner {
       final List<String> command = new ArrayList<>();
       command.add(
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "mimir", gimleHomeEnv));
-      // No per-store leaf exists in the platform's own generated material; the store presents the
-      // control-plane certificate for its own machine, the same reuse GimleCluster's own tlsFlags
-      // already established.
-      command.addAll(tlsFlags(topology, "controlplane", replica.machine()));
+      command.addAll(tlsFlags(topology, "store", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.STORE));
       if (!topology.muninn().replicas().isEmpty()) {
         command.add("-Dgimle.store.muninnEndpoint=" + muninnEndpointsSpec(topology));
