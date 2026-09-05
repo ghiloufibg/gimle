@@ -131,10 +131,29 @@ export interface RunnerClient {
   readonly baseUrl: string | null;
   health(): Promise<RunnerHealth>;
   createRun(request: CreateRunRequest): Promise<RunSnapshot>;
-  /** The run the backend is currently holding, if any -- how a reloaded page finds its way back. */
-  currentRun(): Promise<RunSnapshot | null>;
+  /**
+   * The run the backend holds for {@code blueprintId}, if any -- how a reloaded page finds its way
+   * back. Asked per blueprint rather than globally: the backend tracks a run per cluster, so "the
+   * current run" is only ever the most recently started one, and reading that on a blueprint which
+   * never started it put another cluster's status, endpoints and log on this page.
+   */
+  currentRun(blueprintId?: string): Promise<RunSnapshot | null>;
+  /**
+   * Every run the backend is tracking right now, one per cluster. What lets a screen showing many
+   * blueprints -- the list, the cluster table -- say which of them own a live cluster, without
+   * opening each one's runner in turn.
+   */
+  listRuns(): Promise<ActiveRun[]>;
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void;
   stopRun(runId: string): Promise<RunSnapshot>;
+}
+
+/** One run the backend is tracking, as the cross-blueprint views need it. */
+export interface ActiveRun {
+  runId: string;
+  clusterId: string | null;
+  blueprintId: string | null;
+  status: RunStatus;
 }
 
 /** A problem reported by Hilmir itself, in Hilmir's own wire shape. */

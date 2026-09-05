@@ -13,6 +13,7 @@ interface ListState {
   refresh: () => Promise<void>;
   loadDetails: () => Promise<void>;
   create: (name: string, options?: { empty?: boolean }) => Promise<BlueprintSummary>;
+  rename: (id: string, name: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<BlueprintSummary | null>;
   importBlueprint: (blueprint: Blueprint) => Promise<BlueprintSummary>;
@@ -62,6 +63,13 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
     const created = await blueprintsRepository.create(stamped(createBlueprint(name, options)));
     await get().refresh();
     return created;
+  },
+
+  rename: async (id, name) => {
+    const source = await blueprintsRepository.get(id);
+    if (!source) return;
+    await blueprintsRepository.save(stamped({ ...source, name }));
+    await get().refresh();
   },
 
   remove: async (id) => {

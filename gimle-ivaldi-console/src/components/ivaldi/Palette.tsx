@@ -1,6 +1,8 @@
 import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 
 import { APP_KINDS, KIND_LABELS, PLATFORM_KINDS, type NodeKind } from "@/lib/blueprint";
+import { canvasBridge } from "@/lib/canvasBridge";
+import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useUiStore } from "@/stores/useUiStore";
 
 import { KIND_META } from "./kinds";
@@ -8,14 +10,25 @@ import { KIND_META } from "./kinds";
 function PaletteItem({ kind }: { kind: NodeKind }) {
   const meta = KIND_META[kind];
   const Icon = meta.icon;
+  const addNode = useBlueprintStore((s) => s.addNode);
+  const add = () => addNode(kind, canvasBridge.center());
   return (
-    <div
+    <button
+      type="button"
       draggable
+      title={`Add ${KIND_LABELS[kind]} to the middle of the canvas`}
+      onClick={add}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          add();
+        }
+      }}
       onDragStart={(event) => {
         event.dataTransfer.setData("application/ivaldi-kind", kind);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="group flex cursor-grab items-start gap-2 rounded-sm border border-border bg-card px-2 py-1.5 hover:border-primary/60 active:cursor-grabbing"
+      className="group flex w-full cursor-grab items-start gap-2 rounded-sm border border-border bg-card px-2 py-1.5 text-left hover:border-primary/60 focus:border-primary focus:outline-none active:cursor-grabbing"
     >
       <Icon className="mt-0.5 size-3.5 shrink-0 text-primary" />
       <div className="min-w-0">
@@ -24,7 +37,7 @@ function PaletteItem({ kind }: { kind: NodeKind }) {
         </div>
         <div className="truncate text-[10px] text-muted-foreground">{meta.hint}</div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -96,7 +109,7 @@ export function Palette() {
         </section>
       </div>
       <div className="border-t border-sidebar-border p-2 text-[10px] text-muted-foreground">
-        Drag an item onto the canvas.
+        Drag an item onto the canvas, or click it to drop one in the middle.
       </div>
     </aside>
   );

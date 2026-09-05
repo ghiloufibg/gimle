@@ -79,6 +79,7 @@ export { HttpBlueprintsRepository, HttpValidationRepository };
 
 export type { BlueprintsRepository, ClustersRepository, HilmirValidatorClient, RunnerClient };
 export type {
+  ActiveRun,
   BlueprintSummary,
   ClusterConnection,
   ClusterEnvironment,

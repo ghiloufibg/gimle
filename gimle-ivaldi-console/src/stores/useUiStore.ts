@@ -23,6 +23,33 @@ interface UiState {
 }
 
 const THEME_KEY = "ivaldi.theme";
+const LAYOUT_KEY = "ivaldi.layout";
+
+interface StoredLayout {
+  drawerHeight?: number;
+  inspectorWidth?: number;
+  paletteCollapsed?: boolean;
+  inspectorCollapsed?: boolean;
+}
+
+function readLayout(): StoredLayout {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_KEY);
+    return raw ? (JSON.parse(raw) as StoredLayout) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLayout(patch: StoredLayout): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAYOUT_KEY, JSON.stringify({ ...readLayout(), ...patch }));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function applyTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
@@ -43,20 +70,38 @@ export function storedTheme(): Theme {
   }
 }
 
+const layout = readLayout();
+
 export const useUiStore = create<UiState>((set, get) => ({
   drawer: null,
-  drawerHeight: 280,
-  inspectorWidth: 360,
+  drawerHeight: layout.drawerHeight ?? 280,
+  inspectorWidth: layout.inspectorWidth ?? 360,
   theme: "dark",
   paletteQuery: "",
-  paletteCollapsed: false,
-  inspectorCollapsed: false,
-  togglePalette: () => set({ paletteCollapsed: !get().paletteCollapsed }),
-  toggleInspector: () => set({ inspectorCollapsed: !get().inspectorCollapsed }),
+  paletteCollapsed: layout.paletteCollapsed ?? false,
+  inspectorCollapsed: layout.inspectorCollapsed ?? false,
+  togglePalette: () => {
+    const paletteCollapsed = !get().paletteCollapsed;
+    writeLayout({ paletteCollapsed });
+    set({ paletteCollapsed });
+  },
+  toggleInspector: () => {
+    const inspectorCollapsed = !get().inspectorCollapsed;
+    writeLayout({ inspectorCollapsed });
+    set({ inspectorCollapsed });
+  },
   setDrawer: (drawer) => set({ drawer }),
   toggleDrawer: (drawer) => set({ drawer: get().drawer === drawer ? null : drawer }),
-  setDrawerHeight: (height) => set({ drawerHeight: Math.min(Math.max(height, 140), 620) }),
-  setInspectorWidth: (width) => set({ inspectorWidth: Math.min(Math.max(width, 280), 620) }),
+  setDrawerHeight: (height) => {
+    const drawerHeight = Math.min(Math.max(height, 140), 620);
+    writeLayout({ drawerHeight });
+    set({ drawerHeight });
+  },
+  setInspectorWidth: (width) => {
+    const inspectorWidth = Math.min(Math.max(width, 280), 620);
+    writeLayout({ inspectorWidth });
+    set({ inspectorWidth });
+  },
   setTheme: (theme) => {
     applyTheme(theme);
     set({ theme });

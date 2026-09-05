@@ -26,6 +26,8 @@ export interface IvaldiNodeData extends Record<string, unknown> {
   fact: string;
   problems: Problem[];
   selected: boolean;
+  /** Effective placement: the machine or tenant the generated files will carry. */
+  where?: string;
 }
 
 function stripeClass(problems: Problem[]): string {
@@ -128,6 +130,9 @@ export function ResourceNode({ data }: NodeProps) {
         {d.label}
       </div>
       <div className="num truncate pl-1 text-[10px] text-muted-foreground">{d.fact}</div>
+      {d.where && (
+        <div className="num truncate pl-1 text-[10px] text-muted-foreground/80">{d.where}</div>
+      )}
       <Handle type="target" position={Position.Left} className="!size-2 !bg-primary" />
       <Handle type="source" position={Position.Right} className="!size-2 !bg-primary" />
     </div>

@@ -5,8 +5,6 @@ import {
   type BlueprintNode,
   type ConfigEntryData,
   type LimitRangeData,
-  machineNameOf,
-  tenantIdOf,
   type MachineData,
   type NetworkPolicyData,
   type Problem,
@@ -17,6 +15,7 @@ import {
   type TenantData,
   type WorkloadData,
 } from "./blueprint";
+import { machineNameOf, tenantIdOf } from "./effective";
 import { portConflicts } from "./ports";
 import { isValidCpu, isValidMemory, parseCpu, parseMemory } from "./units";
 

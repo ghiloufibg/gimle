@@ -926,6 +926,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-914 | Release upgrade prunes config and secret keys the new bundle drops | Deployment / Release management | Complete | Yes |
 | GIMLE-915 | Service endpoint resolution reports why a backing instance was excluded | Networking / Service discovery | Complete | Yes |
 | GIMLE-916 | Topology faults name the section they were read from | Deployment / Validation | Complete | Yes |
+| GIMLE-917 | Ivaldi console shows which blueprints and clusters are actually running | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -14009,4 +14010,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar.
   Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster.
+  ```
+
+#### GIMLE-917 — Ivaldi console shows which blueprints and clusters are actually running
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator with several blueprints, I want every screen to tell me which of them own a live cluster and which do not, and I want each blueprint to remember the cluster it targets.
+- **Status**: A new useActiveRunsStore polls the control-side GET /api/runs and answers 'what is running' per blueprint and per cluster; the blueprint list gained a Run column, the designer a status badge in its top bar (an edited blueprint whose cluster is up now says so), and the Clusters screen a badge naming the run and the blueprint that owns it, each linking straight to that blueprint's runner. The runner itself asks GET /api/runs/for-blueprint/{id} rather than the global latest run, and additionally refuses to render or act on a run whose blueprintId is not this page's -- previously another blueprint's status, endpoints, log and Stop button appeared on a blueprint that had never been run. The target cluster is now remembered per blueprint (ivaldi.clusters.byBlueprint in browser storage, falling back to the global default): choosing one on a blueprint's runner no longer silently repoints every other blueprint at it. Editing capability: canvas edges are selectable and deletable (click, Delete/Backspace, or the inspector's own Links list, which names every link a node takes part in and cuts it), multi-selection is supported, machines are drawn behind the roles placed inside them, and the empty canvas offers a one-click minimal local cluster. The inspector's Machine and Tenant boxes go read-only with a stated reason when a canvas link supplies the value, rather than accepting input that changed nothing.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useActiveRunsStore.ts`, `gimle-ivaldi-console/src/repositories/{contracts,httpRunner,mockRunner}.ts` (`listRuns`, `currentRun(blueprintId)`), `gimle-ivaldi-console/src/routes/{index,clusters,designer.$blueprintId,runner.$blueprintId}.tsx`, `gimle-ivaldi-console/src/components/ivaldi/{ClusterPicker,DesignerCanvas,Inspector,ProblemsDrawer}.tsx`, `gimle-ivaldi-console/src/stores/{useClustersStore,useBlueprintStore}.ts`, `gimle-ivaldi-console/src/lib/{effective,problemView,canvasBridge}.ts`
+- **Test coverage**: `httpRunner.test.ts` (the runner asks for one blueprint's run, falls back to the latest only when none is named, reads an idle answer as nothing to re-attach to, and re-attaches to a run the backend still holds); `problemView.test.ts` (cascade suppression, one fault against two nodes collapsing to one row naming both, two different faults sharing a code staying apart, and two validators wording the same fault differently being shown rather than one silently dropped); the existing rules/render/golden suites cover `effective.ts`, which is now the single resolver behind every 'which machine / which tenant' answer in the console.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner.
+  Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's.
+  Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why.
   ```

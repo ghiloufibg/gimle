@@ -229,7 +229,9 @@ describe("faults the designer used to ship silently", () => {
     bp.nodes.push(twin);
     bp.edges = [
       ...bp.edges,
-      ...bp.edges.filter((e) => e.source === config.id).map((e) => ({ ...e, id: "e-twin", source: twin.id })),
+      ...bp.edges
+        .filter((e) => e.source === config.id)
+        .map((e) => ({ ...e, id: "e-twin", source: twin.id })),
     ];
 
     expect(codesOf(bp)).toContain("CONFIG_DUPLICATE");

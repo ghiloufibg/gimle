@@ -16,6 +16,7 @@ function severityClass(severity: Problem["severity"]): string {
 export function FilesDrawer({ blueprint }: { blueprint: Blueprint }) {
   const files = useMemo(() => renderFiles(blueprint), [blueprint]);
   const [active, setActive] = useState(0);
+  const [filter, setFilter] = useState("");
   const file = files[Math.min(active, files.length - 1)];
   const lines = file ? file.content.split("\n") : [];
 
@@ -29,27 +30,39 @@ export function FilesDrawer({ blueprint }: { blueprint: Blueprint }) {
 
   return (
     <div className="flex h-full">
-      <div className="w-[240px] shrink-0 overflow-y-auto border-r border-border bg-sidebar p-1">
-        {files.map((f, i) => {
-          const count = countFor(f.path);
-          return (
-            <button
-              key={f.path}
-              onClick={() => setActive(i)}
-              className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1 text-left font-mono text-[11px] hover:bg-accent/50",
-                i === active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-              )}
-            >
-              <span className="truncate">{f.path}</span>
-              {count > 0 && (
-                <span className="num shrink-0 rounded-sm bg-status-bad-bg px-1 text-[10px] text-status-bad">
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex w-[240px] shrink-0 flex-col border-r border-border bg-sidebar">
+        <div className="shrink-0 p-1">
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={`Filter ${files.length} files`}
+            className="h-7 w-full rounded-sm border border-border bg-background px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary"
+          />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {files.map((f, i) => {
+            if (filter.trim() && !f.path.toLowerCase().includes(filter.trim().toLowerCase()))
+              return null;
+            const count = countFor(f.path);
+            return (
+              <button
+                key={f.path}
+                onClick={() => setActive(i)}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1 text-left font-mono text-[11px] hover:bg-accent/50",
+                  i === active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                )}
+              >
+                <span className="truncate">{f.path}</span>
+                {count > 0 && (
+                  <span className="num shrink-0 rounded-sm bg-status-bad-bg px-1 text-[10px] text-status-bad">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-1.5">

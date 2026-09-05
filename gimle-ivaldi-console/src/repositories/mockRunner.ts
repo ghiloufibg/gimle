@@ -1,6 +1,7 @@
 import { parse } from "yaml";
 
 import type {
+  ActiveRun,
   CreateRunRequest,
   RunArtifact,
   RunEndpoint,
@@ -347,7 +348,21 @@ export class MockRunnerClient implements RunnerClient {
     return snapshot;
   }
 
-  async currentRun(): Promise<RunSnapshot | null> {
+  async listRuns(): Promise<ActiveRun[]> {
+    const snapshot = await this.currentRun();
+    return snapshot
+      ? [
+          {
+            runId: snapshot.runId,
+            clusterId: null,
+            blueprintId: null,
+            status: snapshot.status,
+          },
+        ]
+      : [];
+  }
+
+  async currentRun(_blueprintId?: string): Promise<RunSnapshot | null> {
     for (const session of this.sessions.values()) {
       if (session.snapshot.status !== "idle") return session.snapshot;
     }

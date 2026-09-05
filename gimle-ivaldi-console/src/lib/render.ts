@@ -13,10 +13,9 @@ import {
   type ServiceData,
   type StoreData,
   type TenantData,
-  machineNameOf,
-  tenantIdOf,
   type WorkloadData,
 } from "./blueprint";
+import { machineNameOf, tenantIdOf } from "./effective";
 import { DEFAULT_PORTS } from "./ports";
 import { nodesOf } from "./rules";
 

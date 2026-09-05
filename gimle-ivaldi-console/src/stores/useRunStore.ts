@@ -44,8 +44,8 @@ interface RunState {
   cluster: ClusterConnection | null;
   setCluster: (cluster: ClusterConnection | null) => void;
   checkHealth: () => Promise<void>;
-  /** Re-attach to a run the backend is already holding, after a page reload. */
-  attach: () => Promise<void>;
+  /** Re-attach to the run the backend is holding for this blueprint, after a page reload. */
+  attach: (blueprintId?: string) => Promise<void>;
   start: (blueprint: Blueprint, options?: StartOptions) => Promise<void>;
   stop: () => Promise<void>;
   clearLog: () => void;
@@ -124,17 +124,18 @@ export const useRunStore = create<RunState>((set, get) => {
     },
 
     /**
-     * The backend holds one run at a time and keeps its whole state, including after it fails with
-     * a process tree still up. Nothing in this store survives a page reload, though, so without
-     * this the screen would come back reading "idle / 0 lines" with Stop disabled -- the one
-     * control that could tear that tree down.
+     * The backend keeps a run's whole state, including after it fails with a process tree still
+     * up. Nothing in this store survives a page reload, though, so without this the screen would
+     * come back reading "idle / 0 lines" with Stop disabled -- the one control that could tear
+     * that tree down. Asked for one blueprint: the backend tracks a run per cluster, so without
+     * naming the blueprint this would re-attach to whichever run happened to start last.
      */
-    attach: async () => {
+    attach: async (blueprintId) => {
       if (get().runId || get().busy) return;
       const client = runnerClientFor(await resolveCluster(undefined));
       let snapshot: RunSnapshot | null = null;
       try {
-        snapshot = await client.currentRun();
+        snapshot = await client.currentRun(blueprintId);
       } catch {
         return;
       }

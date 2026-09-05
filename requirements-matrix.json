@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 916,
+  "requirementCount": 917,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -18877,6 +18877,31 @@
       "testCoverageDetail": "`TopologyParserTest.java` -- a rejected field names the replica and the agent entry it was read from; `TopologyValidatorTest.java` and `FileSetValidatorTest.java` continue to pass against the unchanged codes, which remain the stable part of both contracts.",
       "gherkinSteps": [
         "Given a topology whose second control-plane replica omits its machine, When I validate it, Then the error names controlPlane.replicas[1]."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-917",
+      "module": "gimle-ivaldi-console",
+      "feature": "Ivaldi console shows which blueprints and clusters are actually running",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator with several blueprints, I want every screen to tell me which of them own a live cluster and which do not, and I want each blueprint to remember the cluster it targets.",
+      "statusDetail": "A new useActiveRunsStore polls the control-side GET /api/runs and answers 'what is running' per blueprint and per cluster; the blueprint list gained a Run column, the designer a status badge in its top bar (an edited blueprint whose cluster is up now says so), and the Clusters screen a badge naming the run and the blueprint that owns it, each linking straight to that blueprint's runner. The runner itself asks GET /api/runs/for-blueprint/{id} rather than the global latest run, and additionally refuses to render or act on a run whose blueprintId is not this page's -- previously another blueprint's status, endpoints, log and Stop button appeared on a blueprint that had never been run. The target cluster is now remembered per blueprint (ivaldi.clusters.byBlueprint in browser storage, falling back to the global default): choosing one on a blueprint's runner no longer silently repoints every other blueprint at it. Editing capability: canvas edges are selectable and deletable (click, Delete/Backspace, or the inspector's own Links list, which names every link a node takes part in and cuts it), multi-selection is supported, machines are drawn behind the roles placed inside them, and the empty canvas offers a one-click minimal local cluster. The inspector's Machine and Tenant boxes go read-only with a stated reason when a canvas link supplies the value, rather than accepting input that changed nothing.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useActiveRunsStore.ts`",
+        "`gimle-ivaldi-console/src/repositories/{contracts,httpRunner,mockRunner}.ts` (`listRuns`, `currentRun(blueprintId)`)",
+        "`gimle-ivaldi-console/src/routes/{index,clusters,designer.$blueprintId,runner.$blueprintId}.tsx`",
+        "`gimle-ivaldi-console/src/components/ivaldi/{ClusterPicker,DesignerCanvas,Inspector,ProblemsDrawer}.tsx`",
+        "`gimle-ivaldi-console/src/stores/{useClustersStore,useBlueprintStore}.ts`",
+        "`gimle-ivaldi-console/src/lib/{effective,problemView,canvasBridge}.ts`"
+      ],
+      "testCoverageDetail": "`httpRunner.test.ts` (the runner asks for one blueprint's run, falls back to the latest only when none is named, reads an idle answer as nothing to re-attach to, and re-attaches to a run the backend still holds); `problemView.test.ts` (cascade suppression, one fault against two nodes collapsing to one row naming both, two different faults sharing a code staying apart, and two validators wording the same fault differently being shown rather than one silently dropped); the existing rules/render/golden suites cover `effective.ts`, which is now the single resolver behind every 'which machine / which tenant' answer in the console.",
+      "gherkinSteps": [
+        "Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner.",
+        "Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's.",
+        "Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

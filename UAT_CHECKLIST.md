@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 915
+- **Total requirements**: 916
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 785
+- **Not covered by automated test**: 786
 - **Release-readiness (automated coverage)**: 14.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -44,7 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 4 | 0 | 4 | 0.0% |
-| gimle-ivaldi-console | 2 | 0 | 2 | 0.0% |
+| gimle-ivaldi-console | 3 | 0 | 3 | 0.0% |
 
 ## Checklist
 
@@ -2581,3 +2581,4 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-910 | Ivaldi web console: blueprint designer canvas | Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh. | No |
 | [ ] | GIMLE-913 | Rendered workloads resolve through the artifact registry, not a local path | Given a blueprint with a jar-sourced workload, When I export it, Then no manifest carries artifactPath and ivaldi.artifacts.yaml names the jar. Given a rendered file set whose sidecar names a jar that does not exist, When I run it, Then the run fails during validation without booting a cluster. | No |
+| [ ] | GIMLE-917 | Ivaldi console shows which blueprints and clusters are actually running | Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner. Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's. Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why. | No |

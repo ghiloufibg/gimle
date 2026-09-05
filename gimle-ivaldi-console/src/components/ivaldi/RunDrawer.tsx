@@ -57,7 +57,7 @@ export function RunDrawer({ blueprint }: { blueprint: Blueprint }) {
             Runner page <ExternalLink className="size-3" />
           </Link>
         </div>
-        <ClusterPicker />
+        <ClusterPicker blueprintId={blueprint.id} />
         <div className="flex gap-2">
           <button
             disabled={errorCount > 0 || inFlight || busy}

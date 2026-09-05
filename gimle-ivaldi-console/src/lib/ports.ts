@@ -1,4 +1,4 @@
-import { machineNameOf } from "./blueprint";
+import { machineNameOf } from "./effective";
 import type { Blueprint, BlueprintNode, NodeKind } from "./blueprint";
 import type { AgentData, RoleData, StoreData } from "./blueprint";
 

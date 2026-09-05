@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 915,
+    "totalRequirements": 916,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 785,
+    "notCoveredByAutomatedTest": 786,
     "releaseReadinessPercent": 14.2
   },
   "items": [
@@ -10067,6 +10067,17 @@
       "category": "Deployment / Validation",
       "feature": "Topology faults name the section they were read from",
       "step": "Given a topology whose second control-plane replica omits its machine, When I validate it, Then the error names controlPlane.replicas[1].",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-917",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Ivaldi console shows which blueprints and clusters are actually running",
+      "step": "Given a blueprint whose cluster is up, When I open the blueprint list, Then that blueprint shows its run status and links to its runner. Given a run started from one blueprint, When I open a second blueprint's runner, Then it shows no run and refuses to stop the first one's. Given a link on the canvas supplies a node's machine, When I open that node in the inspector, Then the Machine box is read-only and says why.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

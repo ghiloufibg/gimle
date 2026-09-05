@@ -53,8 +53,8 @@ function RunnerPage() {
     reason,
     stopError,
     busy,
-    runId,
     transport,
+    runId,
     checkHealth,
     attach,
     start,
@@ -72,11 +72,22 @@ function RunnerPage() {
 
   useEffect(() => {
     void checkHealth();
-    // A run outlives this page: pick up whatever the backend is still holding.
-    void attach();
-  }, [checkHealth, attach]);
+    // A run outlives this page: pick up whatever the backend is still holding for this blueprint.
+    void attach(blueprintId);
+  }, [checkHealth, attach, blueprintId]);
+
+  // The health line is a live fact about a process that can die at any moment, so it is re-asked
+  // on a timer rather than only once when this page mounts.
+  useEffect(() => {
+    const id = window.setInterval(() => void checkHealth(), 15000);
+    return () => window.clearInterval(id);
+  }, [checkHealth]);
 
   const errorCount = problems.filter((p) => p.severity === "error").length;
+  // A run belongs to the blueprint that started it: another blueprint's run must never look like
+  // this one's -- its status, steps, endpoints and log all belonged to a cluster this page has
+  // never touched, and Stop acted on it.
+  const ownsRun = !request || request.blueprintId === blueprintId;
   // Only a run actually in flight refuses a new one. A `running` cluster is exactly what the
   // deploy-only path exists for: redeploying onto it must not cost a stop and a full reboot.
   const inFlight = IN_FLIGHT.includes(status);
@@ -92,7 +103,7 @@ function RunnerPage() {
 
   if (!blueprint)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4">
         <div className="text-center">
           <div className="hud-label">Not found</div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -112,7 +123,7 @@ function RunnerPage() {
                   RUN_STATUS_CLASS[status],
                 )}
               >
-                {status}
+                {ownsRun ? status : "idle"}
               </span>
               <button
                 disabled={!canStop || busy}
@@ -168,14 +179,14 @@ function RunnerPage() {
             <RotateCcw className="size-3" /> Clear console
           </button>
           <button
-            disabled={errorCount > 0 || inFlight || busy}
+            disabled={errorCount > 0 || inFlight || busy || !ownsRun}
             onClick={() => void start(blueprint, { values: runValues })}
             className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-primary bg-primary px-2 font-mono text-[11px] text-primary-foreground disabled:opacity-40"
           >
             <Play className="size-3" /> Run
           </button>
           <button
-            disabled={!canStop || busy}
+            disabled={!canStop || busy || !ownsRun}
             onClick={() => void stop()}
             className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2 font-mono text-[11px] text-foreground disabled:opacity-40"
           >
@@ -187,7 +198,7 @@ function RunnerPage() {
       <div className="flex min-h-0 flex-1">
         <aside className="w-[320px] shrink-0 space-y-4 overflow-auto border-r border-border bg-sidebar p-3">
           <section>
-            <ClusterPicker />
+            <ClusterPicker blueprintId={blueprintId} />
           </section>
 
           <section>
@@ -264,21 +275,28 @@ function RunnerPage() {
             </section>
           )}
 
+          {!ownsRun && (
+            <p className="rounded-sm border border-status-warn/40 bg-status-warn-bg px-2 py-1 font-mono text-[10px] text-status-warn">
+              The current run belongs to {request?.blueprintName}. Stop it there before running this
+              blueprint.
+            </p>
+          )}
+
           <section>
             <div className="hud-label">Steps</div>
             <div className="mt-1">
-              <RunSteps steps={steps} />
+              <RunSteps steps={ownsRun ? steps : []} />
             </div>
           </section>
 
           <section>
             <div className="hud-label">Artifacts</div>
-            <RunArtifacts log={log} blueprint={blueprint} />
+            <RunArtifacts log={ownsRun ? log : []} blueprint={blueprint} />
           </section>
 
           <section>
             <div className="hud-label">Endpoints</div>
-            {endpoints.length === 0 ? (
+            {!ownsRun || endpoints.length === 0 ? (
               <p className="mt-1 text-[10px] text-muted-foreground">Available once running.</p>
             ) : (
               <ul className="mt-1 space-y-0.5">
@@ -312,9 +330,11 @@ function RunnerPage() {
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b border-border px-3 py-1">
             <span className="hud-label">Console</span>
-            <span className="num text-[10px] text-muted-foreground">{log.length} lines</span>
+            <span className="num text-[10px] text-muted-foreground">
+              {(ownsRun ? log : []).length} lines
+            </span>
           </div>
-          <RunConsole log={log} className="min-h-0 flex-1" />
+          <RunConsole log={ownsRun ? log : []} className="min-h-0 flex-1" />
         </main>
       </div>
     </div>

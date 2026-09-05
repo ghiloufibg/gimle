@@ -1,4 +1,7 @@
-import type { Blueprint, Problem } from "@/lib/blueprint";
+import { Fragment, useMemo, useState } from "react";
+
+import type { Blueprint, Problem, Severity } from "@/lib/blueprint";
+import { collapseProblems, tally, type ProblemRow } from "@/lib/problemView";
 import { cn } from "@/lib/utils";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useValidationStore } from "@/stores/useValidationStore";
@@ -14,10 +17,10 @@ function severityClass(severity: Problem["severity"]): string {
  * told apart: an unnamed role falls back to its machine and port, and any
  * remaining ambiguity is resolved with its index among its own kind.
  */
-function targetLabel(blueprint: Blueprint, problem: Problem): string {
-  if (!problem.nodeId) return "blueprint";
-  const node = blueprint.nodes.find((n) => n.id === problem.nodeId);
-  if (!node) return problem.nodeId;
+function targetLabel(blueprint: Blueprint, nodeId: string | undefined): string {
+  if (!nodeId) return "blueprint";
+  const node = blueprint.nodes.find((n) => n.id === nodeId);
+  if (!node) return nodeId;
   const d = node.data as unknown as Record<string, unknown>;
   const named = [d.name, d.id, d.nodeId, d.key].find(
     (v) => typeof v === "string" && v.trim() !== "",
@@ -43,6 +46,14 @@ function targetLabel(blueprint: Blueprint, problem: Problem): string {
   return duplicates > 1 ? `${node.kind}/${named} #${index}` : `${node.kind}/${named}`;
 }
 
+function targetsLabel(blueprint: Blueprint, row: ProblemRow): string {
+  if (row.file) return row.file;
+  if (row.nodeIds.length === 0) return "blueprint";
+  return row.nodeIds.map((id) => targetLabel(blueprint, id)).join(", ");
+}
+
+type Filter = "all" | Severity;
+
 export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
   const ivaldiProblems = useValidationStore((s) => s.problems);
   const hilmirProblems = useValidationStore((s) => s.serverProblems);
@@ -50,47 +61,106 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
   const validateWithHilmir = useValidationStore((s) => s.validateWithHilmir);
   const select = useBlueprintStore((s) => s.select);
   const selectedId = useBlueprintStore((s) => s.selectedId);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [grouped, setGrouped] = useState(false);
 
-  const rows = [
-    ...ivaldiProblems.map((p) => ({ p, source: "ivaldi" as const })),
-    ...hilmirProblems.map((p) => ({ p, source: "hilmir" as const })),
-  ];
+  const rows = useMemo(
+    () => collapseProblems(ivaldiProblems, hilmirProblems),
+    [ivaldiProblems, hilmirProblems],
+  );
+  const counts = useMemo(() => tally(rows), [rows]);
+  const shown = filter === "all" ? rows : rows.filter((r) => r.severity === filter);
 
-  const header = (
-    <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
-      <span className="hud-label">
-        {rows.length} problem{rows.length === 1 ? "" : "s"} — ivaldi {ivaldiProblems.length} /
-        hilmir {hilmirProblems.length}
-      </span>
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {hilmir.error
-            ? hilmir.error
-            : hilmir.stale
-              ? "hilmir · stale, blueprint changed — re-run Validate"
-              : hilmir.report
-                ? `${hilmir.report.validator}${hilmir.report.version ? ` ${hilmir.report.version}` : ""} · ${new Date(hilmir.report.checkedAt).toLocaleTimeString()}`
-                : `hilmir ${hilmir.mode}${hilmir.baseUrl ? ` · ${hilmir.baseUrl}` : ""} · not run`}
-        </span>
-        <button
-          disabled={hilmir.running}
-          onClick={() => void validateWithHilmir(blueprint)}
-          className="inline-flex h-6 items-center gap-1 rounded-sm border border-border px-2 font-mono text-[10px] text-foreground hover:border-primary disabled:opacity-40"
-        >
-          {hilmir.running ? "Validating…" : "Validate with Hilmir"}
-        </button>
-      </div>
-    </div>
+  const groups = useMemo(() => {
+    const map = new Map<string, ProblemRow[]>();
+    for (const row of shown) map.set(row.code, [...(map.get(row.code) ?? []), row]);
+    return [...map.entries()];
+  }, [shown]);
+
+  const chip = (value: Filter, label: string, tone: string) => (
+    <button
+      key={value}
+      onClick={() => setFilter(value)}
+      className={cn(
+        "rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+        filter === value ? "border-primary text-foreground" : "border-border text-muted-foreground",
+        tone,
+      )}
+    >
+      {label}
+    </button>
+  );
+
+  const row = (r: ProblemRow) => (
+    <tr
+      key={r.key}
+      onClick={() => r.nodeIds[0] && select(r.nodeIds[0])}
+      className={cn(
+        "cursor-pointer border-b border-border/60 hover:bg-accent/40",
+        selectedId && r.nodeIds.includes(selectedId) && "bg-accent/60",
+      )}
+    >
+      <td className={cn("px-3 py-1 font-mono text-[11px] uppercase", severityClass(r.severity))}>
+        {r.severity}
+      </td>
+      <td className="px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+        {r.sources.join(" + ")}
+      </td>
+      <td className="px-3 py-1 font-mono text-[11px] text-foreground">{r.code}</td>
+      <td className="px-3 py-1 text-muted-foreground">{r.message}</td>
+      <td className="px-3 py-1 font-mono text-[11px] text-muted-foreground">
+        {targetsLabel(blueprint, r)}
+      </td>
+    </tr>
   );
 
   return (
     <div className="flex h-full flex-col">
-      {header}
-      {rows.length === 0 ? (
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="hud-label">
+            {rows.length} problem{rows.length === 1 ? "" : "s"}
+          </span>
+          {chip("all", `all ${rows.length}`, "")}
+          {chip("error", `err ${counts.errors}`, "text-status-bad")}
+          {chip("warning", `warn ${counts.warnings}`, "text-status-warn")}
+          {chip("info", `info ${counts.infos}`, "text-status-info")}
+          <button
+            onClick={() => setGrouped((g) => !g)}
+            className={cn(
+              "rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+              grouped ? "border-primary text-foreground" : "border-border text-muted-foreground",
+            )}
+          >
+            group by code
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {hilmir.error
+              ? hilmir.error
+              : hilmir.stale
+                ? "hilmir · stale, blueprint changed — re-run Validate"
+                : hilmir.report
+                  ? `${hilmir.report.validator}${hilmir.report.version ? ` ${hilmir.report.version}` : ""} · ${new Date(hilmir.report.checkedAt).toLocaleTimeString()}`
+                  : `hilmir ${hilmir.mode}${hilmir.baseUrl ? ` · ${hilmir.baseUrl}` : ""} · not run`}
+          </span>
+          <button
+            disabled={hilmir.running}
+            onClick={() => void validateWithHilmir(blueprint)}
+            className="inline-flex h-6 items-center gap-1 rounded-sm border border-border px-2 font-mono text-[10px] text-foreground hover:border-primary disabled:opacity-40"
+          >
+            {hilmir.running ? "Validating…" : "Validate with Hilmir"}
+          </button>
+        </div>
+      </div>
+      {shown.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <div className="hud-label">No problems</div>
-            <p className="mt-1 text-xs text-muted-foreground">This blueprint validates clean.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {rows.length === 0 ? "This blueprint validates clean." : "Nothing at this severity."}
+            </p>
           </div>
         </div>
       ) : (
@@ -106,33 +176,21 @@ export function ProblemsDrawer({ blueprint }: { blueprint: Blueprint }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ p, source }, i) => (
-                <tr
-                  key={`${source}-${p.code}-${p.nodeId ?? "bp"}-${i}`}
-                  onClick={() => p.nodeId && select(p.nodeId)}
-                  className={cn(
-                    "cursor-pointer border-b border-border/60 hover:bg-accent/40",
-                    selectedId && p.nodeId === selectedId && "bg-accent/60",
-                  )}
-                >
-                  <td
-                    className={cn(
-                      "px-3 py-1 font-mono text-[11px] uppercase",
-                      severityClass(p.severity),
-                    )}
-                  >
-                    {p.severity}
-                  </td>
-                  <td className="px-3 py-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-                    {source}
-                  </td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-foreground">{p.code}</td>
-                  <td className="px-3 py-1 text-muted-foreground">{p.message}</td>
-                  <td className="px-3 py-1 font-mono text-[11px] text-muted-foreground">
-                    {p.file ?? targetLabel(blueprint, p)}
-                  </td>
-                </tr>
-              ))}
+              {grouped
+                ? groups.map(([code, list]) => (
+                    <Fragment key={code}>
+                      <tr className="bg-secondary/40">
+                        <td
+                          colSpan={5}
+                          className="px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground"
+                        >
+                          {code} · {list.length}
+                        </td>
+                      </tr>
+                      {list.map(row)}
+                    </Fragment>
+                  ))
+                : shown.map(row)}
             </tbody>
           </table>
         </div>

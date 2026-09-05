@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   CheckCircle2,
+  Crosshair,
   Download,
   FileCode2,
   GripHorizontal,
@@ -25,10 +26,14 @@ import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import { Palette } from "@/components/ivaldi/Palette";
 import { ProblemsDrawer } from "@/components/ivaldi/ProblemsDrawer";
 import { RunDrawer } from "@/components/ivaldi/RunDrawer";
+import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
+import { canvasBridge } from "@/lib/canvasBridge";
+import { collapseProblems, tally } from "@/lib/problemView";
 import { renderFiles } from "@/lib/render";
 import { secretKeys } from "@/lib/runArtifacts";
 import { downloadZip } from "@/lib/zip";
 import { cn } from "@/lib/utils";
+import { ACTIVE_RUNS_POLL_MS, useActiveRunsStore } from "@/stores/useActiveRunsStore";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useRunStore } from "@/stores/useRunStore";
 import { applyTheme, storedTheme, useUiStore } from "@/stores/useUiStore";
@@ -94,14 +99,17 @@ function Counter({
   count,
   tone,
   onClick,
+  title,
 }: {
   count: number;
   tone: "bad" | "warn" | "info";
   onClick: () => void;
+  title: string;
 }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={cn(
         "num rounded-sm border px-1.5 py-0.5 text-[11px]",
         tone === "bad" && "border-status-bad/40 bg-status-bad-bg text-status-bad",
@@ -193,8 +201,8 @@ function Designer() {
   const patch = useBlueprintStore((s) => s.patchBlueprint);
   const ivaldiProblems = useValidationStore((s) => s.problems);
   const hilmirProblems = useValidationStore((s) => s.serverProblems);
-  const problems = useMemo(
-    () => [...ivaldiProblems, ...hilmirProblems],
+  const rows = useMemo(
+    () => collapseProblems(ivaldiProblems, hilmirProblems),
     [ivaldiProblems, hilmirProblems],
   );
   const { drawer, toggleDrawer, setDrawer, drawerHeight, theme, toggleTheme, setTheme } =
@@ -222,7 +230,11 @@ function Designer() {
   }, [setTheme]);
 
   useEffect(() => {
-    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const onChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      // The canvas box just changed size: refit so nothing sits off-screen.
+      setTimeout(() => canvasBridge.fit(), 120);
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
@@ -286,14 +298,18 @@ function Designer() {
     return () => window.removeEventListener("beforeunload", flush);
   }, []);
 
-  const tallies = useMemo(
-    () => ({
-      errors: problems.filter((p) => p.severity === "error").length,
-      warnings: problems.filter((p) => p.severity === "warning").length,
-      infos: problems.filter((p) => p.severity === "info").length,
-    }),
-    [problems],
-  );
+  const tallies = useMemo(() => tally(rows), [rows]);
+
+  // A blueprint can be edited at length while the cluster it describes is up; without this the
+  // designer gave no sign of it, and no hint that the next run is what would apply the edits.
+  const refreshRuns = useActiveRunsStore((s) => s.refresh);
+  const activeRuns = useActiveRunsStore((s) => s.runs);
+  const activeRun = activeRuns.find((r) => r.blueprintId === blueprintId);
+  useEffect(() => {
+    void refreshRuns();
+    const id = window.setInterval(() => void refreshRuns(), ACTIVE_RUNS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshRuns]);
 
   if (!blueprint)
     return (
@@ -329,17 +345,41 @@ function Designer() {
               className="num h-7 w-[80px] rounded-sm border border-transparent bg-transparent px-1.5 text-[11px] text-muted-foreground outline-none hover:border-border focus:border-primary"
             />
             <span className="hud-label">{dirty ? "unsaved" : "saved"}</span>
+            {activeRun && (
+              <Link
+                to="/runner/$blueprintId"
+                params={{ blueprintId: blueprint.id }}
+                title="This blueprint owns a live cluster. Editing it here changes nothing until the next run."
+                className={cn(
+                  "rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+                  RUN_STATUS_CLASS[activeRun.status],
+                )}
+              >
+                {activeRun.status}
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
-            <Counter count={tallies.errors} tone="bad" onClick={() => toggleDrawer("problems")} />
+            <Counter
+              count={tallies.errors}
+              tone="bad"
+              title={`${tallies.errors} error${tallies.errors === 1 ? "" : "s"}`}
+              onClick={() => setDrawer("problems")}
+            />
             <Counter
               count={tallies.warnings}
               tone="warn"
-              onClick={() => toggleDrawer("problems")}
+              title={`${tallies.warnings} warning${tallies.warnings === 1 ? "" : "s"}`}
+              onClick={() => setDrawer("problems")}
             />
-            <Counter count={tallies.infos} tone="info" onClick={() => toggleDrawer("problems")} />
+            <Counter
+              count={tallies.infos}
+              tone="info"
+              title={`${tallies.infos} note${tallies.infos === 1 ? "" : "s"}`}
+              onClick={() => setDrawer("problems")}
+            />
           </div>
           <button
             title="Undo (Ctrl+Z)"
@@ -415,6 +455,7 @@ function Designer() {
             }}
           />
           <ToolbarButton icon={Save} label="Save" onClick={save} />
+          <ToolbarButton icon={Crosshair} label="Fit" onClick={() => canvasBridge.fit()} />
           <ToolbarButton
             icon={isFullscreen ? Minimize2 : Maximize2}
             label={isFullscreen ? "Exit" : "Full"}

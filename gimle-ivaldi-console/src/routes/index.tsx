@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Copy, Moon, Plus, Server, Sun, Trash2, Upload } from "lucide-react";
+import { Copy, Download, Moon, Pencil, Plus, Server, Sun, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -23,7 +23,12 @@ import {
 } from "@/components/ui/dialog";
 import { isWorkload, type Blueprint } from "@/lib/blueprint";
 import { readBlueprintFile } from "@/lib/import";
+import { renderFiles } from "@/lib/render";
 import { validate } from "@/lib/rules";
+import { downloadZip } from "@/lib/zip";
+import { cn } from "@/lib/utils";
+import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
+import { ACTIVE_RUNS_POLL_MS, useActiveRunsStore } from "@/stores/useActiveRunsStore";
 import { useBlueprintsListStore } from "@/stores/useBlueprintsListStore";
 import { useClustersStore } from "@/stores/useClustersStore";
 import { useRunStore } from "@/stores/useRunStore";
@@ -64,8 +69,17 @@ function counts(bp: Blueprint | undefined) {
 
 function BlueprintsList() {
   const navigate = useNavigate();
-  const { blueprints, details, error, refresh, create, remove, duplicate, importBlueprint } =
-    useBlueprintsListStore();
+  const {
+    blueprints,
+    details,
+    error,
+    refresh,
+    create,
+    remove,
+    rename,
+    duplicate,
+    importBlueprint,
+  } = useBlueprintsListStore();
   const { theme, toggleTheme, setTheme } = useUiStore();
   const fileInput = useRef<HTMLInputElement>(null);
   const clusters = useClustersStore((s) => s.clusters);
@@ -81,9 +95,23 @@ function BlueprintsList() {
     refreshClusters();
   }, [refresh, setTheme, refreshClusters]);
 
+  // A list that silently stayed empty when the backend was unreachable read as "no blueprints".
   useEffect(() => {
     if (error) toast.error("Couldn't load blueprints", { description: error });
   }, [error]);
+
+  // Which blueprints own a live cluster. Polled rather than read once: a run this list started
+  // reaches ACTIVE, and later dies, entirely outside this screen.
+  const refreshRuns = useActiveRunsStore((s) => s.refresh);
+  // Subscribed to the list itself, not to the lookup helper: the helper's identity never changes,
+  // so selecting it alone would leave this table frozen on whatever was running when it mounted.
+  const activeRuns = useActiveRunsStore((s) => s.runs);
+  const runFor = (blueprintId: string) => activeRuns.find((r) => r.blueprintId === blueprintId);
+  useEffect(() => {
+    void refreshRuns();
+    const id = window.setInterval(() => void refreshRuns(), ACTIVE_RUNS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshRuns]);
 
   async function createAndOpen(clusterId?: string) {
     setAskCluster(false);
@@ -160,6 +188,7 @@ function BlueprintsList() {
                   "Roles",
                   "Workloads",
                   "Problems",
+                  "Run",
                   "Updated",
                   "",
                 ].map((h) => (
@@ -172,6 +201,7 @@ function BlueprintsList() {
             <tbody>
               {blueprints.map((bp) => {
                 const c = counts(details[bp.id]);
+                const run = runFor(bp.id);
                 return (
                   <tr
                     key={bp.id}
@@ -202,6 +232,23 @@ function BlueprintsList() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
+                    <td className="px-3 py-1.5">
+                      {run ? (
+                        <Link
+                          to="/runner/$blueprintId"
+                          params={{ blueprintId: bp.id }}
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn(
+                            "rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+                            RUN_STATUS_CLASS[run.status],
+                          )}
+                        >
+                          {run.status}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="num px-3 py-1.5 text-muted-foreground">
                       {bp.updatedAt
                         ? new Date(bp.updatedAt).toLocaleString("en-GB", { hour12: false })
@@ -209,6 +256,42 @@ function BlueprintsList() {
                     </td>
                     <td className="px-3 py-1.5 text-right">
                       <div className="flex justify-end gap-1">
+                        <button
+                          title="Rename"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const next = window.prompt("Rename blueprint", bp.name);
+                            if (next && next.trim() && next.trim() !== bp.name)
+                              void rename(bp.id, next.trim());
+                          }}
+                          className="rounded-sm border border-border p-1 text-muted-foreground hover:border-primary hover:text-foreground"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          title="Download zip"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const full = details[bp.id];
+                            if (!full) {
+                              toast.error("Still loading", {
+                                description: "Open the blueprint and download from the designer.",
+                              });
+                              return;
+                            }
+                            try {
+                              downloadZip(full.name, renderFiles(full));
+                              toast.success("Zip downloaded", { description: full.name });
+                            } catch (error) {
+                              toast.error("Could not build the zip", {
+                                description: (error as Error).message,
+                              });
+                            }
+                          }}
+                          className="rounded-sm border border-border p-1 text-muted-foreground hover:border-primary hover:text-foreground"
+                        >
+                          <Download className="size-3" />
+                        </button>
                         <button
                           title="Duplicate"
                           onClick={(e) => {
@@ -247,8 +330,9 @@ function BlueprintsList() {
               })}
               {blueprints.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                    No blueprints yet. Create one or import a zip.
+                  <td colSpan={9} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    No blueprints yet. Press New blueprint to start from scratch or from a saved
+                    cluster, or import a zip or JSON file you already have.
                   </td>
                 </tr>
               )}

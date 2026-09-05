@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
+import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
 import { cn } from "@/lib/utils";
 import type { ClusterConnection } from "@/repositories";
+import { ACTIVE_RUNS_POLL_MS, useActiveRunsStore } from "@/stores/useActiveRunsStore";
+import { useBlueprintsListStore } from "@/stores/useBlueprintsListStore";
 import { ENVIRONMENTS, newCluster, useClustersStore } from "@/stores/useClustersStore";
 import { applyTheme, storedTheme } from "@/stores/useUiStore";
 
@@ -58,6 +61,22 @@ function ClustersPage() {
   useEffect(() => {
     if (error) toast.error("Couldn't load clusters", { description: error });
   }, [error]);
+
+  // Which cluster is actually running something, and for whom. Without it this table showed a
+  // live cluster exactly like one that had never been booted, and a cluster you had navigated
+  // away from was reachable from nowhere.
+  const refreshRuns = useActiveRunsStore((s) => s.refresh);
+  const activeRuns = useActiveRunsStore((s) => s.runs);
+  const runFor = (clusterId: string) => activeRuns.find((r) => r.clusterId === clusterId);
+  const blueprints = useBlueprintsListStore((s) => s.blueprints);
+  const refreshBlueprints = useBlueprintsListStore((s) => s.refresh);
+  const blueprintNames = Object.fromEntries(blueprints.map((b) => [b.id, b.name]));
+  useEffect(() => {
+    void refreshBlueprints();
+    void refreshRuns();
+    const id = window.setInterval(() => void refreshRuns(), ACTIVE_RUNS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshRuns, refreshBlueprints]);
 
   return (
     <main className="min-h-screen bg-background">
@@ -216,6 +235,22 @@ function ClustersPage() {
                   {c.id === selectedId ? "Default target" : "Set as target"}
                 </label>
                 <div className="flex items-center gap-2">
+                  {runFor(c.id) && (
+                    <Link
+                      to="/runner/$blueprintId"
+                      params={{ blueprintId: runFor(c.id)!.blueprintId ?? "" }}
+                      title="A run Ivaldi started owns this cluster"
+                      className={cn(
+                        "rounded-sm px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+                        RUN_STATUS_CLASS[runFor(c.id)!.status],
+                      )}
+                    >
+                      {runFor(c.id)!.status}
+                      {blueprintNames[runFor(c.id)!.blueprintId ?? ""]
+                        ? ` · ${blueprintNames[runFor(c.id)!.blueprintId ?? ""]}`
+                        : ""}
+                    </Link>
+                  )}
                   <span
                     className={cn(
                       "rounded-sm px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",

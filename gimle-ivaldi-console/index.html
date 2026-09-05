@@ -9,6 +9,16 @@
       content="Design a local Gimlé cluster on a canvas, validate it live, export the exact YAML files Gimlé's tools consume."
     />
     <meta name="robots" content="noindex" />
+    <!-- Applies the saved theme before first paint, so a light-theme user does not see the dark
+         shell flash while the bundle loads and the store rehydrates. -->
+    <script>
+      try {
+        var t = localStorage.getItem("ivaldi.theme");
+        document.documentElement.classList.toggle("dark", t !== "light");
+      } catch (e) {
+        /* private mode or blocked storage: the dark default in the class attribute stands. */
+      }
+    </script>
   </head>
   <body>
     <div id="root">

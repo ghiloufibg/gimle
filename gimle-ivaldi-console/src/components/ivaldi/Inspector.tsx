@@ -1,6 +1,11 @@
-import { PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
+import { Link2Off, PanelRightClose, PanelRightOpen, Settings2, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import {
+  EDGE_LABELS,
+  isPlacedRole,
+  isTenantScoped,
+  isWorkload,
   KIND_LABELS,
   type AgentData,
   type Blueprint,
@@ -18,6 +23,7 @@ import {
   type TenantData,
   type WorkloadData,
 } from "@/lib/blueprint";
+import { effectiveMachine, effectiveTenant } from "@/lib/effective";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useUiStore } from "@/stores/useUiStore";
 import { useValidationStore } from "@/stores/useValidationStore";
@@ -33,8 +39,147 @@ import {
   NumberField,
   ProblemList,
   SelectField,
+  SuggestField,
   TextField,
 } from "./fields";
+
+/** Machine names and tenant ids currently on the canvas, for the pickers. */
+function machineOptions(bp: Blueprint): string[] {
+  return bp.nodes
+    .filter((n) => n.kind === "machine")
+    .map((n) => (n.data as MachineData).name)
+    .filter(Boolean);
+}
+
+function tenantOptions(bp: Blueprint): string[] {
+  return bp.nodes
+    .filter((n) => n.kind === "tenant")
+    .map((n) => (n.data as TenantData).id)
+    .filter(Boolean);
+}
+
+function workloadOptions(bp: Blueprint): string[] {
+  return bp.nodes
+    .filter((n) => isWorkload(n.kind))
+    .map((n) => (n.data as WorkloadData).name)
+    .filter(Boolean);
+}
+
+/** Machine field: a placedOn link is authoritative, so the box turns read-only. */
+function MachineField({
+  blueprint,
+  node,
+  problems,
+  onChange,
+}: {
+  blueprint: Blueprint;
+  node: BlueprintNode;
+  problems: Problem[];
+  onChange: (machine: string) => void;
+}) {
+  const effective = effectiveMachine(blueprint, node);
+  return (
+    <SuggestField
+      label="Machine"
+      value={effective.value}
+      options={machineOptions(blueprint)}
+      readOnly={effective.fromEdge}
+      onChange={onChange}
+      hint={
+        effective.fromEdge
+          ? "Set by the link on the canvas. Remove the link below to type it here."
+          : undefined
+      }
+      problems={problems}
+    />
+  );
+}
+
+/** Tenant field: a belongsTo link is authoritative, so the box turns read-only. */
+function TenantField({
+  blueprint,
+  node,
+  problems,
+  onChange,
+}: {
+  blueprint: Blueprint;
+  node: BlueprintNode;
+  problems: Problem[];
+  onChange: (tenantId: string) => void;
+}) {
+  const effective = effectiveTenant(blueprint, node);
+  return (
+    <SuggestField
+      label="Tenant id"
+      value={effective.value}
+      options={tenantOptions(blueprint)}
+      readOnly={effective.fromEdge}
+      onChange={onChange}
+      hint={
+        effective.fromEdge
+          ? "Set by the link on the canvas. Remove the link below to type it here."
+          : undefined
+      }
+      problems={problems}
+    />
+  );
+}
+
+/** Every link the selected node takes part in, with a way to cut it. */
+function LinksSection({ blueprint, node }: { blueprint: Blueprint; node: BlueprintNode }) {
+  const disconnect = useBlueprintStore((s) => s.disconnect);
+  const select = useBlueprintStore((s) => s.select);
+  const links = blueprint.edges.filter((e) => e.source === node.id || e.target === node.id);
+  if (links.length === 0)
+    return (
+      <div>
+        <div className="hud-label">Links</div>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          No links. Drag between two nodes on the canvas to make one.
+        </p>
+      </div>
+    );
+  const nameOf = (id: string) => {
+    const n = blueprint.nodes.find((x) => x.id === id);
+    if (!n) return id;
+    const d = n.data as unknown as Record<string, unknown>;
+    const named = [d.name, d.id, d.nodeId, d.key].find(
+      (v) => typeof v === "string" && v.trim() !== "",
+    ) as string | undefined;
+    return `${KIND_LABELS[n.kind]} ${named ?? ""}`.trim();
+  };
+  return (
+    <div>
+      <div className="hud-label">Links</div>
+      <ul className="mt-1 space-y-1">
+        {links.map((e) => {
+          const otherId = e.source === node.id ? e.target : e.source;
+          return (
+            <li
+              key={e.id}
+              className="flex items-center justify-between gap-2 rounded-sm border border-border bg-card px-2 py-1"
+            >
+              <button
+                onClick={() => select(otherId)}
+                className="min-w-0 text-left font-mono text-[10px] text-foreground hover:text-primary"
+              >
+                <span className="hud-label mr-1">{EDGE_LABELS[e.kind]}</span>
+                <span className="truncate">{nameOf(otherId)}</span>
+              </button>
+              <button
+                title="Remove this link"
+                onClick={() => disconnect(e.id)}
+                className="shrink-0 rounded-sm border border-border p-1 text-muted-foreground hover:border-destructive hover:text-destructive"
+              >
+                <Link2Off className="size-3" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 function pick(problems: Problem[], codes: string[]): Problem[] {
   return problems.filter((p) => codes.includes(p.code));
@@ -83,10 +228,12 @@ function BlueprintSettings({ blueprint }: { blueprint: Blueprint }) {
 }
 
 function WorkloadForm({
+  blueprint,
   node,
   problems,
   update,
 }: {
+  blueprint: Blueprint;
   node: BlueprintNode;
   problems: Problem[];
   update: (patch: Partial<NodeData>) => void;
@@ -101,11 +248,11 @@ function WorkloadForm({
         onChange={(name) => update({ name } as Partial<NodeData>)}
         problems={pick(problems, ["WORKLOAD_NAME_BLANK", "WORKLOAD_NAME_DUPLICATE"])}
       />
-      <TextField
-        label="Tenant id"
-        value={d.tenantId ?? ""}
+      <TenantField
+        blueprint={blueprint}
+        node={node}
         onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
-        problems={pick(problems, ["TENANT_UNKNOWN", "QUOTA_EXCEEDED"])}
+        problems={pick(problems, ["TENANT_UNKNOWN", "QUOTA_EXCEEDED", "QUOTA_NOT_POSITIVE"])}
       />
       <TextField
         label="Module name"
@@ -145,7 +292,11 @@ function WorkloadForm({
           label="Replicas"
           value={d.replicas}
           onChange={(replicas) => update({ replicas } as Partial<NodeData>)}
-          problems={pick(problems, ["REPLICAS_NEGATIVE", "ANTI_AFFINITY_SHORT"])}
+          problems={pick(problems, [
+            "REPLICAS_NEGATIVE",
+            "REPLICAS_FRACTIONAL",
+            "ANTI_AFFINITY_SHORT",
+          ])}
         />
       )}
       {kind !== "daemonSet" && (
@@ -339,7 +490,15 @@ function WorkloadForm({
   );
 }
 
-function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[] }) {
+function NodeForm({
+  blueprint,
+  node,
+  problems,
+}: {
+  blueprint: Blueprint;
+  node: BlueprintNode;
+  problems: Problem[];
+}) {
   const updateNode = useBlueprintStore((s) => s.updateNode);
   const update = (patch: Partial<NodeData>) => updateNode(node.id, patch);
 
@@ -367,9 +526,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as StoreData;
       return (
         <>
-          <TextField
-            label="Machine"
-            value={d.machine}
+          <MachineField
+            blueprint={blueprint}
+            node={node}
             onChange={(machine) => update({ machine } as Partial<NodeData>)}
             problems={pick(problems, ["UNKNOWN_MACHINE", "REPLICAS_COLOCATED"])}
           />
@@ -378,7 +537,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
               label="Raft port"
               value={d.raftPort}
               onChange={(raftPort) => update({ raftPort } as Partial<NodeData>)}
-              problems={pick(problems, ["PORT_CONFLICT"])}
+              problems={pick(problems, ["PORT_CONFLICT", "PORT_UNSET", "PORT_RANGE"])}
             />
             <NumberField
               label="Client port"
@@ -401,9 +560,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as RoleData;
       return (
         <>
-          <TextField
-            label="Machine"
-            value={d.machine}
+          <MachineField
+            blueprint={blueprint}
+            node={node}
             onChange={(machine) => update({ machine } as Partial<NodeData>)}
             problems={pick(problems, ["UNKNOWN_MACHINE", "REPLICAS_COLOCATED"])}
           />
@@ -411,7 +570,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
             label="Port"
             value={d.port}
             onChange={(port) => update({ port } as Partial<NodeData>)}
-            problems={pick(problems, ["PORT_CONFLICT"])}
+            problems={pick(problems, ["PORT_CONFLICT", "PORT_UNSET", "PORT_RANGE"])}
           />
           {node.kind === "fafnir" && (
             <TextField
@@ -432,9 +591,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as AgentData;
       return (
         <>
-          <TextField
-            label="Machine"
-            value={d.machine}
+          <MachineField
+            blueprint={blueprint}
+            node={node}
             onChange={(machine) => update({ machine } as Partial<NodeData>)}
             problems={pick(problems, ["UNKNOWN_MACHINE", "AGENTS_COLOCATED"])}
           />
@@ -442,12 +601,13 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
             label="Node id"
             value={d.nodeId}
             onChange={(nodeId) => update({ nodeId } as Partial<NodeData>)}
+            problems={pick(problems, ["AGENT_NODE_ID_BLANK"])}
           />
           <NumberField
             label="Gossip port"
             value={d.gossipPort}
             onChange={(gossipPort) => update({ gossipPort } as Partial<NodeData>)}
-            problems={pick(problems, ["PORT_CONFLICT"])}
+            problems={pick(problems, ["PORT_CONFLICT", "PORT_UNSET", "PORT_RANGE"])}
           />
           <ListField
             label="Labels"
@@ -472,7 +632,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
             onChange={(maxMemoryBytes) =>
               update({ quota: { ...d.quota, maxMemoryBytes } } as Partial<NodeData>)
             }
-            problems={pick(problems, ["QUOTA_EXCEEDED"])}
+            problems={pick(problems, ["QUOTA_EXCEEDED", "QUOTA_NOT_POSITIVE"])}
           />
           <div className="grid grid-cols-2 gap-2">
             <MillicoresField
@@ -481,7 +641,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
               onChange={(maxCpuMillicores) =>
                 update({ quota: { ...d.quota, maxCpuMillicores } } as Partial<NodeData>)
               }
-              problems={pick(problems, ["QUOTA_EXCEEDED"])}
+              problems={pick(problems, ["QUOTA_EXCEEDED", "QUOTA_NOT_POSITIVE"])}
             />
             <NumberField
               label="Max instances"
@@ -489,6 +649,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
               onChange={(maxInstances) =>
                 update({ quota: { ...d.quota, maxInstances } } as Partial<NodeData>)
               }
+              problems={pick(problems, ["QUOTA_EXCEEDED", "QUOTA_NOT_POSITIVE"])}
             />
           </div>
           <SelectField
@@ -509,9 +670,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
             value={d.name}
             onChange={(name) => update({ name } as Partial<NodeData>)}
           />
-          <TextField
-            label="Tenant id"
-            value={d.tenantId}
+          <TenantField
+            blueprint={blueprint}
+            node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN", "SERVICE_CROSS_TENANT"])}
           />
@@ -531,6 +692,7 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
           <ListField
             label="Deployment names"
             values={d.deploymentNames ?? []}
+            options={workloadOptions(blueprint)}
             onChange={(deploymentNames) => update({ deploymentNames } as Partial<NodeData>)}
             problems={pick(problems, ["SERVICE_TARGET_MISSING"])}
           />
@@ -546,21 +708,23 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
             value={d.name}
             onChange={(name) => update({ name } as Partial<NodeData>)}
           />
-          <TextField
-            label="Tenant id"
-            value={d.tenantId}
+          <TenantField
+            blueprint={blueprint}
+            node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
           />
           <ListField
             label="Deployment names"
             values={d.deploymentNames ?? []}
+            options={workloadOptions(blueprint)}
             onChange={(deploymentNames) => update({ deploymentNames } as Partial<NodeData>)}
             problems={pick(problems, ["POLICY_NO_DIRECTION"])}
           />
           <ListField
             label="Allowed caller tenants"
             values={d.allowedCallerTenantIds ?? []}
+            options={tenantOptions(blueprint)}
             onChange={(allowedCallerTenantIds) =>
               update({ allowedCallerTenantIds } as Partial<NodeData>)
             }
@@ -573,9 +737,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as ConfigEntryData;
       return (
         <>
-          <TextField
-            label="Tenant id"
-            value={d.tenantId}
+          <TenantField
+            blueprint={blueprint}
+            node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
           />
@@ -596,9 +760,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as SecretData;
       return (
         <>
-          <TextField
-            label="Tenant id"
-            value={d.tenantId}
+          <TenantField
+            blueprint={blueprint}
+            node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
           />
@@ -615,9 +779,9 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       const d = node.data as LimitRangeData;
       return (
         <>
-          <TextField
-            label="Tenant id"
-            value={d.tenantId}
+          <TenantField
+            blueprint={blueprint}
+            node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
           />
@@ -649,14 +813,29 @@ function NodeForm({ node, problems }: { node: BlueprintNode; problems: Problem[]
       );
     }
     default:
-      return <WorkloadForm node={node} problems={problems} update={update} />;
+      return <WorkloadForm blueprint={blueprint} node={node} problems={problems} update={update} />;
   }
 }
 
 export function Inspector({ blueprint }: { blueprint: Blueprint }) {
   const selectedId = useBlueprintStore((s) => s.selectedId);
   const removeNode = useBlueprintStore((s) => s.removeNode);
-  const width = 360;
+  const select = useBlueprintStore((s) => s.select);
+  const width = useUiStore((s) => s.inspectorWidth);
+  const setWidth = useUiStore((s) => s.setInspectorWidth);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => setWidth(window.innerWidth - e.clientX);
+    const onUp = () => setDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragging, setWidth]);
   const allProblems = useValidationStore((s) => s.problems);
   const node = blueprint.nodes.find((n) => n.id === selectedId);
   const problems = allProblems.filter((p) => p.nodeId === selectedId);
@@ -678,13 +857,27 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
 
   return (
     <aside
-      className="flex h-full shrink-0 flex-col border-l border-border bg-sidebar"
+      className="relative flex h-full shrink-0 flex-col border-l border-border bg-sidebar"
       style={{ width }}
     >
+      <div
+        onMouseDown={() => setDragging(true)}
+        title="Drag to resize"
+        className="absolute left-0 top-0 z-10 h-full w-1 cursor-ew-resize hover:bg-primary/40"
+      />
       <div className="flex items-center justify-between gap-2 border-b border-sidebar-border px-3 py-2">
         <span className="hud-label">{node ? KIND_LABELS[node.kind] : "Settings"}</span>
         <div className="flex items-center gap-2">
           {node && <span className="num text-[10px] text-muted-foreground">{node.id}</span>}
+          {node && (
+            <button
+              onClick={() => select(null)}
+              title="Blueprint settings"
+              className="rounded-sm border border-border p-1 text-muted-foreground hover:border-primary hover:text-foreground"
+            >
+              <Settings2 className="size-3.5" />
+            </button>
+          )}
           <button
             onClick={toggle}
             title="Hide settings"
@@ -704,8 +897,11 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
               </div>
             )}
             <NodeErrorBoundary resetKey={node.id}>
-              <NodeForm node={node} problems={problems} />
+              <NodeForm blueprint={blueprint} node={node} problems={problems} />
             </NodeErrorBoundary>
+            {(isPlacedRole(node.kind) || isTenantScoped(node.kind) || node.kind === "machine") && (
+              <LinksSection blueprint={blueprint} node={node} />
+            )}
           </>
         ) : (
           <BlueprintSettings blueprint={blueprint} />

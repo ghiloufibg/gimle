@@ -20,14 +20,20 @@ const HISTORY_LIMIT = 50;
 interface BlueprintState {
   blueprint: Blueprint | null;
   selectedId: string | null;
+  /** Every node currently selected on the canvas; selectedId is the primary one. */
+  selectedIds: string[];
+  selectedEdgeIds: string[];
   dirty: boolean;
   past: Blueprint[];
   future: Blueprint[];
   load: (id: string) => Promise<void>;
   select: (id: string | null) => void;
+  setSelection: (nodeIds: string[], edgeIds: string[]) => void;
   addNode: (kind: NodeKind, position: { x: number; y: number }) => BlueprintNode | null;
   updateNode: (id: string, patch: Partial<NodeData>) => void;
   removeNode: (id: string) => void;
+  removeNodes: (ids: string[]) => void;
+  removeEdges: (ids: string[]) => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
   connect: (source: string, target: string) => { ok: boolean; reason?: string };
   disconnect: (edgeId: string) => void;
@@ -64,17 +70,41 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
   return {
     blueprint: null,
     selectedId: null,
+    selectedIds: [],
+    selectedEdgeIds: [],
     dirty: false,
     past: [],
     future: [],
 
     load: async (id) => {
       const bp = (await blueprintsRepository.get(id)) ?? null;
-      set({ blueprint: bp, selectedId: null, dirty: false, past: [], future: [] });
+      set({
+        blueprint: bp,
+        selectedId: null,
+        selectedIds: [],
+        selectedEdgeIds: [],
+        dirty: false,
+        past: [],
+        future: [],
+      });
       revalidate(bp);
     },
 
-    select: (id) => set({ selectedId: id }),
+    select: (id) => set({ selectedId: id, selectedIds: id ? [id] : [], selectedEdgeIds: [] }),
+
+    setSelection: (nodeIds, edgeIds) => {
+      const state = get();
+      const same = (a: string[], b: string[]) =>
+        a.length === b.length && a.every((v, i) => v === b[i]);
+      // React Flow reports the selection on every render: only a real change
+      // may touch the store, otherwise the canvas loops.
+      if (same(state.selectedIds, nodeIds) && same(state.selectedEdgeIds, edgeIds)) return;
+      set({
+        selectedIds: nodeIds,
+        selectedEdgeIds: edgeIds,
+        selectedId: nodeIds.length === 1 ? nodeIds[0] : null,
+      });
+    },
 
     addNode: (kind, position) => {
       const bp = get().blueprint;
@@ -94,7 +124,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
         (node.data as { tenantId?: string }).tenantId = (tenants[0].data as { id: string }).id;
       }
       commit({ ...bp, nodes: [...bp.nodes, node], edges: [...bp.edges, ...edges] });
-      set({ selectedId: node.id });
+      set({ selectedId: node.id, selectedIds: [node.id], selectedEdgeIds: [] });
       return node;
     },
 
@@ -118,6 +148,27 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
         edges: bp.edges.filter((e) => e.source !== id && e.target !== id),
       });
       if (get().selectedId === id) set({ selectedId: null });
+      set({ selectedIds: get().selectedIds.filter((n) => n !== id) });
+    },
+
+    removeNodes: (ids) => {
+      const bp = get().blueprint;
+      if (!bp || ids.length === 0) return;
+      const doomed = new Set(ids);
+      commit({
+        ...bp,
+        nodes: bp.nodes.filter((n) => !doomed.has(n.id)),
+        edges: bp.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
+      });
+      set({ selectedId: null, selectedIds: [], selectedEdgeIds: [] });
+    },
+
+    removeEdges: (ids) => {
+      const bp = get().blueprint;
+      if (!bp || ids.length === 0) return;
+      const doomed = new Set(ids);
+      commit({ ...bp, edges: bp.edges.filter((e) => !doomed.has(e.id)) });
+      set({ selectedEdgeIds: [] });
     },
 
     moveNode: (id, position) => {
@@ -177,7 +228,15 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
     },
 
     setBlueprint: (blueprint) => {
-      set({ blueprint, selectedId: null, dirty: true, past: [], future: [] });
+      set({
+        blueprint,
+        selectedId: null,
+        selectedIds: [],
+        selectedEdgeIds: [],
+        dirty: true,
+        past: [],
+        future: [],
+      });
       revalidate(blueprint);
     },
 

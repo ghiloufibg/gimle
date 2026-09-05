@@ -6,20 +6,33 @@ import { cn } from "@/lib/utils";
 import { useClustersStore } from "@/stores/useClustersStore";
 import { useRunStore } from "@/stores/useRunStore";
 
-/** Target-cluster selector shown wherever a blueprint can be run. */
-export function ClusterPicker({ className }: { className?: string }) {
-  const { clusters, selectedId, refresh, select } = useClustersStore();
+/**
+ * Target-cluster selector shown wherever a blueprint can be run.
+ *
+ * <p>When it is given a blueprint, the choice belongs to that blueprint: picking a cluster on one
+ * blueprint's runner no longer silently repoints every other one at it.
+ */
+export function ClusterPicker({
+  blueprintId,
+  className,
+}: {
+  blueprintId?: string;
+  className?: string;
+}) {
+  const { clusters, selectedId, refresh, select, selectedFor, selectFor } = useClustersStore();
   const cluster = useRunStore((s) => s.cluster);
   const setCluster = useRunStore((s) => s.setCluster);
+  const target = blueprintId ? selectedFor(blueprintId) : null;
+  const currentId = (blueprintId ? target?.id : selectedId) ?? selectedId;
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
-    const next = clusters.find((c) => c.id === selectedId) ?? null;
+    const next = clusters.find((c) => c.id === currentId) ?? null;
     if (next?.id !== cluster?.id) setCluster(next);
-  }, [clusters, selectedId, cluster?.id, setCluster]);
+  }, [clusters, currentId, cluster?.id, setCluster]);
 
   return (
     <div className={cn("space-y-1", className)}>
@@ -41,8 +54,10 @@ export function ClusterPicker({ className }: { className?: string }) {
         </p>
       ) : (
         <select
-          value={selectedId ?? ""}
-          onChange={(e) => select(e.target.value)}
+          value={currentId ?? ""}
+          onChange={(e) =>
+            blueprintId ? selectFor(blueprintId, e.target.value) : select(e.target.value)
+          }
           className="h-7 w-full rounded-sm border border-border bg-card px-2 font-mono text-[11px] text-foreground"
         >
           {clusters.map((c) => (

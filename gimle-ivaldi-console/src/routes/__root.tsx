@@ -12,7 +12,8 @@ function NotFoundComponent() {
         <div className="hud-label">404</div>
         <h1 className="mt-2 text-xl font-semibold text-foreground">Route not found</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Ivaldi has a blueprint list and a designer, nothing else.
+          Ivaldi has four screens: the blueprint list, the designer, the cluster list and the
+          runner. Nothing lives at this address.
         </p>
         <div className="mt-6">
           <Link

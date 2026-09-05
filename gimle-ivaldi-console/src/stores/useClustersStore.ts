@@ -10,10 +10,29 @@ import {
 } from "@/repositories";
 
 const SELECTED_KEY = "ivaldi.clusters.selected";
+/**
+ * Which cluster each blueprint targets, kept beside the global default rather than replacing it:
+ * one selection shared by every blueprint meant choosing a target on one changed it for all of
+ * them, so pressing Run on a second blueprint could submit its topology to the first one's
+ * cluster with nothing on screen tying the two together. Local to this browser, not part of the
+ * blueprint document -- which cluster a design is aimed at is an operator's choice, not something
+ * exported in a zip.
+ */
+const PER_BLUEPRINT_KEY = "ivaldi.clusters.byBlueprint";
 
 function storedSelection(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(SELECTED_KEY);
+}
+
+function storedTargets(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(PER_BLUEPRINT_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
 }
 
 export function newCluster(name: string): ClusterConnection {
@@ -45,6 +64,9 @@ interface ClustersState {
   remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
   selected: () => ClusterConnection | null;
+  /** The cluster this blueprint targets, or the global default when it has never chosen one. */
+  selectedFor: (blueprintId: string) => ClusterConnection | null;
+  selectFor: (blueprintId: string, clusterId: string) => void;
   connect: (id: string) => Promise<void>;
 }
 
@@ -109,6 +131,21 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
   },
 
   selected: () => get().clusters.find((c) => c.id === get().selectedId) ?? null,
+
+  selectedFor: (blueprintId) => {
+    const own = storedTargets()[blueprintId];
+    const found = own ? get().clusters.find((c) => c.id === own) : undefined;
+    return found ?? get().selected();
+  },
+
+  selectFor: (blueprintId, clusterId) => {
+    if (typeof window !== "undefined") {
+      const targets = { ...storedTargets(), [blueprintId]: clusterId };
+      window.localStorage.setItem(PER_BLUEPRINT_KEY, JSON.stringify(targets));
+    }
+    // The most recent choice also becomes the default a blueprint with none of its own inherits.
+    get().select(clusterId);
+  },
 
   connect: async (id) => {
     const cluster = get().clusters.find((c) => c.id === id);

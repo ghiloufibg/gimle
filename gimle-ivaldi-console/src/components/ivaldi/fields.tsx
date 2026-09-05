@@ -84,6 +84,45 @@ export function TextField({
   );
 }
 
+export function SuggestField({
+  label,
+  value,
+  options,
+  onChange,
+  problems,
+  hint,
+  placeholder,
+  readOnly,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+  problems?: Problem[];
+  hint?: string;
+  placeholder?: string;
+  readOnly?: boolean;
+}) {
+  const listId = `suggest-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  return (
+    <Field label={label} problems={problems} hint={hint}>
+      <input
+        className={cn(inputClass, readOnly && "text-muted-foreground")}
+        value={value}
+        list={listId}
+        readOnly={readOnly}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <datalist id={listId}>
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </Field>
+  );
+}
+
 export function NumberField({
   label,
   value,
@@ -163,16 +202,20 @@ export function ListField({
   onChange,
   placeholder,
   problems,
+  options,
 }: {
   label: string;
   values: string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
   problems?: Problem[];
+  /** Known values offered as suggestions; typing anything else stays allowed. */
+  options?: string[];
 }) {
   const [draft, setDraft] = useState("");
+  const [note, setNote] = useState<string | null>(null);
   return (
-    <Field label={label} problems={problems}>
+    <Field label={label} problems={problems} hint={note ?? undefined}>
       <div className="flex flex-wrap gap-1">
         {values.map((v) => (
           <span
@@ -193,16 +236,30 @@ export function ListField({
       <input
         className={inputClass}
         value={draft}
+        list={options ? `list-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined}
         placeholder={placeholder ?? "Add and press Enter"}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && draft.trim()) {
             e.preventDefault();
-            if (!values.includes(draft.trim())) onChange([...values, draft.trim()]);
+            const entry = draft.trim();
+            if (values.includes(entry)) {
+              setNote(`"${entry}" is already in this list.`);
+              return;
+            }
+            setNote(null);
+            onChange([...values, entry]);
             setDraft("");
           }
         }}
       />
+      {options && (
+        <datalist id={`list-${label.replace(/\s+/g, "-").toLowerCase()}`}>
+          {options.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      )}
     </Field>
   );
 }

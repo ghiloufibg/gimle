@@ -4,6 +4,7 @@ import { DEFAULT_PORTS } from "@/lib/ports";
 import { applyLogLine, finalizeSteps, initialSteps, markCurrentPhase } from "@/lib/runPhases";
 
 import type {
+  ActiveRun,
   CreateRunRequest,
   RunEndpoint,
   RunLogLine,
@@ -22,6 +23,7 @@ const POLL_INTERVAL_MS = 1200;
 interface RawRunSnapshot {
   id?: string | null;
   clusterId?: string | null;
+  blueprintId?: string | null;
   status?: string;
   rebooted?: boolean;
   error?: string | null;
@@ -178,9 +180,12 @@ export class HttpRunnerClient implements RunnerClient {
    * rebuilt from the log by the subscription that follows, so an attached run's timeline fills in
    * from its first poll -- see lib/runPhases.ts.
    */
-  async currentRun(): Promise<RunSnapshot | null> {
+  async currentRun(blueprintId?: string): Promise<RunSnapshot | null> {
     try {
-      const res = await fetch(this.url("/api/runs/current"), {
+      const path = blueprintId
+        ? `/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`
+        : "/api/runs/current";
+      const res = await fetch(this.url(path), {
         headers: { accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -190,6 +195,25 @@ export class HttpRunnerClient implements RunnerClient {
       return this.toSnapshot(raw, initialSteps(), endpoints);
     } catch {
       return null;
+    }
+  }
+
+  async listRuns(): Promise<ActiveRun[]> {
+    try {
+      const res = await fetch(this.url("/api/runs"), { headers: { accept: "application/json" } });
+      if (!res.ok) return [];
+      const raw = (await res.json()) as RawRunSnapshot[];
+      return raw
+        .filter((r) => r.id && mapStatus(r.status) !== "idle")
+        .map((r) => ({
+          runId: r.id as string,
+          clusterId: r.clusterId ?? null,
+          blueprintId: r.blueprintId ?? null,
+          status: mapStatus(r.status),
+        }));
+    } catch {
+      // A backend that cannot be reached holds no runs as far as any caller here is concerned.
+      return [];
     }
   }
 
