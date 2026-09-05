@@ -1,5 +1,6 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -77,6 +78,7 @@ public final class ReplicaCountReconciler {
 
   private final StoreReader store;
   private final Duration nodeDarkTimeout;
+  private final NodeFreshness freshness;
   private final Duration placementGracePeriod;
   private final MutationSink mutations;
   private final Clock clock;
@@ -120,6 +122,7 @@ public final class ReplicaCountReconciler {
       Clock clock) {
     this.store = store;
     this.nodeDarkTimeout = nodeDarkTimeout;
+    this.freshness = new NodeFreshness(nodeDarkTimeout);
     this.placementGracePeriod = placementGracePeriod;
     this.mutations = mutations;
     this.clock = clock;
@@ -289,17 +292,22 @@ public final class ReplicaCountReconciler {
     return true;
   }
 
+  /**
+   * Absence is not a disconfirmation while the store has only just started collecting heartbeats:
+   * an instance whose node genuinely holds it would look exactly as unconfirmed as one that is
+   * really gone, and treating the whole cluster that way for the moments after a store election
+   * would release every assignment at once.
+   */
   private boolean isConfirmedByItsNode(InstanceAssignment assignment, Instant now) {
-    return store
-        .getNodeHeartbeat(assignment.nodeId())
-        .filter(observed -> !nodeIsDark(observed, now))
+    Optional<ObservedHeartbeat> observed = store.getNodeHeartbeat(assignment.nodeId());
+    boolean registered = store.getNodeRegistration(assignment.nodeId()).isPresent();
+    if (freshness.hasGoneDark(registered, observed, store.nodeObservationWindowStart(), now)) {
+      return false;
+    }
+    return observed
         .map(ObservedHeartbeat::heartbeat)
         .map(heartbeat -> mentions(heartbeat, assignment))
-        .orElse(false);
-  }
-
-  private boolean nodeIsDark(ObservedHeartbeat observed, Instant now) {
-    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
+        .orElse(true);
   }
 
   private static boolean mentions(NodeHeartbeat heartbeat, InstanceAssignment assignment) {

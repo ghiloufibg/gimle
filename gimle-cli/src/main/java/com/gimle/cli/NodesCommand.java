@@ -2,9 +2,6 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,12 +13,6 @@ import java.util.Set;
  * uncordon <nodeId>}, {@code taint <nodeId> <tenantId>}, {@code untaint <nodeId> <tenantId>}.
  */
 public final class NodesCommand {
-
-  /**
-   * Matches the console's own staleness threshold ({@code isStale}'s default in {@code
-   * gimle-console/src/lib/format.ts}), so "healthy"/"stale" agrees between the two surfaces.
-   */
-  private static final long STALE_AFTER_SECONDS = 30;
 
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
@@ -126,7 +117,7 @@ public final class NodesCommand {
       row.put("tiers", String.join(",", supportedTiers(node)));
       row.put("cordoned", node.getOrDefault("cordoned", false));
       row.put("taints", String.join(",", taints(node)));
-      row.put("status", statusOf(node.get("lastHeartbeatAt")));
+      row.put("status", statusOf(node.get("status")));
       row.put("lastHeartbeatAt", node.getOrDefault("lastHeartbeatAt", "-"));
 
       Object rawCapacity = node.get("capacity");
@@ -161,7 +152,7 @@ public final class NodesCommand {
     List<Map<String, Object>> rows = new ArrayList<>();
     for (Map<String, Object> node : nodes) {
       Map<String, Object> row = new LinkedHashMap<>(node);
-      row.put("status", statusOf(node.get("lastHeartbeatAt")));
+      row.put("status", statusOf(node.get("status")));
       rows.add(row);
     }
     return rows;
@@ -194,16 +185,14 @@ public final class NodesCommand {
     return value instanceof Number n ? n.longValue() : 0L;
   }
 
-  private static String statusOf(Object lastHeartbeatAt) {
-    if (!(lastHeartbeatAt instanceof String iso)) {
-      return "UNKNOWN";
-    }
-    try {
-      Instant heartbeat = Instant.parse(iso);
-      boolean stale = Duration.between(heartbeat, Instant.now()).getSeconds() > STALE_AFTER_SECONDS;
-      return stale ? "STALE" : "HEALTHY";
-    } catch (DateTimeParseException e) {
-      return "UNKNOWN";
-    }
+  /**
+   * Reported by the control plane, not derived here from the heartbeat timestamp. Only the control
+   * plane knows how long the store has actually been in a position to hear a heartbeat, so only it
+   * can tell a node that has gone quiet from one whose heartbeat was cleared by a store election a
+   * moment ago -- and deriving it here also meant carrying a second copy of the staleness threshold
+   * that could disagree with the platform's own.
+   */
+  private static String statusOf(Object status) {
+    return status instanceof String s && !s.isBlank() ? s : "UNKNOWN";
   }
 }

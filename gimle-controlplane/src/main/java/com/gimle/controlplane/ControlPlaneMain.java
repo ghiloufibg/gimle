@@ -8,6 +8,7 @@ import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.reconcile.DaemonSetReconciler;
 import com.gimle.controlplane.reconcile.DeploymentReconciler;
@@ -76,7 +77,7 @@ public final class ControlPlaneMain {
   private static final Logger log = LoggerFactory.getLogger(ControlPlaneMain.class);
 
   // Heartbeats every 5s; a node is considered dark after 3 missed ones.
-  private static final Duration NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
+  private static final Duration NODE_DARK_TIMEOUT = NodeFreshness.DEFAULT_STALE_AFTER;
   private static final Duration RECONCILE_INTERVAL = Duration.ofSeconds(2);
   private static final String RECONCILER_LEASE_NAME = "reconciler-leader";
   // Comfortably longer than RECONCILE_INTERVAL so a brief store hiccup doesn't cost this replica

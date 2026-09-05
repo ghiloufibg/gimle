@@ -35,7 +35,7 @@ describe("MockNodesRepository", () => {
     const everything = await repo.fetchPage({ cursor: null, pageSize: 10000 });
     const summary = await repo.fetchSummary();
     expect(summary.total).toBe(everything.items.length);
-    expect(summary.stale).toBe(everything.items.filter((n) => isStale(n.lastHeartbeatAt)).length);
+    expect(summary.stale).toBe(everything.items.filter((n) => isStale(n.status)).length);
     expect(summary.recent).toEqual(everything.items.slice(0, 8));
   });
 });

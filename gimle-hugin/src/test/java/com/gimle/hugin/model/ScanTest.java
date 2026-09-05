@@ -80,6 +80,7 @@ class ScanTest {
             1_000L,
             8_000L,
             9,
+            "HEALTHY",
             Optional.of(NOW),
             List.of(),
             List.of(),
@@ -385,7 +386,18 @@ class ScanTest {
   private static NodeRow node(
       final String nodeId, final boolean cordoned, final Optional<Instant> heartbeat) {
     return new NodeRow(
-        nodeId, cordoned, 100L, 4000L, 100L, 8000L, 1, heartbeat, List.of(), List.of(), List.of());
+        nodeId,
+        cordoned,
+        100L,
+        4000L,
+        100L,
+        8000L,
+        1,
+        heartbeat.isPresent() ? "HEALTHY" : "UNKNOWN",
+        heartbeat,
+        List.of(),
+        List.of(),
+        List.of());
   }
 
   private static InstanceRow instance(

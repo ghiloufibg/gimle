@@ -11,6 +11,7 @@ import { requestJson, requestOk } from "./apiClient";
 interface RawNode {
   nodeId: string;
   capabilities: { supportedTiers: Node["capabilities"]["supportedTiers"] };
+  status?: Node["status"];
   lastHeartbeatAt?: string | null;
   capacity?: Node["capacity"];
   cordoned?: boolean;
@@ -27,6 +28,7 @@ const NO_CAPACITY: Node["capacity"] = {
 function mapNode(raw: RawNode): Node {
   return {
     ...raw,
+    status: raw.status ?? "UNKNOWN",
     lastHeartbeatAt: raw.lastHeartbeatAt ?? null,
     capacity: raw.capacity ?? NO_CAPACITY,
     cordoned: raw.cordoned ?? false,
@@ -74,7 +76,7 @@ export class HttpNodesRepository implements NodesRepository {
     const all = await this.all(false);
     return {
       total: all.length,
-      stale: all.filter((n) => isStale(n.lastHeartbeatAt)).length,
+      stale: all.filter((n) => isStale(n.status)).length,
       recent: all.slice(0, 8),
     };
   }

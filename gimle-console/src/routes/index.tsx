@@ -206,7 +206,7 @@ function Overview() {
         >
           <div className="divide-y divide-primary/5">
             {s.recentNodes.map((n) => {
-              const stale = isStale(n.lastHeartbeatAt);
+              const stale = isStale(n.status);
               const load = Math.min(
                 100,
                 Math.round(

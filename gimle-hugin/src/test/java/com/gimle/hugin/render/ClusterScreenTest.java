@@ -511,6 +511,7 @@ class ClusterScreenTest {
         assignedMemoryGib * 1024L * 1024L * 1024L,
         totalMemoryGib * 1024L * 1024L * 1024L,
         2,
+        heartbeatAgeSeconds > 30 ? "STALE" : "HEALTHY",
         Optional.of(NOW.minusSeconds(heartbeatAgeSeconds)),
         List.of("TIER_1", "TIER_2"),
         List.of("zone=eu-west"),

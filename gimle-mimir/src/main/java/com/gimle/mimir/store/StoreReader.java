@@ -198,6 +198,13 @@ public interface StoreReader {
    */
   Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId);
 
+  /**
+   * Since when {@link #getNodeHeartbeat} has been able to answer at all -- leader-local and
+   * leader-routed for the same reason it is. A caller deciding whether a node has gone dark needs
+   * this to tell "silent for a minute" from "the store only started listening a second ago".
+   */
+  Instant nodeObservationWindowStart();
+
   Optional<ReconcilerInstanceState> getReconcilerInstanceState(
       Optional<String> tenantId, String deploymentName, int instanceIndex);
 

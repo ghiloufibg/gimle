@@ -108,6 +108,14 @@ public final class StateStore implements StoreReader {
   private final Map<String, String> statefulSetIndexNodes = new ConcurrentHashMap<>();
   private final Map<String, NodeRegistration> nodeRegistrations = new ConcurrentHashMap<>();
   private final Map<String, ObservedHeartbeat> nodeHeartbeats = new ConcurrentHashMap<>();
+
+  // When this store started collecting heartbeats into the map above. Heartbeats are leader-local
+  // and never replicated, so a replica that has just become leader holds an empty map even though
+  // every node in the cluster is alive and reporting normally -- "no heartbeat recorded" means
+  // "nobody has told me yet", which is indistinguishable from "the node is dead" unless the reader
+  // also knows how long this store has actually been in a position to hear one. Readers get that
+  // window start alongside the heartbeat and hold their verdict until it has had time to fill.
+  private volatile Instant nodeObservationWindowStart = Instant.EPOCH;
   private final Map<String, LeaseState> leases = new ConcurrentHashMap<>();
   // The instanceIndices currently mid-rollout for a Deployment, if any -- one entry per index
   // actively being replaced, sized by the deployment's own effective maxUnavailable (small,
@@ -230,6 +238,7 @@ public final class StateStore implements StoreReader {
    */
   public StateStore(Clock clock) {
     this.clock = clock;
+    this.nodeObservationWindowStart = clock.instant();
   }
 
   // ---- deployments ----
@@ -886,6 +895,27 @@ public final class StateStore implements StoreReader {
   /** See {@link #putNodeHeartbeat}'s own javadoc for why this is leader-local. */
   public Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId) {
     return Optional.ofNullable(nodeHeartbeats.get(nodeId));
+  }
+
+  /**
+   * Starts a fresh heartbeat-observation window: drops every heartbeat currently held and stamps
+   * "collecting since now". Called when this store becomes the one nodes report to, which is the
+   * only moment the map's contents change meaning -- entries collected while some other replica was
+   * authoritative describe a window this store was not listening to, and keeping them would answer
+   * a freshness question with an observation nobody made.
+   */
+  public void beginNodeObservationWindow() {
+    nodeHeartbeats.clear();
+    nodeObservationWindowStart = clock.instant();
+  }
+
+  /**
+   * Since when {@link #getNodeHeartbeat} has been able to answer at all. A node absent from the map
+   * has only been silent for as long as this window is old, however long ago its last real
+   * heartbeat was -- so a reader must measure absence from here, not from the epoch.
+   */
+  public Instant nodeObservationWindowStart() {
+    return nodeObservationWindowStart;
   }
 
   public List<ObservedHeartbeat> listNodeHeartbeats() {

@@ -64,7 +64,18 @@ class NodeScreenTest {
   void a_node_that_has_never_reported_capacity_says_so_instead_of_drawing_empty_gauges() {
     NodeRow never =
         new NodeRow(
-            "node-new", false, 0, 0, 0, 0, 0, Optional.empty(), List.of(), List.of(), List.of());
+            "node-new",
+            false,
+            0,
+            0,
+            0,
+            0,
+            0,
+            "UNKNOWN",
+            Optional.empty(),
+            List.of(),
+            List.of(),
+            List.of());
 
     List<String> lines = render(never, snapshot(), new Viewport(120, 30));
 
@@ -120,6 +131,7 @@ class NodeScreenTest {
         2L * 1024L * 1024L * 1024L,
         8L * 1024L * 1024L * 1024L,
         1,
+        "HEALTHY",
         Optional.of(NOW.minusSeconds(2)),
         List.of("TIER_1", "TIER_2"),
         List.of("zone=eu-west"),

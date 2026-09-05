@@ -174,6 +174,14 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
+  @Override
+  public Instant nodeObservationWindowStart() {
+    StoreRpc.InstantResult r =
+        (StoreRpc.InstantResult)
+            sendLeaderOnly("nodeObservationWindowStart", new StoreRpc.GetNodeObservationWindow());
+    return Instant.ofEpochMilli(r.epochMilli());
+  }
+
   /**
    * A full-cluster-state backup, taken from the current leader (see {@link StoreRpc.GetSnapshot}'s
    * own javadoc for why). The returned bytes are {@code RaftCodec#encodeSnapshot}'s own

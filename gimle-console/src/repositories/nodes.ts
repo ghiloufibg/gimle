@@ -29,7 +29,7 @@ export class MockNodesRepository implements NodesRepository {
   async fetchSummary() {
     return delay<NodesSummary>({
       total: nodes.length,
-      stale: nodes.filter((n) => isStale(n.lastHeartbeatAt)).length,
+      stale: nodes.filter((n) => isStale(n.status)).length,
       recent: nodes.slice(0, 8),
     });
   }

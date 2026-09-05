@@ -28,7 +28,7 @@ describe("HttpNodesRepository", () => {
     const page = await repo.fetchPage({ cursor: null, pageSize: 10 });
 
     expect(page.items[0].lastHeartbeatAt).toBeNull();
-    expect(isStale(page.items[0].lastHeartbeatAt)).toBe(true);
+    expect(isStale(page.items[0].status)).toBe(true);
   });
 
   it("defaults capacity to zeroed values when the wire response omits it", async () => {

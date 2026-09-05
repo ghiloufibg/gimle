@@ -4,10 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
+import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -171,6 +174,79 @@ class ReplicaCountReconcilerTest {
     clock.advance(GRACE_PERIOD.minusSeconds(1));
     reconciler.reconcileOnce();
     assertTrue(hasAssignment(store, "orders-service", 0), "still within the grace period");
+  }
+
+  /**
+   * The store holds heartbeats only on whichever replica is currently leader, and never replicates
+   * them, so leadership moving leaves the new leader with none for any node -- while the node
+   * registrations, which are replicated, are all still there. Read naively that says every
+   * registered node in the cluster went dark at the same instant, and this reconciler would release
+   * every assignment in the cluster over it. It must instead wait for the reports it now knows are
+   * coming.
+   */
+  @Test
+  void assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change() {
+    TestClock clock = TestClock.startingNow();
+    StateStore store = new StateStore(clock);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a", new NodeCapabilities(Set.of(IsolationTier.TIER_1), Set.of())));
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1000, 0, 1000, 0),
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
+
+    ReplicaCountReconciler reconciler =
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
+    reconciler.reconcileOnce();
+    assertTrue(hasAssignment(store, "orders-service", 0));
+
+    store.beginNodeObservationWindow(); // leadership moves here: every heartbeat is gone
+    clock.advance(Duration.ofSeconds(1));
+    reconciler.reconcileOnce(); // would start the removal grace period if this read as "gone"
+    clock.advance(GRACE_PERIOD.plusSeconds(1));
+    reconciler.reconcileOnce(); // and would act on it here
+
+    assertTrue(
+        hasAssignment(store, "orders-service", 0),
+        "an emptied heartbeat map is the store not having heard yet, not the node being gone");
+  }
+
+  /**
+   * The grace window is bounded: once it has had time to fill and the node still has not reported,
+   * the silence is the node's own and its assignments are released as before.
+   */
+  @Test
+  void an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill() {
+    TestClock clock = TestClock.startingNow();
+    StateStore store = new StateStore(clock);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a", new NodeCapabilities(Set.of(IsolationTier.TIER_1), Set.of())));
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            "node-a",
+            new ResourceUsageSnapshot(1000, 0, 1000, 0),
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
+
+    ReplicaCountReconciler reconciler =
+        new ReplicaCountReconciler(store, NODE_DARK_TIMEOUT, GRACE_PERIOD, clock);
+    reconciler.reconcileOnce();
+
+    store.beginNodeObservationWindow();
+    clock.advance(NODE_DARK_TIMEOUT.multipliedBy(3));
+    reconciler.reconcileOnce(); // past the window's grace: starts the removal grace period
+    clock.advance(GRACE_PERIOD.plusSeconds(1));
+    reconciler.reconcileOnce();
+
+    assertFalse(hasAssignment(store, "orders-service", 0));
   }
 
   @Test

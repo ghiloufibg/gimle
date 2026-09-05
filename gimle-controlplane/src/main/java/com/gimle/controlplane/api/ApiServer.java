@@ -36,6 +36,7 @@ import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyPatch;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyWriteResult;
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
@@ -234,6 +235,7 @@ public final class ApiServer implements AutoCloseable {
       new ResourceQuota(32L * 1024 * 1024 * 1024, 16_000, 500);
 
   private final StoreClient storeClient;
+  private final NodeFreshness nodeFreshness = NodeFreshness.standard();
   // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
   // than taking a constructor parameter -- CronJobReconciler is genuinely stateless beyond that,
   // so a fresh materialization decision per /cronjobs/{name}/trigger call needs no shared instance
@@ -5196,7 +5198,16 @@ public final class ApiServer implements AutoCloseable {
     return map;
   }
 
-  /** Every registered node, with its capabilities and last-heartbeat time if it's ever sent one. */
+  /**
+   * Every registered node, with its capabilities, its last-heartbeat time if it's ever sent one,
+   * and the platform's own verdict on that node's freshness.
+   *
+   * <p>The verdict is computed here rather than left to each client to derive from {@code
+   * lastHeartbeatAt}: deriving it needs the store's observation window too, which no client has,
+   * and every client that tried ended up carrying its own copy of the staleness threshold and
+   * reporting a node as stale whenever a store election had merely cleared the heartbeat it was
+   * reading.
+   */
   private void handleNodesList(HttpExchange exchange) {
     try {
       if (!requireAuthorized(exchange, ResourceKind.NODE, Verb.READ, Optional.empty())) {
@@ -5207,6 +5218,8 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       List<Map<String, Object>> nodes = new ArrayList<>();
+      Instant now = Instant.now();
+      Instant observingSince = storeClient.nodeObservationWindowStart();
       for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("nodeId", registration.nodeId());
@@ -5219,13 +5232,13 @@ public final class ApiServer implements AutoCloseable {
         node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
         node.put(
             "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
-        storeClient
-            .getNodeHeartbeat(registration.nodeId())
-            .ifPresent(
-                observed -> {
-                  node.put("lastHeartbeatAt", observed.receivedAt().toString());
-                  node.put("capacity", capacityToJson(observed.heartbeat().capacity()));
-                });
+        Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
+        node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
+        observed.ifPresent(
+            heartbeat -> {
+              node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
+              node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
+            });
         nodes.add(node);
       }
       respondJson(exchange, 200, nodes);

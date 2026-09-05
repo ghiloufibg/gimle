@@ -191,7 +191,7 @@ export function OverviewSignal() {
           </header>
           <ul className="divide-y divide-border">
             {s.recentNodes.map((n) => {
-              const stale = isStale(n.lastHeartbeatAt);
+              const stale = isStale(n.status);
               const load = Math.min(
                 100,
                 Math.round(

@@ -128,6 +128,7 @@ public sealed interface StoreRpc {
           ListRollingIndices,
           ListSurgeIndices,
           GetNodeHeartbeat,
+          GetNodeObservationWindow,
           GetSnapshot,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
@@ -250,6 +251,14 @@ public sealed interface StoreRpc {
    * follower's answer would be flatly wrong rather than merely behind.
    */
   record GetNodeHeartbeat(String nodeId) implements Request {}
+
+  /**
+   * Leader-routed for the identical reason {@link GetNodeHeartbeat} is: it reports since when
+   * *this* leader has been collecting heartbeats, which is what lets a caller read an absent
+   * heartbeat as "not heard yet" rather than "node is dead" for the first moments after leadership
+   * moves.
+   */
+  record GetNodeObservationWindow() implements Request {}
 
   /**
    * A full-state snapshot, taken from the current leader specifically so a caller backing up the

@@ -135,6 +135,7 @@ class ScanScreenTest {
         10L,
         8000L,
         1,
+        "HEALTHY",
         Optional.of(NOW),
         List.of(),
         List.of(),

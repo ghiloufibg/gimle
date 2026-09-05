@@ -113,6 +113,7 @@ public final class SnapshotReader {
               number(capacity.get("assignedMemoryBytes")),
               number(capacity.get("totalMemoryBytes")),
               instancesPerNode.getOrDefault(nodeId, 0),
+              string(node.get("status")),
               instant(node.get("lastHeartbeatAt")),
               strings(object(node.get("capabilities")).get("supportedTiers")),
               strings(object(node.get("capabilities")).get("labels")),

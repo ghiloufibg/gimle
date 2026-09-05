@@ -134,6 +134,7 @@ class TenantScopeTest {
         0L,
         0L,
         0,
+        "HEALTHY",
         Optional.of(Instant.EPOCH),
         List.of(),
         List.of(),

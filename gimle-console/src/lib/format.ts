@@ -1,3 +1,5 @@
+import type { NodeStatus } from "@/types";
+
 export function fmtBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   const units = ["KiB", "MiB", "GiB", "TiB"];
@@ -28,7 +30,11 @@ export function fmtRelativeTime(iso: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export function isStale(iso: string | null, thresholdSec = 30): boolean {
-  if (!iso) return true;
-  return Date.now() - new Date(iso).getTime() > thresholdSec * 1000;
+/**
+ * Whether a node's own reported status is one the operator should be warned about. `PENDING` is
+ * deliberately not: it means the control plane has only just started listening, so showing it as a
+ * problem would light the whole cluster up red every time a store election happens.
+ */
+export function isStale(status: NodeStatus): boolean {
+  return status === "STALE" || status === "UNKNOWN";
 }

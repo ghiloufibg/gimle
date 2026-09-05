@@ -94,6 +94,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_EFFECTIVE_REPLICAS = 20;
   private static final byte TAG_LIST_ROLLING_INDICES = 21;
   private static final byte TAG_GET_NODE_HEARTBEAT = 22;
+  private static final byte TAG_GET_NODE_OBSERVATION_WINDOW = 93;
   private static final byte TAG_GET_RECONCILER_INSTANCE_STATE = 43;
   private static final byte TAG_LIST_RECONCILER_INSTANCE_STATES = 45;
   private static final byte TAG_IS_NODE_CORDONED = 47;
@@ -510,6 +511,7 @@ public final class StoreCodec {
           out.writeByte(TAG_GET_NODE_HEARTBEAT);
           out.writeUTF(v.nodeId());
         }
+        case StoreRpc.GetNodeObservationWindow v -> out.writeByte(TAG_GET_NODE_OBSERVATION_WINDOW);
         case StoreRpc.GetSnapshot v -> out.writeByte(TAG_GET_SNAPSHOT);
         case StoreRpc.GetAuditTrailStatus v -> out.writeByte(TAG_GET_AUDIT_TRAIL_STATUS);
         case StoreRpc.GetReconcilerInstanceState v -> {
@@ -1153,6 +1155,7 @@ public final class StoreCodec {
         case TAG_LIST_SURGE_INDICES ->
             new StoreRpc.ListSurgeIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
+        case TAG_GET_NODE_OBSERVATION_WINDOW -> new StoreRpc.GetNodeObservationWindow();
         case TAG_GET_SNAPSHOT -> new StoreRpc.GetSnapshot();
         case TAG_GET_AUDIT_TRAIL_STATUS -> new StoreRpc.GetAuditTrailStatus();
         case TAG_GET_RECONCILER_INSTANCE_STATE ->

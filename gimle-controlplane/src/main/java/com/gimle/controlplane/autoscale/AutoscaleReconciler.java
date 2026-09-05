@@ -1,6 +1,7 @@
 package com.gimle.controlplane.autoscale;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
@@ -76,7 +77,7 @@ public final class AutoscaleReconciler {
   private final StoreReader store;
   private final MutationSink mutations;
   private final ArtifactResolver artifactResolver;
-  private final Duration nodeDarkTimeout;
+  private final NodeFreshness freshness;
   private final Clock clock;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
@@ -109,7 +110,7 @@ public final class AutoscaleReconciler {
     this.store = store;
     this.mutations = mutations;
     this.artifactResolver = artifactResolver;
-    this.nodeDarkTimeout = nodeDarkTimeout;
+    this.freshness = new NodeFreshness(nodeDarkTimeout);
     this.clock = clock;
   }
 
@@ -393,11 +394,13 @@ public final class AutoscaleReconciler {
 
   private List<InstanceObservation> readyInstanceObservations(DeploymentSpec spec) {
     Instant now = clock.instant();
+    Instant observingSince = store.nodeObservationWindowStart();
     List<InstanceObservation> result = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       store
           .getNodeHeartbeat(assignment.nodeId())
-          .filter(observed -> !nodeIsDark(observed, now))
+          .filter(
+              observed -> !freshness.hasGoneDark(true, Optional.of(observed), observingSince, now))
           .map(ObservedHeartbeat::heartbeat)
           .map(NodeHeartbeat::instances)
           .orElse(List.of())
@@ -412,9 +415,5 @@ public final class AutoscaleReconciler {
           .ifPresent(result::add);
     }
     return result;
-  }
-
-  private boolean nodeIsDark(ObservedHeartbeat observed, Instant now) {
-    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
   }
 }

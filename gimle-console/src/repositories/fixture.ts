@@ -98,6 +98,7 @@ export const nodes: Node[] = Array.from({ length: 10 }, (_, i) => {
   const totalMem = intBetween(16, 128) * 1024 ** 3;
   const totalCpu = intBetween(8, 32) * 1000;
   const stale = rand() < 0.15;
+  const neverHeard = rand() < 0.05;
   const now = Date.now();
   return {
     nodeId: `node-${String(i + 1).padStart(2, "0")}.gimle.cluster`,
@@ -109,12 +110,12 @@ export const nodes: Node[] = Array.from({ length: 10 }, (_, i) => {
             ? ["TIER_2", "TIER_3"]
             : [TIERS[intBetween(0, 2)]],
     },
-    lastHeartbeatAt:
-      rand() < 0.05
-        ? null
-        : new Date(
-            now - (stale ? intBetween(35, 300) * 1000 : intBetween(0, 20) * 1000),
-          ).toISOString(),
+    status: neverHeard ? "UNKNOWN" : stale ? "STALE" : "HEALTHY",
+    lastHeartbeatAt: neverHeard
+      ? null
+      : new Date(
+          now - (stale ? intBetween(35, 300) * 1000 : intBetween(0, 20) * 1000),
+        ).toISOString(),
     capacity: {
       totalMemoryBytes: totalMem,
       assignedMemoryBytes: Math.floor(totalMem * (0.2 + rand() * 0.7)),

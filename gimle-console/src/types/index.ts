@@ -240,9 +240,19 @@ export interface StatefulSet {
   unplacedReason?: string;
 }
 
+/**
+ * `HEALTHY`/`STALE` are heartbeat verdicts; `PENDING` means the control plane has not heard from
+ * this node yet but has not been listening long enough for that to mean anything, and `UNKNOWN`
+ * means it has. Computed by the control plane rather than derived here from `lastHeartbeatAt`:
+ * only it knows since when the store could have recorded a heartbeat at all, which is what
+ * separates a genuinely quiet node from one whose heartbeat a store election just cleared.
+ */
+export type NodeStatus = "HEALTHY" | "STALE" | "PENDING" | "UNKNOWN";
+
 export interface Node {
   nodeId: string;
   capabilities: { supportedTiers: Tier[] };
+  status: NodeStatus;
   lastHeartbeatAt: string | null;
   capacity: {
     totalMemoryBytes: number;

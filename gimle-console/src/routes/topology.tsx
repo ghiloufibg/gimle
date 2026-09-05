@@ -188,7 +188,7 @@ function DeploymentCell({
 
 function NodeRail({ node, count }: { node?: Node; count: number }) {
   if (!node) return null;
-  const stale = isStale(node.lastHeartbeatAt);
+  const stale = isStale(node.status);
   const load = Math.min(
     100,
     Math.round(
@@ -380,7 +380,7 @@ function Topology() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {byNode.map(([nodeId, entry]) => {
             const node = nodeById.get(nodeId);
-            const stale = node ? isStale(node.lastHeartbeatAt) : false;
+            const stale = node ? isStale(node.status) : false;
             const active = focus.activeNode === nodeId;
             return (
               <div

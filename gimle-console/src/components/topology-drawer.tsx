@@ -334,7 +334,7 @@ export function TopologyDrawer({
                     </span>
                     <span
                       className={cn(
-                        isStale(node.lastHeartbeatAt) ? "text-status-bad" : "text-status-ok",
+                        isStale(node.status) ? "text-status-bad" : "text-status-ok",
                       )}
                     >
                       hb {fmtRelativeTime(node.lastHeartbeatAt)}

@@ -29,6 +29,7 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -123,6 +124,35 @@ class StoreNodeTest {
     StoreRpc.Response response = node.handle(new StoreRpc.PutHeartbeat(heartbeat));
 
     assertEquals(new StoreRpc.Ok(), response);
+  }
+
+  /**
+   * Heartbeats never enter the Raft log, so a node holds only the ones it was sent while it was
+   * itself the leader. Taking over has to restart the observation window, or a reader is handed an
+   * empty map with no way to tell "collected nothing yet" from "every node in the cluster is gone".
+   */
+  @Test
+  void taking_over_as_leader_restarts_the_heartbeat_observation_window() {
+    Path dir = tempDir.resolve("window-leader");
+    StateStore store = new StateStore();
+    RaftLog log = new RaftLog(dir.resolve("raft"));
+    RaftNode raftNode = new RaftNode("window-leader", Map.of(), log, store);
+    nodes.add(raftNode);
+    Instant beforeElection = store.nodeObservationWindowStart();
+    store.putNodeHeartbeat(
+        new NodeHeartbeat("node-a", new ResourceUsageSnapshot(0, 0, 0, 0), List.of()));
+
+    raftNode.start();
+    StoreNode node = new StoreNode(raftNode, store, Map.of("window-leader", "client:9090"));
+    node.handle(new StoreRpc.GetNodeObservationWindow());
+
+    assertTrue(
+        store.nodeObservationWindowStart().compareTo(beforeElection) >= 0,
+        "the window must be restamped on taking over, not left at construction time");
+    assertTrue(
+        store.getNodeHeartbeat("node-a").isEmpty(),
+        "heartbeats collected before this node was authoritative describe a window it was not "
+            + "listening to");
   }
 
   @Test

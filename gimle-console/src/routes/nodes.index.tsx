@@ -54,7 +54,7 @@ function NodesList() {
           </thead>
           <tbody>
             {items.map((n) => {
-              const stale = isStale(n.lastHeartbeatAt);
+              const stale = isStale(n.status);
               const cpuPct =
                 (n.capacity.assignedCpuMillicores / n.capacity.totalCpuMillicores) * 100;
               const memPct = (n.capacity.assignedMemoryBytes / n.capacity.totalMemoryBytes) * 100;

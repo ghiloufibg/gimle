@@ -24,6 +24,7 @@ const BASE_NODE = {
   },
   cordoned: false,
   taints: [] as string[],
+  status: "HEALTHY" as const,
 };
 
 describe("useNodesStore cordon/taint", () => {

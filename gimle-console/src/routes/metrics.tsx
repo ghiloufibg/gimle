@@ -188,7 +188,7 @@ function Metrics() {
           (n.capacity.assignedMemoryBytes / Math.max(1, n.capacity.totalMemoryBytes)) * 100,
         );
         const count = instances.filter(({ i }) => i.nodeId === n.nodeId).length;
-        const stale = isStale(n.lastHeartbeatAt);
+        const stale = isStale(n.status);
         return {
           cpu,
           mem,
@@ -394,7 +394,7 @@ function Metrics() {
               <div className="flex flex-wrap gap-1">
                 {s.allNodes.map((n) => {
                   const never = n.lastHeartbeatAt === null;
-                  const stale = isStale(n.lastHeartbeatAt);
+                  const stale = isStale(n.status);
                   return (
                     <span
                       key={n.nodeId}

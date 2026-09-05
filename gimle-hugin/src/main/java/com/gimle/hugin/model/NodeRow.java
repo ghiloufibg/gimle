@@ -18,16 +18,11 @@ public record NodeRow(
     long assignedMemoryBytes,
     long totalMemoryBytes,
     int instanceCount,
+    String status,
     Optional<Instant> lastHeartbeatAt,
     List<String> supportedTiers,
     List<String> labels,
     List<String> taints) {
-
-  /**
-   * Matches {@code NodesCommand}'s own threshold, which in turn matches the console's, so a node
-   * that reads stale in one surface reads stale in the other two.
-   */
-  private static final Duration STALE_AFTER = Duration.ofSeconds(30);
 
   public NodeRow {
     if (nodeId == null || nodeId.isBlank()) {
@@ -50,16 +45,21 @@ public record NodeRow(
     if (cordoned) {
       return "CORDONED";
     }
-    if (lastHeartbeatAt.isEmpty()) {
-      return "UNKNOWN";
-    }
-    return isStale(now) ? "STALE" : "READY";
+    return switch (status) {
+      case "HEALTHY" -> "READY";
+      case "PENDING" -> "PENDING";
+      case "STALE" -> "STALE";
+      default -> "UNKNOWN";
+    };
   }
 
+  /**
+   * Whether to draw this node's heartbeat age as a warning. {@code PENDING} deliberately isn't one:
+   * it says the control plane has only just started listening, which is not the node's fault and
+   * would otherwise paint every node in the cluster amber after a store election.
+   */
   public boolean isStale(final Instant now) {
-    return lastHeartbeatAt
-        .map(at -> Duration.between(at, now).compareTo(STALE_AFTER) > 0)
-        .orElse(true);
+    return "STALE".equals(status) || "UNKNOWN".equals(status);
   }
 
   public Optional<Duration> heartbeatAge(final Instant now) {

@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The server side of {@link StoreRpc}: wraps an already-constructed {@link RaftNode} + {@link
@@ -60,6 +61,7 @@ import java.util.Optional;
 public final class StoreNode implements StoreRpcHandler {
 
   private final RaftNode raftNode;
+  private final AtomicBoolean observingHeartbeats = new AtomicBoolean();
   private final StateStore store;
   private final Map<String, String> raftIdToClientAddress;
 
@@ -71,6 +73,7 @@ public final class StoreNode implements StoreRpcHandler {
 
   @Override
   public StoreRpc.Response handle(StoreRpc.Request request) {
+    noteLeadershipForHeartbeatObservation();
     if (!(request instanceof StoreRpc.Status) && !isLeaderOnlyWrite(request)) {
       try {
         raftNode.awaitReadIndex();
@@ -214,6 +217,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListSurgeIndices r ->
           surgeIndicesResult(store.getSurgeIndices(r.tenantId(), r.deploymentName()));
       case StoreRpc.GetNodeHeartbeat r -> heartbeatResult(store.getNodeHeartbeat(r.nodeId()));
+      case StoreRpc.GetNodeObservationWindow r ->
+          new StoreRpc.InstantResult(true, store.nodeObservationWindowStart().toEpochMilli());
       case StoreRpc.GetSnapshot r ->
           new StoreRpc.SnapshotResult(RaftCodec.encodeSnapshot(store.snapshot()));
       case StoreRpc.GetReconcilerInstanceState r ->
@@ -281,6 +286,26 @@ public final class StoreNode implements StoreRpcHandler {
       return new StoreRpc.Ok();
     } catch (GimleRaftException e) {
       return notLeaderResponse();
+    }
+  }
+
+  /**
+   * Restarts the store's heartbeat-observation window the moment this node takes over as leader.
+   * Heartbeats are leader-local, so the map this node holds while it is a follower describes a
+   * window it was not the one being reported to; on taking over it starts hearing from every agent
+   * afresh, and readers must be told the clock started now rather than see an empty map and
+   * conclude the whole cluster went dark. Checked on every request rather than driven by a Raft
+   * callback because the only thing that has to be timely is being right before the first read that
+   * depends on it -- and that read is itself a request through here.
+   */
+  private void noteLeadershipForHeartbeatObservation() {
+    boolean leader = raftNode.isLeader();
+    if (leader) {
+      if (observingHeartbeats.compareAndSet(false, true)) {
+        store.beginNodeObservationWindow();
+      }
+    } else {
+      observingHeartbeats.set(false);
     }
   }
 

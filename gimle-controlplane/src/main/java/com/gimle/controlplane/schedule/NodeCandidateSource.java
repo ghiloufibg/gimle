@@ -1,5 +1,6 @@
 package com.gimle.controlplane.schedule;
 
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeRegistration;
@@ -32,12 +33,12 @@ import java.util.stream.Collectors;
 public final class NodeCandidateSource {
 
   private final StoreReader store;
-  private final Duration nodeDarkTimeout;
+  private final NodeFreshness freshness;
   private final Clock clock;
 
   public NodeCandidateSource(StoreReader store, Duration nodeDarkTimeout, Clock clock) {
     this.store = store;
-    this.nodeDarkTimeout = nodeDarkTimeout;
+    this.freshness = new NodeFreshness(nodeDarkTimeout);
     this.clock = clock;
   }
 
@@ -50,13 +51,17 @@ public final class NodeCandidateSource {
    */
   public List<NodeCandidate> candidates(Set<String> nodesAlreadyRunningThisWorkload) {
     Instant now = clock.instant();
+    Instant observingSince = store.nodeObservationWindowStart();
     List<NodeCandidate> candidates = new ArrayList<>();
     for (NodeRegistration registration : store.listNodeRegistrations()) {
       Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
       if (heartbeat.isEmpty()) {
-        continue; // no capacity report yet; not a placement candidate until it heartbeats
+        // No capacity report to place against, whether because the node has never sent one or
+        // because the store only just started collecting them -- either way there is no capacity
+        // to bin-pack, so this stays a skip rather than a freshness verdict.
+        continue;
       }
-      if (hasGoneDark(heartbeat.get(), now)) {
+      if (freshness.hasGoneDark(true, heartbeat, observingSince, now)) {
         // A node that has stopped heartbeating is not merely a neutral candidate, it is an
         // attractive one: its last report is frozen at whatever capacity it had while alive, and
         // its assignments have just been released, so it looks like the emptiest machine in the
@@ -77,10 +82,6 @@ public final class NodeCandidateSource {
               tier2TenantsOf(heartbeat.get())));
     }
     return candidates;
-  }
-
-  private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
-    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
   }
 
   /**

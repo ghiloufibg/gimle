@@ -115,7 +115,7 @@ function NodeDetail() {
     );
   }
 
-  const stale = isStale(n.lastHeartbeatAt);
+  const stale = isStale(n.status);
 
   async function handleCordonToggle() {
     setCordonPending(true);
