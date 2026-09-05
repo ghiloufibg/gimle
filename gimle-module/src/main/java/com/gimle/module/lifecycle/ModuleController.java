@@ -520,6 +520,32 @@ public final class ModuleController {
   }
 
   /**
+   * Reports an instance as failed when it is past the point {@link #forceFailed} can help: a
+   * restart that already drove the module through {@code UNINSTALLED} removed it from the registry
+   * entirely, so there is no state left to mark, and requiring {@code ACTIVE} would leave the
+   * instance stranded with nothing anywhere recording that it is dead.
+   *
+   * <p>Emits the same {@link LifecycleEvent.TransitionFailed} the registry-backed path emits -- the
+   * event, not the registry write, is what reaches the agent as {@code
+   * ControlMessage.ModuleStateChanged("FAILED")} and lets the machine-tier reschedule fire. Marks
+   * the registry too when the module is still known, so an instance that never got uninstalled ends
+   * in the same terminal state either way.
+   */
+  public void abandonFailed(ModuleInstanceId id, String reason) {
+    ModuleState from;
+    try {
+      from = registry.state(id);
+      registry.markFailed(id);
+    } catch (RuntimeException e) {
+      // Already gone from the registry -- the event below is the only record left to make.
+      from = ModuleState.UNINSTALLED;
+    }
+    emit(
+        new LifecycleEvent.TransitionFailed(
+            id, from, ModuleState.FAILED, new IllegalStateException(reason), Instant.now()));
+  }
+
+  /**
    * The run-to-completion counterpart to {@link #stop}: a Job-kind module's {@link JobHooks#run}
    * finished, reporting {@code status}. {@code SUCCEEDED} moves the module straight to {@link
    * ModuleState#COMPLETED} -- no drain wait, unlike {@link #stop}'s

@@ -533,10 +533,12 @@ public final class WorkerRuntime {
       // here. Best-effort: a lost race against some other concurrent transition shouldn't crash
       // the worker tick over a module that's already leaving ACTIVE anyway.
       try {
-        controller.forceFailed(id, "restart budget exhausted");
+        // abandonFailed rather than forceFailed: a restart attempt that already drove this module
+        // through UNINSTALLED leaves nothing ACTIVE to force, and that is exactly the case that
+        // used to strand the instance with no terminal state at all.
+        controller.abandonFailed(id, "restart budget exhausted");
       } catch (RuntimeException e) {
-        log.warn(
-            "could not force module {} to FAILED after budget exhaustion: {}", id, e.getMessage());
+        log.warn("could not mark module {} FAILED after budget exhaustion: {}", id, e.getMessage());
       }
       onModuleRestartBudgetExhausted.accept(id);
       return;
@@ -563,6 +565,7 @@ public final class WorkerRuntime {
     Duration delay = tracker.delayUntilNextAttempt(now);
     Runnable attempt =
         () -> {
+          boolean succeeded = false;
           try {
             try {
               Thread.sleep(delay);
@@ -575,6 +578,7 @@ public final class WorkerRuntime {
               registry.register(artifact);
               controller.resolve(id);
               controller.start(id);
+              succeeded = true;
               // controller.stop(id) above drove the module through UNINSTALLED, which fired
               // onUninstalled() and removed this same tracker from restartTrackers; controller
               // .start(id) then fired onActive(), which found nothing there and created a
@@ -589,6 +593,14 @@ public final class WorkerRuntime {
             }
           } finally {
             restartsInFlight.remove(id);
+          }
+          // Re-enters the same backoff loop rather than dead-ending here. controller.stop() has
+          // already driven the module to UNINSTALLED by this point, so an attempt that then failed
+          // to bring it back leaves the instance dead with no further probe ticking to notice --
+          // nothing else would ever try again, and nothing would report it failed either. The
+          // tracker's own budget bounds this: once it refuses, the branch above escalates.
+          if (!succeeded) {
+            restartModule(id);
           }
         };
     // Deliberately not run via this module's own BoundedModuleScheduler: controller.stop(id)

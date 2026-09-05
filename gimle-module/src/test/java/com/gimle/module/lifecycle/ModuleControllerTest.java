@@ -235,6 +235,41 @@ class ModuleControllerTest {
     assertEquals(ModuleState.INSTALLED, f.registry().state(f.id()));
   }
 
+  /**
+   * The state a failed restart leaves behind: {@code stop()} already drove the module through
+   * UNINSTALLED and out of the registry, so there is nothing left for {@code forceFailed} to act
+   * on. Reporting the failure anyway is what keeps the instance from sitting dead and unrecorded
+   * while its deployment still counts it as running.
+   */
+  @Test
+  void abandon_failed_reports_an_instance_that_was_already_uninstalled() {
+    Fixture f = fixtureFor("com.gimle.fixture.abandon_after_uninstall");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+    f.controller().stop(f.id());
+    assertThrows(NoSuchElementException.class, () -> f.registry().state(f.id()));
+
+    f.controller().abandonFailed(f.id(), "restart budget exhausted");
+
+    LifecycleEvent last = f.events().get(f.events().size() - 1);
+    assertTrue(last instanceof LifecycleEvent.TransitionFailed, "expected a failure event");
+    LifecycleEvent.TransitionFailed failed = (LifecycleEvent.TransitionFailed) last;
+    assertEquals(ModuleState.UNINSTALLED, failed.from());
+    assertEquals(ModuleState.FAILED, failed.to());
+    assertEquals("restart budget exhausted", failed.cause().getMessage());
+  }
+
+  @Test
+  void abandon_failed_still_marks_a_module_that_is_only_stuck_not_gone() {
+    Fixture f = fixtureFor("com.gimle.fixture.abandon_while_known");
+    f.controller().resolve(f.id());
+    f.controller().start(f.id());
+
+    f.controller().abandonFailed(f.id(), "restart budget exhausted");
+
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+  }
+
   @Test
   void complete_succeeded_transitions_an_active_module_to_completed_and_emits_completed() {
     Fixture f = fixtureFor("com.gimle.fixture.complete_succeeded");
