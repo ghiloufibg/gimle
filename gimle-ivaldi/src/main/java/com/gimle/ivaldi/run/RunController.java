@@ -2,6 +2,8 @@ package com.gimle.ivaldi.run;
 
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
 import com.gimle.hilmir.launch.MachineLauncher;
 import com.gimle.hilmir.launch.PkiInit;
 import com.gimle.hilmir.launch.RunRecord;
@@ -40,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -259,6 +262,7 @@ public final class RunController {
       Map<String, Object> cluster =
           Json.asObject(Json.parse(clusters.get(run.clusterId).orElseThrow()));
       String serverAddress = serverAddressOf(cluster, run.clusterId);
+      requireAddressUsableForTransport(serverAddress, topology, run.clusterId);
 
       Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
       boolean reboot =
@@ -317,7 +321,11 @@ public final class RunController {
       Path workspace = workspaceRoot.resolve(run.id);
       writeWorkspace(workspace, files);
       List<RenderedFile> jarWorkloads = jarSourcedWorkloads(files);
-      ControlPlaneApi api = new ControlPlaneApi(serverAddress);
+      // Built here, after the boot above has minted whatever material this topology needs, and
+      // from that topology rather than from this process's own configuration -- see
+      // clientIdentityFor.
+      ControlPlaneApi api =
+          new ControlPlaneApi(serverAddress, clientIdentityFor(topology, cluster, run));
       for (RenderedFile manifest : jarWorkloads) {
         pushArtifact(api, manifest, run);
       }
@@ -704,6 +712,95 @@ public final class RunController {
         .filter(l -> !l.isBlank())
         .filter(l -> !l.startsWith("name:"))
         .collect(Collectors.joining("\n"));
+  }
+
+  /**
+   * The client identity this run's own outbound calls use: empty for a plaintext topology, and the
+   * operator material for an mTLS one.
+   *
+   * <p>Resolved per run rather than from this process's own {@code gimle.transport.protocol}/{@code
+   * gimle.tls.*} configuration, for two reasons. One Ivaldi targets several clusters, which may not
+   * share a transport, so its own system properties have no single correct answer. And an mTLS
+   * cluster's material does not exist until the run that boots it mints it -- a process-wide
+   * identity fixed at startup could therefore never be right for a cluster's first run, whereas by
+   * the time this is called the boot phase has already put the files on disk.
+   *
+   * <p>Defaults to the {@code operator} leaf the topology's own material directory holds, which is
+   * exactly what this run's PKI step writes there. A cluster connection carrying its own {@code
+   * clientCertPath}/{@code clientKeyPath} overrides that -- for a cluster this Ivaldi did not boot,
+   * or an operator identity kept elsewhere.
+   */
+  private Optional<SSLContext> clientIdentityFor(
+      Topology topology, Map<String, Object> cluster, ActiveRun run) {
+    Optional<TlsSettings> material = clientMaterialFor(topology, cluster);
+    material.ifPresent(
+        m -> run.log.append("authenticating to the control plane as " + m.certFile()));
+    return material.map(SslContexts::forMutualTls);
+  }
+
+  /** The material {@link #clientIdentityFor} builds its context from; see that method. */
+  static Optional<TlsSettings> clientMaterialFor(Topology topology, Map<String, Object> cluster) {
+    if (topology.transport() != Transport.MTLS) {
+      return Optional.empty();
+    }
+    Path materialDir = topology.tls().orElseThrow().materialDir();
+    Path certFile =
+        overridePath(cluster, "clientCertPath").orElse(materialDir.resolve("operator.crt"));
+    Path keyFile =
+        overridePath(cluster, "clientKeyPath").orElse(materialDir.resolve("operator.key"));
+    Path caFile = overridePath(cluster, "caPath").orElse(materialDir.resolve("ca.crt"));
+    for (Path file : List.of(certFile, keyFile, caFile)) {
+      if (!Files.isRegularFile(file)) {
+        throw new RunFailedException(
+            "this cluster speaks mTLS but there is no client material at "
+                + file
+                + " -- a run that boots the cluster mints it, so this is a cluster booted"
+                + " elsewhere: point the cluster connection at an operator certificate, or"
+                + " re-run against a topology whose TLS material directory holds one");
+      }
+    }
+    return Optional.of(new TlsSettings(certFile, keyFile, caFile));
+  }
+
+  private static Optional<Path> overridePath(Map<String, Object> cluster, String field) {
+    Object raw = cluster.get(field);
+    String value = raw == null ? "" : String.valueOf(raw).trim();
+    return value.isBlank() ? Optional.empty() : Optional.of(Path.of(value));
+  }
+
+  /**
+   * Refuses a control-plane address an mTLS cluster's own certificates can never match. Every leaf
+   * is minted for its machine's declared hostname, so an IP literal fails subject-alternative-name
+   * matching and a hostname the topology never declares has no leaf at all. Both surface as a TLS
+   * handshake failure deep in the deploy step, which reads as a broken cluster rather than as a
+   * wrong address.
+   */
+  private static void requireAddressUsableForTransport(
+      String serverAddress, Topology topology, String clusterId) {
+    if (topology.transport() != Transport.MTLS) {
+      return;
+    }
+    String host = java.net.URI.create("http://" + serverAddress).getHost();
+    if (host.matches("\\d{1,3}(\\.\\d{1,3}){3}") || host.equals("[::1]")) {
+      throw new RunFailedException(
+          "cluster '"
+              + clusterId
+              + "' names the control plane by IP address ("
+              + host
+              + "), which no certificate in an mTLS cluster can match -- use the machine's"
+              + " hostname instead");
+    }
+    List<String> hostnames = topology.machines().stream().map(m -> m.host()).toList();
+    if (!hostnames.contains(host)) {
+      throw new RunFailedException(
+          "cluster '"
+              + clusterId
+              + "' names the control plane at host '"
+              + host
+              + "', which this topology never declares -- no certificate was minted for it."
+              + " Declared host(s): "
+              + String.join(", ", hostnames));
+    }
   }
 
   private static ResolvedRuntime resolveRuntime(Topology topology) {

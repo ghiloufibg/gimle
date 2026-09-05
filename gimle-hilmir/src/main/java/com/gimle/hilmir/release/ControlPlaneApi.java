@@ -48,8 +48,24 @@ public final class ControlPlaneApi {
   private final URI baseUri;
   private final HttpClient httpClient;
 
+  /**
+   * Takes its client identity from this process's own {@code gimle.transport.protocol}/{@code
+   * gimle.tls.*} configuration -- right for a command a person runs in a shell that carries them,
+   * which is every {@code hilmir} and {@code doctor} caller.
+   */
   public ControlPlaneApi(String serverAddress) {
-    Optional<SSLContext> sslContext = defaultSslContext();
+    this(serverAddress, defaultSslContext());
+  }
+
+  /**
+   * Takes an explicit client identity instead of reading this process's own configuration. For a
+   * caller that knows which cluster it is talking to and holds that cluster's own material: a
+   * long-lived process targeting several clusters has no single correct answer in its own system
+   * properties, and one of those clusters may not even have existed when the process started.
+   *
+   * @param sslContext empty for plaintext, which also selects the {@code http} scheme
+   */
+  public ControlPlaneApi(String serverAddress, Optional<SSLContext> sslContext) {
     String scheme = sslContext.isPresent() ? "https" : "http";
     this.baseUri = URI.create(scheme + "://" + serverAddress);
     HttpClient.Builder builder =

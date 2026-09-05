@@ -4,8 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.tls.TlsSettings;
+import com.gimle.hilmir.topology.Topology;
+import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.validate.RenderedFile;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -107,6 +113,114 @@ class RunControllerTest {
     assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
   }
 
+  /**
+   * Every leaf in an mTLS cluster is minted for its machine's declared hostname, so an IP literal
+   * fails subject-alternative-name matching. Caught before the boot, where it reads as the wrong
+   * address rather than as a broken cluster.
+   */
+  @Test
+  void an_mtls_cluster_addressed_by_ip_is_refused_before_anything_boots() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"https://127.0.0.1:8080\"}");
+
+    controller.start("c1", Optional.empty(), mtlsFiles(), Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    assertEquals("failed", snapshot.get("status"));
+    assertTrue(String.valueOf(snapshot.get("error")).contains("by IP address"), snapshot + "");
+    assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
+  }
+
+  @Test
+  void an_mtls_cluster_addressed_at_a_host_the_topology_never_declares_is_refused() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"https://elsewhere:8080\"}");
+
+    controller.start("c1", Optional.empty(), mtlsFiles(), Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    assertEquals("failed", snapshot.get("status"));
+    assertTrue(String.valueOf(snapshot.get("error")).contains("never declares"), snapshot + "");
+  }
+
+  /**
+   * The identity a run authenticates with comes from the topology it is running, not from this
+   * process's own configuration -- which is what lets one Ivaldi target a plaintext cluster and an
+   * mTLS one, and what makes an mTLS cluster's very first run possible at all: the material does
+   * not exist until that run's own boot phase mints it.
+   */
+  @Test
+  void an_mtls_run_authenticates_with_the_operator_material_its_own_topology_minted()
+      throws Exception {
+    Path materialDir = Files.createDirectories(tempDir.resolve("tls"));
+    for (String name : List.of("operator.crt", "operator.key", "ca.crt")) {
+      Files.writeString(materialDir.resolve(name), "x");
+    }
+
+    Optional<TlsSettings> material =
+        RunController.clientMaterialFor(topologyWithMaterialDir(materialDir), Map.of());
+
+    assertEquals(
+        Optional.of(materialDir.resolve("operator.crt")), material.map(TlsSettings::certFile));
+    assertEquals(
+        Optional.of(materialDir.resolve("operator.key")), material.map(TlsSettings::keyFile));
+    assertEquals(Optional.of(materialDir.resolve("ca.crt")), material.map(TlsSettings::caFile));
+  }
+
+  @Test
+  void a_cluster_connection_carrying_its_own_certificate_overrides_the_topology_default()
+      throws Exception {
+    Path materialDir = Files.createDirectories(tempDir.resolve("tls"));
+    Path elsewhere = Files.createDirectories(tempDir.resolve("elsewhere"));
+    for (String name : List.of("operator.crt", "operator.key", "ca.crt")) {
+      Files.writeString(materialDir.resolve(name), "x");
+    }
+    Files.writeString(elsewhere.resolve("me.crt"), "x");
+    Files.writeString(elsewhere.resolve("me.key"), "x");
+
+    Optional<TlsSettings> material =
+        RunController.clientMaterialFor(
+            topologyWithMaterialDir(materialDir),
+            Map.of(
+                "clientCertPath", elsewhere.resolve("me.crt").toString(),
+                "clientKeyPath", elsewhere.resolve("me.key").toString()));
+
+    assertEquals(Optional.of(elsewhere.resolve("me.crt")), material.map(TlsSettings::certFile));
+    // the CA still comes from the topology, which is where this cluster's own trust root lives
+    assertEquals(Optional.of(materialDir.resolve("ca.crt")), material.map(TlsSettings::caFile));
+  }
+
+  @Test
+  void a_plaintext_topology_needs_no_client_material_at_all() {
+    Topology plaintext =
+        TopologyParser.parse(new ByteArrayInputStream(TOPOLOGY.getBytes(StandardCharsets.UTF_8)));
+
+    assertEquals(Optional.empty(), RunController.clientMaterialFor(plaintext, Map.of()));
+  }
+
+  @Test
+  void an_mtls_cluster_whose_material_is_missing_says_which_file_is_not_there() {
+    Topology topology = topologyWithMaterialDir(tempDir.resolve("never-minted"));
+
+    RuntimeException failure =
+        assertThrows(
+            RuntimeException.class, () -> RunController.clientMaterialFor(topology, Map.of()));
+
+    assertTrue(failure.getMessage().contains("operator.crt"), failure.getMessage());
+  }
+
+  private static Topology topologyWithMaterialDir(Path materialDir) {
+    String yaml =
+        MTLS_TOPOLOGY.replace(
+            "materialDir: /tmp/gimle-ivaldi-test-never-booted/tls", "materialDir: " + materialDir);
+    return TopologyParser.parse(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  private List<RenderedFile> mtlsFiles() {
+    return List.of(
+        new RenderedFile("topology.yaml", MTLS_TOPOLOGY),
+        new RenderedFile(
+            "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+  }
+
   private Map<String, Object> awaitSettled() {
     for (int attempt = 0; attempt < 200; attempt++) {
       Map<String, Object> snapshot = controller.currentSnapshotJson();
@@ -143,6 +257,29 @@ class RunControllerTest {
         replicas:
           - machine: local
       andvari:
+        replicas:
+          - machine: local
+      """;
+
+  private static final String MTLS_TOPOLOGY =
+      """
+      name: t
+      transport: mtls
+      tls:
+        materialDir: /tmp/gimle-ivaldi-test-never-booted/tls
+      machines:
+        - name: local
+          host: cluster-host.example
+      runtime:
+        dataRoot: /tmp/gimle-ivaldi-test-never-booted
+      store:
+        replicas:
+          - machine: local
+      controlPlane:
+        replicas:
+          - machine: local
+      fafnir:
+        keyFile: /tmp/gimle-ivaldi-test-never-booted/fafnir.key
         replicas:
           - machine: local
       """;
