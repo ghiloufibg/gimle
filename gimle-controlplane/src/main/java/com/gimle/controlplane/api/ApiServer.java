@@ -196,8 +196,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -424,6 +427,9 @@ public final class ApiServer implements AutoCloseable {
    */
   static final String STORE_PROBE_MAX_AGE_PROPERTY =
       "gimle.controlplane.health.storeProbeMaxAgeMillis";
+
+  /** How long {@link #start()} waits on the first store probe before carrying on without it. */
+  private static final Duration FIRST_STORE_PROBE_GRACE = Duration.ofSeconds(2);
 
   private final Duration storeProbeInterval =
       Duration.ofMillis(Long.getLong(STORE_PROBE_INTERVAL_PROPERTY, 2_000));
@@ -935,9 +941,18 @@ public final class ApiServer implements AutoCloseable {
 
   public void start() {
     server.start();
-    // Probed once inline so the very first /health answers about the real store rather than about
-    // a probe that has not run yet; every later refresh is the background thread's job.
-    refreshStoreProbe();
+    // The first probe runs on the probe thread and start() waits only briefly for it: long enough
+    // that a reachable store makes the very first /health answer about reality, bounded so an
+    // unreachable one delays startup by that bound rather than by StoreClient's own leader search.
+    // Whatever the outcome, the scheduled refresh below takes over.
+    Future<?> first = storeProbe.submit(this::refreshStoreProbe);
+    try {
+      first.get(FIRST_STORE_PROBE_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (ExecutionException | TimeoutException e) {
+      log.debug("first store probe did not complete before startup continued: {}", e.getMessage());
+    }
     storeProbe.scheduleWithFixedDelay(
         this::refreshStoreProbe,
         storeProbeInterval.toMillis(),
@@ -2268,8 +2283,15 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing service name");
       return;
     }
+    // Defaulted to the default tenant, not left untenanted: a workload manifest's own omitted
+    // tenantId already resolves to it, so no Deployment/StatefulSet/DaemonSet can ever land in the
+    // untenanted namespace. A Service that stayed untenanted would join against that namespace and
+    // find nothing, for every deployment it names, whatever ports either side declares -- silently,
+    // since there is no instance to report an exclusion about.
     Optional<String> tenantId =
-        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+        body.get("tenantId") instanceof String s && !s.isBlank()
+            ? Optional.of(s)
+            : Optional.of(Tenant.DEFAULT_TENANT_ID);
     Set<String> deploymentNames = new LinkedHashSet<>();
     if (body.get("deploymentNames") instanceof List<?> rawNames) {
       for (Object rawName : rawNames) {

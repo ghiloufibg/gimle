@@ -14,6 +14,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -27,6 +28,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -367,7 +369,13 @@ class ApiServerServicesTest {
         .propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    "orders-service", 0, "node-1", moduleId, "/artifacts/orders.jar")));
+                    "orders-service",
+                    0,
+                    "node-1",
+                    moduleId,
+                    "/artifacts/orders.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
     inProcessStore
         .client()
         .propose(
@@ -382,6 +390,7 @@ class ApiServerServicesTest {
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
                     InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
+                        .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
                         .ports(Map.of("HTTP_PORT", 51234))
                         .build())));
 
@@ -424,6 +433,33 @@ class ApiServerServicesTest {
     assertEquals(200, response.statusCode());
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     assertTrue(Json.asArray(body.get("endpoints")).isEmpty());
+  }
+
+  /**
+   * The whole path as an operator drives it: a Deployment applied with no tenantId and a Service
+   * posted with no tenantId must front each other. A workload manifest's omitted tenantId resolves
+   * to the default tenant, so a Service that stayed untenanted joined against a namespace no
+   * workload can ever land in and reported no endpoints -- for every deployment, whatever ports
+   * either side declared, and with no exclusion to say why.
+   */
+  @Test
+  @Timeout(10)
+  void a_service_declaring_no_tenant_fronts_a_deployment_that_declared_none_either()
+      throws Exception {
+    assertEquals(200, postService(serviceJson("orders", "orders-service", 8080)).statusCode());
+    recordReadyInstance("orders-service", Map.of("http", 38451));
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    List<Object> endpoints = Json.asArray(body.get("endpoints"));
+    assertEquals(1, endpoints.size(), "expected the deployment's live instance: " + body);
+    assertEquals(38451L, Json.asObject(endpoints.get(0)).get("port"));
   }
 
   @Test
@@ -509,12 +545,21 @@ class ApiServerServicesTest {
    */
   private void recordReadyInstance(String deploymentName, Map<String, Integer> ports) {
     ModuleId moduleId = new ModuleId("com.acme.orders", Version.parse("1.0.0"));
+    // Tenanted to the default tenant, as every workload a real PUT creates is: a manifest omitting
+    // tenantId resolves to it rather than staying untenanted, so an untenanted fixture here would
+    // model a state the API cannot produce.
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    deploymentName, 0, "node-1", moduleId, "/artifacts/orders.jar")));
+                    deploymentName,
+                    0,
+                    "node-1",
+                    moduleId,
+                    "/artifacts/orders.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
     inProcessStore
         .client()
         .propose(
@@ -529,6 +574,7 @@ class ApiServerServicesTest {
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
                     InstanceObservation.builder(deploymentName, 0, moduleId, "ACTIVE", true, true)
+                        .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
                         .ports(ports)
                         .build())));
   }

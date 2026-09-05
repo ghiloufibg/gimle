@@ -149,6 +149,10 @@ strictly less than "down" does, and piles up enough stalled handlers to take the
 entirely. A probe result older than `gimle.controlplane.health.storeProbeMaxAgeMillis` (default
 15000) is itself reported as down: the prober being stuck is evidence the store is unreachable.
 
+Startup waits up to two seconds on the first probe so the very first `/health` answers about the
+real store rather than about a check that has not run yet — bounded, so a control plane starting
+against an unreachable store is delayed by that bound and not by the leader search behind it.
+
 ## Admission, and previewing it
 
 Every workload PUT runs an ordered `AdmissionChain` before anything is proposed to the store:
