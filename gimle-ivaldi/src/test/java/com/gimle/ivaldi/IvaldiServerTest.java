@@ -1,6 +1,7 @@
 package com.gimle.ivaldi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -223,6 +224,34 @@ class IvaldiServerTest {
   @Timeout(10)
   void cluster_topology_of_an_unknown_cluster_is_404() throws Exception {
     assertEquals(404, get("/api/clusters/no-such-cluster/topology").statusCode());
+  }
+
+  /**
+   * The health probe reports on the cluster's own control plane, not on Ivaldi. Answering from
+   * Ivaldi's own health -- which is all the browser can reach, a control plane sending no CORS
+   * headers -- told every operator their cluster was up, including the ones that were not.
+   */
+  @Test
+  @Timeout(10)
+  void cluster_health_reports_a_control_plane_that_is_not_answering() throws Exception {
+    // Port 1 on loopback: privileged and unbound, so nothing can be listening there.
+    HttpResponse<String> created =
+        post("/api/clusters", "{\"name\":\"gone\",\"controlPlaneUrl\":\"127.0.0.1:1\"}");
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+
+    HttpResponse<String> health = get("/api/clusters/" + id + "/health");
+
+    assertEquals(200, health.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(health.body()));
+    assertEquals(Boolean.FALSE, body.get("ok"));
+    assertEquals("127.0.0.1:1", body.get("address"));
+    assertNotNull(body.get("message"));
+  }
+
+  @Test
+  @Timeout(10)
+  void cluster_health_of_an_unknown_cluster_is_404() throws Exception {
+    assertEquals(404, get("/api/clusters/no-such-cluster/health").statusCode());
   }
 
   @Test

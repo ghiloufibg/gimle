@@ -7,6 +7,7 @@ import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.ivaldi.blueprint.BlueprintStore;
 import com.gimle.ivaldi.blueprint.BlueprintSummary;
+import com.gimle.ivaldi.cluster.ClusterHealth;
 import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.run.RunController;
 import com.gimle.ivaldi.validate.FileSetValidator;
@@ -35,9 +36,9 @@ import org.slf4j.LoggerFactory;
  * Ivaldi's HTTP surface: Blueprint CRUD ({@code /api/blueprints[/{id}]}) over a flat-file {@link
  * BlueprintStore}, tier-2 validation ({@code POST /api/validate}) running the real Hilmir/Mimir
  * parsers against already-rendered YAML, saved cluster connections ({@code
- * /api/clusters[/{id}[/topology]]}) over a flat-file {@link ClusterStore}, running a Blueprint
- * against one of them ({@code /api/runs*}) via {@link RunController}, remote shutdown, and the
- * bundled console SPA at {@code /console} when one is on the classpath. Deliberately no
+ * /api/clusters[/{id}[/topology|/health]]}) over a flat-file {@link ClusterStore}, running a
+ * Blueprint against one of them ({@code /api/runs*}) via {@link RunController}, remote shutdown,
+ * and the bundled console SPA at {@code /console} when one is on the classpath. Deliberately no
  * authentication or TLS -- a local development tool, bound to loopback by default by {@link
  * IvaldiMain}, never one of a deployed cluster's own processes.
  */
@@ -184,6 +185,8 @@ public final class IvaldiServer implements AutoCloseable {
         handleOneCluster(exchange, method, id);
       } else if ("topology".equals(segments[1])) {
         handleClusterTopology(exchange, method, id);
+      } else if ("health".equals(segments[1])) {
+        handleClusterHealth(exchange, method, id);
       } else {
         respond(exchange, 404, "no such route");
       }
@@ -244,6 +247,27 @@ public final class IvaldiServer implements AutoCloseable {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("topology", topology.orElse(null));
     respondJson(exchange, 200, body);
+  }
+
+  /**
+   * Whether this cluster's own control plane answers, probed from here rather than from the
+   * browser: a control plane sends no CORS headers, so the console cannot reach an arbitrary one
+   * itself. Without this the console had nothing to ask and reported every cluster reachable,
+   * including one whose port had nothing listening -- the single check whose whole purpose is to
+   * find that out before a run does.
+   */
+  private void handleClusterHealth(HttpExchange exchange, String method, String id)
+      throws IOException {
+    if (!"GET".equals(method)) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Optional<String> cluster = clusters.get(id);
+    if (cluster.isEmpty()) {
+      respond(exchange, 404, "no such cluster: " + id);
+      return;
+    }
+    respondJson(exchange, 200, ClusterHealth.probe(cluster.get()));
   }
 
   // ---- POST /api/runs, GET /api/runs/current, GET /api/runs/{id}/log, DELETE /api/runs/current

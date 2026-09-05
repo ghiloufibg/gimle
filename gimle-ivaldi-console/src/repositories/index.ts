@@ -40,15 +40,28 @@ export function runnerClientFor(cluster: ClusterConnection | null): RunnerClient
 }
 
 /** Probes a cluster's runner (this Ivaldi, or a configured runnerUrl) for reachability. */
+/**
+ * Whether this cluster's own control plane is answering. Asked of Ivaldi, which probes it
+ * server-side: a control plane sends no CORS headers, so the browser cannot reach an arbitrary one
+ * itself. Probing Ivaldi's own /api/health instead -- which is what this used to do -- reported
+ * every cluster reachable, including one with nothing listening on its port, which is the single
+ * thing this check exists to catch.
+ */
 export async function checkClusterStatus(cluster: ClusterConnection): Promise<ClusterStatus> {
   const base = cluster.runnerUrl?.trim().replace(/\/$/, "") ?? "";
   const checkedAt = new Date().toISOString();
   try {
-    const res = await fetch(`${base}/api/health`, {
+    const res = await fetch(`${base}/api/clusters/${encodeURIComponent(cluster.id)}/health`, {
       headers: { accept: "application/json" },
     });
     if (!res.ok) return { ok: false, version: null, message: `HTTP ${res.status}`, checkedAt };
-    return { ok: true, version: null, message: null, checkedAt };
+    const body = (await res.json()) as { ok?: boolean; message?: string | null };
+    return {
+      ok: body.ok === true,
+      version: null,
+      message: body.message ?? null,
+      checkedAt,
+    };
   } catch (error) {
     return {
       ok: false,

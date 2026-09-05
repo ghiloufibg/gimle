@@ -232,12 +232,16 @@ export class HttpRunnerClient implements RunnerClient {
         const status = mapStatus(raw.status);
         const phase = currentPhaseFor(status);
         if (phase) steps = markCurrentPhase(steps, phase);
-        if (status === "running" || status === "failed") {
-          steps = finalizeSteps(steps, status);
-          stopped = true;
-        }
+        if (status === "running" || status === "failed") steps = finalizeSteps(steps, status);
         onEvent({ type: "snapshot", snapshot: this.toSnapshot(raw, steps, endpoints) });
-        if (stopped) window.clearInterval(timer);
+        // Polling continues past `running` and `failed`: both still own a live process tree, and a
+        // stop from either is asynchronous, so this poll is the only thing that can carry the run
+        // to idle. Stopping here left the screen reading STOPPING forever while the backend had
+        // already torn the cluster down. `idle` is the one terminal state.
+        if (status === "idle") {
+          stopped = true;
+          window.clearInterval(timer);
+        }
       } catch (error) {
         onEvent({ type: "error", message: error instanceof Error ? error.message : "poll failed" });
       }

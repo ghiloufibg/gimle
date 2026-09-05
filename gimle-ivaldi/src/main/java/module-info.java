@@ -4,6 +4,7 @@ module com.gimle.ivaldi {
   requires com.gimle.mimir;
   requires com.gimle.module;
   requires org.slf4j;
+  requires java.net.http;
   requires jdk.httpserver;
   requires org.yaml.snakeyaml;
 
