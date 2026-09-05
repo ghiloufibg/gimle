@@ -101,6 +101,7 @@ gimle daemonset rollback <name> [--to-revision N] [--tenant <id>]
 gimle cronjob trigger <name> [--tenant <id>]
 gimle get nodes
 gimle get node-assignments <nodeId>
+gimle label node <nodeId> <label>[ <label>-]...
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
 gimle taint <nodeId> <tenantId>
@@ -792,6 +793,14 @@ gimle logs controlplane --level=ERROR --contains=quota --follow --server 127.0.0
 # Inspect which node an instance landed on, and what else is scheduled there
 gimle get nodes --server 127.0.0.1:8080
 gimle get node-assignments node-1 --server 127.0.0.1:8080
+
+# Label a running node so manifests requiring that label can be placed on it. A trailing "-"
+# removes a label instead of adding it, the same shorthand kubectl uses. This edits only the
+# operator-applied half: labels the node reported for itself at startup (-Dgimle.node.labels)
+# stay put, and survive the node re-registering.
+gimle label node node-1 edge --server 127.0.0.1:8080
+gimle label node node-1 gpu ssd --server 127.0.0.1:8080
+gimle label node node-1 edge- --server 127.0.0.1:8080
 
 # Exclude a node from future placement without evicting what's already running there
 gimle cordon node-1 --server 127.0.0.1:8080

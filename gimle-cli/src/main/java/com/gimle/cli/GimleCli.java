@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,6 +60,7 @@ import java.util.function.Supplier;
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
+ *   gimle label node &lt;nodeId&gt; &lt;label&gt;[ &lt;label&gt;-]...
  *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
@@ -290,6 +292,7 @@ public final class GimleCli {
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
+      case "label" -> handleLabel(rest, client, output, out);
       case "taint" -> handleTaint(rest, client, output, out, true);
       case "untaint" -> handleTaint(rest, client, output, out, false);
       case "events" -> handleEvents(rest, client, output, out);
@@ -447,6 +450,35 @@ public final class GimleCli {
     }
     new EventsCommand(client, output, out)
         .run(args.get(0), args.get(1), args.subList(2, args.size()));
+  }
+
+  /**
+   * {@code gimle label node <nodeId> <label>...} -- a trailing {@code -} on a label removes it
+   * instead of adding it, the same shorthand kubectl uses, so adding and removing in one call needs
+   * no separate flag.
+   */
+  private static void handleLabel(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.size() < 3 || !"node".equals(args.get(0))) {
+      throw new CliException("usage: gimle label node <nodeId> <label>[ <label>-]...");
+    }
+    String nodeId = args.get(1);
+    Set<String> additions = new LinkedHashSet<>();
+    Set<String> removals = new LinkedHashSet<>();
+    for (String raw : args.subList(2, args.size())) {
+      if (raw.endsWith("-")) {
+        String label = raw.substring(0, raw.length() - 1);
+        if (label.isBlank()) {
+          throw new CliException("a label to remove must name one: got '" + raw + "'");
+        }
+        removals.add(label);
+      } else if (raw.isBlank()) {
+        throw new CliException("a label must not be blank");
+      } else {
+        additions.add(raw);
+      }
+    }
+    new NodesCommand(client, output, out).label(nodeId, additions, removals);
   }
 
   private static void handleTaint(
@@ -789,6 +821,7 @@ public final class GimleCli {
       case "metrics-history" -> HistoryCommand.usage(HistoryCommand.Surface.METRICS);
       case "traces-history" -> HistoryCommand.usage(HistoryCommand.Surface.TRACES);
       case "context", "contexts" -> ContextCommand.usage();
+      case "label" -> "usage: gimle label node <nodeId> <label>[ <label>-]...";
       case "cordon" -> "usage: gimle cordon <nodeId>";
       case "uncordon" -> "usage: gimle uncordon <nodeId>";
       case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
@@ -1193,6 +1226,7 @@ public final class GimleCli {
           config rollback <tenantId> <key> <version>
           get nodes
           get node-assignments <nodeId>
+          label node <nodeId> <label>[ <label>-]...
           cordon <nodeId>
           uncordon <nodeId>
           taint <nodeId> <tenantId>

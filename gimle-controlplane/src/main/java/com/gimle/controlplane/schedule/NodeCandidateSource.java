@@ -3,6 +3,7 @@ package com.gimle.controlplane.schedule;
 import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.protocol.InstanceObservation;
+import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StoreReader;
@@ -73,7 +74,11 @@ public final class NodeCandidateSource {
       candidates.add(
           new NodeCandidate(
               registration.nodeId(),
-              registration.capabilities(),
+              // Effective labels, not just the node's self-reported ones: a label an operator
+              // applied to a running node has to constrain placement exactly like one the node
+              // reported for itself, or applying it would do nothing.
+              new NodeCapabilities(
+                  registration.capabilities().supportedTiers(), registration.effectiveLabels()),
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisWorkload.contains(registration.nodeId()),
               store.getNodeTaints(registration.nodeId()),

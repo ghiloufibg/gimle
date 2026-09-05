@@ -289,10 +289,24 @@ out every replica), and current machine load (`InstanceAssignment`, `TenantUsage
 makes this a two-dimensional bin-packing problem (resources × tier), not a single-dimension one.
 
 `PlacementConstraints.requiredNodeLabels` (a manifest's `placement.requiredLabels`) is matched by
-exact set membership against each node's own operator-assigned labels — a flat, expression-free
-label set on both sides, no key/value structure. A node's labels are set once at agent startup via
-the `gimle.node.labels` system property (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and
-reported at registration alongside its isolation-tier support.
+exact set membership against each node's labels — a flat, expression-free label set on both sides,
+no key/value structure.
+
+A node's labels come from two independent halves, and placement matches against their union:
+
+- **Self-reported**, set at agent startup via the `gimle.node.labels` system property
+  (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and sent at registration alongside its
+  isolation-tier support. These describe how the node was launched.
+- **Operator-applied**, written against a running cluster with `gimle label node <nodeId> <label>`
+  (`PUT /nodes/{nodeId}/labels`). These survive the node re-registering, which replaces only its
+  self-reported half — otherwise every agent restart would silently un-place the workloads its
+  labels had attracted.
+
+Without the operator half, a label could only ever be set by relaunching the agent, so a cluster
+whose agent launch configuration an operator cannot reach could never satisfy a manifest that
+required one. Labelling is deliberately excluded from the node self-service authorization path a
+`gimle:nodes` certificate gets over its own subresources: a node that could label itself could
+grant itself the very labels placement uses to keep workloads off it.
 
 A node whose last heartbeat is older than the node-dark timeout (15s) is not a placement candidate
 at all, regardless of what that last heartbeat said. This matters more than it first looks: a node

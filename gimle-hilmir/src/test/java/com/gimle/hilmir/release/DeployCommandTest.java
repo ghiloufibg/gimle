@@ -1,6 +1,7 @@
 package com.gimle.hilmir.release;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -255,6 +256,47 @@ class DeployCommandTest {
 
     assertEquals(0, exitCode);
     assertTrue(out.toString(StandardCharsets.UTF_8).contains("ready"));
+  }
+
+  /**
+   * A release whose {@code --wait} times out is still live -- its workloads were applied before the
+   * wait began. Leaving it out of the ledger made it undeployable, because every teardown path
+   * looks the release up there and found nothing.
+   */
+  @Test
+  void a_wait_that_times_out_still_records_the_release_so_it_can_be_undeployed() throws Exception {
+    fake = new FakeControlPlane();
+    Path bundleFile = writeBundle();
+    String previousTimeout = System.getProperty(WaitPoller.TIMEOUT_PROPERTY);
+    System.setProperty(WaitPoller.TIMEOUT_PROPERTY, "50");
+    try {
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+      // Nothing ever reports ACTIVE, so the wait runs out.
+      assertThrows(
+          HilmirException.class,
+          () ->
+              DeployCommand.run(
+                  List.of(
+                      "-f",
+                      bundleFile.toString(),
+                      "--server",
+                      fake.address(),
+                      "--set",
+                      "apiToken=secret123",
+                      "--wait"),
+                  capture(out)));
+
+      assertNotNull(
+          fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.meta"),
+          "the release must be recorded even though it never became ready");
+    } finally {
+      if (previousTimeout == null) {
+        System.clearProperty(WaitPoller.TIMEOUT_PROPERTY);
+      } else {
+        System.setProperty(WaitPoller.TIMEOUT_PROPERTY, previousTimeout);
+      }
+    }
   }
 
   private static Map<String, Object> activeInstance() {

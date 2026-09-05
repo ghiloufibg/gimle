@@ -39,8 +39,11 @@ public final class ReleaseReconciler {
     BundleApplier.applyConfig(api, rendered.config());
     BundleApplier.applySecrets(api, rendered.secrets());
     BundleApplier.applyWorkloads(api, rendered.workloads());
-    awaitIfRequested(api, rendered, wait, out);
 
+    // Recorded before the wait, not after: the resources are already applied by this point, so a
+    // wait that times out would otherwise leave a live release with no ledger row -- undeployable,
+    // because every teardown path finds nothing to tear down. What the ledger records is what was
+    // applied; whether it converged is a separate question, and the caller still sees the failure.
     List<String> tenantIds = rendered.tenants().stream().map(BundleTenant::id).toList();
     ReleaseLedger.writeRevision(
         api,
@@ -55,6 +58,7 @@ public final class ReleaseReconciler {
             Optional.empty()));
     ReleaseLedger.writeMeta(
         api, rendered.name(), new ReleaseMeta(rendered.name(), rendered.version(), 1, tenantIds));
+    awaitIfRequested(api, rendered, wait, out);
     return new DeployOutcome(1);
   }
 
@@ -88,8 +92,9 @@ public final class ReleaseReconciler {
     BundleApplier.applySecrets(api, rendered.secrets());
     BundleApplier.applyWorkloads(api, rendered.workloads());
     BundleApplier.deleteWorkloads(api, toPrune);
-    awaitIfRequested(api, rendered, wait, out);
 
+    // Recorded before the wait for the same reason deployFresh does: a timed-out wait must not
+    // leave the ledger pointing at the previous revision while the new one is already live.
     int nextRevision = meta.currentRevision() + 1;
     List<String> tenantIds = rendered.tenants().stream().map(BundleTenant::id).toList();
     ReleaseLedger.writeRevision(
@@ -107,6 +112,7 @@ public final class ReleaseReconciler {
         api,
         rendered.name(),
         new ReleaseMeta(rendered.name(), rendered.version(), nextRevision, tenantIds));
+    awaitIfRequested(api, rendered, wait, out);
     return new UpgradeOutcome(nextRevision, toPrune);
   }
 

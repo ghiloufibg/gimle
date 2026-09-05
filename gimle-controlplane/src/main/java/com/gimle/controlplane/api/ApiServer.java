@@ -457,6 +457,7 @@ public final class ApiServer implements AutoCloseable {
       return new StoreProbeResult(false, 0, reason, Instant.now());
     }
   }
+
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
   // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
@@ -4728,10 +4729,14 @@ public final class ApiServer implements AutoCloseable {
       }
       // targetId=nodeId is what lets a gimle:nodes principal reach exactly its own subresources
       // (Authorizer's node self-service short-circuit) with no RoleBinding needing to exist for
-      // it -- and nothing else.
+      // it -- and nothing else. Labelling is deliberately excluded from that: a node that could
+      // label itself could grant itself the very labels placement uses to keep workloads off it,
+      // so this one action is withheld from the self-service path and needs a real grant.
       Verb verb = "assignments".equals(action) ? Verb.READ : Verb.WRITE;
+      Optional<String> selfServiceTarget =
+          "labels".equals(action) ? Optional.empty() : Optional.of(nodeId);
       if (!requireAuthorized(
-          exchange, ResourceKind.NODE, verb, Optional.empty(), Optional.of(nodeId))) {
+          exchange, ResourceKind.NODE, verb, Optional.empty(), selfServiceTarget)) {
         return;
       }
       switch (action) {
@@ -4742,6 +4747,7 @@ public final class ApiServer implements AutoCloseable {
         case "uncordon" -> handleCordon(exchange, nodeId, false);
         case "taint" -> handleTaint(exchange, nodeId, true);
         case "untaint" -> handleTaint(exchange, nodeId, false);
+        case "labels" -> handleNodeLabels(exchange, nodeId);
         case "events" -> handleAppendInstanceEvent(exchange);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
@@ -4765,13 +4771,60 @@ public final class ApiServer implements AutoCloseable {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
     Object apiAddress = body.get("apiAddress");
+    // Carried over rather than reset: a node restarting re-reports only what it knows about
+    // itself, and dropping the operator's labels here would silently un-place every workload
+    // that was scheduled because of them.
+    Set<String> operatorLabels =
+        storeClient
+            .getNodeRegistration(nodeId)
+            .map(NodeRegistration::operatorLabels)
+            .orElse(Set.of());
     storeClient.propose(
         new StateMutation.PutNodeRegistration(
             new NodeRegistration(
                 nodeId,
                 capabilities,
-                apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress))));
+                apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress),
+                operatorLabels)));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code PUT /nodes/{nodeId}/labels} -- replaces this node's operator-applied label set with the
+   * one in the body ({@code {"labels": ["edge"]}}), the same declarative shape every other write
+   * here takes: the request states the labels the node should have, not an edit to apply.
+   *
+   * <p>Only the operator half is touched. Labels the node reported for itself at startup stay
+   * exactly as they are and cannot be removed through this endpoint, since they are a property of
+   * how the node was launched, not of cluster state.
+   */
+  private void handleNodeLabels(HttpExchange exchange, String nodeId) throws IOException {
+    if (!"PUT".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Optional<NodeRegistration> existing = storeClient.getNodeRegistration(nodeId);
+    if (existing.isEmpty()) {
+      respond(exchange, 404, "no such node: " + nodeId);
+      return;
+    }
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object rawLabels = body.get("labels");
+    if (!(rawLabels instanceof List<?> list)) {
+      respond(exchange, 400, "expected {\"labels\": [...]}");
+      return;
+    }
+    Set<String> labels = new LinkedHashSet<>();
+    for (Object label : list) {
+      if (!(label instanceof String text) || text.isBlank()) {
+        respond(exchange, 400, "every label must be a non-blank string");
+        return;
+      }
+      labels.add(text.trim());
+    }
+    storeClient.propose(
+        new StateMutation.PutNodeRegistration(existing.get().withOperatorLabels(labels)));
+    respondJson(exchange, 200, Map.of("nodeId", nodeId, "labels", List.copyOf(labels)));
   }
 
   /**
@@ -5298,7 +5351,9 @@ public final class ApiServer implements AutoCloseable {
         capabilities.put(
             "supportedTiers",
             registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
-        capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
+        capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
+        capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
+        capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
         node.put("capabilities", capabilities);
         node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
         node.put(

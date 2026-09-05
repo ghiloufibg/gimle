@@ -1191,6 +1191,69 @@ class ApiServerTest {
     assertEquals(0L, capacity.get("assignedCpuMillicores"));
   }
 
+  /**
+   * A node's labels were settable only through its own launch configuration, so a cluster whose
+   * agent an operator cannot relaunch could never satisfy a manifest requiring a label -- including
+   * the gateway's own bundled DaemonSet on the project's single-node reference cluster.
+   */
+  @Test
+  void an_operator_can_label_a_running_node_and_the_label_counts_for_placement() throws Exception {
+    registerNodeA();
+
+    HttpResponse<String> labelled =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/labels"))
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"labels\":[\"edge\"]}"))
+                .build());
+
+    assertEquals(200, labelled.statusCode());
+    Map<String, Object> capabilities = capabilitiesOfNodeA();
+    assertEquals(List.of("edge"), capabilities.get("labels"));
+    assertEquals(List.of("edge"), capabilities.get("operatorLabels"));
+  }
+
+  @Test
+  void a_re_registering_node_keeps_the_labels_an_operator_applied_to_it() throws Exception {
+    registerNodeA();
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/labels"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"labels\":[\"edge\"]}"))
+            .build());
+
+    // The agent restarts and re-reports only what it knows about itself.
+    registerNodeA();
+
+    Map<String, Object> capabilities = capabilitiesOfNodeA();
+    assertEquals(List.of("edge"), capabilities.get("operatorLabels"));
+    assertEquals(List.of("edge"), capabilities.get("labels"));
+  }
+
+  @Test
+  void labelling_a_node_that_was_never_registered_is_a_404() throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/ghost/labels"))
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"labels\":[\"edge\"]}"))
+                .build());
+
+    assertEquals(404, response.statusCode());
+  }
+
+  private void registerNodeA() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+  }
+
+  private Map<String, Object> capabilitiesOfNodeA() throws Exception {
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+    return Json.asObject(Json.asObjectList(Json.parse(list.body())).get(0).get("capabilities"));
+  }
+
   @Test
   void nodes_list_endpoint_omits_last_heartbeat_and_capacity_for_a_node_that_never_sent_one()
       throws Exception {

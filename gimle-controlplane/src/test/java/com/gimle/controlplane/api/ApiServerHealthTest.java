@@ -11,13 +11,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
-import java.nio.file.Path;
 
 /**
  * {@code /health} is what a load balancer and an operator both poll, so its one hard requirement is
@@ -85,7 +85,8 @@ class ApiServerHealthTest {
     }
 
     assertEquals(503, response.statusCode(), "an unreachable store must fail closed");
-    assertTrue(response.body().contains("DOWN"), "the body should say what is wrong: " + response.body());
+    assertTrue(
+        response.body().contains("DOWN"), "the body should say what is wrong: " + response.body());
   }
 
   private HttpResponse<String> get(String baseUrl) throws Exception {

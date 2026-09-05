@@ -1015,6 +1015,13 @@ public final class DomainCodec {
     for (String label : labels) {
       out.writeUTF(label);
     }
+    // Written separately from the self-reported half above so a re-registering node replaces only
+    // its own labels, never the ones an operator applied to it.
+    Set<String> operatorLabels = registration.operatorLabels();
+    out.writeInt(operatorLabels.size());
+    for (String label : operatorLabels) {
+      out.writeUTF(label);
+    }
   }
 
   public static NodeRegistration readNodeRegistration(DataInputStream in) throws IOException {
@@ -1030,10 +1037,16 @@ public final class DomainCodec {
     for (int i = 0; i < labelCount; i++) {
       labels.add(in.readUTF());
     }
+    Set<String> operatorLabels = new LinkedHashSet<>();
+    int operatorLabelCount = in.readInt();
+    for (int i = 0; i < operatorLabelCount; i++) {
+      operatorLabels.add(in.readUTF());
+    }
     return new NodeRegistration(
         nodeId,
         new NodeCapabilities(tiers, labels),
-        apiAddress.isEmpty() ? Optional.empty() : Optional.of(apiAddress));
+        apiAddress.isEmpty() ? Optional.empty() : Optional.of(apiAddress),
+        operatorLabels);
   }
 
   public static void writeTenant(DataOutputStream out, Tenant tenant) throws IOException {
