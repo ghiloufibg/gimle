@@ -75,6 +75,36 @@ class QuotaReconcilerTest {
     assertFalse(store.isQuotaViolating(Optional.of("acme"), "orders"));
   }
 
+  /**
+   * A quota an operator explicitly set on the default tenant is a real constraint. Skipping that
+   * tenant by name meant its usage was never even accumulated, so a workload far past the ceiling
+   * was still reported as not violating.
+   */
+  @Test
+  void marks_a_deployment_violating_a_quota_set_on_the_default_tenant() {
+    StateStore store = new StateStore();
+    store.putTenant(new Tenant(Tenant.DEFAULT_TENANT_ID, new ResourceQuota(1, 1, 1)));
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", 2, jar, Tenant.DEFAULT_TENANT_ID));
+
+    new QuotaReconciler(store).reconcileOnce();
+
+    assertTrue(store.isQuotaViolating(Optional.of(Tenant.DEFAULT_TENANT_ID), "orders"));
+  }
+
+  @Test
+  void does_not_mark_a_default_tenant_deployment_within_the_quota_set_on_it() {
+    StateStore store = new StateStore();
+    store.putTenant(
+        new Tenant(Tenant.DEFAULT_TENANT_ID, new ResourceQuota(1_000_000_000L, 4000, 10)));
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", 2, jar, Tenant.DEFAULT_TENANT_ID));
+
+    new QuotaReconciler(store).reconcileOnce();
+
+    assertFalse(store.isQuotaViolating(Optional.of(Tenant.DEFAULT_TENANT_ID), "orders"));
+  }
+
   @Test
   void ignores_untenanted_deployments() {
     StateStore store = new StateStore();

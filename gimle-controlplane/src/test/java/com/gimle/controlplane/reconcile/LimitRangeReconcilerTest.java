@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
@@ -97,6 +98,40 @@ class LimitRangeReconcilerTest {
     new LimitRangeReconciler(store).reconcileOnce();
 
     assertFalse(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
+  }
+
+  /**
+   * A range an operator explicitly set on the default tenant is a real constraint. Skipping that
+   * tenant by name left every workload under it reporting limitRangeViolating:false forever, no
+   * matter how far below the configured minimum it actually sat.
+   */
+  @Test
+  void marks_a_deployment_violating_a_range_set_on_the_default_tenant() {
+    StateStore store = new StateStore();
+    store.putLimitRange(
+        new LimitRangeSpec(
+            Tenant.DEFAULT_TENANT_ID,
+            Optional.of(new ResourceSpec("32Mi", "20m")), // above the fixture's 16Mi/10m request
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", jar, Tenant.DEFAULT_TENANT_ID));
+
+    new LimitRangeReconciler(store).reconcileOnce();
+
+    assertTrue(store.isLimitRangeViolating(Optional.of(Tenant.DEFAULT_TENANT_ID), "orders"));
+  }
+
+  @Test
+  void ignores_a_default_tenant_deployment_when_no_range_was_ever_set() {
+    StateStore store = new StateStore();
+    Path jar = buildFixtureJar();
+    store.putDeployment(tenantedDeployment("orders", jar, Tenant.DEFAULT_TENANT_ID));
+
+    new LimitRangeReconciler(store).reconcileOnce();
+
+    assertFalse(store.isLimitRangeViolating(Optional.of(Tenant.DEFAULT_TENANT_ID), "orders"));
   }
 
   @Test
