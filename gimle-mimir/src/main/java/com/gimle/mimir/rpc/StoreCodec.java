@@ -192,6 +192,9 @@ public final class StoreCodec {
   private static final byte TAG_LIST_REVOKED_CERTIFICATE_SERIALS = 113;
   private static final byte TAG_IS_SECRETS_KEY_RETIRED = -102;
   private static final byte TAG_LIST_RETIRED_SECRETS_KEY_IDS = -103;
+  private static final byte TAG_GET_REQUEST_OUTCOME = -101;
+  private static final byte TAG_REQUEST_OUTCOME_RESULT = -100;
+  private static final byte TAG_COUNT_REQUEST_OUTCOMES_BEFORE = -99;
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
@@ -382,6 +385,14 @@ public final class StoreCodec {
         case StoreRpc.GetWorkloadToken v -> {
           out.writeByte(TAG_GET_WORKLOAD_TOKEN);
           out.writeUTF(v.key());
+        }
+        case StoreRpc.GetRequestOutcome v -> {
+          out.writeByte(TAG_GET_REQUEST_OUTCOME);
+          out.writeUTF(v.requestId());
+        }
+        case StoreRpc.CountRequestOutcomesBefore v -> {
+          out.writeByte(TAG_COUNT_REQUEST_OUTCOMES_BEFORE);
+          out.writeLong(v.cutoffEpochMilli());
         }
         case StoreRpc.ListAssignments v -> out.writeByte(TAG_LIST_ASSIGNMENTS);
         case StoreRpc.GetJobSpec v -> {
@@ -906,6 +917,13 @@ public final class StoreCodec {
             DomainCodec.writeWorkloadTokenRecord(out, v.value());
           }
         }
+        case StoreRpc.RequestOutcomeResult v -> {
+          out.writeByte(TAG_REQUEST_OUTCOME_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeRequestOutcomeRecord(out, v.value());
+          }
+        }
         case StoreRpc.SnapshotResult v -> {
           out.writeByte(TAG_SNAPSHOT_RESULT);
           DomainCodec.writeBytes(out, v.snapshot());
@@ -1096,6 +1114,9 @@ public final class StoreCodec {
         case TAG_GET_SESSION_REVOKED_BEFORE_EPOCH_MILLI ->
             new StoreRpc.GetSessionRevokedBeforeEpochMilli(in.readUTF());
         case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());
+        case TAG_GET_REQUEST_OUTCOME -> new StoreRpc.GetRequestOutcome(in.readUTF());
+        case TAG_COUNT_REQUEST_OUTCOMES_BEFORE ->
+            new StoreRpc.CountRequestOutcomesBefore(in.readLong());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
         case TAG_GET_JOB_SPEC ->
             new StoreRpc.GetJobSpec(DomainCodec.readOptionalString(in), in.readUTF());
@@ -1393,6 +1414,11 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.WorkloadTokenResult(
               present, present ? DomainCodec.readWorkloadTokenRecord(in) : null);
+        }
+        case TAG_REQUEST_OUTCOME_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.RequestOutcomeResult(
+              present, present ? DomainCodec.readRequestOutcomeRecord(in) : null);
         }
         case TAG_HEARTBEAT_RESULT -> {
           boolean present = in.readBoolean();

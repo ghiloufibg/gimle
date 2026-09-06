@@ -151,6 +151,12 @@ public final class StoreNode implements StoreRpcHandler {
         var record = store.getWorkloadToken(r.key());
         yield new StoreRpc.WorkloadTokenResult(record.isPresent(), record.orElse(null));
       }
+      case StoreRpc.GetRequestOutcome r -> {
+        var record = store.getRequestOutcome(r.requestId());
+        yield new StoreRpc.RequestOutcomeResult(record.isPresent(), record.orElse(null));
+      }
+      case StoreRpc.CountRequestOutcomesBefore r ->
+          new StoreRpc.IntResult(true, store.countRequestOutcomesBefore(r.cutoffEpochMilli()));
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
       case StoreRpc.GetJobSpec r -> jobSpecResult(store.getJobSpec(r.tenantId(), r.name()));
       case StoreRpc.ListJobSpecs r -> new StoreRpc.JobSpecListResult(store.listJobSpecs());

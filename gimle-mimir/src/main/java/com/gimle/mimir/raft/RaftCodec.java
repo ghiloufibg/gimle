@@ -29,6 +29,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadHealthState;
@@ -167,6 +168,8 @@ public final class RaftCodec {
   private static final byte MUT_PUT_DAEMONSET_DESIRED_COUNT = 76;
   private static final byte MUT_PUT_ALERT_FIRING_STATE = 77;
   private static final byte MUT_PUT_SECRETS_KEY_RETIREMENT = 78;
+  private static final byte MUT_PUT_REQUEST_OUTCOME = 79;
+  private static final byte MUT_SWEEP_REQUEST_OUTCOMES = 80;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -641,6 +644,21 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_WORKLOAD_TOKEN);
         out.writeUTF(m.key());
       }
+      case StateMutation.PutRequestOutcome m -> {
+        out.writeByte(MUT_PUT_REQUEST_OUTCOME);
+        DomainCodec.writeRequestOutcomeRecord(
+            out,
+            new RequestOutcomeRecord(
+                m.requestId(),
+                m.principalName(),
+                m.statusCode(),
+                m.responseBody(),
+                m.recordedAtEpochMilli()));
+      }
+      case StateMutation.SweepRequestOutcomes m -> {
+        out.writeByte(MUT_SWEEP_REQUEST_OUTCOMES);
+        out.writeLong(m.cutoffEpochMilli());
+      }
       case StateMutation.AppendInstanceEvent m -> {
         out.writeByte(MUT_APPEND_INSTANCE_EVENT);
         DomainCodec.writeOptionalString(out, m.tenantId());
@@ -963,6 +981,16 @@ public final class RaftCodec {
           new StateMutation.PutWorkloadToken(
               DomainCodec.readWorkloadTokenRecord(in), in.readLong());
       case MUT_REMOVE_WORKLOAD_TOKEN -> new StateMutation.RemoveWorkloadToken(in.readUTF());
+      case MUT_PUT_REQUEST_OUTCOME -> {
+        RequestOutcomeRecord record = DomainCodec.readRequestOutcomeRecord(in);
+        yield new StateMutation.PutRequestOutcome(
+            record.requestId(),
+            record.principalName(),
+            record.statusCode(),
+            record.responseBody(),
+            record.recordedAtEpochMilli());
+      }
+      case MUT_SWEEP_REQUEST_OUTCOMES -> new StateMutation.SweepRequestOutcomes(in.readLong());
       case MUT_APPEND_INSTANCE_EVENT -> {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
         yield new StateMutation.AppendInstanceEvent(tenantId, DomainCodec.readInstanceEvent(in));
@@ -1293,6 +1321,10 @@ public final class RaftCodec {
       for (WorkloadTokenRecord record : snapshot.workloadTokens()) {
         DomainCodec.writeWorkloadTokenRecord(out, record);
       }
+      out.writeInt(snapshot.requestOutcomes().size());
+      for (RequestOutcomeRecord record : snapshot.requestOutcomes()) {
+        DomainCodec.writeRequestOutcomeRecord(out, record);
+      }
       out.writeInt(snapshot.nodeTaints().size());
       for (Map.Entry<String, Set<String>> e : snapshot.nodeTaints().entrySet()) {
         out.writeUTF(e.getKey());
@@ -1578,6 +1610,11 @@ public final class RaftCodec {
       for (int i = 0; i < workloadTokenCount; i++) {
         workloadTokens.add(DomainCodec.readWorkloadTokenRecord(in));
       }
+      List<RequestOutcomeRecord> requestOutcomes = new ArrayList<>();
+      int requestOutcomeCount = in.readInt();
+      for (int i = 0; i < requestOutcomeCount; i++) {
+        requestOutcomes.add(DomainCodec.readRequestOutcomeRecord(in));
+      }
       Map<String, Set<String>> nodeTaints = new LinkedHashMap<>();
       int nodeTaintCount = in.readInt();
       for (int i = 0; i < nodeTaintCount; i++) {
@@ -1672,6 +1709,7 @@ public final class RaftCodec {
           limitRangeViolations,
           revokedCertificateSerials,
           workloadTokens,
+          requestOutcomes,
           nodeTaints,
           kindDefinitions,
           customResources,

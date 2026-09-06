@@ -31,6 +31,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
@@ -92,6 +93,8 @@ public sealed interface StoreRpc {
           ListRetiredSecretsKeyIds,
           GetSessionRevokedBeforeEpochMilli,
           GetWorkloadToken,
+          GetRequestOutcome,
+          CountRequestOutcomesBefore,
           ListAssignments,
           GetJobSpec,
           ListJobSpecs,
@@ -184,6 +187,7 @@ public sealed interface StoreRpc {
           AccountResult,
           NodeRegistrationResult,
           WorkloadTokenResult,
+          RequestOutcomeResult,
           HeartbeatResult,
           SnapshotResult,
           AccountListResult,
@@ -357,6 +361,11 @@ public sealed interface StoreRpc {
   record GetSessionRevokedBeforeEpochMilli(String username) implements Request {}
 
   record GetWorkloadToken(String key) implements Request {}
+
+  record GetRequestOutcome(String requestId) implements Request {}
+
+  /** Response reuses {@link IntResult} -- {@code present} is always {@code true} for a count. */
+  record CountRequestOutcomesBefore(long cutoffEpochMilli) implements Request {}
 
   record ListAssignments() implements Request {}
 
@@ -636,6 +645,8 @@ public sealed interface StoreRpc {
   record NodeRegistrationResult(boolean present, NodeRegistration value) implements Response {}
 
   record WorkloadTokenResult(boolean present, WorkloadTokenRecord value) implements Response {}
+
+  record RequestOutcomeResult(boolean present, RequestOutcomeRecord value) implements Response {}
 
   record HeartbeatResult(boolean present, ObservedHeartbeat value) implements Response {}
 

@@ -74,6 +74,10 @@ public record StateSnapshot(
     Map<String, String> limitRangeViolations,
     Set<String> revokedCertificateSerials,
     List<WorkloadTokenRecord> workloadTokens,
+    // Receipts for completed writes that carried a caller-supplied request id -- snapshotted
+    // like every other replicated map, since a receipt lost to a leader change or a log
+    // compaction would silently turn a retry back into a second execution of the write.
+    List<RequestOutcomeRecord> requestOutcomes,
     Map<String, Set<String>> nodeTaints,
     List<KindDefinitionSpec> kindDefinitions,
     List<CustomResource> customResources,
@@ -157,6 +161,7 @@ public record StateSnapshot(
     limitRangeViolations = Map.copyOf(limitRangeViolations);
     revokedCertificateSerials = Set.copyOf(revokedCertificateSerials);
     workloadTokens = List.copyOf(workloadTokens);
+    requestOutcomes = List.copyOf(requestOutcomes);
     // Deep-copied for the same reason rollingDaemonSetNodes/rollingIndices are above.
     nodeTaints =
         nodeTaints.entrySet().stream()
