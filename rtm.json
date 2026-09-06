@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 961,
+  "requirementCount": 966,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10408,18 +10408,18 @@
       "module": "gimle-mimir",
       "feature": "ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback",
       "category": "Workload Lifecycle",
-      "status": "New",
-      "statusNote": "newly added as part of the ControllerRevision revision-history and rollback work",
+      "status": "Modified",
+      "statusNote": "newly added as part of the ControllerRevision revision-history and rollback work -- Modified by the request-idempotency change: a rollback's ControllerRevision and its workload-spec write are now proposed as one StateMutation.Batch instead of two separate proposals, so a crash between them -- or a rejected Deployment generation guard -- no longer leaves an orphan revision recording a rollback that never took effect; all three rollback routes additionally accept X-Gimle-Request-Id (GIMLE-963).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags=\"@rollback\"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes.",
+      "gapNote": "A `rollback.feature` Cucumber scenario (`gimle-holmgang/src/test/resources/features/rollback.feature`, tag `@holmgang @rollback`) and its step definition (`DeploymentSteps.isRolledBackToThePreviousRevision`, `ClusterApi.rollbackDeployment`) were added alongside this work, but could not be executed to confirm coverage: gimle-holmgang transitively depends on gimle-hilmir, which uses the JDK 24+ `java.lang.classfile` API -- unavailable in the JDK 21 toolchain this scan ran under. Run `mvn -pl gimle-holmgang verify -Psmoke -Dcucumber.filter.tags=\"@rollback\"` (per the project's JDK 25 toolchain) and flip this to Covered once it passes. Coverage re-verified from scratch after that change: `rollback.feature`'s single scenario still exercises rolling a deployment back to a prior version end to end, but nothing in it observes the new atomicity (no rejected guard, no orphan-revision check) or sends a request id, and the scenario's own execution was never confirmed -- so this stays Not Covered.",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/ControllerRevision.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AppendControllerRevision`)",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putControllerRevision`/`listControllerRevisions`/`getControllerRevision`)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRollbackDeployment`/`handleRollbackStatefulSet`/`handleRollbackDaemonSet`)"
       ],
-      "otherTestCoverage": "`ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`)."
+      "otherTestCoverage": "`ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). `ApiServerRequestIdempotencyTest` additionally covers the Deployment and DaemonSet rollback routes under a repeated request id (exactly one revision, not two); no test asserts the absence of an orphan revision after a rejected generation guard directly."
     },
     {
       "id": "GIMLE-602",
@@ -11195,17 +11195,17 @@
       "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
       "category": "State Store",
       "status": "Modified",
-      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard) -- corrected after real compile/test verification (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) proved the originally-claimed exactly-one-winner guarantee false for a versionless apply; the achievable guarantee (no lost update, no torn state) is what's actually implemented and tested now; extended again to keep the generation counter monotonic across a delete, so a proposal captured while the name was free can no longer satisfy its own precondition a second time after that delete and resurrect the deployment",
+      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard) -- corrected after real compile/test verification (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) proved the originally-claimed exactly-one-winner guarantee false for a versionless apply; the achievable guarantee (no lost update, no torn state) is what's actually implemented and tested now; extended again to keep the generation counter monotonic across a delete, so a proposal captured while the name was free can no longer satisfy its own precondition a second time after that delete and resurrect the deployment -- Modified again by the request-idempotency change: proposePutDeploymentOrConflict now takes an alsoCommit list and proposes a single StateMutation.Batch, so the ControllerRevision an apply or rollback mints -- and a keyed request's own outcome receipt -- commit inside the guarded write's own batch rather than ahead of it; the generation precondition and its 409 verdict are unchanged. PUT /deployments/{name} also accepts X-Gimle-Request-Id, which is what keeps a retry of an already-committed apply from being refused as a conflict against a generation its own first attempt moved (GIMLE-963).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.",
+      "gapNote": "Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet. Still Not Covered after that change: no Cucumber scenario races an apply against a delete, and none sends a repeated keyed apply.",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ],
-      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. DeploymentGenerationCasTest pins the tombstone directly: a proposal captured while the name was free is rejected after a create+delete, a delete never leaves the name reading as free, and a genuine later apply still recreates it."
+      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. DeploymentGenerationCasTest pins the tombstone directly: a proposal captured while the name was free is rejected after a create+delete, a delete never leaves the name reading as free, and a genuine later apply still recreates it. `ApiServerRequestIdempotencyTest#a_replayed_generation_guarded_put_returns_the_original_outcome_and_does_not_re_apply` covers the keyed-retry half directly."
     },
     {
       "id": "GIMLE-647",
@@ -11693,12 +11693,12 @@
       "module": "gimle-controlplane",
       "feature": "Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps",
       "category": "Config / ConfigMap",
-      "status": "New",
-      "statusNote": "New requirement: closes FUNC-25 -- Plain Config and ConfigMap entries had no version history at all -- an overwrite or delete simply replaced or removed the live row with no way to see or recover a prior value. Fixed: a new ConfigVersi...",
+      "status": "Modified",
+      "statusNote": "New requirement: closes FUNC-25 -- Plain Config and ConfigMap entries had no version history at all -- an overwrite or delete simply replaced or removed the live row with no way to see or recover a prior value. Fixed: a new ConfigVersi... -- Modified by the request-idempotency change: both rollback paths now propose the live row, the ledger version stamp and (when keyed) the outcome receipt as one StateMutation.Batch inside the write lease they already held, where the live row and the stamp were previously two separate proposals; both methods gained a ReceiptFactory callback parameter, and the /config and /configmaps rollback routes accept X-Gimle-Request-Id (GIMLE-963).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
-      "otherTestCoverage": "`ConfigVersionStoreTest` (new) and expanded `ConfigMapStoreTest` cover listVersions ordering including the delete tombstone, rollback to an earlier version, rollback to a deleted version, rollback of an unknown version, delete-of-never-existed idempotency, and version numbering across a delete-then-recreate cycle. `ApiServerTest` gains end-to-end HTTP route coverage for both /config/* and /configmaps/*. Full gimle-controlplane/gimle-cli suites re-verified.",
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Still Not Covered after that change: no Cucumber scenario touches /config or /configmaps versions at all.",
+      "otherTestCoverage": "`ConfigVersionStoreTest` (new) and expanded `ConfigMapStoreTest` cover listVersions ordering including the delete tombstone, rollback to an earlier version, rollback to a deleted version, rollback of an unknown version, delete-of-never-existed idempotency, and version numbering across a delete-then-recreate cycle. `ApiServerTest` gains end-to-end HTTP route coverage for both /config/* and /configmaps/*. Full gimle-controlplane/gimle-cli suites re-verified. `ConfigVersionStoreTest`/`ConfigMapStoreTest` updated for the new `ReceiptFactory` parameter; `ApiServerRequestIdempotencyTest#a_replayed_config_rollback_mints_exactly_one_new_version` covers the batched config rollback over real HTTP.",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/config/ConfigVersionStore.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMapStore.java` (`listVersions`, `rollback`)",
@@ -13218,18 +13218,18 @@
       "module": "gimle-cli",
       "feature": "A failed invocation exits with a code naming why it failed",
       "category": "CLI",
-      "status": "New",
-      "statusNote": "New requirement: Fixed: closes FUNC-79. ControlPlaneClient.describeError already classified failures by HTTP status -- invalid request, not found, method not allowed, conflict, not-leader -- plus a distinct network-unreachable path, but run's three catch blocks all returned 1 and CliException carried no distinction. A CliExitCode enum now defines 1 generic, 2 invalid input, 3 not found, 4 forbidden, 5 conflict and 6 unreachable or retryable, carried on CliException as a classification rather than a subtype hierarchy so the type stays final and five near-empty subclasses are avoided. describeError became errorFrom, returning the classified exception rather than a message string, and every IOException transport path throws the unreachable classification. 401 and 403 were not in the original switch at all and fell through to a bare unexpected-response message; both are now explicit and both map to forbidden, deliberately sharing a code because both mean the caller may not do this and no remedy depends on telling them apart. Client-side usage and argument errors stay on generic, documented explicitly rather than left implicit.",
+      "status": "Modified",
+      "statusNote": "New requirement: Fixed: closes FUNC-79. ControlPlaneClient.describeError already classified failures by HTTP status -- invalid request, not found, method not allowed, conflict, not-leader -- plus a distinct network-unreachable path, but run's three catch blocks all returned 1 and CliException carried no distinction. A CliExitCode enum now defines 1 generic, 2 invalid input, 3 not found, 4 forbidden, 5 conflict and 6 unreachable or retryable, carried on CliException as a classification rather than a subtype hierarchy so the type stays final and five near-empty subclasses are avoided. describeError became errorFrom, returning the classified exception rather than a message string, and every IOException transport path throws the unreachable classification. 401 and 403 were not in the original switch at all and fell through to a bare unexpected-response message; both are now explicit and both map to forbidden, deliberately sharing a code because both mean the caller may not do this and no remedy depends on telling them apart. Client-side usage and argument errors stay on generic, documented explicitly rather than left implicit. -- Modified by the request-idempotency change: a mutating request that times out still exits 6 (CliExitCode.UNAVAILABLE is unchanged, and an HttpTimeoutException already took that path), but is no longer described as an unreachable server -- ControlPlaneClient.sendMutation reports an unknown outcome naming the request id instead (GIMLE-966).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "CliOutputContractTest: nine cases producing each code from a real server -- invalid input via both a server 400 and a client-side manifest exception, not found, forbidden via a genuine 403, conflict via an admission 409, unreachable, generic usage error and success. Twenty-four existing assertions were updated to the new contract, each verified against the real observed status rather than weakened.",
+      "otherTestCoverage": "CliOutputContractTest: nine cases producing each code from a real server -- invalid input via both a server 400 and a client-side manifest exception, not found, forbidden via a genuine 403, conflict via an admission 409, unreachable, generic usage error and success. Twenty-four existing assertions were updated to the new contract, each verified against the real observed status rather than weakened. `ControlPlaneClientRequestIdTest#a_lost_answer_is_reported_as_an_unknown_outcome_naming_the_request_id` pins the new message, including that it never describes the timeout as an unreachable server.",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/CliExitCode.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CliException.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClient.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`"
       ],
-      "gapNote": "No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+      "gapNote": "No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Re-verified after that change: still no .feature scenario invokes gimle-cli."
     },
     {
       "id": "GIMLE-762",
@@ -16565,6 +16565,91 @@
         "`gimle-ivaldi-console/src/repositories/mockRunner.ts` (`machinesOf`)",
         "`gimle-ivaldi-console/src/stores/useRunStore.ts`",
         "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (the Machines sidebar section)"
+      ]
+    },
+    {
+      "id": "GIMLE-962",
+      "module": "gimle-mimir",
+      "feature": "Request-outcome receipts are replicated store state, recorded once per request id and expired by an explicit cutoff",
+      "category": "State Store",
+      "status": "New",
+      "statusNote": "New requirement: a RequestOutcomeRecord (request id, principal, status, body, stamp) is held in a replicated StateStore map with first-write-wins semantics, snapshotted and restored with every other replicated map, and expired by a SweepRequestOutcomes mutation whose cutoff -- like PutRequestOutcome's own stamp -- travels in the entry rather than being read from the applying replica's clock, so every replica removes exactly the same set and a log replay reproduces it. Wired through DomainCodec/RaftCodec and the StoreRpc/StoreNode/StoreClient read surface.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this. No `.feature` file in `gimle-holmgang/src/test/resources/features/` sends an `X-Gimle-Request-Id` at all (`rollback.feature` drives a rollback once, through `ClusterApi`, with no request id and no retry), so nothing there exercises a repeated keyed write end to end against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`RequestOutcomeStoreTest` (five tests against a real `StateStore`: snapshot/restore round trip, sweep removes expired and keeps fresh, a receipt exactly at the cutoff is kept, first-recorded-wins, unknown id absent); `RaftCodecTest` (a receipt-bearing `StateSnapshot` survives the wire round trip); `RaftLogTest`/`RaftNodeSafetyMechanicsTest` updated for the new snapshot component.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/RequestOutcomeRecord.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutRequestOutcome`, `SweepRequestOutcomes`), `RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreCodec.java`, `StoreNode.java`, `StoreClient.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-963",
+      "module": "gimle-controlplane",
+      "feature": "A repeated mutating request carrying the same `X-Gimle-Request-Id` is answered from the first attempt's recorded outcome instead of running again",
+      "category": "Control plane / API server",
+      "status": "New",
+      "statusNote": "New requirement: an optional caller-supplied X-Gimle-Request-Id (validated 8-128 of [A-Za-z0-9._-]) keys nine mutating routes -- the three workload rollbacks, the config and configmap rollbacks, CSR approve, and the generation-guarded PUTs for deployments, kind definitions and custom resources. A hit replays the recorded status and body verbatim with X-Gimle-Replayed: true and does not re-execute; a miss executes and commits its receipt in the same StateMutation.Batch as the write it guards. Absent header = unchanged behaviour. Documented limits: CSR approve's receipt is not atomic (its effect is a CA signature plus an in-memory per-replica record, so nothing to batch into), and two genuinely concurrent duplicates of one id both execute.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this. No `.feature` file in `gimle-holmgang/src/test/resources/features/` sends an `X-Gimle-Request-Id` at all (`rollback.feature` drives a rollback once, through `ClusterApi`, with no request id and no retry), so nothing there exercises a repeated keyed write end to end against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ApiServerRequestIdempotencyTest` (real `ApiServer` on loopback, real `HttpClient`, real in-process store: replayed deployment and DaemonSet rollbacks mint exactly one revision; the same rollback unkeyed still mints two; a replayed generation-guarded PUT returns the original 200 while a newer apply made in between survives; a malformed id is refused 400 and mints nothing; a replayed config rollback mints one version; a same-principal replay hits). `ApiServerRequestIdempotencyAuthzTest` covers the principal re-check (GIMLE-964). `RequestOutcomeStoreTest`/`RequestOutcomeSweeperTest` cover the store and retention halves. No test exercises the CSR-approve route's replay or its non-atomic window.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/RequestIdempotency.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`KeyedWrite`, `beginKeyedWrite`, `withReceipt`, `replayRecordedOutcome`, `proposePutDeploymentOrConflict`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/config/ConfigVersionStore.java`, `configmap/ConfigMapStore.java` (`ReceiptFactory`)"
+      ]
+    },
+    {
+      "id": "GIMLE-964",
+      "module": "gimle-controlplane",
+      "feature": "A recorded request outcome is replayed only to the principal that recorded it, and a mismatch reads as a miss rather than a refusal",
+      "category": "Authorization / API Server",
+      "status": "New",
+      "statusNote": "New requirement: every receipt stores the principal name it was recorded for and RequestIdempotency.check filters on it, so another caller presenting the same id gets a miss -- its own request simply executes, which both avoids confirming the id exists and leaves the original receipt intact for its owner. Honest limit: on a plaintext listener every caller resolves to the synthetic anonymous principal, so the separation is real only where callers have distinct identities (mTLS or a console session).",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this. No `.feature` file in `gimle-holmgang/src/test/resources/features/` sends an `X-Gimle-Request-Id` at all (`rollback.feature` drives a rollback once, through `ClusterApi`, with no request id and no retry), so nothing there exercises a repeated keyed write end to end against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Holmgang's own mtls.feature stands up a real authenticated cluster but drives no keyed write.",
+      "otherTestCoverage": "`ApiServerRequestIdempotencyAuthzTest`: a real `ApiServer` on real mutual TLS with two distinct client certificates -- alice's receipt is not replayed to bob (no `X-Gimle-Replayed`, and bob's rollback genuinely mints a fourth revision), while alice's own later retry still replays her original body.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/RequestIdempotency.java` (`check`'s principal filter)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`recordedPrincipalNameOf`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/RequestOutcomeRecord.java` (`principalName`)"
+      ]
+    },
+    {
+      "id": "GIMLE-965",
+      "module": "gimle-controlplane",
+      "feature": "Request-outcome receipts are swept off the reconcile tick after a fifteen-minute retention window",
+      "category": "Reconciliation / Orchestration",
+      "status": "New",
+      "statusNote": "New requirement: RequestOutcomeSweeper runs last on the existing reconcile tick under the same reconciler-leader lease, recomputing its cutoff from the clock each pass (level-triggered and stateless -- one pass empties a table left untouched for a week) and proposing SweepRequestOutcomes only when countRequestOutcomesBefore finds something to remove, so no state-changing-nothing entry is appended to the replicated log every tick. Retention is a 15-minute constant in ControlPlaneMain; a retry arriving after it simply executes again.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this. No `.feature` file in `gimle-holmgang/src/test/resources/features/` sends an `X-Gimle-Request-Id` at all (`rollback.feature` drives a rollback once, through `ClusterApi`, with no request id and no retry), so nothing there exercises a repeated keyed write end to end against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Observing expiry additionally needs a fifteen-minute wall-clock wait, which no scenario stages.",
+      "otherTestCoverage": "`RequestOutcomeSweeperTest` (three tests against a real `StateStore` and a fixed `Clock`: expired removed and fresh kept; a tick with nothing expired proposes no mutation at all, asserted against the recorded proposal list; a single tick converges a long-untouched table). `RequestOutcomeStoreTest` pins the strictly-before cutoff comparison.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/RequestOutcomeSweeper.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`REQUEST_OUTCOME_RETENTION`, `reconcileAll`)"
+      ]
+    },
+    {
+      "id": "GIMLE-966",
+      "module": "gimle-cli",
+      "feature": "Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "New requirement: ControlPlaneClient.mutating stamps a fresh random-UUID X-Gimle-Request-Id on every PUT/POST/PATCH/DELETE (one per logical operation, set on the HttpRequest so the not-leader 307 hop presents the same id); GET carries none. A timeout is caught in sendMutation and rethrown as unknownOutcome -- still exit code 6 (CliExitCode.UNAVAILABLE, unchanged), but reported as an unknown outcome naming the request id and stating the write may already have been applied, rather than as an unreachable server. Limits: the CLI mints a fresh id per invocation with no flag to pin one, and the streamed putFile artifact-push path carries no id.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No `.feature` scenario invokes gimle-cli at all, and none stages a control plane that accepts a connection and never answers. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ControlPlaneClientRequestIdTest` (real loopback HTTP server recording received headers): all four mutating verbs send a server-acceptable id; two deliberate operations get two ids; a GET carries none; `unknownOutcome` names the verb, path and id, says the write may already have been applied, and never calls the timeout an unreachable server. Not covered: the id surviving a real 307 redirect, and the timeout path end to end through `sendMutation` against a genuinely hanging server.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClient.java` (`mutating`, `sendMutation`, `unknownOutcome`, `newRequestId`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/CliException.java`",
+        "`gimle-docs/docs/reference/cli-reference.md`"
       ]
     }
   ]
