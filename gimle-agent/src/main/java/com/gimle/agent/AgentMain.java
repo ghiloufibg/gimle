@@ -625,6 +625,7 @@ public final class AgentMain {
             supervised,
             supervisedVessels,
             capacityTracker,
+            committedWorkerCapacity,
             volumeManager);
         RotationOutcome rotationOutcome =
             rotateCertificateIfDue(httpClient, baseUrl, rotationMonitor);
@@ -1118,21 +1119,35 @@ public final class AgentMain {
     }
   }
 
-  private static void sendHeartbeat(
+  /**
+   * Reports whichever of this node's two budgets is actually binding, not just the declared-request
+   * one: {@code capacityTracker} sums each instance's own small declared request, while {@code
+   * committedWorkerCapacity} sums the real ceiling every spawned worker JVM is started with -- and
+   * it is the latter that {@link #startInstance} refuses a spawn against. Reporting the request sum
+   * alone let a node whose agent was already refusing to spawn anything keep advertising room the
+   * machine does not have, so the scheduler kept sending it work it could never run.
+   */
+  static void sendHeartbeat(
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, SupervisedVessel> supervisedVessels,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       VolumeManager volumeManager)
       throws IOException, InterruptedException {
     CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
+    CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
     Map<String, Object> capacity = new LinkedHashMap<>();
     capacity.put("totalMemoryBytes", snapshot.totalMemoryBytes());
-    capacity.put("assignedMemoryBytes", snapshot.assignedMemoryBytes());
+    capacity.put(
+        "assignedMemoryBytes",
+        Math.max(snapshot.assignedMemoryBytes(), committed.assignedMemoryBytes()));
     capacity.put("totalCpuMillicores", snapshot.totalCpuMillicores());
-    capacity.put("assignedCpuMillicores", snapshot.assignedCpuMillicores());
+    capacity.put(
+        "assignedCpuMillicores",
+        Math.max(snapshot.assignedCpuMillicores(), committed.assignedCpuMillicores()));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {

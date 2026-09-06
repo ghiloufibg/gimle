@@ -190,6 +190,8 @@ which is the reason Tier 2 exists.
 
 - **Capacity accounting.** Every instance is accounted against the node's capacity by its own
   `resources.request`, packed or not — density does not make an instance free to the scheduler.
+  Packing does keep the node's *committed* budget flat, though: that budget counts the real `-Xmx`
+  ceiling of each worker JVM this node has spawned, and packing spawns none.
 - **Per-instance identity.** Logs, metrics, probes, and lifecycle events stay per instance; only
   the hosting process is shared. A packed instance's logs live under the worker's owning instance's
   own directory (the instance that actually spawned the worker), which `AgentLogServer` resolves
@@ -200,10 +202,15 @@ which is the reason Tier 2 exists.
 
 - Total worker heap across the workers a node will host — `tier1WorkerHeap` per shared worker plus
   each Tier-2 instance's own `resources.limit.memory` — plus per-process JVM overhead, plus the
-  agent's own heap, must fit in the machine. The `CapacityTracker` only guards the *request*
-  totals, not the heaps, and `-Xmx` is a ceiling rather than a reservation, so these sums can
-  legitimately exceed physical memory; they are what the machine must survive if every worker fills
-  its heap at once.
+  agent's own heap, must fit in the machine. `-Xmx` is a ceiling rather than a reservation, so
+  these sums are what the machine must survive if every worker fills its heap at once.
+- The agent tracks two budgets and reports whichever is currently binding. One sums each instance's
+  declared `resources.request`; the other sums the real `-Xmx` ceiling of every worker JVM it has
+  spawned, and a spawn that would push that second sum past the machine's own memory is refused
+  outright. The larger of the two is what the node reports as assigned, so `gimle get nodes` shows
+  the constraint that actually binds and the scheduler stops placing work a node cannot start. A
+  refused spawn is also recorded on the instance's own timeline (`gimle events <name> <index>`),
+  not only in the node's log.
 - `-XX:ActiveProcessorCount` is derived per worker and does not partition real cores: the sum
   across workers can exceed the machine's core count. Treat CPU limits as scheduling hints, not
   hard partitions, until kernel-level enforcement lands.
