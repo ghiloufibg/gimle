@@ -110,9 +110,9 @@ gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId> [--tenant <id>]
 gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
 gimle metrics
-gimle metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+gimle metrics-history <AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER> <processId>
                        [--since <cursor>] [--limit N]
-gimle traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+gimle traces-history <CONTROLPLANE|WORKER> <processId>
                       [--since <cursor>] [--limit N]
 gimle context list
 gimle context show [name]
@@ -408,8 +408,15 @@ of [Muninn](../architecture/node-topology.md#muninn) through the control plane's
 terminal equivalent of the console's Metrics and Traces screens, so an investigation can be scripted
 instead of clicked. There is no discovery API for which process ids exist: every non-agent id is the
 `host:port` that process chose for itself at startup, an agent's is its node id, and a worker's is
-the composite `{nodeId}:{workerId}` (a worker has no listening address of its own). An unrecognized
-process kind is rejected locally, listing the five that exist. `--since <cursor>` (a line timestamp)
+the composite `{nodeId}:{workerId}` (a worker has no listening address of its own). The two verbs
+accept different process kinds, because the platform ships different signals from different
+processes: most kinds publish metrics but never start a span — a node agent and
+[Skald](../architecture/node-topology.md#skald) install no tracer provider at all, and the store,
+Fafnir and Andvari install one that nothing in them ever feeds — so asking any of them for traces
+could only ever come back empty. A
+kind that ships nothing for the signal being read is rejected locally, listing the kinds that do —
+the same set the control plane itself serves from `GET /metrics-history` and `GET /traces-history`
+and rejects a read against. `--since <cursor>` (a line timestamp)
 reads forward from that point and is the one filter the proxy forwards; `--limit N` is therefore
 applied client-side, keeping the most recent N of an oldest-first response, the same treatment
 `events` gives its own `--limit`. Under the table format the last line's own timestamp is printed as
@@ -858,7 +865,7 @@ gimle -o json metrics --server 127.0.0.1:8080
 # {nodeId}:{workerId}. --since resumes from the cursor the previous read printed.
 gimle metrics-history CONTROLPLANE 127.0.0.1:8080 --limit 50 --server 127.0.0.1:8080
 gimle metrics-history WORKER node-1:worker-2 --since 2026-08-30T10:00:00Z --server 127.0.0.1:8080
-gimle -o json traces-history AGENT node-1 --server 127.0.0.1:8080
+gimle -o json traces-history WORKER node-1:worker-2 --server 127.0.0.1:8080
 
 # Name each cluster once instead of retyping --server; the selection lives in ~/.gimle/config
 gimle context set dev --server 127.0.0.1:8080

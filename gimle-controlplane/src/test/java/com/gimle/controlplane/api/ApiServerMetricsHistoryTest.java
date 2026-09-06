@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
@@ -178,6 +179,52 @@ class ApiServerMetricsHistoryTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     assertEquals(400, response.statusCode());
+  }
+
+  /**
+   * The picker's own source of truth: which kinds ever ship metrics here. Andvari and Skald both
+   * do, and both were missing from every hand-maintained copy of this list a caller carried.
+   */
+  @Test
+  @Timeout(10)
+  void the_kinds_that_ship_metrics_are_served_by_the_collection_route() throws Exception {
+    startPlaintextServer(null);
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-history")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> kinds =
+        Json.asObject(Json.parse(response.body())).get("processKinds") instanceof List<?> list
+            ? List.copyOf(list)
+            : List.of();
+    assertEquals(
+        List.of("AGENT", "ANDVARI", "CONTROLPLANE", "FAFNIR", "SKALD", "STORE", "WORKER"), kinds);
+  }
+
+  /**
+   * Muninn is the sink, never a shipper, so no history can exist under its name -- proxying such a
+   * read would answer an empty list, indistinguishable from a quiet process.
+   */
+  @Test
+  @Timeout(10)
+  void a_process_kind_that_never_ships_metrics_is_rejected_rather_than_proxied() throws Exception {
+    List<String> receivedPaths = new CopyOnWriteArrayList<>();
+    muninnStub = startMuninnStub(receivedPaths);
+    startPlaintextServer(new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort()));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/metrics-history/MUNINN/127.0.0.1:9093"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("CONTROLPLANE"), response.body());
+    assertTrue(receivedPaths.isEmpty(), "nothing should have been proxied");
   }
 
   /**
