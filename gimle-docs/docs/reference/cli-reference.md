@@ -449,6 +449,18 @@ one must be: `--allowed-caller-tenant` (repeatable) allows the named caller tena
 `--deny-all-callers` is the allow-nobody form of the same direction; `--allowed-callee-tenant` /
 `--deny-all-callees` restrict the egress direction the same way.
 
+`ingress` reads and removes an [Ingress](../architecture/service-fabric.md#ingress-routes-as-a-resource)
+— the declared gateway route table. `get ingresses` with no name lists every Ingress (narrowed
+client-side by `--tenant` when given); with a name it reports that one, and `--tenant` is how a
+tenant's own Ingress is addressed, since a bare name reaches only the untenanted namespace. There is
+deliberately no `set ingress`: a route carries up to six fields whose meaning depends on its kind,
+which reads worse on a command line than in the `kind: Ingress` manifest `apply -f` accepts. Every
+apply is compare-and-set guarded — a manifest carrying the `version` a `get ingress` printed is
+refused with a `409` naming both versions if the stored Ingress has moved on since, and a manifest
+carrying no `version` is guarded against whatever is stored when the CLI reads it — so an edit
+built on a revision another operator has already replaced fails loudly instead of discarding their
+change.
+
 `alertrule` manages an [AlertRule](../architecture/observability.md#alerting) — a declared threshold
 on one Deployment's own observed signal (`--metric`, one of `REQUEST_RATE_PER_SECOND`,
 `ERROR_RATE_PER_SECOND`, `QUEUE_DEPTH`, `CPU_MILLICORES_USED`, `MEMORY_BYTES_USED`) that posts a

@@ -1,6 +1,7 @@
 package com.gimle.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -129,6 +130,64 @@ class IngressCommandTest {
 
     assertEquals(0, exitCode, errBuffer::toString);
     assertTrue(stdout().startsWith("{"), stdout());
+  }
+
+  @Test
+  void re_applying_a_manifest_carrying_a_version_someone_else_moved_past_is_refused() {
+    assertEquals(0, apply(serviceIngress("v1.yaml", "acme", "/a", null)), errBuffer::toString);
+    // A second operator's edit, landing while the first still holds version 1.
+    assertEquals(0, apply(serviceIngress("v2.yaml", "acme", "/b", "1")), errBuffer::toString);
+
+    int exitCode = apply(serviceIngress("stale.yaml", "acme", "/c", "1"));
+
+    assertNotEquals(0, exitCode, stdout());
+    assertTrue(stderr().contains("ingress/public"), stderr());
+    assertTrue(stderr().contains("version 2"), stderr());
+    outBuffer.reset();
+    assertEquals(
+        0,
+        run(
+            "get",
+            "ingress",
+            "public",
+            "--tenant",
+            "acme",
+            "--server",
+            serverAddress,
+            "-o",
+            "json"),
+        errBuffer::toString);
+    // The second operator's route survives: the stale apply replaced nothing.
+    assertTrue(stdout().contains("\"path\":\"/b\""), stdout());
+    assertFalse(stdout().contains("\"path\":\"/c\""), stdout());
+  }
+
+  /**
+   * A manifest that declares no version at all is still a legitimate create-or-replace, and the
+   * guard this command supplies from its own read must not turn one into a conflict.
+   */
+  @Test
+  void an_apply_declaring_no_version_creates_and_then_replaces_the_ingress() {
+    assertEquals(0, apply(serviceIngress("v1.yaml", "acme", "/a", null)), errBuffer::toString);
+
+    assertEquals(0, apply(serviceIngress("v2.yaml", "acme", "/b", null)), errBuffer::toString);
+
+    outBuffer.reset();
+    assertEquals(
+        0,
+        run(
+            "get",
+            "ingress",
+            "public",
+            "--tenant",
+            "acme",
+            "--server",
+            serverAddress,
+            "-o",
+            "json"),
+        errBuffer::toString);
+    assertTrue(stdout().contains("\"version\":2"), stdout());
+    assertTrue(stdout().contains("\"path\":\"/b\""), stdout());
   }
 
   @Test
