@@ -29,11 +29,10 @@ import org.junit.jupiter.api.Timeout;
  * gateway's own HTTP port with a real {@link java.net.http.HttpClient} and asserts the response
  * reflects a real fabric call that actually reached the real {@code greeter-provider} instance.
  *
- * <p>{@code gimle-system} admits this DaemonSet with no further operator-credential setup here:
- * this fixture's cluster runs in plaintext ({@code http://} base URLs throughout), and {@code
- * ApiServer#rejectIfReservedSystemTenant}'s own guard is a no-op in plaintext mode (see its own
- * javadoc -- there's no real caller identity to check without TLS in the first place, the same
- * carve-out {@link #SMOKE_OPERATOR_USERNAME}'s own account-creation call already relies on).
+ * <p>Writing the reserved {@code gimle-system} tenant needs a real operator credential, so this
+ * test authenticates as one before it deploys. That veto is keyed on the credential the caller
+ * presents rather than on the transport carrying it, so a plaintext cluster is no exception: it
+ * presents an operator session where an mTLS deployment would present an operator certificate.
  */
 @Tag("smoke")
 class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
@@ -138,6 +137,9 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
     // The route table is a declared Ingress, not a config string: a gateway follows whatever its
     // tenant declares, and the route table is validated where it is submitted rather than accepted
     // as opaque text and rejected later by whichever gateway happened to parse it.
+    // Everything below writes the reserved system tenant, which no credential-less caller may do.
+    authenticateAsOperator(baseUrl);
+
     postIngress(
         baseUrl,
         Map.of(
