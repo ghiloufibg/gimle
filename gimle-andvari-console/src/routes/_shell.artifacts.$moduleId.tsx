@@ -144,7 +144,7 @@ function ModuleDetailPage() {
                           {entry.sha256}
                         </TooltipContent>
                       </Tooltip>
-                      <CopyButton value={entry.sha256} label="sha256 copied" />
+                      <CopyButton value={entry.sha256} subject="sha256" />
                     </div>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
@@ -170,7 +170,7 @@ function ModuleDetailPage() {
                       </Button>
                       <CopyButton
                         value={mavenDependencySnippet(moduleId, entry.version)}
-                        label="Maven dependency copied"
+                        subject="Maven dependency"
                       />
                       <Button
                         variant="ghost"
