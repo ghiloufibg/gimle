@@ -44,10 +44,24 @@ if [ -n "${JAVA_HOME:-}" ]; then
     echo "ragnarok: JAVA_HOME is set to '$JAVA_HOME', but $java_bin reports '$java_version_line' -- Gimlé requires JDK 25+; point JAVA_HOME at a JDK 25+ install or unset it" >&2
     exit 1
   fi
-elif [ -x "$script_dir/../jre/ragnarok/bin/java" ]; then
+elif [ -d "$script_dir/../jre/ragnarok" ]; then
   java_bin="$script_dir/../jre/ragnarok/bin/java"
+  # A bundled runtime only ever runs on the one platform it was built for (jre/PLATFORM records
+  # which), and an archive travels further than the machine that built it. Falling through to PATH
+  # without a word is what turns that into a bare "java: not found" further down; say what was
+  # found, and why it is being ignored, instead.
+  if [ ! -x "$java_bin" ] || ! "$java_bin" -version >/dev/null 2>&1; then
+    bundled_platform=$(cat "$script_dir/../jre/PLATFORM" 2>/dev/null || true)
+    echo "ragnarok: this archive's bundled JRE (built for ${bundled_platform:-an unrecorded platform}) does not run on this machine ($(uname -s 2>/dev/null || echo unknown)-$(uname -m 2>/dev/null || echo unknown)) -- ignoring it and looking for a java of this machine's own" >&2
+    java_bin=java
+  fi
 else
   java_bin=java
+fi
+
+if [ "$java_bin" = java ] && ! command -v java >/dev/null 2>&1; then
+  echo "ragnarok: no Java runtime to run on -- put a JDK 25+ 'java' on PATH, or set JAVA_HOME to a JDK 25+ install" >&2
+  exit 1
 fi
 
 exec "$java_bin" -cp "$classpath" com.gimle.ragnarok.RagnarokMain "$@"
