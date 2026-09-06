@@ -89,6 +89,7 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
@@ -341,12 +342,17 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
+    // StatefulSet-kind persistent storage plus everything else this node writes for itself --
+    // read here, ahead of the certificate bootstrap just below, because a node's own bootstrapped
+    // identity is stored under this root too (see nodeIdentityDirectory).
+    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+
     // Before anything below that needs gimle.tls.certFile/keyFile to already point at real files
     // (the MuninnShipper construction just below above all): in TLS mode this agent starts with
     // no certificate of its own and only obtains one here, live, via the bootstrap CSR flow --
     // see this method's own javadoc. Constructing a mutual-TLS SSLContext any earlier would fail
     // outright since those files wouldn't exist yet.
-    bootstrapCertificateIfNeeded(nodeId, baseUrl);
+    bootstrapCertificateIfNeeded(nodeId, dataRoot, gossipBindAddress.getHostString(), baseUrl);
 
     // One Timer/Counter pair around this agent's own tick body -- constructed unconditionally
     // (cheap, in-memory-only unless shipped) so #agentTick can record into it regardless of
@@ -377,11 +383,9 @@ public final class AgentMain {
     // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
     // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
     Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
-    // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
-    // defaulting alongside it rather than under it, matching the same
-    // "own top-level directory, own property" convention gimle.log.root itself established.
-    // Created before the log server below so its /volumes surface can serve off it.
-    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+    // A sibling data root to gimle.log.root above, defaulting alongside it rather than under it,
+    // matching the same "own top-level directory, own property" convention gimle.log.root itself
+    // established. Read further up, before the certificate bootstrap that also writes under it.
     VolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     AgentLogServer logServer =
         new AgentLogServer(
@@ -901,6 +905,22 @@ public final class AgentMain {
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
   private static final String BOOTSTRAP_TOKEN_PROPERTY = "gimle.tls.bootstrapToken";
 
+  /**
+   * Where this node writes the certificate and private key it bootstraps for itself. Defaults to a
+   * {@code tls} directory under this node's own {@code gimle.data.root}, deliberately not the
+   * directory holding the shared cluster CA material {@code gimle.tls.caFile} points into: that
+   * directory is the same for every node, holds material a node only ever reads, and is routinely
+   * (and correctly) mounted read-only, which a node must not have to give up to obtain an identity
+   * of its own.
+   */
+  private static final String IDENTITY_DIR_PROPERTY = "gimle.agent.identityDir";
+
+  /**
+   * Bind-any placeholders that name no reachable peer and so are never worth a certificate entry --
+   * a node configured to gossip on the wildcard address is still reached by its real name.
+   */
+  private static final Set<String> UNROUTABLE_CERTIFICATE_NAMES = Set.of("0.0.0.0", "::", "*");
+
   private static HttpClient buildHttpClient() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).build();
@@ -912,22 +932,34 @@ public final class AgentMain {
   }
 
   /**
-   * On first startup with {@code gimle.transport.protocol=tls} and no local cert/key files present
-   * yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap token
-   * an operator provisioned this agent with) to {@code POST /bootstrap/csr}. Reachable over
+   * On first startup with {@code gimle.transport.protocol=tls} and no certificate of its own on
+   * disk yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap
+   * token an operator provisioned this agent with) to {@code POST /bootstrap/csr}. Reachable over
    * server-authenticated-only TLS (the agent already has {@code gimle.tls.caFile}, handed to it out
    * of band -- same as every other {@code gimle.tls.*} property -- so it can verify the control
-   * plane's identity before it has one of its own). No-op if the cert/key files already exist (a
-   * redeploy of an already-bootstrapped node) or if TLS isn't enabled at all.
+   * plane's identity before it has one of its own).
+   *
+   * <p>The issued material lands in this node's own identity directory ({@link
+   * #nodeIdentityDirectory}) and {@code gimle.tls.certFile}/{@code keyFile} are re-pointed there,
+   * so every later reader -- the mutual-TLS {@link HttpClient}, the rotation check, each spawned
+   * worker's own certificate directory beside it -- resolves material that actually exists. A
+   * process launched already pointing at a real certificate and key keeps them untouched: that is
+   * an operator-provisioned identity, and nothing here is written at all.
    */
-  private static void bootstrapCertificateIfNeeded(String nodeId, URI baseUrl)
+  private static void bootstrapCertificateIfNeeded(
+      String nodeId, Path dataRoot, String gossipHost, URI baseUrl)
       throws IOException, InterruptedException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return;
     }
-    Path certFile = requiredPathProperty(CERT_FILE_PROPERTY);
-    Path keyFile = requiredPathProperty(KEY_FILE_PROPERTY);
+    if (configuredIdentityExists()) {
+      return;
+    }
+    Path identityDirectory = nodeIdentityDirectory(dataRoot);
+    Path certFile = nodeCertificateFile(identityDirectory, nodeId);
+    Path keyFile = nodeKeyFile(identityDirectory, nodeId);
     if (Files.isRegularFile(certFile) && Files.isRegularFile(keyFile)) {
+      pointTlsMaterialAt(certFile, keyFile);
       return;
     }
     Path caFile = requiredPathProperty(CA_FILE_PROPERTY);
@@ -937,23 +969,63 @@ public final class AgentMain {
     }
     log.info("agent {} has no certificate yet; requesting one via bootstrap CSR", nodeId);
 
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=" + nodeId), List.of(resolveAdvertisedHost()));
-
     SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
     HttpClient bootstrapClient =
         HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).sslContext(trustOnly).build();
-    Map<String, Object> body =
-        csrSubmissionToJson(
-            new CsrSubmission(
-                CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), Optional.of(bootstrapToken)));
+    bootstrapCertificate(
+        nodeId,
+        certFile,
+        keyFile,
+        nodeCertificateNames(gossipHost),
+        Optional.of(bootstrapToken),
+        submission -> postBootstrapCsr(bootstrapClient, baseUrl, submission));
+  }
+
+  /**
+   * Everything the bootstrap does once it knows where the material goes and how to get it signed --
+   * the half that has no HTTP client, no system properties and no control plane in it, so the
+   * requested names and the files actually produced can be driven directly.
+   */
+  static void bootstrapCertificate(
+      String nodeId,
+      Path certFile,
+      Path keyFile,
+      List<String> subjectAltNames,
+      Optional<String> bootstrapToken,
+      WorkerCertificates.CsrSigner signer)
+      throws IOException, InterruptedException {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + nodeId), subjectAltNames);
+    CsrResult result =
+        signer.sign(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), bootstrapToken));
+    String certificatePem =
+        result
+            .certificatePem()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "the bootstrap CSR returned status "
+                            + result.status()
+                            + " with no certificate"));
+    writeNodeIdentity(certFile, keyFile, certificatePem, keyPair.getPrivate());
+    pointTlsMaterialAt(certFile, keyFile);
+    log.info(
+        "agent {} obtained a signed certificate via bootstrap CSR, stored under {}",
+        nodeId,
+        certFile.getParent());
+  }
+
+  private static CsrResult postBootstrapCsr(
+      HttpClient bootstrapClient, URI baseUrl, CsrSubmission submission)
+      throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
             .timeout(HTTP_REQUEST_TIMEOUT)
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(csrSubmissionToJson(submission)), StandardCharsets.UTF_8))
             .build();
     HttpResponse<String> response =
         bootstrapClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -964,11 +1036,113 @@ public final class AgentMain {
               + ": "
               + response.body());
     }
-    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-    Files.writeString(certFile, result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
-    Files.writeString(
-        keyFile, Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
-    log.info("agent {} obtained a signed certificate via bootstrap CSR", nodeId);
+    return csrResultFromJson(Json.asObject(Json.parse(response.body())));
+  }
+
+  /**
+   * True when this process was launched already pointing at a certificate and key that both exist
+   * -- an identity an operator provisioned out of band. Nothing is bootstrapped and nothing is
+   * re-pointed in that case.
+   */
+  private static boolean configuredIdentityExists() {
+    String certFile = System.getProperty(CERT_FILE_PROPERTY);
+    String keyFile = System.getProperty(KEY_FILE_PROPERTY);
+    return certFile != null
+        && !certFile.isBlank()
+        && keyFile != null
+        && !keyFile.isBlank()
+        && Files.isRegularFile(Path.of(certFile))
+        && Files.isRegularFile(Path.of(keyFile));
+  }
+
+  /** See {@link #IDENTITY_DIR_PROPERTY} for why this is never the shared CA material directory. */
+  static Path nodeIdentityDirectory(Path dataRoot) {
+    String configured = System.getProperty(IDENTITY_DIR_PROPERTY);
+    return configured == null || configured.isBlank()
+        ? dataRoot.resolve("tls")
+        : Path.of(configured);
+  }
+
+  /**
+   * Named by node id rather than a bare {@code node.crt}, so several agents sharing one identity
+   * directory (a single-machine cluster pointing every node at the same {@link
+   * #IDENTITY_DIR_PROPERTY}) never overwrite each other's material.
+   */
+  static Path nodeCertificateFile(Path identityDirectory, String nodeId) {
+    return identityDirectory.resolve("node-" + WorkerCertificates.fileSafe(nodeId) + ".crt");
+  }
+
+  static Path nodeKeyFile(Path identityDirectory, String nodeId) {
+    return identityDirectory.resolve("node-" + WorkerCertificates.fileSafe(nodeId) + ".key");
+  }
+
+  /**
+   * The names this node's own leaf certificate is requested for. A node is reached by name -- the
+   * one its topology gives it, which is also what a peer verifies against when it dials this node's
+   * admin surface -- so the certificate must carry that name and not merely the address the
+   * machine's interface happens to hold at bootstrap time: restart the node onto a new address and
+   * a certificate naming only the old one matches nothing. The address is still requested, last, so
+   * a peer dialing this node by bare IP literal keeps verifying too -- only an {@code iPAddress}
+   * entry ever matches an IP-dialed handshake, and only a {@code dNSName} entry a name-dialed one.
+   */
+  static List<String> nodeCertificateNames(
+      String gossipHost, String localHostName, String localHostAddress) {
+    Set<String> names = new LinkedHashSet<>();
+    addCertificateName(names, localHostName);
+    addCertificateName(names, gossipHost);
+    addCertificateName(names, "localhost");
+    addCertificateName(names, localHostAddress);
+    return List.copyOf(names);
+  }
+
+  private static List<String> nodeCertificateNames(String gossipHost) {
+    return nodeCertificateNames(gossipHost, resolveLocalHostName(), resolveAdvertisedHost());
+  }
+
+  private static void addCertificateName(Set<String> names, String candidate) {
+    if (candidate != null
+        && !candidate.isBlank()
+        && !UNROUTABLE_CERTIFICATE_NAMES.contains(candidate)) {
+      names.add(candidate);
+    }
+  }
+
+  /**
+   * Writes the freshly issued pair, key first: {@code gimle-worker}'s {@code
+   * FabricServerTlsWatcher} polls only the certificate's mtime from a separate process, so the
+   * matching key has to be fully on disk before the certificate can ever be observed. A failure
+   * here is reported against the identity directory and the property that moves it -- an unwritable
+   * directory is a configuration answer, not a stack trace.
+   */
+  private static void writeNodeIdentity(
+      Path certFile, Path keyFile, String certificatePem, PrivateKey privateKey)
+      throws IOException {
+    Path directory = certFile.getParent();
+    try {
+      if (directory != null) {
+        Files.createDirectories(directory);
+      }
+      Files.writeString(keyFile, Pem.encodePrivateKey(privateKey), StandardCharsets.US_ASCII);
+      restrictToOwner(keyFile);
+      Files.writeString(certFile, certificatePem, StandardCharsets.US_ASCII);
+    } catch (IOException e) {
+      throw new IOException(
+          "this node's own certificate and private key could not be written to "
+              + directory
+              + " ("
+              + e
+              + "). That directory holds only this node's own identity, never the shared cluster CA"
+              + " material a node reads and never writes, so it must be writable by this process:"
+              + " set -D"
+              + IDENTITY_DIR_PROPERTY
+              + "=<dir>, or point -Dgimle.data.root at a writable directory.",
+          e);
+    }
+  }
+
+  private static void pointTlsMaterialAt(Path certFile, Path keyFile) {
+    System.setProperty(CERT_FILE_PROPERTY, certFile.toString());
+    System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
   }
 
   /**
@@ -1117,6 +1291,18 @@ public final class AgentMain {
       return InetAddress.getLocalHost().getHostAddress();
     } catch (UnknownHostException e) {
       return "127.0.0.1";
+    }
+  }
+
+  /**
+   * The name this machine calls itself, for {@link #nodeCertificateNames} -- blank when it has none
+   * to report, which is a name simply left out of the request rather than a failure.
+   */
+  private static String resolveLocalHostName() {
+    try {
+      return InetAddress.getLocalHost().getHostName();
+    } catch (UnknownHostException e) {
+      return "";
     }
   }
 

@@ -42,11 +42,12 @@ import org.slf4j.LoggerFactory;
  * an inherited or redirected stream would put the cluster's initial administrator credential into a
  * build log, which is the one place this design exists to keep it out of.
  *
- * <p>Known limitation: every leaf's SAN only carries DNS names (this module's {@link
- * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a process reached by bare
- * IP literal (e.g. {@code https://127.0.0.1:8080}) will fail hostname verification even though the
- * handshake and CA trust chain are otherwise valid -- point clients at one of the SAN'd hostnames
- * (the positional {@code hostname...} arguments here) instead.
+ * <p>Known limitation: every leaf minted here is named only by the positional {@code hostname...}
+ * arguments, which are DNS names, so a process reached by bare IP literal (e.g. {@code
+ * https://127.0.0.1:8080}) fails hostname verification even though the handshake and CA trust chain
+ * are otherwise valid -- point clients at one of those hostnames instead, or pass the literal as a
+ * hostname argument, since {@link CertificateSigningRequests} does type an IP literal as an {@code
+ * iPAddress} SAN entry (the only kind an IP-dialed handshake ever matches).
  */
 public final class PkiBootstrapMain {
 
