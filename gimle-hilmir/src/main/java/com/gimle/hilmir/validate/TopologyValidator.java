@@ -173,6 +173,9 @@ public final class TopologyValidator {
     for (final StoreReplica replica : topology.store().replicas()) {
       claim(claimsByMachine, replica.machine(), replica.raftPort(), "store raft port");
       claim(claimsByMachine, replica.machine(), replica.clientPort(), "store client port");
+      replica
+          .healthPort()
+          .ifPresent(port -> claim(claimsByMachine, replica.machine(), port, "store health port"));
     }
     for (final ServiceReplica replica : topology.controlPlane().replicas()) {
       claim(claimsByMachine, replica.machine(), replica.port(), "control plane port");

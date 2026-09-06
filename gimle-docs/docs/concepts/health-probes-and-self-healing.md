@@ -155,11 +155,18 @@ if (!tracker.recordFailureAndCheckShouldRetry(now)) {
   // Escalate to FAILED rather than leaving the module ACTIVE-but-permanently-broken: this is
   // what makes the worker's alive flag flip and the machine-tier reschedule fire, completing
   // the module -> worker -> machine escalation chain instead of dead-ending here.
-  controller.forceFailed(id, "restart budget exhausted");
+  controller.abandonFailed(id, "restart budget exhausted");
   onModuleRestartBudgetExhausted.accept(id);
   return;
 }
 ```
+
+`abandonFailed` rather than `forceFailed` because a restart attempt begins with `stop()`, which
+drives the module all the way through `UNINSTALLED` and out of the registry: if the reinstall that
+follows fails, there is no longer an `ACTIVE` module to force. The attempt itself re-enters the same
+backoff loop when it fails, so a module that cannot be brought back keeps being retried on the
+tracker's own schedule until the budget refuses — never left uninstalled with nothing retrying it
+and nothing recording that it is dead.
 
 Worker-tier exhaustion works the same way one level up — `WorkerProcessSupervisor` gives up
 respawning and simply stops reporting the instance in this node's heartbeat. Nothing on the agent

@@ -26,17 +26,15 @@ import com.gimle.hilmir.remote.SshCliFlags;
 import com.gimle.hilmir.store.StoreAddCommand;
 import com.gimle.hilmir.store.StoreRemoveCommand;
 import com.gimle.hilmir.sync.SyncCommand;
+import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.upgrade.UpgradeClusterCommand;
+import com.gimle.hilmir.validate.CheckedTopology;
 import com.gimle.hilmir.validate.Finding;
 import com.gimle.hilmir.validate.Severity;
-import com.gimle.hilmir.validate.TopologyValidator;
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -54,6 +52,11 @@ import java.util.Optional;
  *   hilmir up -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--ssh-user &lt;user&gt;]
  *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir stop --machine &lt;name&gt; (--role &lt;ROLE&gt; | --id &lt;process-id&gt;)
+ *       [--data-root &lt;path&gt;]
+ *   hilmir stop -f &lt;topology.yaml&gt; --remote --machine &lt;name&gt;
+ *       (--role &lt;ROLE&gt; | --id &lt;process-id&gt;) [--data-root &lt;path&gt;] [--ssh-user &lt;user&gt;]
+ *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
  *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
@@ -89,7 +92,12 @@ import java.util.Optional;
  * exception: {@code down}/{@code status --remote} do require {@code -f}, since resolving each
  * target machine's host and SSH settings needs the topology document.
  *
- * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code
+ * <p>{@code stop} is {@code down} narrowed to a single process: it kills the one role (or, where a
+ * machine hosts two of the same role, the one process id) it is given and drops that entry alone
+ * from the run ledger, leaving every other process the machine hosts running and recorded. It takes
+ * {@code --data-root} rather than {@code -f} for the same reason {@code down}/{@code status} do.
+ *
+ * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code stop}/{@code
  * status}/{@code upgrade-cluster} verb over SSH on every machine the topology declares (or just the
  * one {@code --machine} names, when given) instead of running locally -- see {@code
  * com.gimle.hilmir.remote.RemoteDispatch}: shells out to the operator's own already-configured
@@ -148,6 +156,9 @@ public final class HilmirMain {
       """
       usage: hilmir disable gateway --server <host:port> [-o json]""";
 
+  private static final String STOPPABLE_ROLES =
+      "STORE, CONTROL_PLANE, FAFNIR, MUNINN, ANDVARI, AGENT";
+
   private HilmirMain() {}
 
   public static void main(final String[] args) {
@@ -186,6 +197,7 @@ public final class HilmirMain {
       case "plan" -> runPlan(rest, out);
       case "up" -> runUp(rest, out);
       case "down" -> runDown(rest, out);
+      case "stop" -> runStop(rest, out);
       case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
       case "store" -> handleStore(rest, out);
@@ -206,33 +218,36 @@ public final class HilmirMain {
   }
 
   private static int runValidate(final List<String> args, final PrintStream out) {
-    final Topology topology = parseFile(requireFileFlag(args));
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    printFindings(findings, out);
-    return hasError(findings) ? 1 : 0;
+    final CheckedTopology checked = CheckedTopology.check(requireFileFlag(args));
+    printFindings(checked.findings(), out);
+    return checked.hasError() ? 1 : 0;
   }
 
   private static int runPlan(final List<String> args, final PrintStream out) {
-    final Topology topology = parseFile(requireFileFlag(args));
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    if (hasError(findings)) {
-      printFindings(findings, out);
+    final CheckedTopology checked = CheckedTopology.check(requireFileFlag(args));
+    if (checked.hasError()) {
+      printFindings(checked.findings(), out);
       return 1;
     }
+    final Topology topology = checked.require();
     final ResolvedRuntime runtime = resolveRuntime(topology);
     final ClusterPlan plan = LaunchPlanner.plan(topology, runtime);
-    printPlan(plan, machineFlag(args), out);
+    final Optional<String> machineFilter = machineFlag(args);
+    // A preview is only worth anything if it rejects exactly what running it would reject: an
+    // unresolvable machine name here would otherwise print nothing and succeed.
+    machineFilter.ifPresent(plan::requireMachine);
+    printPlan(plan, machineFilter, out);
     return 0;
   }
 
   private static int runUp(final List<String> args, final PrintStream out) {
     final Path topologyFile = requireFileFlag(args);
-    final Topology topology = parseFile(topologyFile);
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    if (hasError(findings)) {
-      printFindings(findings, out);
+    final CheckedTopology checked = CheckedTopology.check(topologyFile);
+    if (checked.hasError()) {
+      printFindings(checked.findings(), out);
       return 1;
     }
+    final Topology topology = checked.require();
     final ResolvedRuntime runtime = resolveRuntime(topology);
     if (remoteFlag(args)) {
       return RemoteDispatch.up(
@@ -252,7 +267,7 @@ public final class HilmirMain {
 
   private static int runDown(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
       return RemoteDispatch.down(
           topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
     }
@@ -261,9 +276,49 @@ public final class HilmirMain {
     return 0;
   }
 
+  private static int runStop(final List<String> args, final PrintStream out) {
+    final Optional<String> role = optionalFlag(args, "--role");
+    final Optional<String> id = optionalFlag(args, "--id");
+    if (role.isPresent() == id.isPresent()) {
+      throw new HilmirException(
+          "stop needs exactly one of --role <ROLE> or --id <process-id> to say which of the"
+              + " machine's processes to stop (use 'down' to stop all of them)");
+    }
+    final String machine = requireMachineFlag(args);
+    if (remoteFlag(args)) {
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
+      return RemoteDispatch.stop(
+          topology,
+          Optional.of(machine),
+          role,
+          id,
+          dataRootFlagOptional(args),
+          sshCliFlags(args),
+          out);
+    }
+    MachineLauncher.stop(dataRootFlag(args), role.map(HilmirMain::parseStoppableRole), id, out);
+    return 0;
+  }
+
+  private static ProcessRole parseStoppableRole(final String token) {
+    final ProcessRole role;
+    try {
+      role = ProcessRole.valueOf(token);
+    } catch (final IllegalArgumentException e) {
+      throw new HilmirException(
+          "invalid --role '" + token + "' (expected one of " + STOPPABLE_ROLES + ")");
+    }
+    if (role == ProcessRole.WORKER) {
+      throw new HilmirException(
+          "--role WORKER is not a hilmir-launched process: a worker is spawned and supervised by"
+              + " its own node agent, which restarts it as soon as it dies");
+    }
+    return role;
+  }
+
   private static int runStatus(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
       return RemoteDispatch.status(
           topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
     }
@@ -277,7 +332,7 @@ public final class HilmirMain {
       throw new HilmirException("usage: hilmir pki init -f <topology.yaml>");
     }
     final List<String> initArgs = args.subList(1, args.size());
-    final Topology topology = parseFile(requireFileFlag(initArgs));
+    final Topology topology = TopologyParser.parseFile(requireFileFlag(initArgs));
     final ResolvedRuntime runtime = resolveRuntime(topology);
     PkiInit.run(topology, runtime, out);
     return 0;
@@ -299,7 +354,7 @@ public final class HilmirMain {
   private static int runUpgradeCluster(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
       final Path topologyFile = requireFileFlagForRemote(args);
-      final Topology topology = parseFile(topologyFile);
+      final Topology topology = TopologyParser.parseFile(topologyFile);
       return RemoteDispatch.upgradeCluster(
           topology,
           topologyFile,
@@ -406,10 +461,6 @@ public final class HilmirMain {
         topology.runtime(), "java", System.getProperty("java.class.path"), Path.of("gimle-data"));
   }
 
-  private static boolean hasError(final List<Finding> findings) {
-    return findings.stream().anyMatch(f -> f.severity() == Severity.ERROR);
-  }
-
   /**
    * Errors first, then warnings; stable within each group, so encounter order (rule-catalog order,
    * see {@code TopologyValidator}) survives the split.
@@ -433,14 +484,6 @@ public final class HilmirMain {
           out.println("    " + arg);
         }
       }
-    }
-  }
-
-  private static Topology parseFile(final Path file) {
-    try (InputStream in = Files.newInputStream(file)) {
-      return TopologyParser.parse(in);
-    } catch (final IOException e) {
-      throw new HilmirException("failed reading topology file " + file + ": " + e.getMessage(), e);
     }
   }
 
@@ -556,6 +599,10 @@ public final class HilmirMain {
           up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>]
               [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           down --machine <name> [--data-root <path>]
+          stop --machine <name> (--role <ROLE> | --id <process-id>) [--data-root <path>]
+          stop -f <topology.yaml> --remote --machine <name>
+              (--role <ROLE> | --id <process-id>) [--data-root <path>]
+              [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
               [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           status --machine <name> [--data-root <path>]

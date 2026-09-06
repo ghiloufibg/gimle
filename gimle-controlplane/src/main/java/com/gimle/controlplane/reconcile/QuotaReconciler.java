@@ -83,7 +83,11 @@ public final class QuotaReconciler {
   }
 
   private void accumulateUsage(Map<String, TenantUsage.Usage> usageByTenant, WorkloadSpec spec) {
-    if (!Tenant.isEnforceable(spec.tenantId())) {
+    // Any named tenant contributes, the default one included: whether a quota is actually enforced
+    // against it is decided by whether a quota exists for it, not by what it is called. Skipping
+    // "default" by name meant a quota an operator deliberately set on it was stored and reported
+    // but never accumulated, so nothing was ever found violating.
+    if (spec.tenantId().isEmpty()) {
       return;
     }
     String tenantId = spec.tenantId().get();
@@ -101,7 +105,7 @@ public final class QuotaReconciler {
   private void reconcileQuotaViolation(
       WorkloadSpec spec, Map<String, TenantUsage.Usage> usageByTenant) {
     boolean violating = false;
-    if (Tenant.isEnforceable(spec.tenantId())) {
+    if (spec.tenantId().isPresent()) {
       String tenantId = spec.tenantId().get();
       Tenant tenant = store.getTenant(tenantId).orElse(null);
       // A null tenant (an unregistered tenantId) is a manifest-validity concern, not this

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useCustomResourcesStore, resourceKey } from "@/stores/useCustomResourcesStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,24 @@ export const Route = createFileRoute("/custom-resources")({
   }),
   component: CustomResourcesPage,
 });
+
+/**
+ * Why the kind list has no rows to show. "No custom kinds defined" is a claim about the cluster,
+ * and only a catalog read that actually came back empty supports it: a read still in flight, one
+ * that was refused, or one that has not happened yet establishes nothing about what the cluster
+ * holds, and saying otherwise sends an operator looking for a KindDefinition that is already there.
+ */
+export type KindListEmptyReason = "loading" | "unreadable" | "none-defined";
+
+export function kindListEmptyReason(state: {
+  loading: boolean;
+  catalogLoaded: boolean;
+  error: string | null;
+}): KindListEmptyReason {
+  if (state.loading) return "loading";
+  if (state.error !== null) return "unreadable";
+  return state.catalogLoaded ? "none-defined" : "loading";
+}
 
 /**
  * Walks a printColumn's dot-separated path into the resource -- `status.timesSaid` -- answering
@@ -111,8 +130,26 @@ function cellText(value: unknown): string {
   return String(value);
 }
 
+function EmptyKindList({ reason }: { reason: KindListEmptyReason }) {
+  if (reason === "loading") {
+    return <>Reading the kind catalog…</>;
+  }
+  if (reason === "unreadable") {
+    return <>The kind catalog couldn't be read. Retrying.</>;
+  }
+  return (
+    <>
+      No custom kinds defined. Teach the cluster one with a KindDefinition manifest via{" "}
+      <span className="font-mono">gimle apply</span>.
+    </>
+  );
+}
+
 function KindPicker() {
   const kinds = useCustomResourcesStore((s) => s.kinds);
+  const catalogLoaded = useCustomResourcesStore((s) => s.catalogLoaded);
+  const loading = useCustomResourcesStore((s) => s.loading);
+  const error = useCustomResourcesStore((s) => s.error);
   const selectedKindName = useCustomResourcesStore((s) => s.selectedKindName);
   const selectKind = useCustomResourcesStore((s) => s.selectKind);
 
@@ -150,8 +187,7 @@ function KindPicker() {
         ))}
         {kinds.length === 0 && (
           <li className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No custom kinds defined. Teach the cluster one with a KindDefinition manifest via{" "}
-            <span className="font-mono">gimle apply</span>.
+            <EmptyKindList reason={kindListEmptyReason({ loading, catalogLoaded, error })} />
           </li>
         )}
       </ul>
@@ -275,11 +311,17 @@ function CustomResourcesPage() {
   const error = useCustomResourcesStore((s) => s.error);
   const loadKinds = useCustomResourcesStore((s) => s.loadKinds);
   const refreshResources = useCustomResourcesStore((s) => s.refreshResources);
+  const poll = useCustomResourcesStore((s) => s.poll);
 
   useEffect(() => {
     loadKinds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Same auto-refresh every other list screen has: instances an operator reports on change under
+  // the screen, and a read the control plane refused once is asked again rather than left standing
+  // as the answer.
+  useAutoRefresh(poll);
 
   const definition = kinds.find((kind) => kind.kindName === selectedKindName) ?? null;
   const selectedResource =

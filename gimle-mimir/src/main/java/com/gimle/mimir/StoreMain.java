@@ -222,25 +222,10 @@ public final class StoreMain {
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-mimir-cert-rotation-tick").unstarted(r));
     // Unconditional, not leader-gated -- every store replica's own certificate needs to stay
-    // fresh, matching ControlPlaneMain's identical posture for ApiServer's own rotation.
-    // Deliberately checks TransportProtocol *before* touching TlsSettings.fromConfig(), the same
-    // correct ordering FafnirMain/MuninnMain/AndvariMain/ApiServer/AgentMain already use --
-    // TlsSettings.fromConfig() throws in default plaintext mode, and scheduleAtFixedRate
-    // suppresses all future runs after an uncaught exception on its first tick.
+    // fresh, matching ControlPlaneMain's identical posture for ApiServer's own rotation. See
+    // rotationTick for why each check is fully self-contained.
     ticker.scheduleAtFixedRate(
-        () -> {
-          if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-            return;
-          }
-          boolean rotated =
-              certificateRotator
-                  .checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint)
-                  .rotated();
-          if (rotated) {
-            raftTransport.reloadTlsMaterial();
-            storeTransport.reloadTlsMaterial();
-          }
-        },
+        () -> rotationTick(certificateRotator, finalCsrEndpoint, raftTransport, storeTransport),
         CERT_ROTATION_CHECK_INTERVAL.toMillis(),
         CERT_ROTATION_CHECK_INTERVAL.toMillis(),
         TimeUnit.MILLISECONDS);
@@ -282,6 +267,43 @@ public final class StoreMain {
       new CountDownLatch(1).await();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+    }
+  }
+
+  /**
+   * One certificate-rotation check, and the barrier that keeps the ticker above alive.
+   *
+   * <p>{@link ScheduledExecutorService#scheduleAtFixedRate} cancels a repeating task permanently
+   * the moment one execution throws, so every failure reachable from here has to stay here. The
+   * ones that are genuinely reachable are transient, not terminal: {@link TlsSettings#fromConfig()}
+   * throws while the certificate or key file is momentarily absent (an external tool replacing the
+   * pair is not atomic), and rebuilding either listener can fail on material the next attempt reads
+   * fine. Letting any of them escape would silently end certificate renewal for the rest of this
+   * replica's life -- harmless right up until the certificate it stopped renewing expires, at which
+   * point the replica drops out of its own Raft cluster. A misconfiguration that no retry can fix
+   * (a missing required argument, an unusable state directory) still fails fast at startup, before
+   * this ticker is ever scheduled.
+   *
+   * <p>Package-visible so a test can drive a single tick directly.
+   */
+  static void rotationTick(
+      OwnCertificateRotator certificateRotator,
+      URI csrEndpoint,
+      RaftTransport raftTransport,
+      StoreTransport storeTransport) {
+    try {
+      if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+        return;
+      }
+      if (certificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), csrEndpoint).rotated()) {
+        raftTransport.reloadTlsMaterial();
+        storeTransport.reloadTlsMaterial();
+      }
+    } catch (RuntimeException e) {
+      log.warn(
+          "certificate rotation check failed: {}; retrying at the next check",
+          e.getMessage() == null ? e.getClass().getName() : e.getMessage(),
+          e);
     }
   }
 

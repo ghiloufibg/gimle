@@ -186,6 +186,7 @@ public final class FafnirServer implements AutoCloseable {
     target.createContext("/secrets/rotate-key", instrument("rotate-key", this::handleRotateKey));
     target.createContext(
         "/secrets/retire-key", instrument("retire-key", this::handleRetireSecretsKey));
+    target.createContext("/secrets/rewrap", instrument("rewrap", this::handleRewrapSecrets));
     target.createContext("/secrets/", instrument("secrets", this::handleSecrets));
     target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMaps));
     target.createContext(
@@ -392,6 +393,48 @@ public final class FafnirServer implements AutoCloseable {
    * same "an authorized request can still fail" posture {@link #handlePutSecret} already
    * establishes.
    */
+  /**
+   * {@code POST /secrets/rewrap} -- re-encrypts every stored secret version that is not already
+   * under the active key, so an older key can then be retired without destroying anything. Same
+   * global secrets-admin authorization as retirement itself: it reads and rewrites every tenant's
+   * secret material, which is strictly more than any single tenant's own grant covers.
+   *
+   * <p>Idempotent: a second run finds nothing left to do and rewraps zero entries, so an
+   * interrupted run is finished by simply running it again.
+   */
+  private void handleRewrapSecrets(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE, true)) {
+        return;
+      }
+      int rewrapped = secretStore.rewrapAll();
+      recordAudit(
+          ResourceKind.SECRETS_KEY,
+          auditPrincipal(exchange),
+          Verb.WRITE,
+          Optional.empty(),
+          Optional.of("rewrap"),
+          true,
+          AuditOutcome.APPLIED,
+          OptionalInt.empty());
+      respondJson(
+          exchange,
+          200,
+          Map.of("rewrapped", rewrapped, "activeKeyId", Byte.toUnsignedInt(crypto.activeKeyId())));
+    } catch (GimleSecretsException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("secrets rewrap failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   private void handleRetireSecretsKey(HttpExchange exchange) {
     try {
       if (!"POST".equals(exchange.getRequestMethod())) {
@@ -404,6 +447,13 @@ public final class FafnirServer implements AutoCloseable {
       byte keyId = parseKeyIdBody(exchange);
       byte retired;
       try {
+        // Refused while anything still depends on this key: retirement destroys its material, so
+        // going ahead would not revoke access to that data, it would destroy the data itself.
+        int stillEncrypted = secretStore.countVersionsEncryptedUnder(keyId);
+        if (stillEncrypted > 0) {
+          throw GimleSecretsException.keyStillEncryptsData(
+              "secrets", Byte.toUnsignedInt(keyId), stillEncrypted);
+        }
         retired = crypto.retire(keyId);
       } catch (RuntimeException e) {
         recordAudit(

@@ -2,6 +2,10 @@ package com.gimle.observability;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.exporter.logging.LoggingSpanExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
@@ -172,17 +176,84 @@ public final class GimleTracing {
   }
 
   /**
-   * Test-only seam (package-private, no {@code private} modifier -- the same convention {@code
-   * AgentMain}'s own static test seams already establish): clears the "already installed" latch so
-   * a test can install a different exporter and observe it actually take effect, without leaking
-   * installed state into whichever test happens to run next in the same JVM fork. Production code
-   * never calls this -- a real process installs its tracer provider exactly once, for its whole
-   * lifetime. {@link GlobalOpenTelemetry#resetForTest()} is the OTel API's own equivalent seam for
-   * its separate "can only ever be set once" guard -- clearing only this class's own {@code
-   * installed} latch without it would leave {@code GlobalOpenTelemetry.set} still throwing on the
-   * next {@link #install}/{@link #installDefault()} call.
+   * Starts a server-kind span for one inbound request, or hands back {@link ServerSpan#NOOP} when
+   * no tracer provider has been installed in this process yet.
+   *
+   * <p>That guard is what makes this safe to call from a request handler that may run before the
+   * process finishes wiring its own tracing up: reading {@link GlobalOpenTelemetry} installs a
+   * no-op global as a side effect the first time it is read, and a real installation afterwards
+   * would then be rejected outright -- so an early request would permanently cost the process every
+   * span it would otherwise have produced.
+   *
+   * <p>A process that produces no spans at all still installs an exporter and ships nothing, which
+   * reads from the outside exactly like a broken shipping path; this is how a request-serving
+   * process gets spans of its own rather than only relaying whatever its callees produce.
    */
-  static void resetForTesting() {
+  public static ServerSpan startServerSpan(
+      String instrumentationScope, String spanName, String endpoint, String verb) {
+    if (!installed) {
+      return ServerSpan.NOOP;
+    }
+    Span span =
+        GlobalOpenTelemetry.getTracer(instrumentationScope)
+            .spanBuilder(spanName)
+            .setSpanKind(SpanKind.SERVER)
+            .setAttribute("gimle.endpoint", endpoint)
+            .setAttribute("http.request.method", verb)
+            .startSpan();
+    return new OpenTelemetryServerSpan(span, span.makeCurrent());
+  }
+
+  /**
+   * The live-span implementation behind {@link #startServerSpan}. Holds the {@link Scope} the span
+   * was made current in so {@link #close()} can unwind exactly what was entered, in order: a
+   * handler's own nested work (a store call, a proxied request) parents onto this span only while
+   * that scope is open.
+   */
+  private static final class OpenTelemetryServerSpan implements ServerSpan {
+
+    private final Span span;
+    private final Scope scope;
+
+    private OpenTelemetryServerSpan(Span span, Scope scope) {
+      this.span = span;
+      this.scope = scope;
+    }
+
+    @Override
+    public void recordStatus(int httpStatus) {
+      span.setAttribute("http.response.status_code", httpStatus);
+      // Only a 5xx (or a handler that answered nothing at all) is this process's own failure; a
+      // 4xx is the caller being told no, which is the server working correctly.
+      if (httpStatus <= 0 || httpStatus >= 500) {
+        span.setStatus(StatusCode.ERROR);
+      }
+    }
+
+    @Override
+    public void close() {
+      scope.close();
+      span.end();
+    }
+  }
+
+  /**
+   * Test-only seam: clears the "already installed" latch so a test can install a different exporter
+   * and observe it actually take effect, without leaking installed state into whichever test
+   * happens to run next in the same JVM fork. Production code never calls this -- a real process
+   * installs its tracer provider exactly once, for its whole lifetime. {@link
+   * GlobalOpenTelemetry#resetForTest()} is the OTel API's own equivalent seam for its separate "can
+   * only ever be set once" guard -- clearing only this class's own {@code installed} latch without
+   * it would leave {@code GlobalOpenTelemetry.set} still throwing on the next {@link
+   * #install}/{@link #installDefault()} call.
+   *
+   * <p>Public rather than package-private because the state it clears is the JVM's, not this
+   * package's: a test in another module that installs tracing to observe its own process's spans
+   * (the control plane's own request spans, say) would otherwise leave a live tracer provider
+   * exporting into a dead test's collector for the rest of the fork, slowing and skewing every
+   * unrelated test that follows it.
+   */
+  public static void resetForTesting() {
     synchronized (LOCK) {
       installed = false;
       currentTracerProvider = null;

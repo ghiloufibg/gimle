@@ -6,6 +6,7 @@ import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.ResidentInstance;
 import com.gimle.controlplane.schedule.ResidentInstances;
 import com.gimle.controlplane.schedule.Scheduler;
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
@@ -240,15 +241,22 @@ public final class DeploymentReconciler {
     try {
       artifact = artifactResolver.resolve(spec.artifactPath(), spec.moduleId(), spec.vessel());
     } catch (RuntimeException e) {
+      // A jar that cannot be read at all and one whose manifest the parser refuses are different
+      // problems with different fixes, and the durable event is deduplicated on its own message --
+      // so the message says which of the two happened and why, or a manifest the platform rejects
+      // reads to an operator as a broken file, and a second, unrelated failure on the same
+      // instance is swallowed as a repeat of the first.
+      String failure =
+          e instanceof GimleManifestException ? "artifact rejected: " : "artifact unreadable: ";
       log.warn(
-          "deployment {} references an unreadable artifact {}: {}",
+          "deployment {} cannot use the artifact at {}: {}",
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
       recordArtifactFailure(
           spec,
           blockedIndices,
-          "artifact unreadable: " + spec.artifactPath(),
+          failure + spec.artifactPath() + ": " + e.getMessage(),
           String.valueOf(e.getMessage()));
       return Optional.empty();
     }

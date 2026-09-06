@@ -135,6 +135,24 @@ worth doing when pointing a load generator such as [`ragnarok stress`](../refere
 at the cluster, since a stress run's whole purpose is to exceed exactly this rate. Console static
 assets are served outside this wrapper and are not charged.
 
+## Health
+
+`GET /health` is unauthenticated and reports on the store this process depends on, not merely on
+its own liveness: a control plane that cannot reach a `gimle-mimir` leader fails every other
+request it serves, so it answers `503` with a `DOWN` status and a reason rather than `200`.
+
+The store check runs on its own background thread every
+`gimle.controlplane.health.storeProbeIntervalMillis` (default 2000) and the handler answers from
+that last completed result, so a request never waits on a live store round trip. A leader search can
+run for many seconds, and a handler that blocks on one answers nothing at all — which tells a poller
+strictly less than "down" does, and piles up enough stalled handlers to take the endpoint out
+entirely. A probe result older than `gimle.controlplane.health.storeProbeMaxAgeMillis` (default
+15000) is itself reported as down: the prober being stuck is evidence the store is unreachable.
+
+Startup waits up to two seconds on the first probe so the very first `/health` answers about the
+real store rather than about a check that has not run yet — bounded, so a control plane starting
+against an unreachable store is delayed by that bound and not by the leader search behind it.
+
 ## Admission, and previewing it
 
 Every workload PUT runs an ordered `AdmissionChain` before anything is proposed to the store:
@@ -275,10 +293,24 @@ out every replica), and current machine load (`InstanceAssignment`, `TenantUsage
 makes this a two-dimensional bin-packing problem (resources × tier), not a single-dimension one.
 
 `PlacementConstraints.requiredNodeLabels` (a manifest's `placement.requiredLabels`) is matched by
-exact set membership against each node's own operator-assigned labels — a flat, expression-free
-label set on both sides, no key/value structure. A node's labels are set once at agent startup via
-the `gimle.node.labels` system property (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and
-reported at registration alongside its isolation-tier support.
+exact set membership against each node's labels — a flat, expression-free label set on both sides,
+no key/value structure.
+
+A node's labels come from two independent halves, and placement matches against their union:
+
+- **Self-reported**, set at agent startup via the `gimle.node.labels` system property
+  (comma-separated, e.g. `-Dgimle.node.labels=gpu,ssd`) and sent at registration alongside its
+  isolation-tier support. These describe how the node was launched.
+- **Operator-applied**, written against a running cluster with `gimle label node <nodeId> <label>`
+  (`PUT /nodes/{nodeId}/labels`). These survive the node re-registering, which replaces only its
+  self-reported half — otherwise every agent restart would silently un-place the workloads its
+  labels had attracted.
+
+Without the operator half, a label could only ever be set by relaunching the agent, so a cluster
+whose agent launch configuration an operator cannot reach could never satisfy a manifest that
+required one. Labelling is deliberately excluded from the node self-service authorization path a
+`gimle:nodes` certificate gets over its own subresources: a node that could label itself could
+grant itself the very labels placement uses to keep workloads off it.
 
 A node whose last heartbeat is older than the node-dark timeout (15s) is not a placement candidate
 at all, regardless of what that last heartbeat said. This matters more than it first looks: a node
@@ -288,6 +320,23 @@ machine in the cluster and place there by preference. Excluding it is what lets 
 self-healing actually complete: the reconciler that releases a dead node's assignments and the one
 that re-places them use the same timeout, so a released instance moves to a node that is genuinely
 answering rather than bouncing back onto the dead one.
+
+A read that came back empty is deliberately not the same claim as a node that is gone. Heartbeats
+live only on whichever `gimle-mimir` replica is currently leader and are never replicated, so a
+store election leaves the new leader holding nothing for any node in the cluster. `NodeFreshness`
+measures that absence from when the store *started listening* rather than from the epoch, and
+reports a registered node with nothing on record yet as `PENDING` — displayed as its own state, and
+never acted on. `DaemonSetReconciler` and `StatefulSetReconciler` both consult it before releasing
+an assignment: within that window a node keeps the assignment it already has, exactly as a node
+whose heartbeat has merely gone stale does during the placement grace period. Without it, a single
+store election would tear every DaemonSet and StatefulSet instance off machines whose agents never
+stopped supervising them. Past the window, a genuinely silent node is released as before.
+
+The DaemonSet status surface's `desired` count follows the same rule: it counts the nodes the
+reconciler currently intends to occupy — the eligible ones plus any it is deliberately holding —
+and is written only once that tick's evictions and rollout step are decided. Counting eligibility
+alone made `desired` disagree with the very assignments the same tick kept, so `unplacedCount`
+(`desired` minus placed) could read negative.
 
 An operator can also cordon a node (`gimle cordon <nodeId>` / `gimle uncordon <nodeId>`, or
 `POST /nodes/{id}/cordon`/`/uncordon`) to exclude it from future placement — evaluated as the
@@ -482,6 +531,13 @@ fallback baked in at every step — if the rename source isn't found supervised 
 agent restarted and lost in-memory state), `AgentMain` falls straight through to the ordinary
 start/stop path, exactly as if promotion had torn the target down and re-scheduled it fresh.
 
+Because a promotion deliberately drives no lifecycle transition, the worker mints the two timeline
+entries a transition would otherwise have produced: the surge index is closed off, and the target
+index records the state the instance now holding it is actually in. Without them each index's
+`gimle events` timeline would stop at its previous occupant's last transition — the target index
+frozen at the `UNINSTALLED` teardown of the replica it replaced, contradicting the running instance
+now serving under it, and the surge index still claiming a live instance it no longer has.
+
 :::note[Level-triggered, not edge-triggered]
 
 Every reconciler here must converge from **any** starting state, including after missing every
@@ -525,6 +581,22 @@ capped at 50 events per instance with oldest-first pruning applied deterministic
 `gimle-cli events <deploymentName> <instanceIndex>`, and the
 [web console](./web-console.md#instance-lifecycle-events)'s instance detail page all read it back
 newest-first.
+
+A node agent writes to the same timeline for the failures that happen before any worker exists to
+report them: an assignment it cannot parse, an artifact coordinate it cannot resolve, and a start it
+refuses outright — most importantly a worker whose real `-Xmx` ceiling would overcommit the
+machine's memory. Those are level-triggered retries, so the agent records one event per distinct
+cause per instance rather than one per tick, which would push the rest of that instance's own capped
+timeline out within minutes.
+
+A workload's status folds those refusals back in. An instance that is placed but has no observation,
+and whose latest timeline entry is a `TRANSITION_FAILED`, is reported as not running: the workload
+carries `notRunningCount` and `notRunningReason`, and the instance entry its own `notRunningReason`
+(for a `Job`, the current run's `reason`). Without it, a workload whose replicas were all placed and
+none of which ever started read back as entirely healthy — nothing unplaced, no quota violation, and
+simply no observation where a live one would be. The condition is a *recorded failure* rather than
+the missing observation alone, so an instance placed seconds ago, which has genuinely not reported
+anything yet, is never flagged.
 
 This is deliberately distinct from general [audit logging](./authn-authz.md#audit-logging) (who
 changed what, cluster-wide) — both are real, both live in `gimle-mimir`, but as two different

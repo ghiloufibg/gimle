@@ -4,6 +4,7 @@ import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -89,6 +90,39 @@ public final class NodesCommand {
     body.put("tenantId", tenantId);
     OutputFormat.printResult(
         output, body, "node/" + nodeId + " untainted for tenant " + tenantId, out);
+  }
+
+  /**
+   * Applies {@code additions} and removes {@code removals} from this node's operator-applied
+   * labels. The API itself is declarative (it takes the full set), so the current set is read first
+   * and the edits folded into it -- the CLI's own surface stays edit-shaped, matching how an
+   * operator thinks about labelling one node.
+   */
+  public void label(String nodeId, Set<String> additions, Set<String> removals) {
+    Map<String, Object> node = client.getObject("/nodes/" + nodeId);
+    Set<String> labels = new LinkedHashSet<>(operatorLabels(node));
+    labels.addAll(additions);
+    labels.removeAll(removals);
+    client.expectSuccess(
+        client.put(
+            "/nodes/" + nodeId + "/labels", Json.write(Map.of("labels", List.copyOf(labels)))));
+    Map<String, Object> body = resultBody("labelled", nodeId);
+    body.put("labels", List.copyOf(labels));
+    OutputFormat.printResult(
+        output,
+        body,
+        "node/" + nodeId + " labelled " + (labels.isEmpty() ? "(none)" : String.join(",", labels)),
+        out);
+  }
+
+  private static List<String> operatorLabels(Map<String, Object> node) {
+    if (!(node.get("capabilities") instanceof Map<?, ?> capabilities)) {
+      return List.of();
+    }
+    if (!(capabilities.get("operatorLabels") instanceof List<?> labels)) {
+      return List.of();
+    }
+    return labels.stream().map(String::valueOf).toList();
   }
 
   private static Map<String, Object> resultBody(String result, String nodeId) {

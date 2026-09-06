@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -700,6 +701,177 @@ class DaemonSetReconcilerTest {
         Optional.of(1),
         store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
         "only node-fresh is eligible; the cordoned node-stale must not count toward desired");
+  }
+
+  // ---- an unreadable node is not a node that is gone ----
+
+  private static DaemonSetReconciler reconciler(
+      com.gimle.mimir.store.StoreReader reads,
+      StateStore store,
+      Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
+      TestClock clock) {
+    return new DaemonSetReconciler(
+        reads,
+        new Scheduler(),
+        mutation -> mutation.applyTo(store),
+        nodeDarkTimeout,
+        placementGracePeriod,
+        clock);
+  }
+
+  @Test
+  void a_store_leader_election_does_not_tear_down_a_healthy_daemonset(TestClock clock) {
+    // Heartbeats are leader-local and never replicated, so a new leader holds nothing for any
+    // node -- an empty read, not a report that the nodes are gone. Acting on it would evict every
+    // assignment in the cluster off machines whose agents never stopped supervising them.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    registerNode(store, "node-c");
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    DaemonSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+    assertEquals(3, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+
+    store.beginNodeObservationWindow();
+    clock.advance(Duration.ofSeconds(1));
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        3,
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size(),
+        "an election must not evict a single assignment");
+    assertEquals(
+        Optional.of(3),
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
+        "nor may it publish a desired count that disowns those same assignments");
+  }
+
+  @Test
+  void the_desired_count_never_falls_below_what_the_same_tick_keeps_placed(TestClock clock) {
+    // Every node goes dark but stays inside the placement grace period, so this tick deliberately
+    // keeps all three assignments. A desired count drawn from eligibility alone would read 0 here,
+    // and any reader subtracting placed from desired would see -3.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    registerNode(store, "node-c");
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    DaemonSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, placementGracePeriod, clock);
+    reconciler.reconcileOnce();
+
+    clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
+    reconciler.reconcileOnce();
+
+    int placed = store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size();
+    int desired = store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter").orElseThrow();
+    assertEquals(3, placed);
+    assertEquals(3, desired);
+    assertTrue(desired - placed >= 0, "desired minus placed must never be negative");
+  }
+
+  @Test
+  void a_node_that_stays_unheard_from_past_the_grace_window_is_still_evicted(TestClock clock) {
+    // The other half of the same property: holding an unconfirmed absence must not turn into never
+    // acting on a real one.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    DaemonSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+    store.beginNodeObservationWindow();
+
+    clock.advance(Duration.ofMinutes(5));
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty(),
+        "a node the store has genuinely never heard from must still lose its assignment");
+    assertEquals(Optional.of(0), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+  }
+
+  @Test
+  void a_store_read_that_throws_mid_tick_publishes_nothing_and_converges_on_a_later_tick(
+      TestClock clock) {
+    // Level-triggered convergence from an arbitrary starting state: this tick reads the specs and
+    // the assignments fine and only then loses the store. Nothing it half-computed may be
+    // published -- the next tick recomputes the whole thing from the same full snapshot.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    AtomicBoolean storeUnreachable = new AtomicBoolean(true);
+    DaemonSetReconciler reconciler =
+        reconciler(
+            UnreachableStoreReads.over(store, storeUnreachable, Set.of("getRollingDaemonSetNodes")),
+            store,
+            Duration.ofSeconds(15),
+            Duration.ofSeconds(15),
+            clock);
+
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter").isEmpty(),
+        "a tick that could not finish must publish no count at all");
+    assertTrue(
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty(),
+        "nor place anything against a snapshot it could not finish reading");
+
+    storeUnreachable.set(false);
+    reconciler.reconcileOnce();
+
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+    assertEquals(Optional.of(2), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+  }
+
+  @Test
+  void a_store_read_that_throws_mid_tick_leaves_an_already_published_count_alone(TestClock clock) {
+    // The same property stated over an existing count rather than a missing one: a broken tick
+    // must not overwrite what the last complete tick established.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    AtomicBoolean storeUnreachable = new AtomicBoolean(false);
+    DaemonSetReconciler reconciler =
+        reconciler(
+            UnreachableStoreReads.over(store, storeUnreachable, Set.of("getRollingDaemonSetNodes")),
+            store,
+            Duration.ofSeconds(15),
+            Duration.ofSeconds(15),
+            clock);
+    reconciler.reconcileOnce();
+    assertEquals(Optional.of(2), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+
+    store.putNodeCordon("node-a", true);
+    store.putNodeCordon("node-b", true);
+    storeUnreachable.set(true);
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        Optional.of(2),
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
+        "a tick that aborted must leave the last complete tick's count in place");
+
+    storeUnreachable.set(false);
+    reconciler.reconcileOnce();
+
+    assertEquals(Optional.of(0), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
   }
 
   @Test

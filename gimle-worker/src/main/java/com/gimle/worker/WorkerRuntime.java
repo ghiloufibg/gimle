@@ -368,6 +368,10 @@ public final class WorkerRuntime {
    * activeDeadlineSeconds}, if it declares one, ever ends it). Forcing it to FAILED here instead
    * mirrors {@link #restartModule}'s own budget-exhaustion escalation: the same {@code
    * controller.forceFailed} call, the same durable {@code TransitionFailed} event on the far end.
+   *
+   * <p>Caught as a {@link Throwable}: a class that cannot be linked fails with an {@code Error},
+   * not an exception, and that is precisely the shape of "fails to load" this method exists to
+   * report rather than let escape.
    */
   private <T> Optional<T> instantiateOrFail(
       ModuleInstanceId id,
@@ -377,7 +381,7 @@ public final class WorkerRuntime {
       Class<T> expectedType) {
     try {
       return Optional.of(instantiate(id, className, handle, expectedType));
-    } catch (RuntimeException e) {
+    } catch (Throwable e) {
       log.error(
           "module {} failed to load its {} class {}: {}", id, kind, className, e.getMessage());
       try {
@@ -533,10 +537,12 @@ public final class WorkerRuntime {
       // here. Best-effort: a lost race against some other concurrent transition shouldn't crash
       // the worker tick over a module that's already leaving ACTIVE anyway.
       try {
-        controller.forceFailed(id, "restart budget exhausted");
+        // abandonFailed rather than forceFailed: a restart attempt that already drove this module
+        // through UNINSTALLED leaves nothing ACTIVE to force, and that is exactly the case that
+        // used to strand the instance with no terminal state at all.
+        controller.abandonFailed(id, "restart budget exhausted");
       } catch (RuntimeException e) {
-        log.warn(
-            "could not force module {} to FAILED after budget exhaustion: {}", id, e.getMessage());
+        log.warn("could not mark module {} FAILED after budget exhaustion: {}", id, e.getMessage());
       }
       onModuleRestartBudgetExhausted.accept(id);
       return;
@@ -563,6 +569,7 @@ public final class WorkerRuntime {
     Duration delay = tracker.delayUntilNextAttempt(now);
     Runnable attempt =
         () -> {
+          boolean succeeded = false;
           try {
             try {
               Thread.sleep(delay);
@@ -572,9 +579,16 @@ public final class WorkerRuntime {
             }
             try {
               controller.stop(id);
-              registry.register(artifact);
+              // Reinstalled under this instance's own key, not the artifact's bare coordinate: a
+              // replica of a deployment is keyed by which replica it is, so registering without
+              // that key would recreate a different instance and leave the resolve below with
+              // nothing to find. Going through the controller is also what puts the restart's own
+              // INSTALLED entry on this instance's timeline, alongside the STOPPING/UNINSTALLED
+              // and ACTIVE entries bracketing it.
+              controller.install(artifact, id.instanceKey());
               controller.resolve(id);
               controller.start(id);
+              succeeded = true;
               // controller.stop(id) above drove the module through UNINSTALLED, which fired
               // onUninstalled() and removed this same tracker from restartTrackers; controller
               // .start(id) then fired onActive(), which found nothing there and created a
@@ -589,6 +603,14 @@ public final class WorkerRuntime {
             }
           } finally {
             restartsInFlight.remove(id);
+          }
+          // Re-enters the same backoff loop rather than dead-ending here. controller.stop() has
+          // already driven the module to UNINSTALLED by this point, so an attempt that then failed
+          // to bring it back leaves the instance dead with no further probe ticking to notice --
+          // nothing else would ever try again, and nothing would report it failed either. The
+          // tracker's own budget bounds this: once it refuses, the branch above escalates.
+          if (!succeeded) {
+            restartModule(id);
           }
         };
     // Deliberately not run via this module's own BoundedModuleScheduler: controller.stop(id)

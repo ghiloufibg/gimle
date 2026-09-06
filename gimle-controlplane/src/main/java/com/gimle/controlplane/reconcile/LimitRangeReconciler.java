@@ -5,7 +5,6 @@ import com.gimle.controlplane.admission.WorkloadResourceProfile.Profile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
-import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.MutationSink;
@@ -79,8 +78,12 @@ public final class LimitRangeReconciler {
   }
 
   private void reconcileOne(WorkloadSpec spec) {
+    // Checked for any named tenant, the default one included -- the limit range's own existence
+    // decides whether anything is enforced, not the tenant's name. Skipping "default" by name left
+    // a workload under a range an operator had explicitly set reporting limitRangeViolating:false
+    // forever.
     Optional<String> reason =
-        Tenant.isEnforceable(spec.tenantId())
+        spec.tenantId().isPresent()
             ? violationReasonFor(spec, spec.tenantId().get())
             : Optional.empty();
     // Level-triggered means recomputing from scratch every tick, not re-proposing every tick --

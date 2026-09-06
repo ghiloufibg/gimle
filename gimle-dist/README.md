@@ -24,7 +24,10 @@ Each archive's `bin/` scripts (`src/main/dist/bin/{gimle,hilmir}` for `sh`, `src
 it runs inside a Linux container) build their classpath from every jar under their own sibling
 `lib/` directory at runtime, regardless of the caller's working directory. Java selection
 precedence in every script: an explicit `JAVA_HOME` always wins; otherwise a bundled
-`jre/<component>/` is preferred if present (see below); otherwise plain `java` on `PATH`. The
+`jre/<component>/` is preferred if present (see below); otherwise plain `java` on `PATH`. A bundled
+runtime that is present but cannot run on this machine (it was built for another platform) is
+reported, naming `jre/PLATFORM`, before the script falls through to `PATH`; ending up with no Java
+at all is reported as exactly that rather than as a bare `java: not found` from the launch line. The
 `hilmir`/`hilmir.cmd` pair additionally exports `GIMLE_HOME` so Hilmir can locate its own install
 root (in particular `modules/`) without guessing from `java.class.path`. The `.sh` and `.cmd`
 variant of each launcher must stay behaviorally in sync -- a change to one's classpath/Java
@@ -52,6 +55,15 @@ Deliberately excludes `gimle-agent` and `gimle-worker`: both dynamically load co
 sees ahead of time (the agent spawns arbitrary Vessel jars, the worker hosts arbitrary Gimlé modules
 inside its own JVM via `ModuleLayer`), so a trimmed JRE for either could silently break a workload
 needing a JDK module outside that trimmed set, with no way to detect the mismatch ahead of time.
+
+Because jlink builds a runtime image only for the machine it runs on, this profile turns an
+otherwise platform-neutral archive into a platform-specific one. `verify-bundled-jre-platform` (the
+profile's own `maven-antrun-plugin` execution) reads the platform back out of a produced image's own
+`release` file and fails the build unless it matches `gimle.dist.jre.targetOsName`/`...targetOsArch`
+(`Linux`/`x86_64` by default, spelled as a JDK `release` file spells them), then writes that platform
+into `target/jre-images/PLATFORM`, which every `-with-jre` descriptor ships as `jre/PLATFORM`. Build
+for another platform by building on it and declaring it, e.g. `-Dgimle.dist.jre.targetOsName=Darwin
+-Dgimle.dist.jre.targetOsArch=aarch64`.
 
 The default (no-profile) build is completely unaffected by this profile's existence — no `jre/`
 directory is added to any archive unless `-P dist-with-jre` is explicitly requested, and re-running

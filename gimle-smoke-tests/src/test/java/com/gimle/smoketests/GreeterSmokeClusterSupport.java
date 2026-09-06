@@ -2,6 +2,7 @@ package com.gimle.smoketests;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.protocol.Json;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import com.gimle.testkit.Await;
@@ -164,6 +165,14 @@ abstract class GreeterSmokeClusterSupport {
   static final String SMOKE_OPERATOR_USERNAME = "smoke-operator";
 
   static final String SMOKE_OPERATOR_PASSWORD = "smoke-operator-password";
+
+  /**
+   * Set once a test has authenticated as the operator account, and attached to every subsequent
+   * manifest and ingress submission. Only writes to the reserved {@code gimle-system} tenant
+   * actually need it -- plaintext mode consults no RBAC otherwise -- but attaching it everywhere
+   * once obtained keeps the fixture from having to know which call is the privileged one.
+   */
+  private Optional<String> operatorCookie = Optional.empty();
 
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
@@ -1989,7 +1998,7 @@ abstract class GreeterSmokeClusterSupport {
       throws Exception {
     HttpResponse<String> response =
         httpClient.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + routePrefix + name))
+            withOperatorSession(HttpRequest.newBuilder(URI.create(baseUrl + routePrefix + name)))
                 .PUT(HttpRequest.BodyPublishers.ofString(manifest, StandardCharsets.UTF_8))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -2605,7 +2614,7 @@ abstract class GreeterSmokeClusterSupport {
   void postIngress(String baseUrl, Map<String, Object> body) throws Exception {
     HttpResponse<String> response =
         httpClient.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/ingresses"))
+            withOperatorSession(HttpRequest.newBuilder(URI.create(baseUrl + "/ingresses")))
                 .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -2686,8 +2695,49 @@ abstract class GreeterSmokeClusterSupport {
     return port;
   }
 
+  /**
+   * Authenticates this fixture as a real operator for the rest of the run. Needed by any test that
+   * writes the reserved {@code gimle-system} tenant: that veto is keyed on the caller's credential
+   * rather than on the transport, so a plaintext cluster still has to present one -- an operator
+   * session here, exactly as an mTLS deployment would present an operator certificate.
+   */
+  void authenticateAsOperator(String baseUrl) throws Exception {
+    createLoginAccount(baseUrl, SMOKE_OPERATOR_USERNAME, SMOKE_OPERATOR_PASSWORD);
+    HttpResponse<String> login =
+        httpClient.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/auth/login"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        Json.write(
+                            Map.of(
+                                "username",
+                                SMOKE_OPERATOR_USERNAME,
+                                "password",
+                                SMOKE_OPERATOR_PASSWORD)),
+                        StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (login.statusCode() != 200) {
+      fail("operator login failed: " + login.statusCode() + " " + login.body());
+    }
+    String setCookie =
+        login
+            .headers()
+            .firstValue("Set-Cookie")
+            .orElseGet(() -> fail("login returned no session cookie"));
+    operatorCookie = Optional.of(setCookie.substring(0, setCookie.indexOf(';')));
+  }
+
+  private HttpRequest.Builder withOperatorSession(HttpRequest.Builder builder) {
+    operatorCookie.ifPresent(cookie -> builder.header("Cookie", cookie));
+    return builder;
+  }
+
   void createLoginAccount(String baseUrl, String username, String password) throws Exception {
-    String body = Json.write(Map.of("password", password));
+    // In the operators group: this is the account the fixture authenticates as when it needs to
+    // write the reserved system tenant, and the one the console suite signs in with.
+    String body =
+        Json.write(Map.of("password", password, "groups", List.of(BuiltinRoles.GROUP_OPERATORS)));
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/" + username))

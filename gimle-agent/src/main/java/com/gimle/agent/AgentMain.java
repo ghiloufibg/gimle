@@ -89,6 +89,7 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
@@ -152,6 +153,10 @@ public final class AgentMain {
 
   /** Request timeout for every outbound HTTP call this agent makes to the control plane. */
   private static final Duration HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(10);
+
+  private static final Duration REGISTRATION_INITIAL_BACKOFF = Duration.ofSeconds(1);
+
+  private static final Duration REGISTRATION_MAX_BACKOFF = Duration.ofSeconds(30);
 
   /** Connect timeout for every {@link HttpClient} this agent builds. */
   private static final Duration HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
@@ -337,12 +342,17 @@ public final class AgentMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
 
+    // StatefulSet-kind persistent storage plus everything else this node writes for itself --
+    // read here, ahead of the certificate bootstrap just below, because a node's own bootstrapped
+    // identity is stored under this root too (see nodeIdentityDirectory).
+    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+
     // Before anything below that needs gimle.tls.certFile/keyFile to already point at real files
     // (the MuninnShipper construction just below above all): in TLS mode this agent starts with
     // no certificate of its own and only obtains one here, live, via the bootstrap CSR flow --
     // see this method's own javadoc. Constructing a mutual-TLS SSLContext any earlier would fail
     // outright since those files wouldn't exist yet.
-    bootstrapCertificateIfNeeded(nodeId, baseUrl);
+    bootstrapCertificateIfNeeded(nodeId, dataRoot, gossipBindAddress.getHostString(), baseUrl);
 
     // One Timer/Counter pair around this agent's own tick body -- constructed unconditionally
     // (cheap, in-memory-only unless shipped) so #agentTick can record into it regardless of
@@ -368,18 +378,22 @@ public final class AgentMain {
     // Tier 1 density-packed instance's logs live under a different instance's own worker
     // directory (see SupervisedInstance#workerKey), and this is how a log request finds it.
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
-    // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
-    // defaulting alongside it rather than under it, matching the same
-    // "own top-level directory, own property" convention gimle.log.root itself established.
-    // Created before the log server below so its /volumes surface can serve off it.
-    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+    // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
+    // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
+    // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
+    // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
+    Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
+    // A sibling data root to gimle.log.root above, defaulting alongside it rather than under it,
+    // matching the same "own top-level directory, own property" convention gimle.log.root itself
+    // established. Read further up, before the certificate bootstrap that also writes under it.
     VolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     AgentLogServer logServer =
         new AgentLogServer(
             logRoot,
             0,
             (tenantId, deploymentName, instanceIndex) ->
-                workerDirectoryKey(supervised, tenantId, deploymentName, instanceIndex),
+                workerDirectoryKey(
+                    supervised, supervisedVessels, tenantId, deploymentName, instanceIndex),
             volumeManager,
             () ->
                 supervised.values().stream()
@@ -438,12 +452,11 @@ public final class AgentMain {
     // worker JVM is spawned (startInstance), never for an instance packed into an already-running
     // shared worker (installIntoExistingWorker), since packing costs no additional real memory.
     CapacityTracker committedWorkerCapacity = CapacityTracker.ofThisMachine();
+    // Which start failure each assigned instance has already been reported for, so a
+    // level-triggered retry of an unfixable start doesn't re-post the same event every tick. See
+    // reportStartFailure.
+    Map<String, String> reportedStartFailures = new ConcurrentHashMap<>();
     HttpClient httpClient = buildHttpClient();
-    // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
-    // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
-    // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
-    // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
-    Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
     // Keyed the same way supervised is (deploymentName#instanceIndex): a supervised instance's
     // pair of MuninnShippers (its worker's own PLATFORM log, its own APPLICATION log), started
     // the same tick the instance is added to supervised and closed the same tick it's removed.
@@ -509,7 +522,7 @@ public final class AgentMain {
     CertificateRotationMonitor rotationMonitor =
         new CertificateRotationMonitor("agent " + nodeId, TICK_INTERVAL, rotationListener);
 
-    register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
+    registerWithRetry(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
     // Shared by BifrostProxy and NetworkPolicyRelay below -- HttpNetworkPolicySource is stateless
@@ -608,7 +621,8 @@ public final class AgentMain {
             catalog,
             logRoot,
             maxTier1Density,
-            tier1Budget);
+            tier1Budget,
+            reportedStartFailures);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -616,6 +630,7 @@ public final class AgentMain {
             supervised,
             supervisedVessels,
             capacityTracker,
+            committedWorkerCapacity,
             volumeManager);
         RotationOutcome rotationOutcome =
             rotateCertificateIfDue(httpClient, baseUrl, rotationMonitor);
@@ -787,6 +802,46 @@ public final class AgentMain {
 
   // ---- control-plane registration/heartbeat/assignment fetch ----
 
+  /**
+   * Retries registration until it succeeds, rather than letting a transient control-plane hiccup at
+   * exactly this moment take the node out of the cluster until a human notices. The steady-state
+   * tick loop already survives the same class of failure; there is no reason startup should be the
+   * one moment a timeout is fatal. Backs off exponentially to a ceiling so a control plane that is
+   * genuinely down is not hammered, and keeps retrying rather than giving up after a fixed count --
+   * an agent that has nothing else to do until it registers has no better state to fall back to.
+   */
+  static void registerWithRetry(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      ResourceLimiter resourceLimiter,
+      String apiAddress)
+      throws InterruptedException {
+    Duration backoff = REGISTRATION_INITIAL_BACKOFF;
+    for (int attempt = 1; ; attempt++) {
+      try {
+        register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
+        return;
+      } catch (IOException | RuntimeException e) {
+        log.warn(
+            "agent {} could not register with control plane at {} (attempt {}): {} -- retrying in"
+                + " {}",
+            nodeId,
+            baseUrl,
+            attempt,
+            e.getMessage(),
+            backoff);
+        Thread.sleep(backoff);
+        backoff = nextRegistrationBackoff(backoff);
+      }
+    }
+  }
+
+  static Duration nextRegistrationBackoff(Duration current) {
+    Duration doubled = current.multipliedBy(2);
+    return doubled.compareTo(REGISTRATION_MAX_BACKOFF) > 0 ? REGISTRATION_MAX_BACKOFF : doubled;
+  }
+
   private static void register(
       HttpClient httpClient,
       URI baseUrl,
@@ -812,7 +867,14 @@ public final class AgentMain {
             .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
-    httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    // A control plane still coming up answers 503 here; treating that as success would leave this
+    // agent believing it is registered while the cluster has never heard of it.
+    if (response.statusCode() / 100 != 2) {
+      throw new IOException(
+          "control plane refused node registration with status " + response.statusCode());
+    }
   }
 
   /**
@@ -843,6 +905,22 @@ public final class AgentMain {
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
   private static final String BOOTSTRAP_TOKEN_PROPERTY = "gimle.tls.bootstrapToken";
 
+  /**
+   * Where this node writes the certificate and private key it bootstraps for itself. Defaults to a
+   * {@code tls} directory under this node's own {@code gimle.data.root}, deliberately not the
+   * directory holding the shared cluster CA material {@code gimle.tls.caFile} points into: that
+   * directory is the same for every node, holds material a node only ever reads, and is routinely
+   * (and correctly) mounted read-only, which a node must not have to give up to obtain an identity
+   * of its own.
+   */
+  private static final String IDENTITY_DIR_PROPERTY = "gimle.agent.identityDir";
+
+  /**
+   * Bind-any placeholders that name no reachable peer and so are never worth a certificate entry --
+   * a node configured to gossip on the wildcard address is still reached by its real name.
+   */
+  private static final Set<String> UNROUTABLE_CERTIFICATE_NAMES = Set.of("0.0.0.0", "::", "*");
+
   private static HttpClient buildHttpClient() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).build();
@@ -854,22 +932,34 @@ public final class AgentMain {
   }
 
   /**
-   * On first startup with {@code gimle.transport.protocol=tls} and no local cert/key files present
-   * yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap token
-   * an operator provisioned this agent with) to {@code POST /bootstrap/csr}. Reachable over
+   * On first startup with {@code gimle.transport.protocol=tls} and no certificate of its own on
+   * disk yet, generates a key pair and CSR in-process and submits it (plus the one-time bootstrap
+   * token an operator provisioned this agent with) to {@code POST /bootstrap/csr}. Reachable over
    * server-authenticated-only TLS (the agent already has {@code gimle.tls.caFile}, handed to it out
    * of band -- same as every other {@code gimle.tls.*} property -- so it can verify the control
-   * plane's identity before it has one of its own). No-op if the cert/key files already exist (a
-   * redeploy of an already-bootstrapped node) or if TLS isn't enabled at all.
+   * plane's identity before it has one of its own).
+   *
+   * <p>The issued material lands in this node's own identity directory ({@link
+   * #nodeIdentityDirectory}) and {@code gimle.tls.certFile}/{@code keyFile} are re-pointed there,
+   * so every later reader -- the mutual-TLS {@link HttpClient}, the rotation check, each spawned
+   * worker's own certificate directory beside it -- resolves material that actually exists. A
+   * process launched already pointing at a real certificate and key keeps them untouched: that is
+   * an operator-provisioned identity, and nothing here is written at all.
    */
-  private static void bootstrapCertificateIfNeeded(String nodeId, URI baseUrl)
+  private static void bootstrapCertificateIfNeeded(
+      String nodeId, Path dataRoot, String gossipHost, URI baseUrl)
       throws IOException, InterruptedException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return;
     }
-    Path certFile = requiredPathProperty(CERT_FILE_PROPERTY);
-    Path keyFile = requiredPathProperty(KEY_FILE_PROPERTY);
+    if (configuredIdentityExists()) {
+      return;
+    }
+    Path identityDirectory = nodeIdentityDirectory(dataRoot);
+    Path certFile = nodeCertificateFile(identityDirectory, nodeId);
+    Path keyFile = nodeKeyFile(identityDirectory, nodeId);
     if (Files.isRegularFile(certFile) && Files.isRegularFile(keyFile)) {
+      pointTlsMaterialAt(certFile, keyFile);
       return;
     }
     Path caFile = requiredPathProperty(CA_FILE_PROPERTY);
@@ -879,23 +969,63 @@ public final class AgentMain {
     }
     log.info("agent {} has no certificate yet; requesting one via bootstrap CSR", nodeId);
 
-    KeyPair keyPair = generateRsaKeyPair();
-    PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=" + nodeId), List.of(resolveAdvertisedHost()));
-
     SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
     HttpClient bootstrapClient =
         HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).sslContext(trustOnly).build();
-    Map<String, Object> body =
-        csrSubmissionToJson(
-            new CsrSubmission(
-                CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), Optional.of(bootstrapToken)));
+    bootstrapCertificate(
+        nodeId,
+        certFile,
+        keyFile,
+        nodeCertificateNames(gossipHost),
+        Optional.of(bootstrapToken),
+        submission -> postBootstrapCsr(bootstrapClient, baseUrl, submission));
+  }
+
+  /**
+   * Everything the bootstrap does once it knows where the material goes and how to get it signed --
+   * the half that has no HTTP client, no system properties and no control plane in it, so the
+   * requested names and the files actually produced can be driven directly.
+   */
+  static void bootstrapCertificate(
+      String nodeId,
+      Path certFile,
+      Path keyFile,
+      List<String> subjectAltNames,
+      Optional<String> bootstrapToken,
+      WorkerCertificates.CsrSigner signer)
+      throws IOException, InterruptedException {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + nodeId), subjectAltNames);
+    CsrResult result =
+        signer.sign(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), bootstrapToken));
+    String certificatePem =
+        result
+            .certificatePem()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "the bootstrap CSR returned status "
+                            + result.status()
+                            + " with no certificate"));
+    writeNodeIdentity(certFile, keyFile, certificatePem, keyPair.getPrivate());
+    pointTlsMaterialAt(certFile, keyFile);
+    log.info(
+        "agent {} obtained a signed certificate via bootstrap CSR, stored under {}",
+        nodeId,
+        certFile.getParent());
+  }
+
+  private static CsrResult postBootstrapCsr(
+      HttpClient bootstrapClient, URI baseUrl, CsrSubmission submission)
+      throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
             .timeout(HTTP_REQUEST_TIMEOUT)
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(csrSubmissionToJson(submission)), StandardCharsets.UTF_8))
             .build();
     HttpResponse<String> response =
         bootstrapClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -906,11 +1036,113 @@ public final class AgentMain {
               + ": "
               + response.body());
     }
-    CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-    Files.writeString(certFile, result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
-    Files.writeString(
-        keyFile, Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
-    log.info("agent {} obtained a signed certificate via bootstrap CSR", nodeId);
+    return csrResultFromJson(Json.asObject(Json.parse(response.body())));
+  }
+
+  /**
+   * True when this process was launched already pointing at a certificate and key that both exist
+   * -- an identity an operator provisioned out of band. Nothing is bootstrapped and nothing is
+   * re-pointed in that case.
+   */
+  private static boolean configuredIdentityExists() {
+    String certFile = System.getProperty(CERT_FILE_PROPERTY);
+    String keyFile = System.getProperty(KEY_FILE_PROPERTY);
+    return certFile != null
+        && !certFile.isBlank()
+        && keyFile != null
+        && !keyFile.isBlank()
+        && Files.isRegularFile(Path.of(certFile))
+        && Files.isRegularFile(Path.of(keyFile));
+  }
+
+  /** See {@link #IDENTITY_DIR_PROPERTY} for why this is never the shared CA material directory. */
+  static Path nodeIdentityDirectory(Path dataRoot) {
+    String configured = System.getProperty(IDENTITY_DIR_PROPERTY);
+    return configured == null || configured.isBlank()
+        ? dataRoot.resolve("tls")
+        : Path.of(configured);
+  }
+
+  /**
+   * Named by node id rather than a bare {@code node.crt}, so several agents sharing one identity
+   * directory (a single-machine cluster pointing every node at the same {@link
+   * #IDENTITY_DIR_PROPERTY}) never overwrite each other's material.
+   */
+  static Path nodeCertificateFile(Path identityDirectory, String nodeId) {
+    return identityDirectory.resolve("node-" + WorkerCertificates.fileSafe(nodeId) + ".crt");
+  }
+
+  static Path nodeKeyFile(Path identityDirectory, String nodeId) {
+    return identityDirectory.resolve("node-" + WorkerCertificates.fileSafe(nodeId) + ".key");
+  }
+
+  /**
+   * The names this node's own leaf certificate is requested for. A node is reached by name -- the
+   * one its topology gives it, which is also what a peer verifies against when it dials this node's
+   * admin surface -- so the certificate must carry that name and not merely the address the
+   * machine's interface happens to hold at bootstrap time: restart the node onto a new address and
+   * a certificate naming only the old one matches nothing. The address is still requested, last, so
+   * a peer dialing this node by bare IP literal keeps verifying too -- only an {@code iPAddress}
+   * entry ever matches an IP-dialed handshake, and only a {@code dNSName} entry a name-dialed one.
+   */
+  static List<String> nodeCertificateNames(
+      String gossipHost, String localHostName, String localHostAddress) {
+    Set<String> names = new LinkedHashSet<>();
+    addCertificateName(names, localHostName);
+    addCertificateName(names, gossipHost);
+    addCertificateName(names, "localhost");
+    addCertificateName(names, localHostAddress);
+    return List.copyOf(names);
+  }
+
+  private static List<String> nodeCertificateNames(String gossipHost) {
+    return nodeCertificateNames(gossipHost, resolveLocalHostName(), resolveAdvertisedHost());
+  }
+
+  private static void addCertificateName(Set<String> names, String candidate) {
+    if (candidate != null
+        && !candidate.isBlank()
+        && !UNROUTABLE_CERTIFICATE_NAMES.contains(candidate)) {
+      names.add(candidate);
+    }
+  }
+
+  /**
+   * Writes the freshly issued pair, key first: {@code gimle-worker}'s {@code
+   * FabricServerTlsWatcher} polls only the certificate's mtime from a separate process, so the
+   * matching key has to be fully on disk before the certificate can ever be observed. A failure
+   * here is reported against the identity directory and the property that moves it -- an unwritable
+   * directory is a configuration answer, not a stack trace.
+   */
+  private static void writeNodeIdentity(
+      Path certFile, Path keyFile, String certificatePem, PrivateKey privateKey)
+      throws IOException {
+    Path directory = certFile.getParent();
+    try {
+      if (directory != null) {
+        Files.createDirectories(directory);
+      }
+      Files.writeString(keyFile, Pem.encodePrivateKey(privateKey), StandardCharsets.US_ASCII);
+      restrictToOwner(keyFile);
+      Files.writeString(certFile, certificatePem, StandardCharsets.US_ASCII);
+    } catch (IOException e) {
+      throw new IOException(
+          "this node's own certificate and private key could not be written to "
+              + directory
+              + " ("
+              + e
+              + "). That directory holds only this node's own identity, never the shared cluster CA"
+              + " material a node reads and never writes, so it must be writable by this process:"
+              + " set -D"
+              + IDENTITY_DIR_PROPERTY
+              + "=<dir>, or point -Dgimle.data.root at a writable directory.",
+          e);
+    }
+  }
+
+  private static void pointTlsMaterialAt(Path certFile, Path keyFile) {
+    System.setProperty(CERT_FILE_PROPERTY, certFile.toString());
+    System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
   }
 
   /**
@@ -1062,21 +1294,47 @@ public final class AgentMain {
     }
   }
 
-  private static void sendHeartbeat(
+  /**
+   * The name this machine calls itself, for {@link #nodeCertificateNames} -- blank when it has none
+   * to report, which is a name simply left out of the request rather than a failure.
+   */
+  private static String resolveLocalHostName() {
+    try {
+      return InetAddress.getLocalHost().getHostName();
+    } catch (UnknownHostException e) {
+      return "";
+    }
+  }
+
+  /**
+   * Reports whichever of this node's two budgets is actually binding, not just the declared-request
+   * one: {@code capacityTracker} sums each instance's own small declared request, while {@code
+   * committedWorkerCapacity} sums the real ceiling every spawned worker JVM is started with -- and
+   * it is the latter that {@link #startInstance} refuses a spawn against. Reporting the request sum
+   * alone let a node whose agent was already refusing to spawn anything keep advertising room the
+   * machine does not have, so the scheduler kept sending it work it could never run.
+   */
+  static void sendHeartbeat(
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, SupervisedVessel> supervisedVessels,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       VolumeManager volumeManager)
       throws IOException, InterruptedException {
     CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
+    CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
     Map<String, Object> capacity = new LinkedHashMap<>();
     capacity.put("totalMemoryBytes", snapshot.totalMemoryBytes());
-    capacity.put("assignedMemoryBytes", snapshot.assignedMemoryBytes());
+    capacity.put(
+        "assignedMemoryBytes",
+        Math.max(snapshot.assignedMemoryBytes(), committed.assignedMemoryBytes()));
     capacity.put("totalCpuMillicores", snapshot.totalCpuMillicores());
-    capacity.put("assignedCpuMillicores", snapshot.assignedCpuMillicores());
+    capacity.put(
+        "assignedCpuMillicores",
+        Math.max(snapshot.assignedCpuMillicores(), committed.assignedCpuMillicores()));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {
@@ -1278,8 +1536,8 @@ public final class AgentMain {
     return observation;
   }
 
-  private static List<AssignedInstance> fetchAssignments(
-      HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
+  static List<AssignedInstance> fetchAssignments(HttpClient httpClient, URI baseUrl, String nodeId)
+      throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
             .timeout(HTTP_REQUEST_TIMEOUT)
@@ -1291,40 +1549,119 @@ public final class AgentMain {
     List<AssignedInstance> result = new ArrayList<>();
     for (Object entry : raw) {
       Map<String, Object> map = Json.asObject(entry);
-      Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
-      ModuleId moduleId =
-          new ModuleId(
-              (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
-      Object tenantId = map.get("tenantId");
-      Object renamedFrom = map.get("renamedFromInstanceIndex");
-      Object rawConfigMapRefs = map.get("configMapRefs");
-      List<String> configMapRefs =
-          rawConfigMapRefs == null
-              ? List.of()
-              : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
-      Object rawSecretMapRefs = map.get("secretMapRefs");
-      List<String> secretMapRefs =
-          rawSecretMapRefs == null
-              ? List.of()
-              : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
-      Object rawVessel = map.get("vessel");
-      result.add(
-          new AssignedInstance(
-              (String) map.get("deploymentName"),
-              ((Number) map.get("instanceIndex")).intValue(),
-              moduleId,
-              (String) map.get("artifactPath"),
-              tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
-              renamedFrom == null
-                  ? OptionalInt.empty()
-                  : OptionalInt.of(((Number) renamedFrom).intValue()),
-              rawVessel == null
-                  ? Optional.empty()
-                  : Optional.of(parseVessel(Json.asObject(rawVessel))),
-              configMapRefs,
-              secretMapRefs));
+      // Parsed one assignment at a time, and a failure here skips only that assignment. Letting it
+      // escape would abort the whole fetch, so a single malformed spec would stop this node from
+      // learning about every other tenant's instances too -- freezing its heartbeat cluster-wide
+      // rather than failing the one workload actually at fault.
+      try {
+        result.add(parseAssignment(map));
+      } catch (RuntimeException e) {
+        reportUnparseableAssignment(httpClient, baseUrl, nodeId, map, e);
+      }
     }
     return result;
+  }
+
+  /**
+   * Names the offending workload in a durable timeline event as well as this node's own log: an
+   * assignment the agent cannot even parse is otherwise invisible to an operator, who sees only a
+   * deployment that never progresses and a node that looks healthy.
+   */
+  private static void reportUnparseableAssignment(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      Map<String, Object> map,
+      RuntimeException e) {
+    Object name = map.get("deploymentName");
+    Object index = map.get("instanceIndex");
+    log.error("skipping unparseable assignment {}[{}]: {}", name, index, e.getMessage(), e);
+    if (!(name instanceof String deploymentName) || !(index instanceof Number instanceIndex)) {
+      return;
+    }
+    postInstanceEvent(
+        httpClient,
+        baseUrl,
+        nodeId,
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            deploymentName,
+            instanceIndex.intValue(),
+            InstanceEventKind.TRANSITION_FAILED,
+            "assignment spec rejected by this node",
+            Optional.of(String.valueOf(e.getMessage())),
+            System.currentTimeMillis()));
+  }
+
+  /**
+   * Names a refused or failed local start in the instance's own durable timeline, not only in this
+   * node's log. A start this node cannot perform -- a worker ceiling that would overcommit the
+   * machine's real memory, an unreadable artifact, an isolation tier this node cannot provide --
+   * otherwise leaves an operator with a workload that reports desired state and nothing anywhere
+   * saying why nothing is running: the only account of it lives in a node log they have no reason
+   * to suspect is the place to look.
+   *
+   * <p>Reported once per distinct cause per instance, keyed through {@code reportedStartFailures}:
+   * reconciliation is level-triggered, so an unfixable start is retried on every tick, and posting
+   * each retry would push every other event out of that instance's own bounded timeline within
+   * minutes. A cause that changes is reported again, since it is genuinely new information.
+   */
+  private static void reportStartFailure(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      AssignedInstance assigned,
+      String key,
+      Throwable failure,
+      Map<String, String> reportedStartFailures) {
+    String cause = String.valueOf(failure.getMessage());
+    if (cause.equals(reportedStartFailures.put(key, cause))) {
+      return;
+    }
+    postInstanceEvent(
+        httpClient,
+        baseUrl,
+        nodeId,
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            assigned.deploymentName(),
+            assigned.instanceIndex(),
+            InstanceEventKind.TRANSITION_FAILED,
+            "instance start refused by this node",
+            Optional.of(cause),
+            System.currentTimeMillis()));
+  }
+
+  private static AssignedInstance parseAssignment(Map<String, Object> map) {
+    Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
+    ModuleId moduleId =
+        new ModuleId(
+            (String) moduleIdMap.get("name"), Version.parse((String) moduleIdMap.get("version")));
+    Object tenantId = map.get("tenantId");
+    Object renamedFrom = map.get("renamedFromInstanceIndex");
+    Object rawConfigMapRefs = map.get("configMapRefs");
+    List<String> configMapRefs =
+        rawConfigMapRefs == null
+            ? List.of()
+            : Json.asArray(rawConfigMapRefs).stream().map(String.class::cast).toList();
+    Object rawSecretMapRefs = map.get("secretMapRefs");
+    List<String> secretMapRefs =
+        rawSecretMapRefs == null
+            ? List.of()
+            : Json.asArray(rawSecretMapRefs).stream().map(String.class::cast).toList();
+    Object rawVessel = map.get("vessel");
+    return new AssignedInstance(
+        (String) map.get("deploymentName"),
+        ((Number) map.get("instanceIndex")).intValue(),
+        moduleId,
+        (String) map.get("artifactPath"),
+        tenantId == null ? Optional.empty() : Optional.of((String) tenantId),
+        renamedFrom == null
+            ? OptionalInt.empty()
+            : OptionalInt.of(((Number) renamedFrom).intValue()),
+        rawVessel == null ? Optional.empty() : Optional.of(parseVessel(Json.asObject(rawVessel))),
+        configMapRefs,
+        secretMapRefs);
   }
 
   /**
@@ -1391,10 +1728,14 @@ public final class AgentMain {
 
   private static VesselProbeSpec parseVesselProbe(Map<String, Object> map) {
     int initialDelaySeconds = ((Number) map.getOrDefault("initialDelaySeconds", 0)).intValue();
+    // Carried through even though a single-port vessel never needs it: dropping it here is what
+    // turns a perfectly well-formed multi-port manifest into an unresolvable one by the time the
+    // agent reconstructs it.
+    Optional<String> portName = Optional.ofNullable((String) map.get("port"));
     if (map.containsKey("http")) {
-      return new VesselProbeSpec.Http((String) map.get("http"), initialDelaySeconds);
+      return new VesselProbeSpec.Http((String) map.get("http"), portName, initialDelaySeconds);
     }
-    return new VesselProbeSpec.Tcp(initialDelaySeconds);
+    return new VesselProbeSpec.Tcp(portName, initialDelaySeconds);
   }
 
   /**
@@ -1569,7 +1910,7 @@ public final class AgentMain {
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
-  private static void reconcileAssignments(
+  static void reconcileAssignments(
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
@@ -1592,7 +1933,8 @@ public final class AgentMain {
       ServiceCatalog catalog,
       Path logRoot,
       int maxTier1Density,
-      Tier1WorkerBudget tier1Budget)
+      Tier1WorkerBudget tier1Budget,
+      Map<String, String> reportedStartFailures)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1737,12 +2079,19 @@ public final class AgentMain {
                   logRoot,
                   volumeManager);
             }
+            reportedStartFailures.remove(key);
           } catch (IOException | RuntimeException e) {
             log.error("failed to start instance {}: {}", key, e.getMessage(), e);
+            reportStartFailure(
+                httpClient, baseUrl, nodeId, assigned, key, e, reportedStartFailures);
           }
         }
       }
     }
+    // Keeps the report ledger scoped to what this node is still assigned: an index that goes away
+    // and later comes back must be free to report its own fresh failure rather than being
+    // suppressed by the one its predecessor already reported.
+    reportedStartFailures.keySet().retainAll(currentKeys);
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
         // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the
@@ -3492,10 +3841,7 @@ public final class AgentMain {
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
           postInstanceEvent(httpClient, baseUrl, nodeId, occurred.event());
         } else if (message instanceof ControlMessage.Hello hello) {
-          instance.fabricWorkerId = hello.workerId();
-          instance.fabricUdsPath = hello.fabricUdsPath();
-          instance.fabricTcpAddress =
-              new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+          applyWorkerHandshake(instance, supervised, connection, hello);
           // Sync this worker's fresh FabricServiceRegistry cache with everything this agent
           // already knows: the gossip-driven onDelta relay only fires for a delta applied *after*
           // its listener was registered, so anything learned before this worker connected would
@@ -3815,7 +4161,37 @@ public final class AgentMain {
     }
   }
 
-  /** Every {@code SupervisedInstance} sharing {@code connection} whose module is {@code id}. */
+  /**
+   * A worker's handshake describes the worker JVM, not any one instance it hosts, so it is applied
+   * to every instance currently sharing {@code connection} rather than only to the instance whose
+   * read loop received it. Under Tier 1 density several instances share one worker JVM and one
+   * connection, but exactly one {@code Hello} ever arrives on it: an instance packed onto a worker
+   * that had connected but not yet handshaked would otherwise report no worker identity at all for
+   * the rest of its life, and a respawn -- which clears the identity on every hosted instance and
+   * is followed by a single fresh handshake -- would strip it from all but one of them.
+   */
+  static void applyWorkerHandshake(
+      SupervisedInstance owner,
+      Map<String, SupervisedInstance> supervised,
+      WorkerConnection connection,
+      ControlMessage.Hello hello) {
+    InetSocketAddress tcpAddress =
+        new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+    applyWorkerHandshakeTo(owner, hello, tcpAddress);
+    for (SupervisedInstance hosted : supervised.values()) {
+      if (hosted != owner && hosted.connection == connection) {
+        applyWorkerHandshakeTo(hosted, hello, tcpAddress);
+      }
+    }
+  }
+
+  private static void applyWorkerHandshakeTo(
+      SupervisedInstance instance, ControlMessage.Hello hello, InetSocketAddress tcpAddress) {
+    instance.fabricWorkerId = hello.workerId();
+    instance.fabricUdsPath = hello.fabricUdsPath();
+    instance.fabricTcpAddress = tcpAddress;
+  }
+
   /**
    * Which supervised instance a worker's report is about. Matched on the full instance identity,
    * not just the module coordinate: two replicas of one deployment sharing a worker report the same
@@ -4157,15 +4533,43 @@ public final class AgentMain {
    */
   static String workerDirectoryKey(
       Map<String, SupervisedInstance> supervised,
+      Map<String, SupervisedVessel> supervisedVessels,
       Optional<String> tenantId,
       String deploymentName,
       int instanceIndex) {
     SupervisedInstance instance =
         findSupervised(supervised, tenantId, deploymentName, instanceIndex);
-    if (instance == null) {
-      return instanceKey(tenantId, deploymentName, instanceIndex);
+    if (instance != null) {
+      return instance.workerKey != null ? instance.workerKey : instanceKey(instance.assigned);
     }
-    return instance.workerKey != null ? instance.workerKey : instanceKey(instance.assigned);
+    // A vessel is supervised under its own map and runs as its own process rather than inside a
+    // worker JVM, so it has no worker key to inherit -- but it files its logs under the same
+    // instance key, and a caller naming it only by name must reach them the same way one naming a
+    // module instance does.
+    SupervisedVessel vessel =
+        findSupervisedVessel(supervisedVessels, tenantId, deploymentName, instanceIndex);
+    if (vessel != null) {
+      return instanceKey(vessel.assigned);
+    }
+    return instanceKey(tenantId, deploymentName, instanceIndex);
+  }
+
+  /** {@link #findSupervised}'s counterpart for the vessels this node supervises. */
+  private static SupervisedVessel findSupervisedVessel(
+      Map<String, SupervisedVessel> supervisedVessels,
+      Optional<String> tenantId,
+      String deploymentName,
+      int instanceIndex) {
+    if (tenantId.isPresent()) {
+      return supervisedVessels.get(instanceKey(tenantId, deploymentName, instanceIndex));
+    }
+    return supervisedVessels.values().stream()
+        .filter(
+            vessel ->
+                vessel.assigned.deploymentName().equals(deploymentName)
+                    && vessel.assigned.instanceIndex() == instanceIndex)
+        .findFirst()
+        .orElse(null);
   }
 
   /**

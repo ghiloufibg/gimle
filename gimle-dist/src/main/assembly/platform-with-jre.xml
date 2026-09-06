@@ -78,4 +78,19 @@
       <outputDirectory>jre/cli</outputDirectory>
     </fileSet>
   </fileSets>
+
+  <!--
+    The one file under jre/ that isn't part of any runtime image: the platform every image in this
+    archive was built for, written by the dist-with-jre profile's own verify-bundled-jre-platform
+    step. It is what lets an unpacked archive answer "which machines is this jre/ for?" without
+    running anything, and what each bin/ wrapper names when the bundled runtime turns out not to
+    run here.
+  -->
+  <files>
+    <file>
+      <source>${project.build.directory}/jre-images/PLATFORM</source>
+      <outputDirectory>jre</outputDirectory>
+      <destName>PLATFORM</destName>
+    </file>
+  </files>
 </assembly>

@@ -6,11 +6,8 @@ import com.gimle.hilmir.topology.StoreReplica;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.topology.Transport;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,12 +45,7 @@ final class StoreEndpoints {
   }
 
   private static List<SocketAddress> resolveFromTopology(final Path file) {
-    final Topology topology;
-    try (InputStream in = Files.newInputStream(file)) {
-      topology = TopologyParser.parse(in);
-    } catch (final IOException e) {
-      throw new HilmirException("failed reading topology file " + file + ": " + e.getMessage(), e);
-    }
+    final Topology topology = TopologyParser.parseFile(file);
     if (topology.transport() == Transport.MTLS) {
       activateTls(
           topology

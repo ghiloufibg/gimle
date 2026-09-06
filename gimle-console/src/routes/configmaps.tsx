@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useConfigMapsStore } from "@/stores/useConfigMapsStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
+import { scopedTenantId, tenantScopeSearch } from "@/lib/tenant-scope";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
 
 export const Route = createFileRoute("/configmaps")({
+  validateSearch: tenantScopeSearch,
   head: () => ({
     meta: [
       { title: "ConfigMaps — Gimlé Console" },
@@ -36,6 +38,8 @@ export const Route = createFileRoute("/configmaps")({
 });
 
 function ConfigMapsPage() {
+  const { tenant } = Route.useSearch();
+  const navigate = useNavigate();
   const tenants = useTenantsStore((s) => s.items);
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
   const {
@@ -64,9 +68,15 @@ function ConfigMapsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
+  // The URL owns which tenant is on screen, so a link to one tenant's view opens on that tenant
+  // for whoever follows it rather than on whichever one they last picked here themselves.
+  const scopedTenant = scopedTenantId(
+    tenant,
+    tenants.map((t) => t.id),
+  );
   useEffect(() => {
-    if (!tenantId && tenants.length > 0) setTenant(tenants[0].id);
-  }, [tenantId, tenants, setTenant]);
+    if (scopedTenant !== null && scopedTenant !== tenantId) setTenant(scopedTenant);
+  }, [scopedTenant, tenantId, setTenant]);
 
   useEffect(() => {
     if (selected) {
@@ -129,7 +139,10 @@ function ConfigMapsPage() {
         subtitle="Named, multi-key config bundles a deployment attaches by configMapRefs instead of receiving every flat config key."
         actions={
           <div className="flex items-center gap-2">
-            <Select value={tenantId ?? ""} onValueChange={(v) => setTenant(v)}>
+            <Select
+              value={tenantId ?? ""}
+              onValueChange={(v) => void navigate({ to: "/configmaps", search: { tenant: v } })}
+            >
               <SelectTrigger className="h-8 w-52 text-xs">
                 <SelectValue placeholder="Pick tenant" />
               </SelectTrigger>

@@ -155,7 +155,8 @@ class SleipnirTrainerTest {
     volatile IOException failure;
 
     @Override
-    public void run(List<String> command, Duration timeout) throws IOException {
+    public void run(List<String> command, Path expectedOutput, Duration timeout)
+        throws IOException {
       invocations.incrementAndGet();
       CountDownLatch enteredLatch = entered;
       if (enteredLatch != null) {

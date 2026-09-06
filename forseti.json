@@ -238,6 +238,12 @@
           "GIMLE-559",
           "GIMLE-565"
         ]
+      },
+      "build-time-only": {
+        "note": "Build- or development-time configuration with no presence in a deployed cluster or a shipped archive. Verifying it means running the build or the dev server, which no fleet environment does.",
+        "ids": [
+          "GIMLE-878"
+        ]
       }
     },
     "internal": {
@@ -290,7 +296,8 @@
           "GIMLE-167",
           "GIMLE-178",
           "GIMLE-179",
-          "GIMLE-606"
+          "GIMLE-606",
+          "GIMLE-854"
         ]
       },
       "gossip-internals": {
@@ -384,7 +391,8 @@
           "GIMLE-697",
           "GIMLE-705",
           "GIMLE-747",
-          "GIMLE-749"
+          "GIMLE-749",
+          "GIMLE-860"
         ]
       },
       "crypto-and-key-material": {
@@ -412,7 +420,8 @@
           "GIMLE-289",
           "GIMLE-315",
           "GIMLE-334",
-          "GIMLE-745"
+          "GIMLE-745",
+          "GIMLE-859"
         ]
       },
       "server-side-guards": {
@@ -600,7 +609,11 @@
         "GIMLE-393",
         "GIMLE-021",
         "GIMLE-746",
-        "GIMLE-706"
+        "GIMLE-706",
+        "GIMLE-887",
+        "GIMLE-888",
+        "GIMLE-890",
+        "GIMLE-891"
       ]
     },
     {
@@ -621,7 +634,9 @@
         "GIMLE-258",
         "GIMLE-333",
         "GIMLE-196",
-        "GIMLE-742"
+        "GIMLE-742",
+        "GIMLE-903",
+        "GIMLE-905"
       ]
     },
     {
@@ -673,7 +688,8 @@
       "objective": "Against the ssh-remote machine (`gimle-holmgang/compose/docker-compose.ssh-remote.yml`'s shape): `hilmir up --remote`, `status --remote`, `down --remote` from outside the container.",
       "oracle": "Host-key pinning behaves as documented (TOFU or pinned fingerprint); the archive self-provisions; each verb's output matches what a local `status` inside the machine reports.",
       "requirements": [
-        "GIMLE-576"
+        "GIMLE-576",
+        "GIMLE-891"
       ]
     },
     {
@@ -702,7 +718,9 @@
         "GIMLE-293",
         "GIMLE-318",
         "GIMLE-339",
-        "GIMLE-126"
+        "GIMLE-126",
+        "GIMLE-849",
+        "GIMLE-890"
       ]
     },
     {
@@ -724,7 +742,8 @@
         "GIMLE-405",
         "GIMLE-406",
         "GIMLE-407",
-        "GIMLE-408"
+        "GIMLE-408",
+        "GIMLE-851"
       ]
     },
     {
@@ -763,7 +782,8 @@
       "requirements": [
         "GIMLE-024",
         "GIMLE-128",
-        "GIMLE-021"
+        "GIMLE-021",
+        "GIMLE-892"
       ]
     },
     {
@@ -787,7 +807,9 @@
         "GIMLE-003",
         "GIMLE-005",
         "GIMLE-725",
-        "GIMLE-008"
+        "GIMLE-008",
+        "GIMLE-883",
+        "GIMLE-885"
       ]
     },
     {
@@ -804,7 +826,9 @@
         "GIMLE-420",
         "GIMLE-421",
         "GIMLE-424",
-        "GIMLE-078"
+        "GIMLE-078",
+        "GIMLE-882",
+        "GIMLE-884"
       ]
     },
     {
@@ -850,7 +874,8 @@
         "GIMLE-491",
         "GIMLE-492",
         "GIMLE-493",
-        "GIMLE-495"
+        "GIMLE-495",
+        "GIMLE-898"
       ]
     },
     {
@@ -992,7 +1017,8 @@
         "GIMLE-241",
         "GIMLE-104",
         "GIMLE-652",
-        "GIMLE-726"
+        "GIMLE-726",
+        "GIMLE-895"
       ]
     },
     {
@@ -1040,7 +1066,8 @@
       "oracle": "Replica count converges each time; scale-down removes exactly the surplus and nothing else.",
       "requirements": [
         "GIMLE-219",
-        "GIMLE-220"
+        "GIMLE-220",
+        "GIMLE-862"
       ]
     },
     {
@@ -1053,7 +1080,10 @@
       "oracle": "Both end in FAILED with a durable event that names the cause — never stuck at INSTALLED with no explanation.",
       "requirements": [
         "GIMLE-666",
-        "GIMLE-114"
+        "GIMLE-114",
+        "GIMLE-866",
+        "GIMLE-868",
+        "GIMLE-886"
       ]
     },
     {
@@ -1137,7 +1167,8 @@
         "GIMLE-670",
         "GIMLE-658",
         "GIMLE-441",
-        "GIMLE-713"
+        "GIMLE-713",
+        "GIMLE-896"
       ]
     },
     {
@@ -1155,7 +1186,8 @@
         "GIMLE-231",
         "GIMLE-442",
         "GIMLE-675",
-        "GIMLE-789"
+        "GIMLE-789",
+        "GIMLE-862"
       ]
     },
     {
@@ -1213,7 +1245,8 @@
         "GIMLE-621",
         "GIMLE-770",
         "GIMLE-771",
-        "GIMLE-751"
+        "GIMLE-751",
+        "GIMLE-870"
       ]
     },
     {
@@ -1245,7 +1278,10 @@
         "GIMLE-121",
         "GIMLE-681",
         "GIMLE-629",
-        "GIMLE-608"
+        "GIMLE-608",
+        "GIMLE-846",
+        "GIMLE-847",
+        "GIMLE-897"
       ]
     },
     {
@@ -1274,7 +1310,8 @@
         "GIMLE-216",
         "GIMLE-134",
         "GIMLE-648",
-        "GIMLE-675"
+        "GIMLE-675",
+        "GIMLE-850"
       ]
     },
     {
@@ -1290,7 +1327,10 @@
         "GIMLE-744",
         "GIMLE-783",
         "GIMLE-831",
-        "GIMLE-838"
+        "GIMLE-838",
+        "GIMLE-867",
+        "GIMLE-868",
+        "GIMLE-869"
       ]
     },
     {
@@ -1308,7 +1348,8 @@
         "GIMLE-376",
         "GIMLE-445",
         "GIMLE-715",
-        "GIMLE-838"
+        "GIMLE-838",
+        "GIMLE-893"
       ]
     },
     {
@@ -1384,7 +1425,8 @@
         "GIMLE-222",
         "GIMLE-223",
         "GIMLE-682",
-        "GIMLE-685"
+        "GIMLE-685",
+        "GIMLE-865"
       ]
     },
     {
@@ -1411,7 +1453,9 @@
         "GIMLE-110",
         "GIMLE-746",
         "GIMLE-786",
-        "GIMLE-832"
+        "GIMLE-832",
+        "GIMLE-869",
+        "GIMLE-904"
       ]
     },
     {
@@ -1431,7 +1475,8 @@
         "GIMLE-728",
         "GIMLE-729",
         "GIMLE-800",
-        "GIMLE-802"
+        "GIMLE-802",
+        "GIMLE-852"
       ]
     },
     {
@@ -1498,7 +1543,11 @@
         "GIMLE-778",
         "GIMLE-785",
         "GIMLE-840",
-        "GIMLE-841"
+        "GIMLE-841",
+        "GIMLE-863",
+        "GIMLE-871",
+        "GIMLE-873",
+        "GIMLE-874"
       ]
     },
     {
@@ -1563,7 +1612,8 @@
       "oracle": "The breaker ejects it, traffic keeps flowing through healthy replicas, it is re-admitted once healthy; the breaker's state is visible in logs and shipped meters.",
       "requirements": [
         "GIMLE-186",
-        "GIMLE-720"
+        "GIMLE-720",
+        "GIMLE-855"
       ]
     },
     {
@@ -1614,7 +1664,8 @@
         "GIMLE-246",
         "GIMLE-716",
         "GIMLE-446",
-        "GIMLE-744"
+        "GIMLE-744",
+        "GIMLE-856"
       ]
     },
     {
@@ -1628,7 +1679,9 @@
       "requirements": [
         "GIMLE-604",
         "GIMLE-605",
-        "GIMLE-750"
+        "GIMLE-750",
+        "GIMLE-856",
+        "GIMLE-857"
       ]
     },
     {
@@ -1686,7 +1739,8 @@
         "GIMLE-457",
         "GIMLE-766",
         "GIMLE-769",
-        "GIMLE-704"
+        "GIMLE-704",
+        "GIMLE-861"
       ]
     },
     {
@@ -1726,7 +1780,8 @@
       "oracle": "Plaintext is explicitly single-tenant and refuses the second tenant with a reason; the untenanted workload lands in the implicit default tenant and is addressable as such.",
       "requirements": [
         "GIMLE-649",
-        "GIMLE-650"
+        "GIMLE-650",
+        "GIMLE-852"
       ]
     },
     {
@@ -1744,7 +1799,9 @@
         "GIMLE-693",
         "GIMLE-772",
         "GIMLE-655",
-        "GIMLE-770"
+        "GIMLE-770",
+        "GIMLE-863",
+        "GIMLE-889"
       ]
     },
     {
@@ -1757,7 +1814,8 @@
       "oracle": "The reserved tenant is operator-only; the policy is enforced at admission with a specific reason.",
       "requirements": [
         "GIMLE-252",
-        "GIMLE-247"
+        "GIMLE-247",
+        "GIMLE-856"
       ]
     },
     {
@@ -1781,7 +1839,8 @@
       "objective": "`apply -f` manifests for Tenant, LimitRange, Role, RoleBinding, Account, Service and NetworkPolicy.",
       "oracle": "Each kind is created from its manifest identically to its `gimle set <kind>` form.",
       "requirements": [
-        "GIMLE-717"
+        "GIMLE-717",
+        "GIMLE-894"
       ]
     },
     {
@@ -1832,7 +1891,8 @@
         "GIMLE-755",
         "GIMLE-280",
         "GIMLE-462",
-        "GIMLE-692"
+        "GIMLE-692",
+        "GIMLE-853"
       ]
     },
     {
@@ -1919,7 +1979,9 @@
         "GIMLE-702",
         "GIMLE-704",
         "GIMLE-743",
-        "GIMLE-834"
+        "GIMLE-834",
+        "GIMLE-903",
+        "GIMLE-905"
       ]
     },
     {
@@ -1960,7 +2022,8 @@
         "GIMLE-467",
         "GIMLE-290",
         "GIMLE-314",
-        "GIMLE-781"
+        "GIMLE-781",
+        "GIMLE-876"
       ]
     },
     {
@@ -2049,7 +2112,8 @@
       "requirements": [
         "GIMLE-305",
         "GIMLE-313",
-        "GIMLE-470"
+        "GIMLE-470",
+        "GIMLE-861"
       ]
     },
     {
@@ -2076,7 +2140,9 @@
       "objective": "Deploy referencing a coordinate that was never pushed.",
       "oracle": "Rejected up front at admission with a clear not-found — never scheduled and failing later.",
       "requirements": [
-        "GIMLE-248"
+        "GIMLE-248",
+        "GIMLE-858",
+        "GIMLE-886"
       ]
     },
     {
@@ -2119,7 +2185,8 @@
       "requirements": [
         "GIMLE-303",
         "GIMLE-062",
-        "GIMLE-266"
+        "GIMLE-266",
+        "GIMLE-858"
       ]
     },
     {
@@ -2139,7 +2206,10 @@
         "GIMLE-451",
         "GIMLE-737",
         "GIMLE-762",
-        "GIMLE-832"
+        "GIMLE-832",
+        "GIMLE-872",
+        "GIMLE-892",
+        "GIMLE-897"
       ]
     },
     {
@@ -2196,7 +2266,9 @@
         "GIMLE-351",
         "GIMLE-273",
         "GIMLE-448",
-        "GIMLE-097"
+        "GIMLE-097",
+        "GIMLE-880",
+        "GIMLE-902"
       ]
     },
     {
@@ -2215,7 +2287,12 @@
         "GIMLE-326",
         "GIMLE-450",
         "GIMLE-741",
-        "GIMLE-764"
+        "GIMLE-764",
+        "GIMLE-880",
+        "GIMLE-881",
+        "GIMLE-899",
+        "GIMLE-900",
+        "GIMLE-901"
       ]
     },
     {
@@ -2264,7 +2341,10 @@
         "GIMLE-593",
         "GIMLE-586",
         "GIMLE-587",
-        "GIMLE-787"
+        "GIMLE-787",
+        "GIMLE-876",
+        "GIMLE-877",
+        "GIMLE-889"
       ]
     },
     {
@@ -2299,7 +2379,12 @@
         "GIMLE-711",
         "GIMLE-753",
         "GIMLE-790",
-        "GIMLE-830"
+        "GIMLE-830",
+        "GIMLE-864",
+        "GIMLE-865",
+        "GIMLE-867",
+        "GIMLE-879",
+        "GIMLE-895"
       ]
     },
     {
@@ -2311,7 +2396,8 @@
       "objective": "From an instance row, follow the `workerId` deep link into the Metrics and Traces WORKER pickers.",
       "oracle": "The link lands on that worker's data, matching the agent's own view of which worker hosts it.",
       "requirements": [
-        "GIMLE-647"
+        "GIMLE-647",
+        "GIMLE-904"
       ]
     },
     {
@@ -2414,7 +2500,8 @@
         "GIMLE-663",
         "GIMLE-664",
         "GIMLE-625",
-        "GIMLE-787"
+        "GIMLE-787",
+        "GIMLE-877"
       ]
     },
     {
@@ -2434,7 +2521,11 @@
         "GIMLE-174",
         "GIMLE-175",
         "GIMLE-176",
-        "GIMLE-833"
+        "GIMLE-833",
+        "GIMLE-857",
+        "GIMLE-871",
+        "GIMLE-875",
+        "GIMLE-885"
       ]
     },
     {
@@ -2464,7 +2555,8 @@
       "requirements": [
         "GIMLE-388",
         "GIMLE-760",
-        "GIMLE-637"
+        "GIMLE-637",
+        "GIMLE-873"
       ]
     },
     {
@@ -2480,7 +2572,8 @@
         "GIMLE-761",
         "GIMLE-665",
         "GIMLE-765",
-        "GIMLE-635"
+        "GIMLE-635",
+        "GIMLE-894"
       ]
     },
     {
@@ -2493,7 +2586,8 @@
       "oracle": "Converges to deleted with no half-scaled zombie; the concurrent applies are generation-guarded so one loses with a conflict rather than a silent lost update.",
       "requirements": [
         "GIMLE-646",
-        "GIMLE-241"
+        "GIMLE-241",
+        "GIMLE-874"
       ]
     },
     {
@@ -2507,7 +2601,8 @@
       "requirements": [
         "GIMLE-136",
         "GIMLE-148",
-        "GIMLE-829"
+        "GIMLE-829",
+        "GIMLE-849"
       ]
     },
     {
@@ -2568,7 +2663,8 @@
       "oracle": "Running instances keep serving; Skald degrades only after its staleness window; on restart everything reconverges with no duplicate or lost instance.",
       "requirements": [
         "GIMLE-686",
-        "GIMLE-706"
+        "GIMLE-706",
+        "GIMLE-848"
       ]
     }
   ]

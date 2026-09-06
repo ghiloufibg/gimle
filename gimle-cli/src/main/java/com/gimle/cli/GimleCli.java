@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,14 +60,15 @@ import java.util.function.Supplier;
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
+ *   gimle label node &lt;nodeId&gt; &lt;label&gt;[ &lt;label&gt;-]...
  *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
  *   gimle metrics
- *   gimle metrics-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
+ *   gimle metrics-history &lt;AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER&gt; &lt;processId&gt;
  *                          [--since &lt;cursor&gt;] [--limit N]
- *   gimle traces-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
- *                         [--since &lt;cursor&gt;] [--limit N]
+ *   gimle traces-history &lt;CONTROLPLANE|WORKER&gt; &lt;processId&gt; [--since &lt;cursor&gt;] [--limit N]
+ *   gimle trace &lt;traceId&gt; [--limit N]
  *   gimle context list
  *   gimle context show [name]
  *   gimle context use &lt;name&gt;
@@ -109,6 +111,7 @@ import java.util.function.Supplier;
  *   gimle secret delete &lt;tenantId&gt; &lt;key&gt; [--destroy]
  *   gimle secret versions &lt;tenantId&gt; &lt;key&gt;
  *   gimle secret rotate-key
+ *   gimle secret rewrap
  *   gimle secret retire-key &lt;keyId&gt;
  *   gimle configmap list &lt;tenantId&gt;
  *   gimle configmap get &lt;tenantId&gt; &lt;name&gt;
@@ -290,6 +293,7 @@ public final class GimleCli {
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
+      case "label" -> handleLabel(rest, client, output, out);
       case "taint" -> handleTaint(rest, client, output, out, true);
       case "untaint" -> handleTaint(rest, client, output, out, false);
       case "events" -> handleEvents(rest, client, output, out);
@@ -298,6 +302,7 @@ public final class GimleCli {
           new HistoryCommand(client, output, out).run(HistoryCommand.Surface.METRICS, rest);
       case "traces-history" ->
           new HistoryCommand(client, output, out).run(HistoryCommand.Surface.TRACES, rest);
+      case "trace" -> new HistoryCommand(client, output, out).runTraceSearch(rest);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
@@ -447,6 +452,35 @@ public final class GimleCli {
     }
     new EventsCommand(client, output, out)
         .run(args.get(0), args.get(1), args.subList(2, args.size()));
+  }
+
+  /**
+   * {@code gimle label node <nodeId> <label>...} -- a trailing {@code -} on a label removes it
+   * instead of adding it, the same shorthand kubectl uses, so adding and removing in one call needs
+   * no separate flag.
+   */
+  private static void handleLabel(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.size() < 3 || !"node".equals(args.get(0))) {
+      throw new CliException("usage: gimle label node <nodeId> <label>[ <label>-]...");
+    }
+    String nodeId = args.get(1);
+    Set<String> additions = new LinkedHashSet<>();
+    Set<String> removals = new LinkedHashSet<>();
+    for (String raw : args.subList(2, args.size())) {
+      if (raw.endsWith("-")) {
+        String label = raw.substring(0, raw.length() - 1);
+        if (label.isBlank()) {
+          throw new CliException("a label to remove must name one: got '" + raw + "'");
+        }
+        removals.add(label);
+      } else if (raw.isBlank()) {
+        throw new CliException("a label must not be blank");
+      } else {
+        additions.add(raw);
+      }
+    }
+    new NodesCommand(client, output, out).label(nodeId, additions, removals);
   }
 
   private static void handleTaint(
@@ -788,7 +822,9 @@ public final class GimleCli {
       case "metrics" -> MetricsCommand.usage();
       case "metrics-history" -> HistoryCommand.usage(HistoryCommand.Surface.METRICS);
       case "traces-history" -> HistoryCommand.usage(HistoryCommand.Surface.TRACES);
+      case "trace" -> HistoryCommand.traceUsage();
       case "context", "contexts" -> ContextCommand.usage();
+      case "label" -> "usage: gimle label node <nodeId> <label>[ <label>-]...";
       case "cordon" -> "usage: gimle cordon <nodeId>";
       case "uncordon" -> "usage: gimle uncordon <nodeId>";
       case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
@@ -1017,16 +1053,21 @@ public final class GimleCli {
   private static final List<String> DRY_RUN_KINDS =
       List.of("Deployment", "Job", "CronJob", "DaemonSet", "StatefulSet");
 
-  /** Every {@code kind:} {@link #handleApply}'s own switch below names, previewable or not. */
-  private static final Set<String> BUILT_IN_APPLY_KINDS =
-      Set.of(
+  /**
+   * Every {@code kind:} {@link #handleApply}'s own switch below names, previewable or not, in the
+   * order the help text lists them: workload kinds first, then the networking, tenancy and access
+   * kinds, then the meta-kind that defines new ones. Every help surface renders this list rather
+   * than restating it, so a kind added to the switch can never stay invisible to {@code gimle -h}
+   * the way half of these once were.
+   */
+  private static final List<String> BUILT_IN_APPLY_KIND_ORDER =
+      List.of(
           "Deployment",
           "Job",
           "CronJob",
           "DaemonSet",
           "StatefulSet",
           "ArtifactSet",
-          "KindDefinition",
           "Service",
           "NetworkPolicy",
           "Ingress",
@@ -1034,19 +1075,38 @@ public final class GimleCli {
           "LimitRange",
           "Role",
           "RoleBinding",
-          "Account");
+          "Account",
+          "KindDefinition");
+
+  static final Set<String> BUILT_IN_APPLY_KINDS = Set.copyOf(BUILT_IN_APPLY_KIND_ORDER);
+
+  /** The kind list wrapped to {@code width} columns, indented to sit under a help-text label. */
+  private static String applyKindLines(int width, String indent) {
+    StringBuilder text = new StringBuilder();
+    StringBuilder line = new StringBuilder();
+    for (String kind : BUILT_IN_APPLY_KIND_ORDER) {
+      String token = kind + ",";
+      if (!line.isEmpty() && line.length() + 1 + token.length() > width) {
+        text.append(line).append(System.lineSeparator()).append(indent);
+        line.setLength(0);
+      }
+      line.append(line.isEmpty() ? "" : " ").append(token);
+    }
+    return text.append(line).append(" or any defined custom kind (see 'gimle kinds')").toString();
+  }
 
   private static final String APPLY_USAGE =
       """
       usage: gimle apply -f <file.yaml>|- [--dry-run]
 
-      kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any
-      defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field
+      kind: read from the manifest file's own 'kind:' field --
+            ${kinds}
 
       --dry-run  preview the submission without applying it: authorization, manifest validation,
                  artifact resolution, quota/limit-range admission and a placement forecast.
                  Exits with the status the real apply would have exited with. Supported for
-                 Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only.""";
+                 Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only."""
+          .replace("${kinds}", applyKindLines(70, "      "));
 
   private static final String KINDS_USAGE =
       "usage: gimle kinds   (lists every KindDefinition: name, scope, declared names, instance"
@@ -1172,7 +1232,9 @@ public final class GimleCli {
           get cronjobs [name]
           get daemonsets [name]
           get statefulsets [name]
-          apply -f <file.yaml> [--dry-run]   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any defined custom kind, read from the file itself)
+          apply -f <file.yaml> [--dry-run]
+            kind, read from the file itself:
+            ${kinds}
           kinds
           get <custom-kind|plural|shortName> [name] [--tenant <id>]
           delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -1193,6 +1255,7 @@ public final class GimleCli {
           config rollback <tenantId> <key> <version>
           get nodes
           get node-assignments <nodeId>
+          label node <nodeId> <label>[ <label>-]...
           cordon <nodeId>
           uncordon <nodeId>
           taint <nodeId> <tenantId>
@@ -1201,8 +1264,9 @@ public final class GimleCli {
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
           metrics
-          metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
-          traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
+          metrics-history <AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER> <processId> [--since <cursor>] [--limit N]
+          traces-history <CONTROLPLANE|WORKER> <processId> [--since <cursor>] [--limit N]
+          trace <traceId> [--limit N]
           context list
           context show [name]
           context use <name>
@@ -1246,6 +1310,7 @@ public final class GimleCli {
           secret export <tenantId> --out <file>
           secret import <tenantId> --in <file>
           secret rotate-key
+          secret rewrap
           secret retire-key <keyId>
           configmap list <tenantId>
           configmap get <tenantId> <name>
@@ -1289,6 +1354,7 @@ public final class GimleCli {
           cert renew [--force]
           cert revoke <serialHex>
           cert unrevoke <serialHex>
-          cert revocations""";
+          cert revocations"""
+        .replace("${kinds}", applyKindLines(66, "    "));
   }
 }

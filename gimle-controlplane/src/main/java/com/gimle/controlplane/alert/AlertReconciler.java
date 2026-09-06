@@ -8,6 +8,8 @@ import com.gimle.mimir.store.StoreReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import org.slf4j.Logger;
@@ -39,6 +41,15 @@ public final class AlertReconciler {
   private final StoreReader store;
   private final AlertNotifier notifier;
 
+  /**
+   * Which rules have already been reported as watching a deployment nothing is reporting for.
+   * Purely log de-duplication -- a tick evaluates every rule from the live snapshot regardless of
+   * what is in here, so this never influences a verdict; without it, a rule pointed at a misspelled
+   * or undeployed name would repeat the same warning on every tick forever, and with nothing at all
+   * an operator would see a rule sit at "never evaluated" with no explanation anywhere.
+   */
+  private final Set<String> reportedAsUnmatched = ConcurrentHashMap.newKeySet();
+
   public AlertReconciler(AlertRuleRegistry registry, StoreReader store, AlertNotifier notifier) {
     this.registry = registry;
     this.store = store;
@@ -64,6 +75,7 @@ public final class AlertReconciler {
   private void evaluate(AlertRuleSpec rule) {
     List<InstanceObservation> observations =
         observationsFor(rule.tenantId(), rule.deploymentName());
+    reportUnmatchedDeployment(rule, observations.isEmpty());
     double value = average(observations, metricExtractor(rule.metric()));
     boolean crosses = rule.crosses(value);
     boolean wasFiring = registry.getFiringState(rule.tenantId(), rule.name()).orElse(false);
@@ -73,6 +85,29 @@ public final class AlertReconciler {
     } else if (!crosses && wasFiring) {
       notifier.notify(new AlertNotification(rule, value, AlertNotification.State.RESOLVED));
       registry.putFiringState(rule.tenantId(), rule.name(), false);
+    }
+  }
+
+  /**
+   * Says out loud, once, that a rule is being evaluated against no live reading at all -- the
+   * deployment it names does not exist under its tenant, has no placed instance, or has not
+   * heartbeated one yet. Every such rule still evaluates against an average of zero, which for a
+   * {@code GREATER_THAN} rule silently never crosses; this is the only place that difference
+   * between "healthy" and "watching nothing" is visible to an operator.
+   */
+  private void reportUnmatchedDeployment(AlertRuleSpec rule, boolean unmatched) {
+    String key = rule.tenantId().orElse("") + "/" + rule.name();
+    if (!unmatched) {
+      reportedAsUnmatched.remove(key);
+      return;
+    }
+    if (reportedAsUnmatched.add(key)) {
+      log.warn(
+          "alert rule '{}' watches deployment '{}' in tenant '{}', which currently reports no"
+              + " instance metrics -- the rule evaluates against a value of 0 until one does",
+          rule.name(),
+          rule.deploymentName(),
+          rule.tenantId().orElse("(untenanted)"));
     }
   }
 

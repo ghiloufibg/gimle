@@ -4,8 +4,8 @@ sidebar_position: 5
 
 # `gimle-hilmir` reference
 
-`gimle-hilmir` is five tools in one binary. The `validate`/`plan`/`up`/`down`/`status`/`pki init`
-verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
+`gimle-hilmir` is five tools in one binary. The `validate`/`plan`/`up`/`down`/`stop`/`status`/`pki
+init` verbs are a declarative-topology cluster bootstrapper — they read a topology YAML document and turn
 it into real, running Gimlé processes on the local machine (or, for `up`/`down`/`status`, on a
 remote machine over SSH via the opt-in `--remote` flag — see [Remote (SSH) fleet
 bootstrap](#remote-ssh-fleet-bootstrap) below), or the exact per-machine process commands the
@@ -41,6 +41,10 @@ hilmir up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>]
 hilmir down --machine <name> [--data-root <path>]
 hilmir down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
     [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
+hilmir stop --machine <name> (--role <ROLE> | --id <process-id>) [--data-root <path>]
+hilmir stop -f <topology.yaml> --remote --machine <name>
+    (--role <ROLE> | --id <process-id>) [--data-root <path>]
+    [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
 hilmir status --machine <name> [--data-root <path>]
 hilmir status -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
     [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
@@ -61,18 +65,51 @@ bootstrap](#remote-ssh-fleet-bootstrap) below.
 
 `validate` checks a topology document for structural and semantic problems (missing machines, port
 conflicts, an even-numbered store replica count, TLS material referenced but never declared) without
-starting anything. `plan` resolves a validated topology into the exact per-machine process commands
+starting anything. Every way a document can be rejected — the file is missing, its YAML is
+malformed, a field is the wrong shape, or a semantic rule fired — prints on stdout as the same
+`[SEVERITY] CODE: message` line, so one output format covers the lot; a document that could not be
+read at all reports `UNREADABLE_TOPOLOGY`, and one that could not be parsed into a topology reports
+`MALFORMED_TOPOLOGY`. `plan`, `up`, and `upgrade-cluster` report a rejected document the same way
+before doing anything. Only a mistake in the *invocation* — a missing flag, an unknown machine name
+— goes to stderr as `error: …` instead. `plan` resolves a validated topology into the exact per-machine process commands
 each of Gimlé's process kinds expects — useful for inspecting what `up` would run before it runs it.
+`plan --machine <name>` narrows that preview to one machine and rejects a machine name the topology
+never declares exactly as `up --machine <name>` does, naming the machines the plan does cover — a
+preview that silently printed nothing for a typo'd name would be worse than no preview at all.
 `up` actually spawns every process a topology assigns to `--machine`, waiting on any cross-machine
 prerequisite (a store replica another machine hosts, say) via a plain TCP-connect readiness check
-before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
-neither needs the topology document again for local dispatch.
+before starting anything that depends on it; `down`/`stop`/`status` act on the run ledger `up`
+wrote, so none of them needs the topology document again for local dispatch.
 
-`--remote` re-invokes this exact same local `up`/`down`/`status` over SSH instead of running on the
-machine `hilmir` itself is invoked on — see [Remote (SSH) fleet
-bootstrap](#remote-ssh-fleet-bootstrap) below. `--remote` is the one case where `down`/`status` *do*
+`stop` is `down` narrowed to a single process — the one operation a machine hosting several roles
+otherwise has no way to express short of an operator finding the pid themselves. It kills exactly
+one of that machine's running processes and drops exactly that entry from the run ledger, leaving
+every other process the machine hosts running and recorded:
+
+```text
+hilmir stop --machine m1 --role CONTROL_PLANE
+hilmir stop --machine m1 --id store-1
+```
+
+Exactly one of `--role` or `--id` is required. `--role` takes any of `STORE`, `CONTROL_PLANE`,
+`FAFNIR`, `MUNINN`, `ANDVARI`, `AGENT` (never `WORKER` — a worker is spawned and supervised by its
+own node agent, which restarts it as soon as it dies), and is the ordinary form; where one machine
+hosts two processes of the same role it refuses to guess, naming both ids so the next invocation can
+pass `--id`. A `--role`/`--id` that names nothing currently recorded is likewise an error listing
+what *is* recorded, rather than a silent success.
+
+Because the stopped process's ledger entry is genuinely removed rather than left stale, a later
+`hilmir up` against the same data root spawns that one process again and leaves its still-running
+neighbours untouched — so `stop` then `up` is the way to restart one co-located replica in place.
+(A platform-binary rollout, which restarts a role against a *new* classpath, is `upgrade-cluster`
+instead.)
+
+`--remote` re-invokes this exact same local `up`/`down`/`stop`/`status` over SSH instead of running
+on the machine `hilmir` itself is invoked on — see [Remote (SSH) fleet
+bootstrap](#remote-ssh-fleet-bootstrap) below. `--remote` is the one case where `down`/`stop`/`status` *do*
 need `-f`: resolving a target machine's host and SSH settings needs the topology document, even
-though local `down`/`status` never do.
+though local `down`/`stop`/`status` never do. `stop --remote` additionally always needs `--machine`
+— stopping one named role across a whole fleet at once is not something this verb offers.
 
 ### Topology `runtime:` block
 
@@ -131,15 +168,42 @@ its own bundled JRE from the *current* `GIMLE_HOME`, which takes precedence over
 either point `GIMLE_HOME` at the newly-unpacked archive before running `upgrade-cluster`, or set
 `runtime.useBundledJre: false` in the topology and rely on `--new-java-executable` instead.
 
+### Topology `store:` block
+
+Each entry under `store.replicas` places one store replica and names its ports. Only `machine` is
+required.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `machine` | *(required)* | The `machines[]` entry this replica runs on. |
+| `raftPort` | `9080` | Raft peer-to-peer transport port. |
+| `clientPort` | `9091` | Client-facing `StoreRpc` port — what the control plane, Fafnir, Muninn, and Andvari connect to. |
+| `healthPort` | *(unset — no health listener)* | Port for the store's read-only, unauthenticated `GET /health` endpoint, passed through to the store process as `--health-port`. |
+
+```yaml
+store:
+  replicas:
+    - {machine: m1, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+    - {machine: m2, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+```
+
+Unlike every other role a topology places, a store replica serves no HTTP surface at all unless
+`healthPort` names one — a load balancer or liveness probe otherwise has nothing but a raw
+`clientPort` TCP connect to check. The endpoint is plaintext and unauthenticated even under an
+`mtls` topology (it exposes only that replica's own Raft role, nothing sensitive), so put it on a
+port your fleet's own network policy is willing to expose. `validate` counts it as one more port
+claim on its machine, so a `healthPort` colliding with any other process on the same machine is
+reported as `PORT_CONFLICT` exactly like any other collision.
+
 ## Remote (SSH) fleet bootstrap
 
-`--remote` on `up`/`down`/`status`/`upgrade-cluster` dispatches that exact same local verb over SSH
-to every machine a topology declares (or just the one `--machine` names, when given), rather than
-requiring an operator to already have a shell open on each target machine — or `docker exec` into
-it, the way `gimle-holmgang`'s own Utgard test harness does. Nothing about `up`/`down`/`status`/
-`upgrade-cluster` themselves changes: `--remote` re-invokes the identical `<installDir>/bin/hilmir
-up|down|status|upgrade-cluster --machine <name>` command on the target, over SSH, instead of running
-it locally — the run ledger, its readiness polling, and every other local behavior are untouched.
+`--remote` on `up`/`down`/`stop`/`status`/`upgrade-cluster` dispatches that exact same local verb
+over SSH to every machine a topology declares (or just the one `--machine` names, when given —
+always required for `stop`), rather than requiring an operator to already have a shell open on each
+target machine — or `docker exec` into it, the way `gimle-holmgang`'s own Utgard test harness does.
+Nothing about `up`/`down`/`stop`/`status`/`upgrade-cluster` themselves changes: `--remote`
+re-invokes the identical `<installDir>/bin/hilmir up|down|stop|status|upgrade-cluster --machine
+<name>` command on the target, over SSH, instead of running it locally — the run ledger, its readiness polling, and every other local behavior are untouched.
 `up` additionally self-provisions a missing install and distributes exactly the TLS/Fafnir-key
 material each machine needs, both before that command runs — see below.
 
@@ -679,3 +743,7 @@ are filled in directly; everything else (version, resource sizing, isolation tie
 conservative default annotated `# TODO: measure and adjust`. Never overwrites a file that already
 exists at either target path — refuses outright, listing every colliding path, rather than silently
 clobbering a hand-edited file.
+
+Both files land in `--out-dir`, or in the directory the command was run from when that flag is
+absent — deliberately not beside the inspected jar, since that is a build output directory whose
+next clean would delete files you are meant to edit and keep.

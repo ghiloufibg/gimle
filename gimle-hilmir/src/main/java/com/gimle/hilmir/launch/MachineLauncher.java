@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Turns one machine's own slice of a topology into real, running OS processes: {@link #up} spawns
@@ -95,10 +96,7 @@ public final class MachineLauncher {
       final String machineName,
       final ResolvedRuntime runtime,
       final PrintStream out) {
-    final MachinePlan myPlan = clusterPlan.byMachine().get(machineName);
-    if (myPlan == null) {
-      throw new HilmirException("no machine named '" + machineName + "' in this topology");
-    }
+    final MachinePlan myPlan = clusterPlan.requireMachine(machineName);
     createDirectories(runtime.dataRoot());
 
     final Map<String, RunRecord> alreadyRecorded = existingRecordsById(runtime.dataRoot());
@@ -200,10 +198,7 @@ public final class MachineLauncher {
       final ProcessRole role,
       final ResolvedRuntime newRuntime,
       final PrintStream out) {
-    final MachinePlan myPlan = clusterPlan.byMachine().get(machineName);
-    if (myPlan == null) {
-      throw new HilmirException("no machine named '" + machineName + "' in this topology");
-    }
+    final MachinePlan myPlan = clusterPlan.requireMachine(machineName);
     final ProcessCommand command = findRoleCommand(myPlan, role, machineName);
     final RunRecord existing =
         findExistingLedgerRecord(RunLedger.read(newRuntime.dataRoot()), command, machineName);
@@ -609,6 +604,69 @@ public final class MachineLauncher {
     }
     RunLedger.delete(dataRoot);
     out.println("removed run ledger under " + dataRoot);
+  }
+
+  /**
+   * Stops exactly one of a machine's running processes -- the one {@code role} or {@code id} names
+   * -- and drops just that entry from the run ledger, leaving every other process this machine
+   * hosts, and its own ledger record, running and recorded. {@code down} is all-or-nothing by
+   * design, which leaves an operator wanting to take one replica of a co-located pair out of
+   * service with nothing but a raw process kill; this is that operation, and because the stopped
+   * process's ledger entry is genuinely gone rather than merely stale, a later {@code up} against
+   * the same data root spawns it again while leaving its still-running neighbours alone.
+   *
+   * <p>Exactly one of {@code role}/{@code id} is expected to be present. {@code role} is the
+   * ordinary case and resolves against the ledger's own recorded role names; it deliberately
+   * refuses to guess when a machine hosts two processes of that role, naming the ids so the caller
+   * can say which one it meant.
+   */
+  public static RunRecord stop(
+      final Path dataRoot,
+      final Optional<ProcessRole> role,
+      final Optional<String> id,
+      final PrintStream out) {
+    final List<RunRecord> records = RunLedger.read(dataRoot);
+    final List<RunRecord> matches =
+        id.map(wanted -> records.stream().filter(r -> r.id().equals(wanted)).toList())
+            .orElseGet(
+                () ->
+                    records.stream()
+                        .filter(r -> r.role().equals(role.orElseThrow().name()))
+                        .toList());
+    if (matches.isEmpty()) {
+      throw new HilmirException(
+          "nothing named by "
+              + id.map(wanted -> "--id " + wanted).orElseGet(() -> "--role " + role.orElseThrow())
+              + " is recorded as running under "
+              + dataRoot
+              + " -- recorded: "
+              + describe(records));
+    }
+    if (matches.size() > 1) {
+      throw new HilmirException(
+          "--role "
+              + role.orElseThrow()
+              + " matches "
+              + matches.size()
+              + " processes under "
+              + dataRoot
+              + " -- name one with --id: "
+              + matches.stream().map(RunRecord::id).collect(Collectors.joining(", ")));
+    }
+    final RunRecord target = matches.get(0);
+    killWithDescendants(dataRoot, target, out);
+    RunLedger.remove(dataRoot, target.id());
+    out.println("removed " + target.role() + " " + target.id() + " from the run ledger");
+    return target;
+  }
+
+  private static String describe(final List<RunRecord> records) {
+    if (records.isEmpty()) {
+      return "nothing";
+    }
+    return records.stream()
+        .map(r -> r.id() + " (" + r.role() + ")")
+        .collect(Collectors.joining(", "));
   }
 
   private static void killWithDescendants(

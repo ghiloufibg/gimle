@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.observability.ObservedProcessKind;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.net.URI;
@@ -160,6 +161,34 @@ class HistoryCommandTest {
     assertEquals("api.requests", lines.get(0).get("name"));
   }
 
+  /**
+   * The question the per-process reads cannot answer: a caller would have to already know which
+   * processes a trace crossed, and a worker replaced since the call no longer appears in any
+   * listing to be named. One trace id finds both hops.
+   */
+  @Test
+  void a_trace_search_finds_every_process_the_trace_crossed() throws Exception {
+    String traceId = "b".repeat(32);
+    ship(
+        "traces",
+        "CONTROLPLANE",
+        CONTROL_PLANE_PROCESS_ID,
+        List.of(spanLine("2026-08-30T10:00:00Z", traceId, "GET /deployments")));
+    ship(
+        "traces",
+        "WORKER",
+        "node-a:worker-1",
+        List.of(spanLine("2026-08-30T10:00:01Z", traceId, "Greeter#greet")));
+
+    assertEquals(0, run("-o", "json", "trace", traceId), stderr());
+
+    List<Map<String, Object>> spans = Json.asObjectList(Json.parse(stdout()));
+    assertEquals(2, spans.size(), stdout());
+    assertEquals(
+        List.of("CONTROLPLANE", "WORKER"),
+        spans.stream().map(entry -> entry.get("processKind")).toList());
+  }
+
   @Test
   void traces_history_reads_back_what_a_shipper_wrote() throws Exception {
     ship(
@@ -216,7 +245,7 @@ class HistoryCommandTest {
     assertEquals("newer", lines.get(0).get("name"));
   }
 
-  /** The proxy forwards only {@code since}, so {@code --limit} keeps the newest N here instead. */
+  /** {@code --limit} travels to the store, which answers with the newest N of the window. */
   @Test
   void limit_keeps_the_most_recent_lines() throws Exception {
     ship(
@@ -288,8 +317,63 @@ class HistoryCommandTest {
     int exit = run("metrics-history", "MIMIR", CONTROL_PLANE_PROCESS_ID);
 
     assertNotEquals(0, exit);
-    assertTrue(stderr().contains("unknown process kind: MIMIR"), stderr());
-    assertTrue(stderr().contains("CONTROLPLANE, FAFNIR, STORE, AGENT, WORKER"), stderr());
+    assertTrue(stderr().contains("process kind: MIMIR"), stderr());
+    assertTrue(
+        stderr().contains("AGENT, ANDVARI, CONTROLPLANE, FAFNIR, SKALD, STORE, WORKER"), stderr());
+  }
+
+  /**
+   * Both kinds really do ship metrics -- Skald its directory-staleness gauges, Andvari its request
+   * metrics -- so refusing either here would refuse a read that has data behind it.
+   */
+  @Test
+  void skald_and_andvari_are_accepted_for_metrics_history() throws Exception {
+    ship(
+        "metrics",
+        "SKALD",
+        "127.0.0.1:8053",
+        List.of(metricLine("2026-01-01T00:00:00Z", "gimle.skald.directory.staleness.seconds", 3)));
+
+    assertEquals(0, run("metrics-history", "SKALD", "127.0.0.1:8053"), stderr());
+    assertTrue(stdout().contains("gimle.skald.directory.staleness.seconds"), stdout());
+    assertEquals(0, runFresh("metrics-history", "ANDVARI", "127.0.0.1:9094"), stderr());
+  }
+
+  /**
+   * The other half of the same truth: Skald installs no tracer provider at all, so a traces read
+   * naming it could only ever come back empty -- said out loud rather than served as a blank page.
+   */
+  @Test
+  void a_kind_that_ships_no_traces_is_rejected_for_traces_history() {
+    int exit = run("traces-history", "SKALD", "127.0.0.1:8053");
+
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("process kind: SKALD"), stderr());
+    assertTrue(stderr().contains("(expected one of CONTROLPLANE, WORKER)"), stderr());
+  }
+
+  /**
+   * The set this command accepts is the set the platform actually ships, not a copy of it that can
+   * fall behind: the control plane serves the same list from {@code GET /metrics-history} and
+   * {@code GET /traces-history}, derived from this same enum.
+   */
+  @Test
+  void the_accepted_kinds_match_what_the_platform_ships() {
+    assertEquals(
+        ObservedProcessKind.namesShipping(ObservedProcessKind.Signal.METRICS),
+        HistoryCommand.Surface.METRICS.processKinds());
+    assertEquals(
+        ObservedProcessKind.namesShipping(ObservedProcessKind.Signal.TRACES),
+        HistoryCommand.Surface.TRACES.processKinds());
+  }
+
+  /** A second invocation in one test needs its own buffers, or it reads the first one's output. */
+  private int runFresh(String... args) {
+    outBuffer = new ByteArrayOutputStream();
+    errBuffer = new ByteArrayOutputStream();
+    out = new PrintStream(outBuffer, true, StandardCharsets.UTF_8);
+    err = new PrintStream(errBuffer, true, StandardCharsets.UTF_8);
+    return run(args);
   }
 
   @Test

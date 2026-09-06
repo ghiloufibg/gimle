@@ -7,11 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.FafnirServer;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.raft.StateMutation;
@@ -182,12 +187,32 @@ class GimleCliTest {
   }
 
   /**
+   * A Deployment named {@code name} in the store, so an event relayed for it has a workload to
+   * belong to -- the control plane discards an event naming nothing that exists, which is how a
+   * deleted workload's closing events stop bleeding into the next occupant of its name.
+   */
+  private void ensureDeployment(String name) {
+    storeClient.propose(
+        new StateMutation.PutDeployment(
+            new DeploymentSpec(
+                name,
+                new ModuleId("com.acme." + name, Version.parse("1.0.0")),
+                "/artifacts/" + name + ".jar",
+                1,
+                PlacementConstraints.NONE,
+                Optional.empty(),
+                Optional.of(Tenant.DEFAULT_TENANT_ID)),
+            storeClient.getDeploymentGeneration(Optional.of(Tenant.DEFAULT_TENANT_ID), name)));
+  }
+
+  /**
    * Appends one instance event directly against the real {@link ApiServer}, bypassing the CLI --
    * the same "real server, not mocked" shortcut {@link #registerNode} uses for its own resource.
    */
   private void appendInstanceEvent(
       String deploymentName, int instanceIndex, String id, long occurredAtEpochMilli)
       throws Exception {
+    ensureDeployment(deploymentName);
     Map<String, Object> body =
         Map.of(
             "id", id,

@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
+import com.gimle.mimir.raft.StateMutation;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,18 +50,82 @@ class SecretStoreTest {
 
   private InProcessStore store;
   private SecretStore secrets;
+  private FafnirCrypto crypto;
 
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
     store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
-    FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
+    crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     secrets = new SecretStore(store.client(), crypto);
   }
 
   @AfterEach
   void tearDown() {
     store.close();
+  }
+
+  /**
+   * Rotation re-encrypts as it goes, so in the ordinary case it leaves nothing behind -- which is
+   * exactly why retiring the previous key normally succeeds and every secret stays readable.
+   */
+  @Test
+  void rotation_leaves_nothing_encrypted_under_the_key_it_moved_off() {
+    crypto.rotate();
+    byte underKeyOne = crypto.activeKeyId();
+    put("acme", "db-password", bytes("hunter2"));
+
+    crypto.rotate();
+
+    assertEquals(0, secrets.countVersionsEncryptedUnder(underKeyOne));
+    assertEquals("hunter2", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+  }
+
+  /**
+   * The case rotation's own sweep admits it can miss: a value written under the old key after the
+   * sweep had already passed that entry. Retirement would make it permanently unreadable, so it is
+   * refused while it is there, and {@code rewrapAll} is what clears it without minting yet another
+   * key the way a second rotation would.
+   */
+  @Test
+  void a_value_left_under_an_older_key_blocks_retirement_until_it_is_rewrapped() {
+    crypto.rotate();
+    byte underKeyOne = crypto.activeKeyId();
+    put("acme", "db-password", bytes("hunter2"));
+    byte[] ciphertextUnderKeyOne = rawSecretValue("acme", "db-password@1");
+    crypto.rotate();
+    // Put the key-1 ciphertext back, as a writer racing the sweep would have left it.
+    store
+        .client()
+        .propose(
+            new StateMutation.PutConfigEntry(
+                new ConfigEntry("acme", "db-password@1", ciphertextUnderKeyOne, true)));
+
+    assertEquals(1, secrets.countVersionsEncryptedUnder(underKeyOne));
+
+    assertEquals(1, secrets.rewrapAll());
+
+    assertEquals(0, secrets.countVersionsEncryptedUnder(underKeyOne));
+    assertEquals("hunter2", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+    crypto.retire(underKeyOne);
+    assertEquals("hunter2", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+  }
+
+  @Test
+  void rewrapping_again_finds_nothing_left_to_do() {
+    crypto.rotate();
+    put("acme", "db-password", bytes("hunter2"));
+    crypto.rotate();
+
+    assertEquals(0, secrets.rewrapAll());
+  }
+
+  private byte[] rawSecretValue(String tenantId, String versionedKey) {
+    return store.client().listConfigEntriesFor(tenantId).stream()
+        .filter(e -> e.key().equals(versionedKey))
+        .findFirst()
+        .orElseThrow()
+        .value();
   }
 
   @Test

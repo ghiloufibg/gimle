@@ -35,7 +35,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-018 | Per-key exponential-backoff login throttle | Active | Covered | `console-security.feature` — "Repeated failed logins are throttled with a Retry-After backoff" |
 | GIMLE-019 | Structured JSON log encoding with APPLICATION/PLATFORM categorization | Active | Not Covered | — |
 | GIMLE-020 | Human-readable colored console log encoding | Active | Not Covered | — |
-| GIMLE-021 | Runtime-switchable console log format (text default, JSON opt-in) | Active | Not Covered | — |
+| GIMLE-021 | Runtime-switchable console log format (text default, JSON opt-in) | Modified | Not Covered | — |
 | GIMLE-022 | MDC-tagged proxying for same-worker and probe-loop invocations | Active | Not Covered | — |
 | GIMLE-023 | Per-instance sifted log files | Active | Not Covered | — |
 | GIMLE-024 | Platform (non-instance) log file appender | Active | Not Covered | — |
@@ -92,7 +92,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | Active | Not Covered | — |
 | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Active | Covered | `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
 | GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "Fafnir independently authorizes node-scoped secret reads by tenant assignment" |
-| GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Active | Not Covered | — |
+| GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Modified | Not Covered | — |
 | GIMLE-079 | Worker JVM control-channel bootstrap | Active | Not Covered | — |
 | GIMLE-080 | Newline-delimited control-channel wire protocol (worker side) | Active | Not Covered | — |
 | GIMLE-081 | Module install/resolve/start/stop/uninstall command dispatch | Active | Not Covered | — |
@@ -103,7 +103,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-086 | Per-module bounded virtual-thread scheduler | Active | Not Covered | — |
 | GIMLE-087 | OpenTelemetry context propagation across virtual-thread dispatch | Active | Not Covered | — |
 | GIMLE-088 | Liveness/readiness probe loop with timeout and initial-delay | Active | Not Covered | — |
-| GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion | Active | Covered | `self-healing.feature` — "A module that never passes liveness is escalated to FAILED for good" |
+| GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion | Modified | Covered | `self-healing.feature` — "A module that never passes liveness is escalated to FAILED for good" |
 | GIMLE-090 | Readiness-driven service registry availability (without restart) | Active | Not Covered | — |
 | GIMLE-091 | Stopping/Uninstalled teardown of scheduler, probes, and service registry | Active | Not Covered | — |
 | GIMLE-092 | Job-kind module execution (run-to-completion, not probed) | Active | Not Covered | — |
@@ -242,7 +242,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-225 | Persisted grace-period bookkeeping (survives leader failover) | Active | Not Covered | — |
 | GIMLE-226 | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Active | Not Covered | — |
 | GIMLE-227 | Readiness-only failures never trigger reschedule | Active | Not Covered | — |
-| GIMLE-228 | Tenant quota drift detection (`QuotaReconciler`) | Active | Covered | `quota-and-admission.feature` — "A retroactive quota violation is flagged but never evicts" |
+| GIMLE-228 | Tenant quota drift detection (`QuotaReconciler`) | Modified | Covered | `quota-and-admission.feature` — "A retroactive quota violation is flagged but never evicts" |
 | GIMLE-229 | Horizontal autoscaling — multi-signal (`AutoscaleReconciler`) | Active | Covered | `autoscale.feature` — "Request-rate load scales the provider up" |
 | GIMLE-230 | Autoscaling WEIGHTED combination mode | Active | Not Covered | — |
 | GIMLE-231 | DaemonSet reconciliation and rolling update | Active | Not Covered | — |
@@ -251,7 +251,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-234 | StatefulSet one-index-at-a-time scale-down | Active | Not Covered | — |
 | GIMLE-235 | JobRun run-to-completion reconciliation | Active | Not Covered | — |
 | GIMLE-236 | Job active-deadline enforcement | Active | Not Covered | — |
-| GIMLE-237 | CronJob schedule-driven Job materialization | Active | Not Covered | — |
+| GIMLE-237 | CronJob schedule-driven Job materialization | Modified | Not Covered | — |
 | GIMLE-238 | CronJob concurrency policy (Allow/Forbid/Replace) | Active | Not Covered | — |
 | GIMLE-239 | CronJob manual trigger (`gimle cronjob trigger`) | Modified | Not Covered | — |
 | GIMLE-240 | CronJob missed-schedule starting-deadline handling | Active | Not Covered | — |
@@ -261,12 +261,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-244 | JPMS module boundary for gimle-controlplane | Active | Not Covered | — |
 | GIMLE-245 | Admission chain extension point | Active | Not Covered | — |
 | GIMLE-246 | Tenant resource quota admission check | Modified | Covered | `quota-and-admission.feature` — "An over-quota deployment is rejected at admission" |
-| GIMLE-247 | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Active | Not Covered | — |
+| GIMLE-247 | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Modified | Not Covered | — |
 | GIMLE-248 | Registry-coordinate artifact admission (Andvari integration) | Active | Covered | `registry-deploy.feature` — "A pushed module deploys by coordinate with no artifact path" |
 | GIMLE-249 | PUT-time re-tenanting double-authorization | Modified | Not Covered | — |
 | GIMLE-250 | RBAC-gated resource CRUD across every workload kind | Active | Not Covered | — |
 | GIMLE-251 | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Active | Not Covered | — |
-| GIMLE-252 | `gimle-system` reserved-tenant operator-only guard | Active | Not Covered | — |
+| GIMLE-252 | `gimle-system` reserved-tenant operator-only guard | Modified | Not Covered | — |
 | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Active | Not Covered | — |
 | GIMLE-254 | Node-tenant-scoped `/endpoints/*` read access | Active | Not Covered | — |
 | GIMLE-255 | mTLS-authenticated HTTP API server with client-cert principal resolution | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS"; `mtls.feature` — "An anonymous client cannot write" |
@@ -282,7 +282,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-265 | `/artifacts/*` streaming proxy to Andvari | Active | Not Covered | — |
 | GIMLE-266 | Andvari-client multi-endpoint failover with rotation | Active | Not Covered | — |
 | GIMLE-267 | `/logs/*` proxy with Muninn fallback | Active | Not Covered | — |
-| GIMLE-268 | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Active | Not Covered | — |
+| GIMLE-268 | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Modified | Not Covered | — |
 | GIMLE-269 | Node registration, heartbeat, and assignment-fetch API | Active | Covered | `module-system.feature` — "A hook that always throws on start never reaches ACTIVE" |
 | GIMLE-270 | Unified `AssignedInstance` wire shape across every workload kind | Active | Not Covered | — |
 | GIMLE-271 | Reserved system-tenant auto-seeding | Active | Not Covered | — |
@@ -327,7 +327,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-310 | Defense-in-depth authorization (independent re-check, `ResourceKind.ARTIFACT`) | Active | Not Covered | — |
 | GIMLE-311 | Module-scoped permission grants | Active | Not Covered | — |
 | GIMLE-312 | Node pull-only artifact access, scoped to active assignments | Active | Not Covered | — |
-| GIMLE-313 | Dual audit logging for push/delete decisions | Active | Not Covered | — |
+| GIMLE-313 | Dual audit logging for push/delete decisions | Modified | Not Covered | — |
 | GIMLE-314 | Andvari's own console session story (`/auth/*`, bundled SPA) | Active | Not Covered | — |
 | GIMLE-315 | mTLS server with dynamic TLS reload | Active | Not Covered | — |
 | GIMLE-316 | Plaintext-mode loud supply-chain warning | Active | Not Covered | — |
@@ -343,7 +343,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-326 | Traces read | Active | Not Covered | — |
 | GIMLE-327 | Day-bucketed JSON-lines store with oldest-first cursor semantics | Active | Not Covered | — |
 | GIMLE-328 | All-or-nothing batch validation on ingest | Active | Not Covered | — |
-| GIMLE-329 | Windows-safe on-disk path sanitization for colon-bearing processId | Active | Not Covered | — |
+| GIMLE-329 | Windows-safe on-disk path sanitization for colon-bearing processId | Modified | Not Covered | — |
 | GIMLE-330 | Path-segment validation / directory-traversal defense | Active | Not Covered | — |
 | GIMLE-331 | Age-based retention sweep | Active | Not Covered | — |
 | GIMLE-332 | Plaintext-default transport with loud unauthenticated-mode warning | Active | Not Covered | — |
@@ -463,7 +463,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-446 | Tenants list/detail with quota management and delete | Active | Not Covered | — |
 | GIMLE-447 | Topology placement map | Active | Not Covered | — |
 | GIMLE-448 | Cluster metrics charts (lifecycle mix, capacity, quota pressure) | Active | Not Covered | — |
-| GIMLE-449 | Per-process metrics history (Muninn-backed) | Active | Not Covered | — |
+| GIMLE-449 | Per-process metrics history (Muninn-backed) | Modified | Not Covered | — |
 | GIMLE-450 | Trace span history viewer | Active | Not Covered | — |
 | GIMLE-451 | Log explorer with live tailing | Active | Not Covered | — |
 | GIMLE-452 | Crash-dump (hs_err) listing on Logs screen | Active | Not Covered | — |
@@ -488,7 +488,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-471 | Client-side SHA-256 checksum verification on download | Active | Not Covered | — |
 | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Active | Not Covered | — |
 | GIMLE-473 | Maven-2 repository interop view | Active | Not Covered | — |
-| GIMLE-474 | Andvari copy-to-clipboard utility | Active | Not Covered | — |
+| GIMLE-474 | Andvari copy-to-clipboard utility | Modified | Not Covered | — |
 | GIMLE-475 | Runs list (no authentication) | Active | Not Covered | — |
 | GIMLE-476 | Live run detail with streaming test feed | Active | Not Covered | — |
 | GIMLE-477 | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Active | Not Covered | — |
@@ -577,8 +577,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-560 | Standalone CLI distribution archive | Active | Not Covered | — |
 | GIMLE-561 | Standalone Hilmir bootstrap-tool distribution archive | Active | Not Covered | — |
 | GIMLE-562 | Cluster-machine platform distribution archive | Active | Not Covered | — |
-| GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Active | Not Covered | — |
-| GIMLE-564 | Distribution archive checksums and SBOM generation | Active | Not Covered | — |
+| GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Modified | Not Covered | — |
+| GIMLE-564 | Distribution archive checksums and SBOM generation | Modified | Not Covered | — |
 | GIMLE-565 | Norn deterministic virtual-time Raft fault-injection simulation | New | Not Covered | — |
 | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | New | Covered | `service-fabric.feature` — "A Service resolves a live endpoint for a hosted module reporting its own port" |
 | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Modified | Not Covered | — |
@@ -617,8 +617,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | New | Not Covered | — |
 | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | New | Not Covered | — |
 | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | New | Not Covered | — |
-| GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | New | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
-| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | New | Covered | `limitrange.feature` — "An over-range deployment is rejected at admission"; `limitrange.feature` — "A retroactively tightened LimitRange is flagged but never evicts" |
+| GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Modified | Covered | `aot-cache.feature` — "the agent logs ineligibility and the deployment still reaches ACTIVE normally" |
+| GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Modified | Covered | `limitrange.feature` — "An over-range deployment is rejected at admission"; `limitrange.feature` — "A retroactively tightened LimitRange is flagged but never evicts" |
 | GIMLE-605 | `limitrange` get/set/delete verbs | New | Not Covered | — |
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | New | Not Covered | — |
 | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | New | Not Covered | — |
@@ -661,10 +661,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-644 | Real iptables host-firewall network faults over SSH | New | Not Covered | — |
 | GIMLE-645 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | New | Not Covered | — |
 | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Modified | Not Covered | — |
-| GIMLE-647 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | New | Not Covered | — |
+| GIMLE-647 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Modified | Not Covered | — |
 | GIMLE-648 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | New | Not Covered | — |
 | GIMLE-649 | Plaintext Transport Is Explicitly Single-Tenant | Modified | Not Covered | — |
-| GIMLE-650 | Implicit Default Tenant for Untenanted Workloads | New | Not Covered | — |
+| GIMLE-650 | Implicit Default Tenant for Untenanted Workloads | Modified | Not Covered | — |
 | GIMLE-651 | Explicit SecretMap Replace Verb | New | Not Covered | — |
 | GIMLE-652 | Deleting a Workload Clears Its Revision History | New | Not Covered | — |
 | GIMLE-653 | CLI Flag Errors Always Show Usage | New | Not Covered | — |
@@ -755,7 +755,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-738 | A deleted config or secret key is retracted from a running instance, and modules can subscribe to changes | New | Not Covered | — |
 | GIMLE-739 | Trace sampling is configurable and parent-based | New | Not Covered | — |
 | GIMLE-740 | Logs, metrics and traces each retain for their own configurable window | New | Not Covered | — |
-| GIMLE-741 | A trace can be followed across processes from the console's Traces screen | New | Not Covered | — |
+| GIMLE-741 | A trace can be followed across processes from the console's Traces screen | Modified | Not Covered | — |
 | GIMLE-742 | The one-time bootstrap password never reaches a build log or any other persistent sink | New | Not Covered | — |
 | GIMLE-743 | The unauthenticated CSR bootstrap endpoint is rate limited | New | Not Covered | — |
 | GIMLE-744 | Placement and quota failures name the resource dimension, the numbers and the shortfall | New | Not Covered | — |
@@ -778,14 +778,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-761 | A failed invocation exits with a code naming why it failed | New | Not Covered | — |
 | GIMLE-762 | gimle logs honours -o json | New | Not Covered | — |
 | GIMLE-763 | gimle metrics: the per-deployment rollup from the terminal | Modified | Not Covered | — |
-| GIMLE-764 | gimle metrics-history and traces-history | New | Not Covered | — |
+| GIMLE-764 | gimle metrics-history and traces-history | Modified | Not Covered | — |
 | GIMLE-765 | gimle context: pointing the CLI at more than one cluster | New | Not Covered | — |
 | GIMLE-766 | The audit trail pages with an eviction-safe cursor | New | Not Covered | — |
 | GIMLE-767 | gimle get --watch observes a resource converging | New | Not Covered | — |
 | GIMLE-768 | Dry-run preview for a workload submission | New | Not Covered | — |
 | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | New | Not Covered | — |
 | GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | New | Not Covered | — |
-| GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | New | Not Covered | — |
+| GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Modified | Not Covered | — |
 | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | New | Not Covered | — |
 | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Modified | Not Covered | — |
 | GIMLE-774 | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | New | Not Covered | — |
@@ -803,7 +803,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | New | Not Covered | — |
 | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | New | Not Covered | — |
 | GIMLE-788 | Cluster-wide instance lifecycle event read | New | Not Covered | — |
-| GIMLE-789 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | New | Not Covered | — |
+| GIMLE-789 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Modified | Not Covered | — |
 | GIMLE-790 | A durable, replica-agnostic read of whether an AlertRule is currently firing | New | Not Covered | — |
 | GIMLE-791 | Per-worker certificates: node-minted worker identity carrying the worker's tenant | New | Not Covered | — |
 | GIMLE-792 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | New | Not Covered | — |
@@ -818,7 +818,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | New | Not Covered | — |
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | New | Not Covered | — |
 | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | New | Not Covered | — |
-| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | New | Not Covered | — |
+| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Modified | Not Covered | — |
 | GIMLE-805 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | New | Not Covered | — |
 | GIMLE-806 | An extension is handed a read-only view of the control-plane API, never the client | New | Not Covered | — |
 | GIMLE-807 | `gimle top` renders a live, read-only cluster view of nodes and instances | New | Covered | `terminal-view.feature` — "A running deployment appears in the rendered frame with its real state" |
@@ -858,8 +858,68 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-841 | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | New | Not Covered | — |
 | GIMLE-842 | A truncated UDP answer carries the records that fit rather than none | New | Not Covered | — |
 | GIMLE-843 | The registry overview tells a failed or in-flight catalog read apart from an empty one | New | Not Covered | — |
-| GIMLE-844 | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | New | Not Covered | — |
+| GIMLE-844 | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | Modified | Not Covered | — |
 | GIMLE-845 | A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup | New | Not Covered | — |
+| GIMLE-846 | A vessel probe's named port survives the assignments round trip | New | Not Covered | — |
+| GIMLE-847 | One unparseable assignment is skipped and reported rather than aborting the whole batch | New | Not Covered | — |
+| GIMLE-848 | Startup registration is retried with backoff instead of killing the agent | New | Not Covered | — |
+| GIMLE-849 | `/health` answers from a background store probe rather than dialing the store inline | New | Not Covered | — |
+| GIMLE-850 | An operator can label a running node, and the label counts for placement | New | Not Covered | — |
+| GIMLE-851 | A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable | New | Not Covered | — |
+| GIMLE-852 | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | New | Not Covered | — |
+| GIMLE-853 | Retiring a secrets key that still encrypts stored data is refused, and `gimle secret rewrap` re-encrypts under the active key | New | Not Covered | — |
+| GIMLE-854 | A peer with an RPC still in flight counts as reachable for check-quorum | New | Not Covered | — |
+| GIMLE-855 | A fabric target's application exception round-trips to its caller, named even when it cannot be loaded or serialized | New | Not Covered | — |
+| GIMLE-856 | Quota, LimitRange and `policy.maxReplicasPerDeployment` bind on the `default` tenant too | New | Not Covered | — |
+| GIMLE-857 | A LimitRange body declaring no usable bound, or an unrecognized field, is refused | New | Not Covered | — |
+| GIMLE-858 | A failed peer-sync or registry call names its real cause instead of the literal text `null` | New | Not Covered | — |
+| GIMLE-859 | A failed certificate-rotation check no longer ends renewal for the life of the process | New | Not Covered | — |
+| GIMLE-860 | A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved | New | Not Covered | — |
+| GIMLE-861 | An artifact push or delete through the control plane names the artifact it affected in the audit trail | New | Not Covered | — |
+| GIMLE-862 | A shortfall count is never negative, and a DaemonSet's desired count covers what the same tick keeps placed | New | Not Covered | — |
+| GIMLE-863 | A gateway follows its own tenant's Ingresses by default | New | Not Covered | — |
+| GIMLE-864 | An instance's timeline opens with an INSTALLED event | New | Not Covered | — |
+| GIMLE-865 | Promoting a surge instance records both indexes' timelines | New | Not Covered | — |
+| GIMLE-866 | A lifecycle hook that fails with an `Error` is recorded rather than unwinding the worker | New | Not Covered | — |
+| GIMLE-867 | A start this node refuses is recorded on the instance's own timeline, once per distinct cause | New | Not Covered | — |
+| GIMLE-868 | A placed instance that never started is reported as not running, in the API and in the CLI's health column | New | Not Covered | — |
+| GIMLE-869 | A node reports the binding memory and CPU budget as its capacity | New | Not Covered | — |
+| GIMLE-870 | `gimle volume destroy` exits non-zero when it reclaimed nothing | New | Not Covered | — |
+| GIMLE-871 | An Ingress route naming an unknown `paramType` is refused at submission | New | Not Covered | — |
+| GIMLE-872 | `gimle logs` prints the stack trace a log line carries | New | Not Covered | — |
+| GIMLE-873 | `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name | New | Not Covered | — |
+| GIMLE-874 | Every ingress apply is guarded by a compare-and-set version | New | Not Covered | — |
+| GIMLE-875 | An unknown Ingress route kind is rejected naming the kinds a manifest may declare | New | Not Covered | — |
+| GIMLE-876 | A throttled control-plane answer is retried instead of read as a signed-out session | New | Not Covered | — |
+| GIMLE-877 | An unread kind catalog is not reported as a cluster with no custom kinds | New | Not Covered | — |
+| GIMLE-878 | The console dev server proxies every API prefix its repositories use | New | Not Covered | — |
+| GIMLE-879 | An alert rule declaring no tenant is keyed under the default tenant, and a rule watching nothing says so once | New | Not Covered | — |
+| GIMLE-880 | One source of truth for which process kinds ship metrics and which ship traces, served by the API | New | Not Covered | — |
+| GIMLE-881 | The control plane starts a server span for every request it serves | New | Not Covered | — |
+| GIMLE-882 | `-Dgimle.controlplane.muninnEndpoint` is honoured alongside the command-line flag | New | Not Covered | — |
+| GIMLE-883 | `hilmir init` and `gimle:init` write generated manifests where the command was run | New | Not Covered | — |
+| GIMLE-884 | `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to | New | Not Covered | — |
+| GIMLE-885 | A rejected module name says which rule it breaks | New | Not Covered | — |
+| GIMLE-886 | A deployment blocked by its artifact says whether it was rejected or unreadable, and why | New | Not Covered | — |
+| GIMLE-887 | `hilmir plan` rejects an unknown `--machine` the way `up` already does | New | Not Covered | — |
+| GIMLE-888 | Every rejected topology document is reported as one coded finding | New | Not Covered | — |
+| GIMLE-889 | Config, ConfigMaps, Secrets and SecretMaps carry their tenant in the URL | New | Not Covered | — |
+| GIMLE-890 | A topology may configure a store replica's health port | New | Not Covered | — |
+| GIMLE-891 | `hilmir stop` stops one co-located role, or one process id, on a machine | New | Not Covered | — |
+| GIMLE-892 | A captured stdout record is read back as the record it was written as | New | Not Covered | — |
+| GIMLE-893 | `GET /nodes/{nodeId}` serves a single node read | New | Not Covered | — |
+| GIMLE-894 | `gimle apply -f`'s help names every kind it accepts | New | Not Covered | — |
+| GIMLE-895 | An instance event is filed only under a workload that exists | New | Not Covered | — |
+| GIMLE-896 | A CronJob reports its last real firing separately from how far its schedule has been evaluated | New | Not Covered | — |
+| GIMLE-897 | A vessel's log directory resolves from its own name, so a bare-name log read reaches it | New | Not Covered | — |
+| GIMLE-898 | `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run | New | Not Covered | — |
+| GIMLE-899 | A root span reports no parent rather than the all-zero span id | New | Not Covered | — |
+| GIMLE-900 | Every span of one trace is found across processes in a single read | New | Not Covered | — |
+| GIMLE-901 | `GET /trace/{traceId}` and `gimle trace <traceId>` follow a whole trace, wherever it ran | New | Not Covered | — |
+| GIMLE-902 | A history read forwards the backward-paging parameters instead of dropping them at the proxy hop | New | Not Covered | — |
+| GIMLE-903 | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | New | Not Covered | — |
+| GIMLE-904 | A worker's handshake is applied to every instance packed onto that worker | New | Not Covered | — |
+| GIMLE-905 | A store replica presents its own leaf certificate rather than the control plane's | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1076,11 +1136,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-021 — Runtime-switchable console log format (text default, JSON opt-in)
 
 - **Category**: Observability / Logging
-- **Status**: Active
+- **Status**: Modified  _(Modified: the four `gimle.log.*` runtime properties this behaviour is configured by were undocumented -- an operator could not discover the console-format switch, the log root, or the two rotation knobs from the documentation site at all. They are now documented with defaults, the silent text fallback for an unrecognized console value, why the console format never affects what is read back later, and the worker JVM's deliberate `json` exception.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.log.console=json, When CONSOLE appender starts, Then delegates to JsonLogEncoder; no override defaults to text.
 - **Other test coverage (non-Holmgang, informational only)**: `ConsoleLogEncoderTest` (explicit json/text override, no override defaults to text)
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/ConsoleLogEncoder.java`
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/ConsoleLogEncoder.java`, `gimle-docs/docs/architecture/observability.md` (the `gimle.log.*` runtime-configuration section)
 
 #### GIMLE-022 — MDC-tagged proxying for same-worker and probe-loop invocations
 
@@ -1373,6 +1433,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them. Console: repositories/http/deployments.test.ts and repositories/http/instances.test.ts gained isolationTier/resourceLimit pass-through tests; repositories/instances.test.ts (mock) asserts every row carries both fields.
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`), `gimle-console/src/types/index.ts`, `gimle-console/src/repositories/http/deployments.ts`, `gimle-console/src/repositories/http/instances.ts`, `gimle-console/src/components/status.tsx` (`TierBadge`), `gimle-console/src/components/instances-table.tsx`, `gimle-console/src/routes/instances.$name.$idx.tsx`
 
+#### GIMLE-892 — A captured stdout record is read back as the record it was written as
+
+- **Category**: Observability / Logging
+- **Status**: New  _(New requirement: Fixed. `LogFileReader#parseLine` recognised a platform-written line only by the presence of `timestamp` and `level`, but a captured-stdout record is written in the raw shape and carries a `category` instead of a level. It therefore failed the check and was re-wrapped as raw text on the way out -- producing a record nested inside its own raw string, with the read time stamped ahead of the capture time. A line carrying `timestamp` plus `category: SYSTEM` is now recognised as the record it already is.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads the SYSTEM capture back. To close: assert a worker's captured stdout line round-trips through `gimle logs node/<id> -o json` unchanged.
+- **Other test coverage (non-Holmgang, informational only)**: `LogFileReaderSystemCaptureTest#a_captured_stdout_record_is_read_back_as_the_record_it_was_written_as`
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/LogFileReader.java` (`parseLine`)
+
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1661,6 +1730,33 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: ConfigRelayTest, GatewayHooksRouteReloadTest
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java` (`notifyConfigChange`, `instanceMdcTags`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `rejectedRoutesConfig`)
 
+#### GIMLE-864 — An instance's timeline opens with an INSTALLED event
+
+- **Category**: Module System
+- **Status**: New  _(New requirement: Fixed. Nothing ever minted `LifecycleEvent.Installed`: the worker registered each artifact straight into `ModuleRegistry`, which announces nothing, so every instance's timeline opened at RESOLVED and never recorded that the artifact had been installed at all. `ModuleController#install` now performs the registration and emits the event, so the transition travels the same lifecycle-sink path every later one does -- the sink that turns it into both the agent's `ModuleStateChanged` and the instance's own durable timeline entry. `WorkerMain` installs through it on first install (after the instance's identity is registered, since an event arriving before that has no deployment/index to attach to), and `WorkerRuntime`'s in-worker restart re-installs through it under the instance's own key, putting the restart's INSTALLED entry on the timeline alongside the STOPPING/UNINSTALLED and ACTIVE entries bracketing it.)_
+- **Coverage**: Not Covered
+- **Gap note**: deployment-lifecycle.feature asserts an instance's event log is capped and newest-first, not which state opens it. To close: assert the oldest entry of a fresh instance's timeline is INSTALLED.
+- **Other test coverage (non-Holmgang, informational only)**: `ModuleControllerTest#installing_a_module_opens_its_timeline_rather_than_starting_it_at_resolved`
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`install`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (InstallModule case), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (restart attempt)
+
+#### GIMLE-866 — A lifecycle hook that fails with an `Error` is recorded rather than unwinding the worker
+
+- **Category**: Module System
+- **Status**: New  _(New requirement: Fixed. `ModuleController` caught only `RuntimeException` around every hook invocation, but the most common way a badly-packaged artifact breaks is a missing transitive class surfacing as `NoClassDefFoundError` the first time a hook touches it -- an `Error`, which escaped every catch. Nothing was recorded at all: no FAILED state, no `TransitionFailed` event, no line naming the cause, and the escape unwound the worker's own control loop, tearing down every co-tenant module sharing that JVM. All four hook sites (`onInstall`/`onStart`/`onStop`/`onUninstall`) now catch `Throwable`, and `WorkerRuntime`'s probe-loading path does the same, since "fails to load" is precisely the shape of failure it exists to report.)_
+- **Coverage**: Not Covered
+- **Gap note**: module-system.feature covers resolution failures, not a hook failing with an Error. To close: deploy a module whose hook references a class absent from its jar and assert a co-tenant module stays ACTIVE.
+- **Other test coverage (non-Holmgang, informational only)**: `HookFailureVisibilityTest#a_start_hook_that_fails_to_link_is_recorded_instead_of_escaping_uncaught`, `#a_start_hook_that_fails_to_link_reaches_the_instances_own_log_with_its_stack_trace` (driven against a real bundled hook jar built by the new `PlatformJars` test support)
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (hook invocation sites), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (probe class loading)
+
+#### GIMLE-885 — A rejected module name says which rule it breaks
+
+- **Category**: Module System
+- **Status**: New  _(New requirement: Fixed. `ModuleDescriptorParser` rejected a name that is not a dot-separated sequence of Java identifiers with `'name' is not a valid module name: <name>`, which restates the failure without naming the constraint or why it exists. The rejection now states the rule -- dot-separated Java identifiers, letters, digits, `_` and `$`, never starting with a digit -- and why it is real: the declared name is used verbatim as the JPMS module name the module's own layer is resolved by. The manifest reference, which had claimed the constraint was unenforced, was corrected to match.)_
+- **Coverage**: Not Covered
+- **Gap note**: module-system.feature deploys well-formed modules only. To close: install an artifact with a hyphenated module name and assert the reported reason.
+- **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest#a_hyphenated_name_is_rejected_and_the_rejection_says_it_is_the_name_that_is_wrong`, `#a_name_starting_with_a_digit_is_rejected`, `#a_reverse_dns_name_is_accepted`
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java` (`NAME_RULE`)
+
 ### gimle-os
 
 #### GIMLE-064 — Pluggable resource-limiter abstraction
@@ -1832,11 +1928,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-078 — Cluster PKI bootstrap CLI (`mvn gimle:tls-init`)
 
 - **Category**: PKI / Internal-Infra
-- **Status**: Active
+- **Status**: Modified  _(Modified: `pki init` now mints a `store-<hostname>` leaf alongside the control-plane, Fafnir, Muninn, Andvari and operator material, and every launcher starts store replicas with it instead of the control plane's own certificate.)_
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Cluster PKI bootstrap CLI (`mvn gimle:tls-init`)" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `pki`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
+- **Other test coverage (non-Holmgang, informational only)**: The constituent pieces -- CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem -- are each independently tested, and `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes` now covers the store leaf directly.
+- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (store `tlsFlags`)
 
 #### GIMLE-702 — A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify
 
@@ -1864,6 +1960,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No .feature drives a failing rotation. Covering this needs a scenario pointing a process at an unreachable CSR endpoint with rotation due and asserting the failure gauge through /metrics-history/*.
 - **Other test coverage (non-Holmgang, informational only)**: CertificateRotationMonitorTest (8), OwnCertificateRotatorTest (4), CertificateRotationMetricsTest (5), CertificateRotationAuditorTest (5).
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/{CertificateRotationOutcome,CertificateRotationStatus,CertificateRotationListener,CertificateRotationMonitor,OwnCertificateRotator}.java`, `gimle-observability/src/main/java/com/gimle/observability/CertificateRotationMetrics.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/CertificateRotationAuditor.java`, wired in `AgentMain`, `ApiServer`, `StoreMain`, `FafnirMain`, `AndvariMain`, `MuninnMain`
+
+#### GIMLE-859 — A failed certificate-rotation check no longer ends renewal for the life of the process
+
+- **Category**: Transport Security
+- **Status**: New  _(New requirement: Fixed. Each of `StoreMain`, `FafnirMain`, `MuninnMain` and `AndvariMain` scheduled its rotation check as an inline lambda on `scheduleAtFixedRate`, which cancels a repeating task permanently the moment one execution throws. The reachable failures there are transient, not terminal -- `TlsSettings.fromConfig()` throws while an external tool is mid-replacement of the certificate/key pair, and reloading a listener can fail on material the next attempt reads fine -- so one such moment ended renewal for the rest of that process's life, harmless right up until the certificate it stopped renewing expired and the process dropped out of its own cluster. Each process now runs the check through a self-contained, package-visible `rotationTick` that catches and logs, leaving the ticker alive. A misconfiguration no retry can fix still fails fast at startup, before the ticker is scheduled.)_
+- **Coverage**: Not Covered
+- **Gap note**: Observing this needs a certificate to actually expire; covered by unit tests driving a single tick against the real code.
+- **Other test coverage (non-Holmgang, informational only)**: `StoreMainResilienceTest`, `FafnirMainResilienceTest`, `MuninnMainResilienceTest` and `AndvariMainResilienceTest` each drive a tick whose rotation check throws and assert the next tick still runs.
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/StoreMain.java` (`rotationTick`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java` (`rotationTick`), `gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java` (`rotationTick`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java` (`rotationTick`)
+
+#### GIMLE-905 — A store replica presents its own leaf certificate rather than the control plane's
+
+- **Category**: Transport Security
+- **Status**: New  _(New requirement: Fixed. No per-store leaf existed in the platform's generated material, so a store replica presented the control-plane certificate for its own machine: on the wire it claimed to be the very process that authenticates to it, neither side's identity meant anything, and the store carried the control-plane group grants along with it. `pki init` now issues a `store-<hostname>` leaf whose Subject deliberately carries no `O=` -- the store authorizes nothing on group membership, it only needs to be identifiable as itself -- and `hilmir`'s launch planner and Holmgang's own cluster fixture both launch store replicas with it.)_
+- **Coverage**: Not Covered
+- **Gap note**: mtls.feature runs the cluster over mTLS but does not assert which leaf each process presents. To close: inspect the store replica's presented certificate in that scenario.
+- **Other test coverage (non-Holmgang, informational only)**: `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes`; `LaunchPlannerTest` asserts store replicas are launched with the store leaf
+- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java` (`store-<hostname>` leaf), `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (`tlsFlags(topology, "store", ...)`), `gimle-holmgang/src/main/java/com/gimle/holmgang/cluster/GimleCluster.java`
 
 ### gimle-worker
 
@@ -1960,13 +2074,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-089 — Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion
 
 - **Category**: Worker Supervision / Self-Healing
-- **Status**: Active
+- **Status**: Modified  _(Modified: a restart attempt that failed after the module had already been uninstalled stranded the instance -- nothing retried it and no terminal state was recorded. Attempts now re-enter the backoff loop, and budget exhaustion escalates through the new `ModuleController#abandonFailed`, which records FAILED even once the module is gone from the registry.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/self-healing.feature` — Scenario: *A module that never passes liveness is escalated to FAILED for good*
   - _Why this counts_: Deploys a provider variant whose LivenessProbe always reports false and asserts it escalates to a terminal FAILED instance once its restart budget (RestartTracker) is exhausted.
-- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active`, `#a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed`, `#a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget`
-- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onLivenessResult`, `restartModule`, `scheduleModuleStabilityConfirmation`, `newRestartTracker`)
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active`, `#a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed`, `#a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget` `ModuleControllerTest#abandon_failed_reports_an_instance_that_was_already_uninstalled`, `#abandon_failed_still_marks_a_module_that_is_only_stuck_not_gone`.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onLivenessResult`, `restartModule`, `scheduleModuleStabilityConfirmation`, `newRestartTracker`), `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`abandonFailed`)
 
 #### GIMLE-090 — Readiness-driven service registry availability (without restart)
 
@@ -2095,6 +2209,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by WorkerMainTest/WorkerRuntimeTest, but no Holmgang Cucumber .feature scenario deploys a module whose liveness probe fails and asserts the resulting LIVENESS_FAILED entry on the instance's own timeline through the real API. To close: add a scenario that deploys a module with a failing liveness probe and reads GET /events for that instance.
 - **Other test coverage (non-Holmgang, informational only)**: WorkerMainTest, WorkerRuntimeTest
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceEventKind.java` (`LIVENESS_FAILED`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`InstallModule` identity ordering, `instanceEventFor`, `livenessFailureEventFor`), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`LivenessRestartSink`, `onLivenessResult`), `gimle-console/src/lib/instance-events.ts`, `gimle-console/src/types/index.ts`
+
+#### GIMLE-865 — Promoting a surge instance records both indexes' timelines
+
+- **Category**: Instance Lifecycle Events
+- **Status**: New  _(New requirement: Fixed. `ControlMessage.RenameInstance` retargets an already-installed instance onto a new deployment name and index and deliberately drives no lifecycle transition -- retarget, don't restart -- so nothing flowed through the lifecycle sink and neither index's timeline moved. The index taken over stayed frozen at its previous occupant's teardown (an UNINSTALLED, for the rolling update this message exists to serve) while the instance now answering to it was running and serving, and the index handed over went on claiming a live instance it no longer had. `WorkerMain#applyRename` now mints the timeline entries by hand and relays them as `InstanceEventOccurred`: the taken-over index is recorded in the instance's *live* state rather than an assumed ACTIVE, so promoting an instance that has since failed is not recorded as promoting a healthy one. A rename repeating an identity the instance already holds, or naming a module this worker no longer hosts, records nothing.)_
+- **Coverage**: Not Covered
+- **Gap note**: rolling-update.feature drives a maxSurge rollout but never reads the two indexes' timelines. To close: assert the reused index's newest event postdates the promotion.
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerMainTest#promoting_a_surge_instance_carries_the_reused_index_timeline_past_its_teardown`, `#promoting_a_surge_instance_closes_off_the_index_it_gave_up`, `#a_promotion_of_an_instance_that_has_since_failed_is_not_recorded_as_a_healthy_one`, `#a_rename_repeating_the_identity_an_instance_already_holds_records_nothing`, `#a_rename_of_a_module_this_worker_no_longer_hosts_records_nothing`
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`applyRename`, RenameInstance case)
 
 ### gimle-agent
 
@@ -2462,13 +2585,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-603 — Sleipnir: agent-managed JDK AOT startup cache for worker JVMs
 
 - **Category**: Worker Supervision
-- **Status**: New
+- **Status**: Modified  _(Modified: AOT training always timed out and produced nothing, so every Tier-2 spawn ran uncached. The training worker now ends through its own shutdown path when the trainer closes its control channel, which is what makes the JVM write the cache; the unreachable early-exit flag was removed.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/aot-cache.feature` — Scenario: *the agent logs ineligibility and the deployment still reaches ACTIVE normally*
   - _Why this counts_: Boots a real Holmgang cluster (whose own worker classpath mixes real jars with target/classes directories, exactly the shape JEP 483 disqualifies) and deploys a real module -- proves Sleipnir's ineligibility path fires exactly once, is observable in the agent's own platform log, and never blocks or breaks the deployment, which still reaches ACTIVE and never writes a cache file.
-- **Other test coverage (non-Holmgang, informational only)**: `WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant, `WorkerProcessSupervisorTest#a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time`
-- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java`
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerStartupBenchIT`, `SleipnirCacheTest`, `SleipnirTrainerTest`, `SleipnirTrainerRealRunIT`, `RedeployLoopFlatMetaspaceTest`'s AOTMode=auto variant, `WorkerProcessSupervisorTest#a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time` `SleipnirTrainingRunTest#closing_the_control_channel_is_what_makes_a_training_worker_write_its_cache`, `#a_worker_told_to_return_from_main_instead_never_ends_and_never_writes_a_cache`, `#a_training_worker_that_writes_no_cache_is_reported_as_a_failure` (driven against a stand-in training worker).
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java` (`TrainingRun#run` takes the expected output)
 
 #### GIMLE-618 — Bifrost off-node service exposure (NodePort analogue)
 
@@ -2590,11 +2713,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-771 — A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace
 
 - **Category**: Operations
-- **Status**: New  _(New requirement: Fixed. `VolumeManager#destroy` was `void` and documented a missing directory as a silent no-op, and `AgentLogServer#handleVolumes` answered `200 {"destroyed": true}` unconditionally -- so a destroy naming a tenant, set or index with nothing on disk reported success for data it never touched, the exact answer that hid a mis-addressed reclaim. `destroy` now returns whether it actually removed a directory and the agent answers 404 with the coordinate it looked under when it did not. Separately, the agent read `?tenant=` as `Optional.ofNullable(...)`, so a present-but-blank parameter became `Optional.of("")` -- a tenant no volume can ever have -- leaving a client that must always send the parameter no way to spell "untenanted"; blank now normalizes to untenanted on both the agent and the control plane, which is safe because a real tenant id is never blank.)_
+- **Status**: Modified  _(Modified: the 404 had been replaced by an idempotent 200 carrying the distinction in the body alone; the agent answers 404 again and the CLI turns it into a non-zero exit.)_
 - **Coverage**: Not Covered
 - **Gap note**: No .feature scenario drives the agent's own /volumes DELETE surface; Holmgang has no volume-reclaim steps today. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something.
-- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean), `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)
+- **Other test coverage (non-Holmgang, informational only)**: AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something. The agent-side tests are now `destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk` and `destroying_an_already_destroyed_volume_reports_that_it_removed_nothing`.
+- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean), `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE), `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`destroy`)
 
 #### GIMLE-782 — A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams
 
@@ -2667,6 +2790,78 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by WorkerDirectoryKeyTest and AgentLogServerTest, but no Holmgang Cucumber .feature scenario reads a tenant-scoped or density-packed instance's logs end to end through the control plane's proxy. To close: add a scenario deploying a tenant-scoped module and asserting gimle logs instance/... returns its lines.
 - **Other test coverage (non-Holmgang, informational only)**: WorkerDirectoryKeyTest, AgentLogServerTest
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`InstanceLookup`, `declaredTenant`, `handleInstanceLogs`, `handleFabricEndpoint`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervised`)
+
+#### GIMLE-846 — A vessel probe's named port survives the assignments round trip
+
+- **Category**: Health / Self-Healing
+- **Status**: New  _(New requirement: Fixed. `VesselProbeSpec` carries the name of the port a probe dials, but neither direction of the `/nodes/{id}/assignments` wire shape carried it: `ApiServer#vesselProbeToJson` emitted only the probe kind and its initial delay, and `AgentMain#parseVesselProbe` reconstructed the spec with no port name at all. A single-port vessel never notices -- the port is unambiguous -- but a vessel declaring several ports had its probe silently become ambiguous the moment the agent rebuilt it, turning a well-formed manifest into an unresolvable probe on the node. The name is now emitted under the same `port` key the manifest parser reads, so a spec read back out of the API and re-applied still names the port it dials, and the agent parses it back.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario deploys a multi-port Vessel and asserts which port its probe dials. To close: extend a workload-manifest scenario with a two-port Vessel whose probe names the second port.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest#assignments_endpoint_keeps_the_port_a_vessel_probe_names`; `AgentMainTest#a_fetched_vessel_probe_keeps_the_port_it_names`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`vesselProbeToJson`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`parseVesselProbe`)
+
+#### GIMLE-847 — One unparseable assignment is skipped and reported rather than aborting the whole batch
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: Fixed. `AgentMain#fetchAssignments` parsed the whole `/nodes/{id}/assignments` array in one pass with no per-entry boundary, so any parse failure escaped the fetch entirely: the agent learned nothing about any assignment that tick, and -- because the fetch precedes the heartbeat in the same tick body -- froze this node's heartbeat for every tenant on it, not just the one at fault. Each entry is now parsed on its own through `parseAssignment`, and a failure skips exactly that entry. It is not skipped silently: `reportUnparseableAssignment` logs the offending workload and, when the entry at least carries a usable name and index, posts a durable `TRANSITION_FAILED` instance event, since an assignment the agent cannot parse is otherwise invisible to an operator, who sees only a deployment that never progresses on a node that looks perfectly healthy.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario feeds an agent a malformed assignment. To close: a scenario that stores a workload spec the agent cannot reconstruct and asserts a sibling deployment still reaches ACTIVE.
+- **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#one_unparseable_assignment_does_not_discard_the_rest_of_the_batch`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchAssignments`, `parseAssignment`, `reportUnparseableAssignment`)
+
+#### GIMLE-848 — Startup registration is retried with backoff instead of killing the agent
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: Fixed. `AgentMain` called `register(...)` exactly once, and an `IOException` from it escaped `main()` and ended the process -- the node was gone from the cluster until a human noticed, even though the steady-state tick loop that follows survives exactly the same class of failure. `registerWithRetry` now retries indefinitely with exponential backoff to a 30s ceiling (`nextRegistrationBackoff`), naming each failure and the wait before the next attempt. A non-2xx answer is treated as retryable too: `register` reads the response status instead of discarding the body, so a control plane still coming up and answering 503 no longer leaves this agent believing it is registered while the cluster has never heard of it.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario starts an agent against an unavailable control plane. To close: boot a topology whose agent starts before its control plane and assert the node still appears in `get nodes`.
+- **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#registration_keeps_retrying_until_the_control_plane_accepts_it` (a stub control plane refusing the first attempts, then accepting), `#registration_backoff_grows_but_stops_at_its_ceiling`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`registerWithRetry`, `nextRegistrationBackoff`, `register`)
+
+#### GIMLE-867 — A start this node refuses is recorded on the instance's own timeline, once per distinct cause
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: Fixed. A start this node could not perform was reported only in the node's own log: a worker ceiling that would overcommit the machine's real memory, an artifact the node cannot read, an isolation tier it cannot provide. An operator saw a workload placed and apparently fine, with the only account of the failure in a node log they had no reason to suspect. `AgentMain#reportStartFailure` now posts a durable `TRANSITION_FAILED` instance event naming the refusal. Reconciliation is level-triggered, so an unfixable start is retried every tick; the event is therefore keyed through a `reportedStartFailures` map and posted once per distinct cause per instance -- posting each retry would push every other event out of that instance's own bounded timeline within minutes -- while a cause that changes is reported again as the genuinely new information it is.)_
+- **Coverage**: Not Covered
+- **Gap note**: self-healing.feature covers crash recovery, not a start the node refuses outright. To close: assign a workload whose memory ceiling the node cannot honour and assert the instance's timeline names the refusal.
+- **Other test coverage (non-Holmgang, informational only)**: `AgentStartFailureEventTest#a_refused_spawn_is_reported_as_a_durable_transition_failed_event_for_that_instance`, `#an_unchanged_refusal_repeated_every_tick_is_reported_once_rather_than_on_every_tick`, `#an_unreadable_artifact_is_reported_the_same_way_a_refused_spawn_is`, `#an_assignment_that_starts_normally_reports_no_failure_event`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reportStartFailure`, `reportedStartFailures`, `reconcileAssignments`)
+
+#### GIMLE-869 — A node reports the binding memory and CPU budget as its capacity
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: Fixed. The heartbeat's `assignedMemoryBytes`/`assignedCpuMillicores` summed each instance's own declared *request*, while `startInstance` refuses a spawn against the sum of the real `-Xmx` ceilings every spawned worker is started with -- two different numbers, and only the second binds. A node whose agent was already refusing every new spawn therefore kept advertising free capacity, and the scheduler kept sending it work it could never run. `sendHeartbeat` now reports the larger of the two sums for each dimension, so the number the scheduler reads is the one the node actually enforces.)_
+- **Coverage**: Not Covered
+- **Gap note**: scheduling.feature does not assert reported capacity against real worker ceilings. To close: place Tier-2 workloads whose limits exceed their requests and assert `get nodes` reports the larger sum.
+- **Other test coverage (non-Holmgang, informational only)**: `AgentCapacityReportTest#the_reported_capacity_reflects_the_real_worker_ceilings_this_node_has_committed`, `#a_request_sum_larger_than_the_committed_sum_is_still_the_one_reported`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`sendHeartbeat`, `committedWorkerCapacity`)
+
+#### GIMLE-897 — A vessel's log directory resolves from its own name, so a bare-name log read reaches it
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. `AgentMain#workerDirectoryKey` -- what a log request uses to find an instance's files on disk -- consulted only the `supervised` map of module instances. A vessel is supervised in its own separate map (it has no worker connection, module descriptor or control channel at all), so a vessel log read fell through to a synthesized key built from whatever tenant the caller happened to name, and a caller naming the vessel by name alone reached nothing. The lookup now also searches `supervisedVessels` and resolves the vessel's own instance key, so a tenanted vessel resolves without the caller naming its tenant, while a declared tenant still picks between two tenants sharing a vessel name and index.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads a Vessel's logs. To close: deploy a tenanted Vessel and read its logs without naming the tenant.
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerDirectoryKeyTest#a_tenanted_vessel_resolves_without_the_caller_having_to_name_its_tenant`, `#a_declared_tenant_picks_between_two_tenants_sharing_a_vessel_name_and_index`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervisedVessel`)
+
+#### GIMLE-903 — A node bootstraps its own identity into its own writable data root, with a DNS-named leaf
+
+- **Category**: Security / Identity
+- **Status**: New  _(New requirement: Fixed. A node bootstrapping its certificate wrote the key and certificate beside the shared cluster CA material `gimle.tls.caFile` points into -- a directory that is the same for every node, holds material a node only ever reads, and is routinely and correctly mounted read-only. The bootstrap now writes to a `tls` directory under this node's own `gimle.data.root` (overridable with `-Dgimle.agent.identityDir`), repoints the `gimle.tls.certFile`/`keyFile` properties at what it actually wrote, and reports what it needed to write and where when that directory is unwritable. The CSR also requests the node's own DNS name alongside its address, so a peer verifying the leaf by hostname succeeds; bind-any placeholders (`0.0.0.0`, `::`, `*`) name no reachable peer and are never requested.)_
+- **Coverage**: Not Covered
+- **Gap note**: mtls.feature and secrets-and-pki.feature cover the CSR flow itself, not where the material lands. To close: boot a node whose CA directory is read-only and assert it still obtains an identity.
+- **Other test coverage (non-Holmgang, informational only)**: `NodeCertificateBootstrapTest#a_nodes_identity_lives_under_its_own_data_root_by_default`, `#an_identity_directory_may_be_pointed_somewhere_else_entirely`, `#a_bootstrapped_node_certificate_carries_the_nodes_dns_name_not_only_its_address`, `#a_wildcard_gossip_bind_address_is_not_requested_as_a_name`, `#bootstrapping_repoints_the_tls_material_properties_at_what_it_actually_wrote`, `#an_unwritable_identity_directory_says_what_it_needed_to_write_and_where`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`bootstrapCertificateIfNeeded`, `nodeIdentityDirectory`, `UNROUTABLE_CERTIFICATE_NAMES`), `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
+
+#### GIMLE-904 — A worker's handshake is applied to every instance packed onto that worker
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: Fixed. A worker's `Hello` describes the worker JVM, not any one instance it hosts, but it was applied only to the instance whose read loop happened to receive it. Under Tier-1 density several instances share one worker and one connection while exactly one `Hello` ever arrives on it, so an instance packed onto a worker that had connected but not yet handshaked reported no worker id, UDS path or fabric address for the rest of its life -- and a respawn, which clears those on every hosted instance and is followed by a single fresh handshake, stripped them from all but one. `applyWorkerHandshake` now applies the handshake to every supervised instance sharing that connection, and leaves instances on other workers untouched.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario asserts the reported workerId of a density-packed instance. To close: pack two Tier-1 instances and assert both report the same non-empty workerId.
+- **Other test coverage (non-Holmgang, informational only)**: `SharedWorkerHandshakeTest#an_instance_packed_onto_a_shared_worker_reports_that_workers_id`, `#an_instance_on_a_different_worker_is_left_alone`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`applyWorkerHandshake`)
 
 ### gimle-mimir
 
@@ -3193,14 +3388,14 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-604 — LimitRange: per-workload resource min/max bound, admission check, and reconciler
 
 - **Category**: Multi-Tenancy
-- **Status**: New  _(newly added as part of the LimitRange per-workload resource-bound work)_
+- **Status**: Modified  _(Modified: LimitRange admission and drift detection both skipped the `default` tenant by name, so a range set on it bound nothing. Both now key on whether a range exists, and a bound-free or unrecognized PUT body is refused.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/limitrange.feature` — Scenario: *An over-range deployment is rejected at admission*
   - _Why this counts_: Declares a real LimitRange for a tenant (PUT /limitranges/{tenantId}) with a max-request bound far below greeter-provider's real 32Mi/20m declared request, then attempts a real deployment submission for that tenant and asserts the control plane rejects it with 409 -- proving LimitRangePlugin genuinely runs in the deployment admission chain against a real cluster, not just in LimitRangePluginTest's simulated store.
   - `gimle-holmgang/src/test/resources/features/limitrange.feature` — Scenario: *A retroactively tightened LimitRange is flagged but never evicts*
   - _Why this counts_: Deploys greeter-provider successfully under a loose LimitRange, then retroactively tightens the same tenant's range below the already-running deployment's request and polls until the deployment reports limitRangeViolating -- while independently asserting the instance stays ACTIVE for 10s, proving LimitRangeReconciler's own reconcile-only-never-evict posture holds against a real cluster, not just in LimitRangeReconcilerTest's simulated store.
-- **Other test coverage (non-Holmgang, informational only)**: `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest`, `ApiServerConsoleContractTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`).
+- **Other test coverage (non-Holmgang, informational only)**: `LimitRangeSpecTest`, `LimitRangePluginTest`, `LimitRangeReconcilerTest`, `ApiServerLimitRangesTest`, `ApiServerLimitRangesAuthzTest`, `ApiServerConsoleContractTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). Gained `LimitRangePluginTest#a_min_request_bound_set_on_the_default_tenant_is_enforced` and `LimitRangeReconcilerTest#marks_a_deployment_violating_a_range_set_on_the_default_tenant`/`#ignores_a_default_tenant_deployment_when_no_range_was_ever_set`.
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`)
 
 #### GIMLE-606 — Group commit via batched mutations (StateMutation.Batch / proposeAll)
@@ -3266,11 +3461,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-650 — Implicit Default Tenant for Untenanted Workloads
 
 - **Category**: Multi-tenancy
-- **Status**: New
+- **Status**: Modified  _(Modified: the quota/limit-range/policy exemption keyed on `isEnforceable` is removed -- a constraint set on the `default` tenant is now enforced, which is what this requirement always claimed. The predicate now covers only the unverifiable rejections and the coordinate-ownership check.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang Cucumber scenario yet exercises submitting an untenanted deployment and reading its config/secrets back at /config/default/... against a real running cluster -- coverage today is unit-level (manifest parser tests) and gimle-controlplane's admission/reconciler suite only.
 - **Other test coverage (non-Holmgang, informational only)**: `DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite
-- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`
+- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`, `gimle-core/src/main/java/com/gimle/core/tenant/Tenant.java` (`isEnforceable` javadoc, narrowed to the unverifiable cases)
 
 #### GIMLE-652 — Deleting a Workload Clears Its Revision History
 
@@ -3383,6 +3578,33 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by a real 3-node in-process Raft cluster test (RaftClusterTest partitions the leader, has the majority commit a delete it cannot see, and asserts it refuses the read) but no Holmgang Cucumber .feature scenario drives a partitioned real-process cluster and asserts a read is refused rather than answered stale. To close: add a scenario that boots a multi-node topology, cuts the leader off with a Loki fault proxy, commits a delete on the majority side, and asserts a read against the isolated node errors instead of returning the deleted resource.
 - **Other test coverage (non-Holmgang, informational only)**: RaftClusterTest (a_leader_cut_off_from_the_majority_refuses_a_read_rather_than_answer_from_stale_state, a_read_index_from_a_healthy_leader_covers_the_write_it_just_committed), StoreNodeTest (a_non_leader_refuses_a_read_rather_than_answering_from_its_own_replica, a_non_leader_still_answers_status_for_itself)
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftNode.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java`, `StoreClient.java`, `StoreRpc.java`, `StoreCodec.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleRaftException.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-854 — A peer with an RPC still in flight counts as reachable for check-quorum
+
+- **Category**: Raft Consensus
+- **Status**: New  _(New requirement: Fixed. `checkQuorumTick` judged each peer solely by the timestamp of its last *completed* round trip, but a single `PeerConnection` call is allowed to run far longer than `CHECK_QUORUM_WINDOW` before it reports anything at all. A heartbeat that merely ran slow therefore self-demoted a perfectly healthy leader while that very call was still on its way to succeeding -- and the successor repeated it, churning elections on a cluster nobody was writing to. `peerAttemptStartedAt` now records when each peer's outstanding attempt was dispatched, and a peer whose attempt is still within `PeerConnection#worstCaseCallDuration()` counts toward the quorum. A peer that fails fast clears its entry immediately and is judged in the ordinary window exactly as before, so genuine unreachability is still detected as promptly.)_
+- **Coverage**: Not Covered
+- **Gap note**: raft-resilience.feature covers partitions and leader loss, not a slow-but-succeeding round trip. Fault injection at that granularity is Norn/unit territory rather than a real-cluster scenario.
+- **Other test coverage (non-Holmgang, informational only)**: `RaftNodeVirtualTimeTest#an_established_leader_survives_a_round_trip_that_merely_runs_slow` (a peer held mid-call past the check-quorum window on a virtual clock)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftNode.java` (`peerAttemptStartedAt`, `checkQuorumTick`, `becomeLeaderLocked`)
+
+#### GIMLE-860 — A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved
+
+- **Category**: State Store
+- **Status**: New  _(New requirement: Fixed. `InetSocketAddress` resolves a hostname once, at construction, and keeps that answer forever. A store endpoint whose name happened to be unresolvable in the second a process started -- a DNS server still booting, a record not yet propagated -- was therefore held permanently unresolved, and every store call from that process failed for good, long after the name started resolving again. `FafnirMain`, `MuninnMain` and `AndvariMain` now pass their parsed endpoints through `awaitResolvableStoreEndpoints`, re-resolving each unresolved one with capped exponential backoff (1s to 30s, matching the node agent's own registration retry) and no attempt ceiling: a store this process cannot name is a store it cannot authorize a single request against, so serving anyway would only answer every caller with an error. A malformed endpoint spec still fails fast in `parseStoreEndpoints` -- no amount of retrying turns it into an address.)_
+- **Coverage**: Not Covered
+- **Gap note**: Needs DNS manipulation during boot, which the harness does not model; unit-tested against the real resolution helper.
+- **Other test coverage (non-Holmgang, informational only)**: `AndvariMainResilienceTest`, `FafnirMainResilienceTest` and `MuninnMainResilienceTest` each assert an already-resolvable endpoint passes through untouched and that a malformed spec still fails fast rather than looping.
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java` (`awaitResolvableStoreEndpoints`, `resolveWithRetry`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java`, `gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java`
+
+#### GIMLE-871 — An Ingress route naming an unknown `paramType` is refused at submission
+
+- **Category**: Control Plane API
+- **Status**: New  _(New requirement: Fixed. A `FABRIC` route's `paramType` was only turned into an enum when a gateway loaded the table, so a typo was stored as a perfectly valid route and surfaced later as a broken route table on a running gateway -- the deferred, misdirected failure a declared resource exists to end. `IngressSpec`'s compact constructor now validates every declared `paramType` against the six shapes a target method's argument may take, naming them in the rejection. The list is spelled out here rather than taken from the gateway's own enum because nothing on the store side of the wire may depend on the gateway. A route kind that takes no argument declares none and is untouched by the check.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario applies an Ingress with a malformed route. To close: extend a routing scenario with a typo'd paramType and assert the apply is refused.
+- **Other test coverage (non-Holmgang, informational only)**: `IngressSpecTest#a_fabric_route_naming_an_unknown_param_type_is_refused_naming_the_valid_values`, `#a_param_type_is_matched_exactly_and_never_case_folded`, `#every_supported_param_type_is_accepted`, `#a_route_kind_that_declares_no_param_type_at_all_is_untouched_by_the_check`; `ApiServerIngressesTest#a_fabric_route_naming_an_unknown_param_type_is_refused_at_admission`
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/IngressSpec.java` (`PARAM_TYPES`, `requireKnownParamType`)
 
 ### gimle-fabric
 
@@ -3775,6 +3997,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServiceRegistryTest` gained `a_replica_saturated_by_other_callers_loses_to_an_idle_remote_one`, which stands a backend up reporting a fixed backlog while this caller has nothing in flight to it -- proven to fail against the pre-fix code. `FabricCodecTest` round-trips the new field.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/ModuleWorkExecutor.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`queueDepthFor`), `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java` (`effectiveLoad`, `chooseForThisCall`), `gimle-fabric/src/main/java/com/gimle/fabric/balance/LeastOutstandingRequestsSelector.java`, `gimle-worker/src/main/java/com/gimle/worker/BoundedModuleScheduler.java` (`asWorkExecutor`)
 
+#### GIMLE-855 — A fabric target's application exception round-trips to its caller, named even when it cannot be loaded or serialized
+
+- **Category**: Service fabric
+- **Status**: New  _(New requirement: Fixed. `InvokeError` carried only the serialized throwable, which failed in both of the two cases a hosted module actually hits. An exception type private to the provider's own module layer cannot be loaded in the caller, so deserialization threw and the caller saw a decode failure; an exception reaching a non-serializable field could not be written at all, so the server produced no frame and dropped the connection, which the caller saw as a transport failure. Both were reported as something broken in the platform for a call the target had answered perfectly clearly. `InvokeError` now also carries the remote exception's binary type name and message as plain text, and `InvokeError#of` degrades to those alone when the throwable cannot be serialized (`ObjectMarshalling#serializeIfPossible`); `toThrowable` re-throws the target's own exception when the caller can rebuild it and otherwise a `RemoteInvocationException` naming what was thrown. The fabric wire version is bumped 3 -> 4 for the two added fields.)_
+- **Coverage**: Not Covered
+- **Gap note**: service-fabric.feature drives a successful cross-worker call only. To close: add a provider method that throws a module-private exception and assert the consumer reports it as an application failure.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricRemoteExceptionTest` (9 tests: an unloadable type arrives named rather than as a decode failure, an unserializable exception still produces an answer, null messages report absence rather than an empty string, an undecodable payload falls back to the frame's own type name); `FabricCodecTest` round-trips the added fields; `FabricServiceRegistryTest` covers the caller side.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java` (`InvokeError#of`, `toThrowable`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/RemoteInvocationException.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/ObjectMarshalling.java` (`serializeIfPossible`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`, `FabricServer.java`, `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java`
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -3943,12 +4174,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-228 — Tenant quota drift detection (`QuotaReconciler`)
 
 - **Category**: Reconciliation / Multi-tenancy
-- **Status**: Active
+- **Status**: Modified  _(Modified: the reconciler skipped the `default` tenant by name, so a quota deliberately set on it was never accumulated or flagged. It now keys on whether a quota exists for the tenant.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/quota-and-admission.feature` — Scenario: *A retroactive quota violation is flagged but never evicts*
   - _Why this counts_: Lowers a tenant's quota below its already-running usage and asserts the deployment is flagged quota-violating while its instance keeps running for 10s.
-- **Other test coverage (non-Holmgang, informational only)**: `QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`
+- **Other test coverage (non-Holmgang, informational only)**: `QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists` Gained `marks_a_deployment_violating_a_quota_set_on_the_default_tenant` and `does_not_mark_a_default_tenant_deployment_within_the_quota_set_on_it`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`, `TenantUsage`
 
 #### GIMLE-229 — Horizontal autoscaling — multi-signal (`AutoscaleReconciler`)
@@ -4028,7 +4259,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-237 — CronJob schedule-driven Job materialization
 
 - **Category**: Reconciliation / Orchestration
-- **Status**: Active
+- **Status**: Modified  _(Modified: this reconciler's schedule cursor was surfaced to operators as `lastScheduleTime`, which claimed a firing for a CronJob that had never fired. The cursor is unchanged but is now reported under its own name.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CronJobSpec with schedule "* * * * *" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named "{name}-{epochSeconds}" is materialized.
 - **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`
@@ -4111,21 +4342,21 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-246 — Tenant resource quota admission check
 
 - **Category**: Admission / Multi-tenancy
-- **Status**: Modified  _(Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).)_
+- **Status**: Modified  _(Modified: quota admission skipped the `default` tenant by name; it now enforces whatever quota is stored for the tenant, with only the unverifiable rejections (unknown tenant, unreadable artifact) still scoped to a deliberately-named one.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/quota-and-admission.feature` — Scenario: *An over-quota deployment is rejected at admission*
   - _Why this counts_: Submits a deployment against a starved tenant's quota and asserts the submission is rejected outright with HTTP 409.
-- **Other test coverage (non-Holmgang, informational only)**: `TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`
+- **Other test coverage (non-Holmgang, informational only)**: `TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected` Gained `a_quota_an_operator_set_on_the_default_tenant_is_enforced` and `a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`, `TenantUsage.java`
 
 #### GIMLE-247 — Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`)
 
 - **Category**: Admission / Config
-- **Status**: Active
+- **Status**: Modified  _(Modified: the replica ceiling was skipped for the `default` tenant by name; it now binds wherever the policy key exists.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given tenant T has policy.maxReplicasPerDeployment=10; When a submission requests 15 replicas; Then admission rejects citing the ceiling.
-- **Other test coverage (non-Holmgang, informational only)**: `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`
+- **Other test coverage (non-Holmgang, informational only)**: `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` Gained `a_ceiling_configured_on_the_default_tenant_is_enforced`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/PolicyConfigPlugin.java`
 
 #### GIMLE-248 — Registry-coordinate artifact admission (Andvari integration)
@@ -4169,11 +4400,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-252 — `gimle-system` reserved-tenant operator-only guard
 
 - **Category**: Authorization
-- **Status**: Active
+- **Status**: Modified  _(Modified: the reserved-tenant veto did not engage at all for a plaintext caller (no principal, so no group check), leaving `gimle-system` open exactly where nothing verifies who is calling. A caller presenting nothing is now an explicit anonymous principal in no group and is refused; a caller presenting a real operator credential is admitted whatever transport carried it.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a caller holds a broad but non-operator-group grant; When writing under tenantId=gimle-system; Then rejected 403 regardless of ordinary RBAC outcome.
-- **Other test coverage (non-Holmgang, informational only)**: Exercised within `ApiServerAuthzTest`'s broader RBAC test set
-- **Source location(s)**: `ApiServer.rejectIfReservedSystemTenant`, `isOperatorCaller`
+- **Other test coverage (non-Holmgang, informational only)**: Exercised within `ApiServerAuthzTest`'s broader RBAC test set `ApiServerTest#a_plaintext_caller_cannot_write_or_delete_the_reserved_system_tenant`, `#a_plaintext_caller_cannot_deploy_into_the_reserved_system_tenant`, `#a_plaintext_dry_run_into_the_reserved_system_tenant_reports_the_refusal`, `#a_plaintext_caller_holding_an_operator_session_may_write_the_reserved_system_tenant`, `#a_plaintext_session_without_the_operator_group_still_cannot_write_it`. `gimle-smoke-tests`' `GreeterSmokeClusterSupport` now logs in as the operator account it already creates before writing the reserved tenant, instead of relying on plaintext bypassing the veto.
+- **Source location(s)**: `ApiServer.rejectIfReservedSystemTenant`, `isOperatorCaller`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`ANONYMOUS_PRINCIPAL`, `callerIdentity`)
 
 #### GIMLE-253 — Node-scoped self-service authorization (`gimle:nodes` group)
 
@@ -4319,11 +4550,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-268 — `/metrics-history/*` and `/traces-history/*` Muninn proxy
 
 - **Category**: Internal-Infra
-- **Status**: Active
+- **Status**: Modified  _(Modified: the proxy dropped the backward-paging parameters (so every page re-served the newest one) and offered no way to ask which process kinds ship each signal or to search a whole trace. All three are now served.)_
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "`/metrics-history/*` and `/traces-history/*` Muninn proxy" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest`
-- **Source location(s)**: `ApiServer.handleMetricsHistory`/`handleTracesHistory`/`handleHistoryProxy`
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest` Gained `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`, `#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`, plus the kind-listing and rejection cases on both surfaces.
+- **Source location(s)**: `ApiServer.handleMetricsHistory`/`handleTracesHistory`/`handleHistoryProxy`, `gimle-controlplane/src/main/java/com/gimle/controlplane/muninn/MuninnClient.java` (trace search)
 
 #### GIMLE-269 — Node registration, heartbeat, and assignment-fetch API
 
@@ -4514,10 +4745,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-656 — Tenant-scoped heartbeat instance-observation matching and instance-log node resolution
 
 - **Category**: Multi-tenancy / Observability
-- **Status**: Modified  _(Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.)_
+- **Status**: Modified  _(Modified: the bare-name owning-tenant resolution now also backs the fabric-endpoint lookup, and the resolved tenant is forwarded to the node once rather than twice.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario placing two tenants' identically-named workload on the same node and asserting health/readiness/log-read never cross tenants.
-- **Other test coverage (non-Holmgang, informational only)**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.; `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all`, `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick`; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant`, `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all`
+- **Other test coverage (non-Holmgang, informational only)**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.; `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all`, `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick`; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant`, `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all` `ApiServerInstanceTenantResolutionTest#a_bare_instance_log_read_tells_the_agent_which_tenant_it_resolved`, `#a_declared_tenant_is_forwarded_once_not_twice`, `#a_name_no_workload_spec_claims_forwards_no_invented_tenant`, `#a_bare_fabric_endpoint_lookup_resolves_a_tenanted_instance`, `#a_bare_fabric_endpoint_lookup_for_an_unplaced_name_is_still_a_404`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`
 
 #### GIMLE-657 — Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup
@@ -4855,10 +5086,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-789 — DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances
 
 - **Category**: Reconciliation / Orchestration
-- **Status**: New  _(New requirement: Implemented. Closes gimle#15 sub-item 2 -- DaemonSetReconciler now publishes the eligible-node count it already computes every tick (StateMutation.PutDaemonSetDesiredCount), and ApiServer.daemonSetStatus surfaces it as desired/unplacedCount alongside the placed instance count, the same shape Deployment/StatefulSet status already exposes.)_
+- **Status**: Modified  _(Modified: the published desired count excluded nodes the same tick deliberately kept placed, so a reader could compute a negative shortfall. It now covers them, and is written at the one point in the tick that keeps it at or above what is placed.)_
 - **Coverage**: Not Covered
 - **Gap note**: No .feature scenario reads a DaemonSet's status and asserts desired/unplacedCount against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick).
+- **Other test coverage (non-Holmgang, informational only)**: DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick). Gained `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed` and `#a_store_read_that_throws_mid_tick_leaves_an_already_published_count_alone`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`)
 
 #### GIMLE-790 — A durable, replica-agnostic read of whether an AlertRule is currently firing
@@ -4936,11 +5167,173 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-844 — Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane
 
 - **Category**: Observability
-- **Status**: New  _(New requirement: Implemented. Node heartbeats are leader-local and never replicated, so a store replica taking over leadership holds none for any node while every node registration, which is replicated, is still there. Read naively that says every node in the cluster went dark at the same instant: nodes flapped HEALTHY -> STALE -> UNKNOWN -> HEALTHY for minutes while their agents had never stopped reporting, and `ReplicaCountReconciler` treated every assignment as unconfirmed. `StateStore` now records when it started collecting heartbeats (`nodeObservationWindowStart`) and restarts that window when the node takes over as leader (`StoreNode` clears the map and restamps on the non-leader -> leader transition), exposed leader-routed as `GetNodeObservationWindow`. A shared `NodeFreshness` weighs an absent heartbeat against that window: a registered node inside it reads PENDING and is never acted on, an unregistered node or one past the window is dark exactly as before, and a heartbeat that did arrive and has since gone stale is stale however young the window is. The verdict is computed once by the control plane and reported as `status` on `GET /nodes`, so the CLI, hugin and the console read it instead of each deriving it from a timestamp they cannot interpret with their own copy of the staleness threshold.)_
+- **Status**: Modified  _(Modified: the DaemonSet and StatefulSet reconcilers still read a new store leader's empty heartbeat map as every node having gone dark, so a leader change evicted both kinds cluster-wide. Both now consult NodeFreshness and hold an unconfirmed node rather than evicting it.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang .feature scenario bounces a store leader and asserts node status across it.
-- **Other test coverage (non-Holmgang, informational only)**: `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`.
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/node/NodeFreshness.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`beginNodeObservationWindow`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`noteLeadershipForHeartbeatObservation`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/nodes` `status`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/NodeRow.java`
+- **Other test coverage (non-Holmgang, informational only)**: `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`. `DaemonSetReconcilerTest#a_store_leader_election_does_not_tear_down_a_healthy_daemonset`, `#a_node_that_stays_unheard_from_past_the_grace_window_is_still_evicted`, `#a_store_read_that_throws_mid_tick_publishes_nothing_and_converges_on_a_later_tick`; `StatefulSetReconcilerTest#a_store_leader_election_does_not_evict_an_index_from_the_node_running_it`, `#an_index_that_is_genuinely_unheard_from_is_still_released`, `#an_election_does_not_restart_an_indexs_readiness_stabilization_timer`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/node/NodeFreshness.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`beginNodeObservationWindow`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`noteLeadershipForHeartbeatObservation`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/nodes` `status`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/NodeRow.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java` (`isUnconfirmedRatherThanGone`, `ineligibilityReason`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`
+
+#### GIMLE-849 — `/health` answers from a background store probe rather than dialing the store inline
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Fixed. `/health` called `storeClient.listTenants()` on the caller's own thread, so it inherited `StoreClient`'s full leader-search worst case: with no reachable leader the endpoint answered nothing at all for as long as that search ran, and a caller cannot act on silence -- enough silent handlers also pile up against the server's own admission budget. A single-threaded `controlplane-store-probe` now refreshes a `StoreProbeResult` on a fixed *delay* (`gimle.controlplane.health.storeProbeIntervalMillis`, 2s), and the handler reads only the last completed one. A probe older than `gimle.controlplane.health.storeProbeMaxAgeMillis` (15s) is itself evidence the store cannot be reached and is reported DOWN with how stale it is, rather than waited on. `start()` submits the first probe to that thread and waits at most two seconds for it, so a reachable store makes the very first `/health` answer about reality while an unreachable one delays startup by that bound alone.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario polls /health while the store is down. To close: extend the partition-tolerance feature to assert /health answers DOWN within a bounded time while the control plane is cut off.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerHealthTest#health_answers_503_quickly_once_the_store_is_gone_instead_of_hanging` (asserts both the 503 and that it arrives well inside the store's own worst case)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`refreshStoreProbe`, `StoreProbeResult`, `handleHealth`, `start`)
+
+#### GIMLE-850 — An operator can label a running node, and the label counts for placement
+
+- **Category**: Scheduling
+- **Status**: New  _(New requirement: Implemented. A node's labels came only from its own launch configuration, so `placement.requiredLabels` could be satisfied only by relaunching that agent -- and the gateway's own edge-labelled DaemonSet could therefore never run on a cluster whose launch configuration an operator cannot reach. `NodeRegistration` now carries a second, separate `operatorLabels` set alongside the node's self-reported `capabilities().labels()`, with `effectiveLabels()` the union that placement matches against; keeping the two halves apart is what lets a node re-register -- which replaces its whole self-reported half -- without discarding what an operator applied. `PUT /nodes/{nodeId}/labels` replaces the operator half declaratively (`{"labels": [...]}`), 404s for a node that was never registered, and is deliberately excluded from the node self-service authorization short-circuit: a node that could label itself could grant itself the very labels placement uses to keep workloads off it. `gimle label node <id> <label>[ <label>-]` reads the current set and folds its edits into it, using kubectl's trailing-`-` shorthand for a removal. `NodeCandidateSource` builds each candidate from `effectiveLabels()`, and `GET /nodes` reports `labels`/`reportedLabels`/`operatorLabels` separately.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario labels a running node. To close: extend scheduling.feature with a requiredLabels deployment that is unplaceable until `label node` is issued.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest#an_operator_can_label_a_running_node_and_the_label_counts_for_placement`, `#a_re_registering_node_keeps_the_labels_an_operator_applied_to_it`, `#labelling_a_node_that_was_never_registered_is_a_404`; `CliOutputContractTest#label_node_reads_the_nodes_current_labels_and_applies_its_edit`
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/NodeRegistration.java` (`operatorLabels`, `effectiveLabels`, `withOperatorLabels`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleNodeLabels`, `handleRegister`, `nodeJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/NodeCandidateSource.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java` (`label`), `GimleCli#handleLabel`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+
+#### GIMLE-852 — A Service declaring no tenant defaults to the default tenant, so it can front its deployments
+
+- **Category**: Networking
+- **Status**: New  _(New requirement: Fixed. A workload manifest that omits `tenantId` resolves to the `default` tenant, but `POST /services` kept `Optional.empty()` for an omitted or blank one -- so such a Service joined against an untenanted namespace no workload can ever land in, and `GET /services/{name}/endpoints` reported no endpoints for any deployment it named, in any port configuration, with nothing anywhere to say why. There is no instance to report an exclusion about, so the failure was entirely silent. An omitted or blank `tenantId` now resolves to `Tenant.DEFAULT_TENANT_ID`, the same defaulting every workload kind already applies.)_
+- **Coverage**: Not Covered
+- **Gap note**: service-fabric.feature resolves a Service endpoint for a hosted module, but every workload in it names a tenant. To close: repeat that scenario with both the Deployment and the Service untenanted.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerServicesTest#a_service_declaring_no_tenant_fronts_a_deployment_that_declared_none_either`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleServicesPost`)
+
+#### GIMLE-856 — Quota, LimitRange and `policy.maxReplicasPerDeployment` bind on the `default` tenant too
+
+- **Category**: Admission / Multi-tenancy
+- **Status**: New  _(New requirement: Fixed. `TenantQuotaPlugin`, `LimitRangePlugin`, `PolicyConfigPlugin`, `QuotaReconciler` and `LimitRangeReconciler` all gated on `Tenant#isEnforceable`, which treats `default` as no tenant at all -- so a quota, limit range or replica ceiling an operator explicitly set on `default` was stored, reported back on `GET /tenants` and `get limitranges`, and never checked against a single submission or a single reconcile tick. A constraint binds because an operator wrote it, not because of which tenant it names, so each of the five now keys on whether the constraint actually exists for the tenant (`spec.tenantId().isPresent()`), the `default` tenant included. The two rejections that are not a measured overage -- an absent tenant row, an artifact the control plane cannot read -- stay narrowed to a deliberately-named tenant (`TenantQuotaPlugin#unverifiable`), because refusing an untenanted workload for an unreadable jar that only ever has to exist on the node running it would break the ordinary local `artifactPath` path. The instance-count dimension is checked even for an unreadable artifact, since it needs no descriptor. A CronJob firing that admission refuses now answers 409 saying either the concurrency policy or an admission check refused it.)_
+- **Coverage**: Not Covered
+- **Gap note**: quota-and-admission.feature and limitrange.feature both create a named tenant first. To close: repeat either against the `default` tenant with no tenantId on the workload.
+- **Other test coverage (non-Holmgang, informational only)**: `TenantQuotaPluginTest#a_quota_an_operator_set_on_the_default_tenant_is_enforced`, `#a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected`; `LimitRangePluginTest#a_min_request_bound_set_on_the_default_tenant_is_enforced`; `PolicyConfigPluginTest#a_ceiling_configured_on_the_default_tenant_is_enforced`; `QuotaReconcilerTest`/`LimitRangeReconcilerTest` gained the matching default-tenant pairs (violating and within-bounds); `ApiServerTest#a_submission_past_the_default_tenants_quota_is_rejected`, `#a_replica_ceiling_configured_on_the_default_tenant_is_enforced`, `#a_limit_range_min_request_on_the_default_tenant_is_enforced`, `#a_cronjob_firing_past_the_default_tenants_quota_materializes_no_job`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java` (`unverifiable`, `overQuota`), `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `PolicyConfigPlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`, `LimitRangeReconciler.java`, `gimle-core/src/main/java/com/gimle/core/tenant/Tenant.java` (`isEnforceable` javadoc), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleCronJobTrigger`)
+
+#### GIMLE-857 — A LimitRange body declaring no usable bound, or an unrecognized field, is refused
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Fixed. `PUT /limitranges/{tenantId}` read the four bound keys straight out of the body and ignored everything else, so a body spelled with the flat flag names `gimle set limitrange` uses (`minRequestMemory`) stored a LimitRange bounding nothing while reporting success -- the worst of the three possible outcomes, since the mistake surfaces later only as a workload that should have been refused running happily. Unrecognized fields are now rejected with 400 naming them and the nested `{memory, cpu}` shape a bound actually takes; a body declaring none of the four bounds is rejected too, pointing at `DELETE /limitranges/{tenantId}` as the unambiguous way to remove a tenant's bounds; and a body echoing `tenantId` is accepted only when it agrees with the path. `boundFromJson` requires both halves of a bound together, since `ResourceSpec` has no representation for a memory-only floor.)_
+- **Coverage**: Not Covered
+- **Gap note**: limitrange.feature applies well-formed ranges only. To close: submit a flag-shaped body and assert the 400 plus that no range is stored.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerLimitRangesTest#a_body_using_flat_flag_shaped_field_names_is_rejected_rather_than_silently_dropped`, `#a_body_declaring_no_bound_at_all_is_rejected`, `#a_body_echoing_the_path_tenant_id_is_accepted_but_a_disagreeing_one_is_not`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutLimitRange`, `boundFromJson`, `LIMIT_RANGE_BOUND_KEYS`)
+
+#### GIMLE-861 — An artifact push or delete through the control plane names the artifact it affected in the audit trail
+
+- **Category**: Authorization / API Server
+- **Status**: New  _(New requirement: Fixed. `handleArtifactsProxy` authorized every push and delete with no target at all, so the audit row it recorded named the actor, the verb and the time but never which artifact -- and with several callers pushing at once, timestamp correlation was the only way left to work out what had been written or removed. `artifactCoordinateOf` now reads the `moduleId:version` straight out of the request path (absent for the catalog and per-module listings, which name no single artifact) and passes it as the authorization target, so it lands in the audit record.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads the audit trail after an artifact write. To close: push through the proxy and assert `gimle audit` names the coordinate.
+- **Other test coverage (non-Holmgang, informational only)**: None directly: the audit target itself is not asserted by a control-plane test. The equivalent coordinate-naming on the registry's own side is covered by `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleArtifactsProxy`, `artifactCoordinateOf`)
+
+#### GIMLE-862 — A shortfall count is never negative, and a DaemonSet's desired count covers what the same tick keeps placed
+
+- **Category**: Reconciliation / API Server
+- **Status**: New  _(New requirement: Fixed. `unplacedCount` was published as a raw `desired - instances.size()` for Deployments, StatefulSets and DaemonSets alike, and a scale-down releases one index per tick by design -- so instances legitimately outnumber the target for a few ticks and the subtraction published a negative count of "how many are still missing". All three are now clamped at zero. The DaemonSet's published `desired` had the mirror-image problem: `DaemonSetReconciler` counted only currently-eligible nodes while the same tick deliberately kept assignments on nodes it was holding rather than evicting, so desired disagreed with the assignments that tick itself chose to keep. It now counts the eligible nodes plus the held ones, and is written after that tick's evictions and rollout step and before any new placement -- the one ordering in which a tick that aborts partway can only leave desired at or above what is actually placed.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads status during a scale-down. To close: scale a deployment down and assert unplacedCount stays non-negative across the ticks that follow.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerUnplacedReasonTest#more_instances_than_replicas_reports_no_unplaced_rather_than_a_negative_count`; `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`, `deploymentStatus`, `statefulSetStatus`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java` (desired count publication)
+
+#### GIMLE-868 — A placed instance that never started is reported as not running, in the API and in the CLI's health column
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Fixed. A placed instance reports nothing at all when its node refused to start it, and every status surface judged health from the agent-reported observation alone -- so such a workload read back as fully healthy: every index accounted for, nothing unplaced, and simply no observation where a live one would be, which is precisely the state an operator most needs told. `ApiServer#notRunningReason` now reports an instance that is placed, has no current observation, and whose newest timeline entry is a `TRANSITION_FAILED`, as `notRunningReason` on the instance entry plus a `notRunningCount`/`notRunningReason` rollup on the Deployment, StatefulSet and DaemonSet status, and as a Job run's own `reason`. It is deliberately conditioned on a recorded failure rather than on the missing observation alone -- an instance placed moments ago has legitimately not reported yet, and flagging that would flag every fresh deployment for its first seconds. `gimle get deployments|statefulsets|daemonsets` count such an instance toward their unhealthy column instead of rendering HEALTHY.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario produces a placed-but-refused instance. To close: place a workload a node cannot start and assert `get deployments` reports it unhealthy.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerNotRunningReasonTest#a_placed_replica_whose_node_refused_to_start_it_is_reported_as_not_running`, `#a_placed_replica_that_has_simply_not_reported_yet_is_not_called_not_running`, `#only_the_index_the_refusal_was_recorded_against_is_counted`; `DeploymentsCommandTest#the_health_column_reports_unhealthy_for_a_replica_its_node_refused_to_start`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`notRunningReason`, `putNotRunningRollup`, deployment/statefulset/daemonset/job status), `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `StatefulSetsCommand.java`, `DaemonSetsCommand.java`
+
+#### GIMLE-875 — An unknown Ingress route kind is rejected naming the kinds a manifest may declare
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Fixed. `ingressRuleFromJson` called `IngressRule.Kind.valueOf` directly, and that method's own failure message names the fully-qualified enum class -- which tells whoever wrote the manifest nothing about what they should have written. `ingressRouteKind` now catches it and lists the route kinds a manifest may declare.)_
+- **Coverage**: Not Covered
+- **Gap note**: workload-manifests.feature rejects an unrecognized manifest kind, not an unrecognized route kind. To close: apply an Ingress with a bad route kind and assert the message lists the legal kinds.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerIngressesTest#a_route_naming_an_unknown_kind_is_refused_without_leaking_an_internal_class_name`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`ingressRouteKind`)
+
+#### GIMLE-879 — An alert rule declaring no tenant is keyed under the default tenant, and a rule watching nothing says so once
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. `POST /alertrules` kept `Optional.empty()` for an omitted `tenantId`, but a workload manifest's own omitted tenant already resolves to `default` -- so an untenanted rule watched a namespace no deployment can be in, averaged zero forever, never crossed a `GREATER_THAN` threshold, and sat permanently at `known: false`. An omitted tenant now resolves to the default tenant, the same defaulting every workload kind applies. Separately, `AlertReconciler#reportUnmatchedDeployment` now warns once when a rule evaluates against no live observation at all -- the deployment does not exist under its tenant, has no placed instance, or has not heartbeated yet -- since evaluating against an average of zero is otherwise indistinguishable from healthy. It is de-duplicated per rule (and cleared once readings appear), so a rule pointed at a misspelled name does not repeat the same warning every tick forever.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario creates an alert rule. To close: create an untenanted rule on an untenanted deployment and assert it fires under load.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerAlertRulesFiringTest#a_rule_created_with_no_tenant_evaluates_against_the_default_tenants_deployment`; `AlertReconcilerTest#a_rule_watching_a_deployment_nothing_reports_for_says_so_once`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (alert-rule tenant defaulting), `gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertReconciler.java` (`reportUnmatchedDeployment`)
+
+#### GIMLE-881 — The control plane starts a server span for every request it serves
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. Nothing in the control-plane process ever began a trace: its exporter and shipper were wired, and there were no spans to ship. Every request now runs inside a `ServerSpan` started by `GimleTracing#startServerSpan`, named for the verb and endpoint it hit and carrying the endpoint and method as attributes. The span is ended in the handler's own `finally` rather than by try-with-resources, so it carries the status the handler actually produced -- a resource is closed before that status can be read -- and a server error marks the span failed. It is a no-op until a tracer provider is installed, so a process shipping nowhere pays nothing.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads the control plane's own trace history. To close: make an API call and assert a CONTROLPLANE span for it appears in Muninn.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTracingTest#a_served_request_produces_a_span_naming_the_endpoint_it_hit`; `GimleTracingServerSpanTest#a_started_server_span_reaches_the_installed_exporter_with_its_endpoint_and_status`, `#a_server_error_marks_the_span_as_failed`, `#a_span_started_before_installation_is_inert_and_does_not_block_a_later_installation`
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/GimleTracing.java` (`startServerSpan`), `ServerSpan.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`)
+
+#### GIMLE-882 — `-Dgimle.controlplane.muninnEndpoint` is honoured alongside the command-line flag
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. `ControlPlaneMain` accepted a Muninn endpoint only as `--muninn-endpoint`, while every other shipping process kind reads its own `-D{process}.muninnEndpoint` property -- so a control plane started any way other than with that flag spelled out shipped its metrics and traces nowhere, with nothing to say so. `resolveMuninnEndpoint` now takes the command line first, then the system property, then nowhere; a blank on either side means unset rather than an endpoint named the empty string, so the callers downstream keep testing for null alone. The usage line names the property alongside the flag.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario configures the control plane through the property form. To close: boot a topology that sets only the property and assert control-plane metrics reach Muninn.
+- **Other test coverage (non-Holmgang, informational only)**: `ControlPlaneMainTest#command_line_endpoint_wins_over_the_system_property`, `#system_property_supplies_the_endpoint_when_no_flag_was_given`, `#blank_command_line_endpoint_falls_back_to_the_system_property`, `#unset_on_both_sides_ships_nowhere`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`resolveMuninnEndpoint`)
+
+#### GIMLE-886 — A deployment blocked by its artifact says whether it was rejected or unreadable, and why
+
+- **Category**: Reconciliation / Orchestration
+- **Status**: New  _(New requirement: Fixed. `DeploymentReconciler` recorded every artifact-resolution failure as `artifact unreadable: <path>`, which reads to an operator as a broken or missing file even when the file is fine and the platform refused its manifest -- two different problems with different fixes. The reason now distinguishes `artifact rejected:` (a `GimleManifestException`) from `artifact unreadable:` and carries the underlying message. That also matters for de-duplication: the durable event is keyed on its own message, so a second, unrelated failure on the same instance was previously swallowed as a repeat of the first.)_
+- **Coverage**: Not Covered
+- **Gap note**: registry-deploy.feature covers successful coordinate deploys. To close: deploy a jar with a malformed descriptor and assert the reported reason distinguishes rejection from unreadability.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentReconcilerTest#a_rejected_manifest_is_recorded_as_a_rejection_carrying_its_own_reason`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`recordArtifactFailure` call site)
+
+#### GIMLE-893 — `GET /nodes/{nodeId}` serves a single node read
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Implemented. `/nodes/{nodeId}` with no action segment answered 400 `expected /nodes/{nodeId}/register|heartbeat|assignments`, so the only way to read one node was to list every node in the cluster -- which `gimle label node` needs to do on every edit. A GET with no action now serves that node's full read shape, authorized exactly like the listing (`ResourceKind.NODE` READ, with the node's own id as the target so the node self-service path still reaches it), 404 for a node that was never registered and 405 for any other method. The shape itself is built by a shared `nodeJson`, used by both the listing and the single read, so the two can never drift into describing the same node differently.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads a single node. To close: assert `GET /nodes/{id}` matches the entry the listing reports for it.
+- **Other test coverage (non-Holmgang, informational only)**: `CliOutputContractTest#a_nodes_taint_reads_back_identically_in_the_table_and_in_json`, `#label_node_reads_the_nodes_current_labels_and_applies_its_edit` (which drives the single-node read end to end)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleNodeRead`, `nodeJson`)
+
+#### GIMLE-895 — An instance event is filed only under a workload that exists
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. Deleting a workload wipes the instance timelines it owned, but its instances are only torn down afterwards, so their last few lifecycle events arrive with nothing left to own them -- and were filed anyway. A deleted occupant's STOPPING/UNINSTALLED pair therefore reappeared underneath the fresh timeline of whatever was next created under the same name and index. `handleAppendInstanceEvent` now asks `workloadSpecsNamed` whether any Deployment, Job, DaemonSet or StatefulSet of that name currently exists at all -- a question `resolveTenantForWorkloadName` cannot answer on its own, since it collapses "no such workload" and "found, but untenanted" into the same empty result -- and discards the event when none does, reporting the discard rather than an error. A live workload's own teardown events are still recorded, including one whose assignment is already gone, which is filed under its spec's tenant.)_
+- **Coverage**: Not Covered
+- **Gap note**: deployment-lifecycle.feature checks the event log's cap and ordering, not name reuse. To close: delete and immediately recreate a deployment and assert the new timeline holds no pre-deletion events.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerInstanceEventOwnershipTest#a_reused_name_never_inherits_the_deleted_occupants_closing_events`, `#an_event_for_a_workload_that_does_not_exist_is_discarded_not_filed`, `#a_live_workloads_own_teardown_events_are_still_recorded`, `#a_closing_event_with_no_assignment_left_is_filed_under_the_specs_tenant`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAppendInstanceEvent`, `workloadSpecsNamed`, `resolveInstanceEventTenant`)
+
+#### GIMLE-896 — A CronJob reports its last real firing separately from how far its schedule has been evaluated
+
+- **Category**: Reconciliation / API Server
+- **Status**: New  _(New requirement: Fixed. `cronJobStatus` reported the reconciler's stored schedule cursor as `lastScheduleTime`. That cursor is stamped with the current time the very first time a CronJob is reconciled at all, and keeps advancing past every instant that comes due while the CronJob is suspended -- so a CronJob that had never produced a single Job reported a last schedule time, and a suspended one reported times at which nothing ran. `lastScheduleTime` is now derived from the generated Jobs themselves (each is named `{cronJobName}-{epochSeconds}`, so their own names carry the firing times) and is absent when nothing has ever fired. The cursor is still worth surfacing -- an operator asking why nothing has fired wants to know how far the schedule has been evaluated -- and is reported alongside as `scheduleEvaluatedThrough`, under a name that says what it is. A CronJob never reconciled at all reports neither field.)_
+- **Coverage**: Not Covered
+- **Gap note**: workload-manifests.feature covers CronJob parsing and the day-of-month/day-of-week quirk, not the reported status fields. To close: suspend a fresh CronJob and assert it reports no lastScheduleTime.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerCronJobStatusTest#a_cronjob_reports_the_time_of_the_newest_job_it_actually_generated`, `#a_suspended_cronjob_that_never_fired_reports_no_last_schedule_time`, `#another_cronjobs_generated_jobs_are_never_mistaken_for_this_ones`, `#a_cronjob_never_reconciled_at_all_reports_neither_field`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`cronJobStatus`, `lastFiringTime`, `firingTimeOf`)
+
+#### GIMLE-901 — `GET /trace/{traceId}` and `gimle trace <traceId>` follow a whole trace, wherever it ran
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Implemented. Following a trace previously meant paging backwards through each process's own history in turn, which requires already knowing which processes were involved and stops answering once any of them is busy. `GET /trace/{traceId}` proxies Muninn's cross-process search, merging what every configured Muninn replica holds and reporting whether the search hit its limit. `gimle trace <traceId> [--limit N]` prints the spans it returns, and the console's Traces screen follows a trace through this one search rather than many per-process walks -- so a span whose parent is missing now genuinely means the parent was never recorded, since the search covers every process that has shipped.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario follows a trace. To close: drive a cross-worker call and assert `gimle trace` returns both hops.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`; `HistoryCommandTest` covers the CLI verb; `tracesHistory.test.ts` and `-trace-follow.test.ts` cover the console's single-search follow.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/trace/` route), `gimle-controlplane/src/main/java/com/gimle/controlplane/muninn/MuninnClient.java` (trace search), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`runTraceSearch`, `traceUsage`), `GimleCli`, `gimle-console/src/repositories/http/tracesHistory.ts`, `src/routes/-trace-follow.ts`, `src/routes/traces.tsx`
+
+#### GIMLE-902 — A history read forwards the backward-paging parameters instead of dropping them at the proxy hop
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. The `/metrics-history/*` and `/traces-history/*` proxy forwarded only some of the query it received, so a read carrying a backward cursor was served the newest page again -- paging back never advanced. The proxy now forwards the paging parameters through to Muninn, and the CLI sends `--limit` as a query parameter rather than trimming an already-fetched response client-side, so a limit bounds what is read rather than what is displayed.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario pages a process history. To close: ship more than one page of metrics and assert the second page is older.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`; `HistoryCommandTest` asserts the limit travels as a query parameter
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (history proxy query forwarding), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`run`)
 
 ### gimle-fafnir
 
@@ -5276,6 +5669,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: FafnirServerSecretMapTest, ApiServerSecretMapTest
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSecrets`'s SecretMap-key guard)
 
+#### GIMLE-853 — Retiring a secrets key that still encrypts stored data is refused, and `gimle secret rewrap` re-encrypts under the active key
+
+- **Category**: Secrets Management
+- **Status**: New  _(New requirement: Implemented. Retirement destroys a key's material, and nothing checked whether anything still needed it: a value stored under an older key became permanently unreadable the moment that key was retired, with no warning at any point. `SecretStore#countEncryptedUnder` now counts every stored version still sealed under the key being retired, and retirement is refused while that count is non-zero, naming how many values would be lost (`GimleSecretsException#keyStillEncryptsData`) and pointing at the remedy. That remedy is new: `POST /secrets/rewrap` re-encrypts every stored version not already under the active key, without minting a new key the way `rotate-key` does, and is idempotent -- a second run finds nothing to do and reports zero. The control plane proxies it through the same global secrets-admin gate `rotate-key` and `retire-key` already use (`forwardGlobalAdminRoute`), and `gimle secret rewrap` reports how many values it moved.)_
+- **Coverage**: Not Covered
+- **Gap note**: secrets-and-pki.feature covers rotation but never retirement or rewrap. To close: extend it to retire the pre-rotation key, assert the refusal, rewrap, and retire successfully.
+- **Other test coverage (non-Holmgang, informational only)**: `SecretStoreTest#a_value_left_under_an_older_key_blocks_retirement_until_it_is_rewrapped`, `#rewrapping_again_finds_nothing_left_to_do`, `#rotation_leaves_nothing_encrypted_under_the_key_it_moved_off`; `FafnirServerSealTest#retiring_a_symmetric_key_is_refused_while_a_value_is_still_encrypted_under_it`; `FafnirCryptoTest` proves a retirement survives a cold reload and is scoped to the one key.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`countEncryptedUnder`, `rewrapAll`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleRewrapSecrets`, `handleRetireSecretsKey`), `gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`keyStillEncryptsData`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRewrapSecretsProxy`), `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`rewrap`)
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -5431,11 +5833,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-313 — Dual audit logging for push/delete decisions
 
 - **Category**: Internal-Infra / Authorization
-- **Status**: Active
+- **Status**: Modified  _(Modified: plaintext mode skipped both audit halves entirely, so a push in that mode left no trace at all, and neither half named which artifact was written or removed. Both are now written in plaintext mode too, carrying the coordinate and the artifact's tenant.)_
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Dual audit logging for push/delete decisions" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `andvari`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: Exercised via `AndvariServerTlsTest`'s auth test set
-- **Source location(s)**: `AndvariServer.recordAudit`, `authorizeArtifacts`
+- **Other test coverage (non-Holmgang, informational only)**: Exercised via `AndvariServerTlsTest`'s auth test set `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate` covers the plaintext path and the coordinate directly.
+- **Source location(s)**: `AndvariServer.recordAudit`, `authorizeArtifacts`, `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`recordAudit` with target and tenant, plaintext-mode audit)
 
 #### GIMLE-314 — Andvari's own console session story (`/auth/*`, bundled SPA)
 
@@ -5508,6 +5910,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by AndvariServerMavenRepositoryTest, but no Holmgang Cucumber .feature scenario drives a real mvn resolve against Andvari. To close: add a scenario resolving a published coordinate through the Maven surface.
 - **Other test coverage (non-Holmgang, informational only)**: AndvariServerMavenRepositoryTest
 - **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleRepositoryFile`, `handleRepositorySidecar`, `handleRepositoryChecksum`, `handleRepositoryMetadata`, `isHead`, `respondNotFoundOrHeaders`, `respondTextOrHeaders`)
+
+#### GIMLE-858 — A failed peer-sync or registry call names its real cause instead of the literal text `null`
+
+- **Category**: Artifact Registry
+- **Status**: New  _(New requirement: Fixed. The JDK HTTP client reports an unresolvable host as a `ConnectException` carrying no message at all, and both `AndvariPeerSync`'s warning and the control plane's own registry-unreachable reason interpolated `getMessage()` directly -- so the single line an operator has to diagnose from read `peer sync from ... failed: null`. A shared `Failures#describe` renders the exception's own type name (and its cause's, where the message is absent) instead, and both sites also log the throwable. Two adjacent leaks were closed in the same path: an interrupted sync now restores the flag and abandons the pass rather than walking the remaining peers and emitting a burst of identical failures, and a peer answering non-200 for a download has its streaming body closed explicitly rather than leaving the connection held until collection.)_
+- **Coverage**: Not Covered
+- **Gap note**: observability-registry-ha.feature exercises two healthy replicas. To close: point one replica at an unresolvable peer and assert the reported reason names the cause.
+- **Other test coverage (non-Holmgang, informational only)**: `AndvariPeerSyncResilienceTest#an_unresolvable_peer_is_logged_with_its_real_cause_and_never_wedges_the_syncer`, `#a_peer_whose_downloads_keep_failing_leaves_this_replica_able_to_sync_again`; `AndvariClientTest#an_unresolvable_registry_host_is_reported_with_its_real_cause`
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/Failures.java`, `gimle-andvari/src/main/java/com/gimle/andvari/AndvariPeerSync.java` (`syncQuietly`, `sync`, `syncFrom`), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`
 
 ### gimle-muninn
 
@@ -5604,10 +6015,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-329 — Windows-safe on-disk path sanitization for colon-bearing processId
 
 - **Category**: Internal/Infra
-- **Status**: Active
+- **Status**: Modified  _(Modified: the colon substitution became the reversible `%3A` escape, so a cross-process search reading process ids from a directory listing recovers them exactly.)_
 - **Coverage**: Not Covered
 - **Gap note**: Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise "Windows-safe on-disk path sanitization for colon-bearing processId" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `muninn`'s own unit test does.
-- **Other test coverage (non-Holmgang, informational only)**: `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error`
+- **Other test coverage (non-Holmgang, informational only)**: `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error` `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape`.
 - **Source location(s)**: `MuninnDayFileStore.java#resolveSubtree`, `MuninnServer.java#PROCESS_ID_SEGMENT`
 
 #### GIMLE-330 — Path-segment validation / directory-traversal defense
@@ -5726,6 +6137,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No .feature exercises retention sweeping at all. Covering this needs a scenario with short per-signal windows asserting differential deletion against a real Muninn replica.
 - **Other test coverage (non-Holmgang, informational only)**: RetentionSweeperTest: each subtree swept on its own cutoff, a signal without an override follows the global window, an unknown subtree follows the global window, and sweeping twice or sweeping a missing data root stays a safe no-op.
 - **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/{RetentionPolicy,RetentionSweeper,MuninnMain}.java`
+
+#### GIMLE-900 — Every span of one trace is found across processes in a single read
+
+- **Category**: Tracing
+- **Status**: New  _(New requirement: Implemented. A trace is the one thing here that is inherently cross-process: a cross-worker call puts the caller's span in one process's history and the callee's in another, and neither knows the other's identity. Assembled from the per-process read route alone, following a trace meant paging backwards through every process a caller could name -- which silently stops working once any of them is busy enough to have paged past the span, and can never reach a process the caller cannot name at all (a worker replaced since the call still has its shipped history under the id it had then). Both failures look exactly like the span never existing. `MuninnDayFileStore#findSpansByTraceId` now walks every process that has ever shipped traces, oldest first, capped at a caller-supplied limit and reporting when it hit that cap rather than quietly returning a slice; each line is pre-filtered by a plain substring test before being parsed, and the exact `traceId` field is still compared afterwards so an id appearing in another field never counts. The on-disk `:`-escaping in a process-id directory name became the reversible `%3A` in the same change, because a cross-process search has no request URL to read the process id off and a lossy directory name would leave it unable to say which process a span ran on. The read is authorized exactly like every other read here, against `ResourceKind.LOGS`.)_
+- **Coverage**: Not Covered
+- **Gap note**: observability-registry-ha.feature reads shipped data per process, not by trace. To close: drive a cross-worker call and assert one trace search returns both hops.
+- **Other test coverage (non-Holmgang, informational only)**: `MuninnServerTraceSearchTest#both_hops_of_a_cross_worker_call_come_back_from_one_search`, `#a_span_a_busy_worker_has_paged_past_is_still_found_by_trace_id`, `#a_trace_nothing_ever_shipped_a_span_for_comes_back_empty_rather_than_missing`, `#a_trace_id_that_is_not_32_hex_characters_is_rejected_before_touching_the_filesystem`, `#a_search_that_hits_its_limit_says_so_rather_than_quietly_returning_a_slice`; `MuninnServerReadAuthzTest` covers the authorization; `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape`
+- **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/MuninnDayFileStore.java` (`findSpansByTraceId`, `TraceSpanHit`, `decodeProcessId`), `gimle-muninn/src/main/java/com/gimle/muninn/MuninnServer.java` (trace-search route)
 
 ### gimle-observability
 
@@ -5901,6 +6321,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No .feature asserts trace volume or sampling. Covering this needs a scenario setting a ratio on a real cluster and asserting the shipped span count through /traces-history/*.
 - **Other test coverage (non-Holmgang, informational only)**: GimleTracingSamplingTest (new): default ratio records everything, a configured ratio is honoured on every install path, an out-of-range or non-numeric ratio is rejected, and a child span follows its parent's sampling decision rather than re-deciding.
 - **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/GimleTracing.java`
+
+#### GIMLE-880 — One source of truth for which process kinds ship metrics and which ship traces, served by the API
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed. The CLI, the console and the API each carried their own hard-coded list of five process kinds for both history surfaces, and all three were wrong in both directions: Skald and Andvari ship metrics and were not offered, while the store, Fafnir, Andvari, Skald and the node agent ship no spans at all yet were offered for traces, where asking could only ever come back empty. `ObservedProcessKind` is now the single enumeration of which kinds ship which signal; the control plane serves it from the new segment-less `GET /metrics-history` and `GET /traces-history` routes and enforces it, rejecting a kind that ships nothing for that surface rather than proxying a read that cannot answer. `HistoryCommand.Surface` carries each surface's own kind list into its validation and usage text, and the console's process picker reads the served lists through `useHistoryKindsStore`, falling back to its full list only when the control plane could not be asked -- and resets a deep link naming a kind the surface has no history for.)_
+- **Coverage**: Not Covered
+- **Gap note**: observability-registry-ha.feature reads shipped data, not the kind catalogue. To close: assert `GET /metrics-history` and `GET /traces-history` list different kind sets against a real cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerMetricsHistoryTest#the_kinds_that_ship_metrics_are_served_by_the_collection_route`, `#a_process_kind_that_never_ships_metrics_is_rejected_rather_than_proxied`; the traces equivalents in `ApiServerTracesHistoryTest`; `HistoryCommandTest#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`; `useHistoryKindsStore.test.ts`, `metricsHistory.test.ts`, `tracesHistory.test.ts`
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/ObservedProcessKind.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleMetricsHistoryKinds`, `handleTracesHistoryKinds`), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`Surface#processKinds`), `gimle-console/src/stores/useHistoryKindsStore.ts`, `src/components/process-picker.tsx`
+
+#### GIMLE-899 — A root span reports no parent rather than the all-zero span id
+
+- **Category**: Tracing
+- **Status**: New  _(New requirement: Fixed. `SpanLineCodec` wrote `span.getParentSpanId()` verbatim, and OpenTelemetry reports the all-zero invalid span id there for a root span rather than the absence of a parent. Every shipped root span therefore named a parent nothing could resolve, so any reader assembling a trace -- the console's trace follow above all -- reported a whole trace as provably incomplete. The parent is now written only when the parent span context is valid; the empty string is the one unambiguous "no parent" this flat line shape can carry.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario assembles a shipped trace. To close: drive a cross-worker call and assert the assembled trace reports no dangling parent.
+- **Other test coverage (non-Holmgang, informational only)**: `SpanLineCodecTest#a_root_span_reports_no_parent_rather_than_the_all_zero_span_id`, `#a_child_span_still_reports_its_own_parents_span_id`
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/SpanLineCodec.java` (`encode`)
 
 ### gimle-gateway
 
@@ -6092,6 +6530,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.
 - **Other test coverage (non-Holmgang, informational only)**: `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`, `gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`
+
+#### GIMLE-863 — A gateway follows its own tenant's Ingresses by default
+
+- **Category**: Gateway/Routing
+- **Status**: New  _(New requirement: Fixed. `GatewayHooks#fetchIngressRoutes` fell back to `Tenant.DEFAULT_TENANT_ID` whenever `gateway.tenantId` was unset, so a gateway deployed into any other tenant polled a tenant it had nothing to do with, filtered every Ingress away, and served no route at all while reporting perfectly healthy. It now falls back to the tenant of the instance it is running as (`ctx.instanceInfo().tenantId()`), and only then to the default tenant. An explicit `gateway.tenantId` still wins, for a gateway deliberately fronting a tenant other than its own.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario deploys a gateway into a non-default tenant. To close: extend a routing scenario with a tenant-scoped gateway and a tenant-scoped Ingress.
+- **Other test coverage (non-Holmgang, informational only)**: `GatewayHooksRouteReloadTest#a_gateway_follows_its_own_tenants_ingresses_without_being_told_which_tenant_it_is_in`, `#an_explicit_gateway_tenant_id_still_wins_over_the_instances_own_tenant`
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`fetchIngressRoutes`)
 
 ### gimle-cli
 
@@ -6431,10 +6878,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-764 — gimle metrics-history and traces-history
 
 - **Category**: CLI
-- **Status**: New  _(New requirement: Fixed: closes FUNC-14. GET /metrics-history/* and GET /traces-history/* were fully wired into the console with zero references anywhere in gimle-cli. One command serves both surfaces through a shared enum matching the proxy's own shape. The process kind is validated locally against the five known kinds and a WORKER id must carry the {nodeId}:{workerId} composite. Only --since is forwarded, being the one parameter the proxy passes on; --limit is applied client-side keeping the newest N of an oldest-first response, the same treatment EventsCommand already gives its own limit and documented as such. Under the table format the resume cursor echoed is the last printed line's own timestamp rather than the envelope's cursor, because the two disagree once --limit truncates and emitting the envelope's value would silently skip records on the next call.)_
+- **Status**: Modified  _(Modified: both history surfaces validated against one wrong list of process kinds, `--limit` trimmed client-side rather than bounding the read, and there was no way to search a whole trace. All three are fixed, and `gimle trace` was added.)_
 - **Coverage**: Not Covered
 - **Gap note**: No .feature scenario invokes gimle-cli or reads shipped history. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured.
+- **Other test coverage (non-Holmgang, informational only)**: HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured. Gained `#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`, and the trace-search cases.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java`
 
 #### GIMLE-765 — gimle context: pointing the CLI at more than one cluster
@@ -6490,6 +6937,51 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Cucumber .feature scenario applies an ArtifactSet with an unreadable member. To close: add a scenario asserting partial publication and the naming of the failed entry.
 - **Other test coverage (non-Holmgang, informational only)**: ArtifactSetCommandTest
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java` (`apply`, `Resolution`, `resolveMembers`), `gimle-cli/src/main/java/com/gimle/cli/ArtifactCommand.java` (`push`'s not-a-module message)
+
+#### GIMLE-870 — `gimle volume destroy` exits non-zero when it reclaimed nothing
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed. The agent had been changed to answer `200 {"destroyed": false}` for a destroy that removed nothing, on idempotency grounds, and the CLI carried that distinction in the printed sentence alone. Reclaiming a volume is irreversible and addressed entirely by a coordinate an operator types out -- node, set, index, tenant -- so a caller that checks only the exit status, which is every shell script, read a no-op as the deletion it asked for. The agent answers 404 again for a destroy that removed nothing, naming the coordinate it looked under, and `VolumesCommand#destroy` turns that into `CliException.notFound`, so the process exits 3. A real reclaim still exits 0.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario runs `volume destroy` against a coordinate with nothing on disk. To close: assert the non-zero exit after a StatefulSet's volumes are already reclaimed.
+- **Other test coverage (non-Holmgang, informational only)**: `VolumeDestroyExitCodeTest#a_destroy_that_removed_nothing_exits_non_zero_rather_than_reporting_success`, `#a_destroy_that_really_removed_a_volume_still_exits_zero`, `#a_destroy_naming_a_tenant_with_no_such_volume_exits_non_zero_too`; `AgentLogServerTest#destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk`, `#destroying_an_already_destroyed_volume_reports_that_it_removed_nothing`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)
+
+#### GIMLE-872 — `gimle logs` prints the stack trace a log line carries
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed. `LogsCommand`'s human rendering built its line from timestamp, level, logger and message alone and dropped the `stackTrace` field the log reader already returns -- so the cause of a failure was recorded, shipped and served, and then thrown away by the one surface an operator reads it through. The trace is now appended under the message when the line carries one; a line without one prints exactly as before.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario asserts on rendered log output. To close: fail a hook and assert `gimle logs` output contains the exception class name.
+- **Other test coverage (non-Holmgang, informational only)**: `LogsCommandTest#a_line_carrying_a_stack_trace_prints_it_under_the_message`, `#a_line_with_no_stack_trace_prints_exactly_as_before`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LogsCommand.java` (`renderLine`)
+
+#### GIMLE-873 — `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed. `IngressCommand#get` decided between the collection and the by-name route on `args.isEmpty()` and then parsed the answer with `getObject` either way -- but the collection route answers with a JSON array, so a bare `get ingresses` died on the cast, and `get ingresses --tenant acme` read `--tenant` as the resource name and asked for an Ingress called that. It now uses the same `GetCommandArgs.split` treatment `get services` already does: no name lists the collection through `getList` and filters client-side by tenant (an Ingress carries `tenantId` at the top level, not nested under a `spec`, since it is not status-wrapped the way a workload kind is), while a name still reads the single object.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads the Ingress collection through the CLI. To close: assert `get ingresses` lists a declared route table.
+- **Other test coverage (non-Holmgang, informational only)**: `IngressCommandTest#get_ingresses_with_no_name_lists_every_declared_ingress`, `#get_ingresses_filters_the_listing_by_tenant_rather_than_reading_the_flag_as_a_name`, `#get_ingress_by_name_still_reports_the_single_object`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java` (`get`, `filterByTenant`)
+
+#### GIMLE-874 — Every ingress apply is guarded by a compare-and-set version
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed. `IngressCommand#apply` forwarded `expectedVersion` only when the manifest happened to declare one, so an ordinary apply carried no guard at all: a resubmit built on a revision another operator had already replaced overwrote it silently and bumped the counter. Every apply now carries a guard supplied by the command itself -- the manifest's own `version` when it declares one, so the guard names exactly the revision its author edited, and otherwise the version read here at this instant, which still refuses a write landing between that read and the POST and keeps the counter from advancing past a revision no client ever saw. A 409 is reported as the stale edit it is, naming the version that was expected. A non-numeric declared `version` is rejected outright.)_
+- **Coverage**: Not Covered
+- **Gap note**: network-policy.feature covers a stale-version refusal for NetworkPolicy, not Ingress, and drives the API rather than the CLI's own guard. To close: apply the same Ingress manifest twice from two revisions and assert the second is refused.
+- **Other test coverage (non-Holmgang, informational only)**: `IngressCommandTest#re_applying_a_manifest_carrying_a_version_someone_else_moved_past_is_refused`, `#an_apply_declaring_no_version_creates_and_then_replaces_the_ingress`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java` (`apply`, `guardVersion`, `currentVersion`, `staleEdit`)
+
+#### GIMLE-894 — `gimle apply -f`'s help names every kind it accepts
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed. `apply`'s usage text and the top-level help both listed six kinds while the dispatcher accepted fifteen, so Service, NetworkPolicy, Ingress, Tenant, LimitRange, Role, RoleBinding and Account were accepted and undocumented. One ordered `BUILT_IN_APPLY_KIND_ORDER` list is now the single source both help surfaces render (wrapped to width by `applyKindLines`), so a kind added to the dispatcher's own switch can no longer stay invisible in the help.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario reads CLI help. To close: assert the help text lists each kind the API accepts.
+- **Other test coverage (non-Holmgang, informational only)**: `ApplyKindCoverageTest#every_non_workload_kind_the_dispatcher_names_really_applies`, `#the_help_text_names_every_kind_apply_accepts`, `#the_apply_usage_names_every_kind_apply_accepts`
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`BUILT_IN_APPLY_KIND_ORDER`, `applyKindLines`, `APPLY_USAGE`)
 
 ### gimle-hilmir
 
@@ -6781,6 +7273,60 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server)
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`
 
+#### GIMLE-851 — A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable
+
+- **Category**: Release Management
+- **Status**: New  _(New requirement: Fixed. `ReleaseReconciler` applied every tenant, config, secret and workload, then waited for convergence, and only wrote the release's revision and meta rows afterwards -- so a `--wait` that timed out left a fully live release with no ledger row at all: `hilmir releases` did not list it, and every teardown path found nothing to tear down. Both `deployFresh` and the upgrade path now write the ledger before awaiting. What the ledger records is what was applied; whether it converged is a separate question, and the caller still sees the wait fail.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario drives `hilmir deploy --wait` to a timeout. To close: deploy a bundle whose module never becomes ready and assert `hilmir releases` still lists it.
+- **Other test coverage (non-Holmgang, informational only)**: `DeployCommandTest#a_wait_that_times_out_still_records_the_release_so_it_can_be_undeployed`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseReconciler.java` (`deployFresh`, upgrade path), `gimle-hilmir/src/main/java/com/gimle/hilmir/release/WaitPoller.java`
+
+#### GIMLE-883 — `hilmir init` and `gimle:init` write generated manifests where the command was run
+
+- **Category**: Build Tooling
+- **Status**: New  _(New requirement: Fixed. `hilmir init` defaulted its output directory to the inspected jar's own parent -- which for the documented workflow is `target/`, a build output directory the next clean build deletes -- and `gimle:init` passed no output directory at all, so it landed there too. `InitCommand` now defaults to the directory the command was run from, and `InitMojo`'s `outDir` parameter is declared as a `File` with a `${project.basedir}` default: Maven evaluates a default value that is exactly one expression to that expression's own type, so a `String` field was simply left null and passed nothing on.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario runs `init`. To close: run the goal in a scratch project and assert the files land in its basedir.
+- **Other test coverage (non-Holmgang, informational only)**: `InitCommandTest#writes_into_the_working_directory_not_beside_the_jar_when_no_out_dir_is_given`; `InitMojoTest#the_out_dir_parameter_takes_its_project_basedir_default_as_a_file`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/init/InitCommand.java` (`currentDirectory`), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/InitMojo.java` (`outDir`)
+
+#### GIMLE-887 — `hilmir plan` rejects an unknown `--machine` the way `up` already does
+
+- **Category**: Release Management
+- **Status**: New  _(New requirement: Fixed. `hilmir up --machine <name>` rejected a name the topology never declares, but `plan --machine <name>` filtered the plan by that name and printed whatever matched -- nothing -- then exited 0. A preview is only worth anything if it rejects exactly what running it would reject. `ClusterPlan#requireMachine` is now the single place that check lives, used by `plan`, `up` and `upgrade-cluster` alike, and names the machines the topology does declare.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang boots topologies programmatically rather than through the hilmir CLI's own flag parsing. To close: run `hilmir plan` against a booted topology with a bad machine name.
+- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest#plan_rejects_a_machine_name_the_topology_never_declares`, `#plan_and_up_reject_an_unknown_machine_name_the_same_way`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/ClusterPlan.java` (`requireMachine`), `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runPlan`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`, `upgrade/UpgradeClusterCommand.java`
+
+#### GIMLE-888 — Every rejected topology document is reported as one coded finding
+
+- **Category**: Release Management
+- **Status**: New  _(New requirement: Fixed. A topology file that was missing, unreadable or structurally rejected threw out of the parser before `TopologyValidator` ever ran, so `hilmir validate` reported it as a bare exception message alongside the coded, severity-tagged findings it otherwise emits -- two output shapes for the same question, and a path named twice in some of them. `CheckedTopology#check` now wraps parsing and validation together, turning a parse failure into a single finding carrying its own severity and code, and `validate`/`plan`/`up`/`upgrade-cluster` all consume that one result.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang boots topologies from its own DSL rather than driving `hilmir validate`. To close: run `validate` against a malformed document and assert the coded output.
+- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest#validate_reports_a_missing_topology_file_as_a_coded_finding_naming_the_path_once`, `#validate_reports_malformed_yaml_as_a_coded_finding`, `#validate_reports_a_structurally_rejected_document_as_a_coded_finding`, `#every_validate_failure_line_carries_a_severity_and_a_code`, `#reports_an_unreadable_topology_file_as_a_clean_error_for_a_verb_without_findings`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/validate/CheckedTopology.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runValidate`, `runPlan`, `runUp`), `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java`, `store/StoreEndpoints.java`, `upgrade/UpgradeClusterCommand.java`
+
+#### GIMLE-890 — A topology may configure a store replica's health port
+
+- **Category**: Release Management
+- **Status**: New  _(New requirement: Implemented. A store replica serves no health endpoint at all unless one is configured -- unlike every other role, whose own primary port already answers a status request -- and the topology schema had no way to name that port, so `StoreMain`'s `--health-port` was unreachable from a `hilmir`-launched cluster. `StoreReplica` gained an optional `healthPort`, parsed from `store.replicas[].healthPort`, validated for range and for collision with every other claimed port on that machine, and passed through as `--health-port` only when it is set: leaving it unset is a real configuration, not a missing value to default.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang's own topologies do not configure a store health port. To close: boot a topology that does and poll the endpoint.
+- **Other test coverage (non-Holmgang, informational only)**: `TopologyParserTest#parses_an_optional_store_health_port_and_leaves_it_unset_when_omitted`; `TopologyValidatorTest#reports_port_conflict_when_a_store_health_port_collides_with_another_claim`; `LaunchPlannerTest#plans_the_store_health_port_flag_only_when_the_topology_configures_one`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/StoreReplica.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/validate/TopologyValidator.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java`
+
+#### GIMLE-891 — `hilmir stop` stops one co-located role, or one process id, on a machine
+
+- **Category**: Release Management
+- **Status**: New  _(New requirement: Implemented. `down` was all-or-nothing per machine, so restarting one co-located role on a machine hosting several meant stopping every process it runs. `hilmir stop --machine <name> (--role <ROLE> | --id <process-id>)` kills exactly the one process and drops that entry alone from the run ledger, leaving every other recorded process running and recorded -- so a later `up` respawns just the stopped one. Exactly one of `--role`/`--id` is required (`--id` is what distinguishes two co-located replicas of the same role), the `WORKER` role is rejected as never hilmir-launched, and a role the machine never ran is reported naming what is actually recorded. It takes `--data-root` rather than `-f`, like `down` and `status`, and `--remote` re-invokes the same verb over SSH.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang stops processes through its own harness rather than the hilmir CLI. To close: drive `hilmir stop` against a booted multi-role machine.
+- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest` (6 cases: the required flags, the role/id exclusivity, a rejected non-role and the WORKER role, a clean error with no ledger, and the usage line); `MachineLauncherStopIntegrationTest#stop_kills_only_the_named_role_and_drops_only_its_ledger_entry`, `#stop_by_id_picks_one_of_two_co_located_replicas_of_the_same_role`, `#stop_leaves_the_ledger_ready_for_a_later_up_to_respawn_just_that_process`; `RunLedgerTest` (3 cases); `RemoteDispatchTest#stop_carries_the_role_or_id_selector_through_to_the_remote_verb`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runStop`, `parseStoppableRole`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`stop`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunLedger.java` (single-entry removal), `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`stop`)
+
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -6936,6 +7482,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SurefireReportsTest`
 - **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SurefireReports.java`
 
+#### GIMLE-884 — `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to
+
+- **Category**: Build Tooling
+- **Status**: New  _(New requirement: Implemented. Neither goal could name a Muninn at all, so a cluster assembled from `gimle:store`/`gimle:controlplane`/`gimle:agent` alongside `gimle:muninn` shipped nothing to it. Both goals gained a `muninnEndpoint` parameter, threaded through as the process's own `-D...muninnEndpoint` property. Deliberately unset by default, unlike the store/Fafnir/Andvari addresses those goals do default: shipping to an address where nothing is listening buys a local-dev session nothing but a retry every interval, and a session that never starts `gimle:muninn` is the common one. The pre-existing Fafnir endpoints on both goals were undocumented and are now listed in the goals reference alongside them.)_
+- **Coverage**: Not Covered
+- **Gap note**: The Maven goals are a local-dev surface Holmgang does not drive (it boots processes directly). To close: exercise it from the documented local-dev walkthrough.
+- **Other test coverage (non-Holmgang, informational only)**: `ControlPlaneMojoTest#threads_the_muninn_endpoint_through_to_control_plane_main`, `#an_unset_muninn_endpoint_leaves_the_flag_off_entirely`
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ControlPlaneMojo.java` (`muninnEndpoint`), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/AgentMojo.java` (`muninnEndpoint`)
+
+#### GIMLE-898 — `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run
+
+- **Category**: Build Tooling
+- **Status**: New  _(New requirement: Fixed. `SagaImportMojo` minted a run id from the wall clock whenever `gimle.saga.runId` was unset, so importing the same surefire reports twice produced two runs describing one test execution, and Saga's cross-run flake ledger counted that execution twice. The id is now a digest of the swept reports' own bytes (`deriveRunId`): nothing outside the report content enters it, so a re-import of an unchanged set folds into the run it already used, while the per-test durations and outcomes recorded inside each report still separate two genuinely different runs. A report's modification time is deliberately not part of the digest.)_
+- **Coverage**: Not Covered
+- **Gap note**: Saga is a build-side tool Holmgang does not drive. To close: exercise it through the documented `gimle:saga-import` workflow.
+- **Other test coverage (non-Holmgang, informational only)**: `SagaImportMojoTest#re_importing_an_unchanged_report_set_folds_into_the_run_id_it_already_used`, `#a_report_set_whose_content_changed_derives_its_own_run_id`, `#the_derived_run_id_ignores_a_reports_modification_time`
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaImportMojo.java` (`deriveRunId`)
+
 ### gimle-console
 
 #### GIMLE-435 — Operator session login / logout
@@ -7067,11 +7631,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-449 — Per-process metrics history (Muninn-backed)
 
 - **Category**: Web Console / Frontend
-- **Status**: Active
+- **Status**: Modified  _(Modified: the process picker offered kinds that ship no history for the surface being read. It now reads the served kind list per signal, with its full list as a fallback only when that read fails.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Per-process metrics history (Muninn-backed)" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
-- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/http/metricsHistory.test.ts`
-- **Source location(s)**: `src/components/metrics-history-panel.tsx`, `src/components/process-picker.tsx`, `src/stores/useMetricsHistoryStore.ts`, `src/repositories/http/metricsHistory.ts`
+- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/http/metricsHistory.test.ts`; `useHistoryKindsStore.test.ts`, `tracesHistory.test.ts`
+- **Source location(s)**: `src/components/metrics-history-panel.tsx`, `src/components/process-picker.tsx`, `src/stores/useMetricsHistoryStore.ts`, `src/repositories/http/metricsHistory.ts`, `gimle-console/src/stores/useHistoryKindsStore.ts`
 
 #### GIMLE-450 — Trace span history viewer
 
@@ -7229,11 +7793,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-647 — Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker
 
 - **Category**: Observability
-- **Status**: New  _(closes the console-side discoverability gap the web-console design doc's own Metrics/Traces section documented ("no worker-discovery API exists either, so the operator supplies the id from elsewhere"))_
+- **Status**: Modified  _(Modified: the worker deep link was only on the instance detail page; the Instances and node detail tables now carry it too.)_
 - **Coverage**: Not Covered
 - **Gap note**: Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.
-- **Other test coverage (non-Holmgang, informational only)**: AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged).
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
+- **Other test coverage (non-Holmgang, informational only)**: AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged). `instances-table.test.tsx` renders the table to static markup and asserts the href the worker column builds.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`, `gimle-console/src/components/instances-table.tsx` (worker column link)
 
 #### GIMLE-664 — Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal
 
@@ -7283,11 +7847,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-741 — A trace can be followed across processes from the console's Traces screen
 
 - **Category**: Web Console / Frontend
-- **Status**: New  _(New requirement: Fixed: closes FUNC-20. The Traces screen was scoped to one process at a time behind a processKind/processId picker, showing a flat span table with a 12-character truncated trace id and no link or navigation to the same trace's spans in another process -- so for the cross-worker case the platform is built around (a consumer's client span and a provider's server span sharing one trace id), the underlying propagation was real but the console fell short of a trace visible end to end. Selecting a trace id now assembles that trace's spans from every worker process the console can name, grouped by process and nested by parent span. Deliberately console-only: no new backend trace-search API was added, so the view works within what GET /traces-history/{processKind}/{processId} already returns plus the process and instance lists the console already loads -- and it states explicitly what the assembled view cannot reach, rather than implying a completeness the data cannot back.)_
+- **Status**: Modified  _(Modified: the console followed a trace by paging backwards through each process separately; it now uses the control plane's one cross-process trace search, and reports a truncated or failed search rather than an incomplete trace.)_
 - **Coverage**: Not Covered
 - **Gap note**: No .feature drives the console. The Playwright suite in gimle-console/e2e is the natural home; it does not yet cover the Traces screen.
-- **Other test coverage (non-Holmgang, informational only)**: gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more.
-- **Source location(s)**: `gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`
+- **Other test coverage (non-Holmgang, informational only)**: gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more. `-trace-follow.test.ts` was rewritten against the single search, and `tracesHistory.test.ts` covers the repository call.
+- **Source location(s)**: `gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`, `gimle-console/src/repositories/tracesHistory.ts` (`searchByTraceId`), `src/repositories/http/tracesHistory.ts`
 
 #### GIMLE-750 — LimitRange management in the web console
 
@@ -7460,6 +8024,42 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-console/src/addons/gateway/store.test.ts
 - **Source location(s)**: `gimle-console/src/addons/gateway/store.ts` (`GATEWAY_MODULE_ID`, `fetchGatewayDaemonSet`, `daemonSetName`), `gimle-console/src/addons/gateway/screen.tsx`
 
+#### GIMLE-876 — A throttled control-plane answer is retried instead of read as a signed-out session
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed. `apiClient` treated any unsuccessful session probe as "nobody is signed in", so a 429 -- which the control plane sends from both its per-address rate limiter and its admission-control path, and which means ask again shortly, never you are anonymous -- signed the operator out mid-session. A throttled request is refused before its handler runs at all, so nothing it would have done has happened and re-sending it is safe for writes as well as reads: the client now retries up to three times, honouring the `Retry-After` the control plane attaches (delta-seconds or HTTP-date) but never waiting less than its own exponential backoff, and surfacing rather than sleeping through a refusal asking for more than three seconds -- a login lockout is meant to be shown, not ridden out under a spinner. `useAuthStore` re-probes on a throttled probe and only reports a signed-out operator once a probe actually answers.)_
+- **Coverage**: Not Covered
+- **Gap note**: console-security.feature asserts the server throttles repeated failed logins; nothing drives the console's own retry. To close: throttle an ordinary read and assert the console stays signed in.
+- **Other test coverage (non-Holmgang, informational only)**: `apiClient.test.ts` (10 cases: retry and return the retried body, wait out Retry-After, bounded retries, surface a long wait, backoff without a header, delta-seconds and HTTP-date parsing); `auth.test.ts` and `useAuthStore.test.ts` cover the session probe riding out a throttle and settling on the principal the retry returns.
+- **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts` (`isThrottled`, `throttleDelayMs`, retry loop), `gimle-console/src/stores/useAuthStore.ts`
+
+#### GIMLE-877 — An unread kind catalog is not reported as a cluster with no custom kinds
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed. The Custom Resources screen rendered one empty state for three different situations -- read still in flight, read refused, and a cluster that genuinely defines no custom kinds. "No custom kinds defined" is a claim about the cluster, and only a read that actually came back empty supports it. `kindListEmptyReason` now distinguishes loading, unreadable and none-defined from the store's own `loading`/`catalogLoaded`/`error` triple, and the screen renders each accordingly; it also re-reads on the same auto-refresh interval its sibling screens use, so a first read the control plane refused does not stand as the answer for the rest of the session -- and the poll never raises the loading flag, so the table is not blanked mid-glance.)_
+- **Coverage**: Not Covered
+- **Gap note**: custom-kinds.feature drives the API, not the console screen. To close: add a console case (Playwright) asserting the unreadable state against a refused catalog read.
+- **Other test coverage (non-Holmgang, informational only)**: `-custom-resources.test.ts` (5 cases across the three reasons, including a failed re-read after an earlier success); `useCustomResourcesStore.test.ts` covers the poll re-reading the catalog and the selected kind's rows without blanking the table.
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx` (`kindListEmptyReason`, `EmptyKindList`), `gimle-console/src/stores/useCustomResourcesStore.ts`
+
+#### GIMLE-878 — The console dev server proxies every API prefix its repositories use
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed. `vite.config.ts` proxied only some of the prefixes the repositories actually call, and Vite answers an unproxied path with `index.html` -- which parses as neither JSON nor an error, so screens like Custom Resources and Secrets reported a perfectly working control plane as unreachable. The missing prefixes were added, so what a developer sees in `dev` matches what the bundled console serves.)_
+- **Coverage**: Not Covered
+- **Gap note**: A development-server configuration; not reachable from a deployed cluster and so not a Holmgang concern.
+- **Other test coverage (non-Holmgang, informational only)**: None -- `vite.config.ts` is dev-server configuration with no presence in the built console; verified by running the dev server against a real control plane per `gimle-console/LOCAL_DEV.md`.
+- **Source location(s)**: `gimle-console/vite.config.ts`
+
+#### GIMLE-889 — Config, ConfigMaps, Secrets and SecretMaps carry their tenant in the URL
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed. The tenant a tenant-scoped screen was looking at lived only in that screen's own store, so the URL carried nothing to distinguish one tenant's view from another's: a shared link resolved, for whoever opened it, to their own last pick, showing the wrong tenant's entries with nothing to indicate it. All four screens now validate a `tenant` search parameter (`tenantScopeSearch`), read `scopedTenantId` -- the URL's tenant, else the first tenant the cluster reports so a bare navigation still lands on something real -- and write their current tenant back into the URL as it changes. A URL naming a tenant this cluster does not have is honoured rather than substituted: the read that follows reports it as missing, which is the truthful answer to that link.)_
+- **Coverage**: Not Covered
+- **Gap note**: console-security.feature drives login only. To close: add a console case opening a tenant-scoped URL and asserting the tenant on screen.
+- **Other test coverage (non-Holmgang, informational only)**: `tenant-scope.test.ts` (6 cases) and `-tenant-scope.test.ts` cover URL precedence, an unknown tenant being honoured, the bare-navigation fallback, and the tenant being written back into the URL.
+- **Source location(s)**: `gimle-console/src/lib/tenant-scope.ts` (`tenantScopeSearch`, `scopedTenantId`), `gimle-console/src/routes/config.tsx`, `configmaps.tsx`, `secrets.tsx`, `secretmaps.tsx`
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -7584,20 +8184,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-474 — Andvari copy-to-clipboard utility
 
 - **Category**: Web Console / Frontend
-- **Status**: Active
+- **Status**: Modified  _(Modified: the copy control announced its outcome as its name before it was activated; it is now named after the action and reports the copy only once it has happened.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Andvari copy-to-clipboard utility" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `src/components/CopyButton.tsx`
+- **Other test coverage (non-Holmgang, informational only)**: `CopyButton.test.tsx#names the action it will perform, not one it hasn't performed yet`; `copy.test.ts` covers the two wordings.
+- **Source location(s)**: `src/components/CopyButton.tsx`, `gimle-andvari-console/src/lib/copy.ts`
 
 #### GIMLE-804 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
 
 - **Category**: Web Console / Frontend
-- **Status**: New  _(New requirement: closes M22 -- PushArtifactDialog stored a pushed jar under whatever coordinate the operator typed, with no cross-check against the jar's own descriptor. See requirements-matrix.json for the full description.)_
+- **Status**: Modified  _(Modified: a descriptor-less jar inherited the previously-selected jar's derived coordinate as editable, already-filled-in values; a derived coordinate is now cleared when a new jar is picked.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises the Andvari console's Push dialog at all (Holmgang's Cucumber surface drives the platform API/CLI, not this console's own UI). Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.
-- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
+- **Other test coverage (non-Holmgang, informational only)**: `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail. `pushCoordinate.test.ts` covers a derived coordinate being cleared and a typed one surviving.
+- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`, `gimle-andvari-console/src/lib/pushCoordinate.ts`
 
 #### GIMLE-843 — The registry overview tells a failed or in-flight catalog read apart from an empty one
 
@@ -8550,16 +9150,16 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-563 — Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)
 
 - **Category**: Packaging
-- **Status**: Active
+- **Status**: Modified  _(Modified: the profile could silently bundle a runtime for another platform, and a launcher meeting one reported only `java: not found`. The build now fails on a platform mismatch, every archive carries `jre/PLATFORM`, and each launcher explains the fallback.)_
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Opt-in bundled-JRE distribution variant (`dist-with-jre` profile)`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `gimle-dist/pom.xml` (`dist-with-jre` profile), `platform-with-jre.xml`, `cli-with-jre.xml`, `hilmir-with-jre.xml`
+- **Other test coverage (non-Holmgang, informational only)**: No unit test; manually validated via gimle-holmgang's docker-compose.bundled-jre.yml. The platform check itself is a build-time assertion in the profile, so building `dist-with-jre` on a machine of another platform fails the build rather than producing an archive.
+- **Source location(s)**: `gimle-dist/pom.xml` (`dist-with-jre` profile), `platform-with-jre.xml`, `cli-with-jre.xml`, `hilmir-with-jre.xml`, `gimle-dist/src/main/dist/bin/gimle`, `hilmir`, `ragnarok` (and their `.cmd` siblings)
 
 #### GIMLE-564 — Distribution archive checksums and SBOM generation
 
 - **Category**: Packaging
-- **Status**: Active
+- **Status**: Modified  _(Modified: the platform and midgard SBOMs both named `gimle-dist` as their root component. Each now names the archive it describes, with a build-breaking check that the rewrite still matches.)_
 - **Coverage**: Not Covered
 - **Gap note**: Packaging/distribution-archive concern (`Distribution archive checksums and SBOM generation`). Holmgang boots processes straight off the reactor's own classpath, never the built `gimle-*.tar.gz`; a scenario proving this would first need Holmgang to unpack and launch from a real distribution archive, which `docker-compose.bundled-jre.yml`'s manual validation flow does today, not the Cucumber suite.
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
@@ -8860,7 +9460,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**715 of 845 requirements are Not Covered.**
+**775 of 905 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8870,9 +9470,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-292 | gimle-fafnir | Bundled web console static serving (Fafnir) | API Server / Internal-Infra | `FafnirServerConsoleTest` — `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html` |
 | GIMLE-293 | gimle-fafnir | Process status endpoint with key-ring fingerprint | API Server / Internal-Infra | `FafnirServerAuthTest#status_reports_uptime_active_key_and_transport_mode` |
 | GIMLE-275 | gimle-controlplane | Per-deployment and per-instance metrics rollup | API Server / Observability | Covered within `ApiServerConsoleContractTest`/`ApiServerTest` |
-| GIMLE-247 | gimle-controlplane | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Admission / Config | `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` |
+| GIMLE-247 | gimle-controlplane | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Admission / Config | `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` Gained `a_ceiling_configured_on_the_default_tenant_is_enforced`. |
 | GIMLE-245 | gimle-controlplane | Admission chain extension point | Admission / Internal-Infra | `AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated` |
 | GIMLE-658 | gimle-controlplane | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`. |
+| GIMLE-856 | gimle-controlplane | Quota, LimitRange and `policy.maxReplicasPerDeployment` bind on the `default` tenant too | Admission / Multi-tenancy | `TenantQuotaPluginTest#a_quota_an_operator_set_on_the_default_tenant_is_enforced`, `#a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected`; `LimitRangePluginTest#a_min_request_bound_set_on_the_default_tenant_is_enforced`; `PolicyConfigPluginTest#a_ceiling_configured_on_the_default_tenant_is_enforced`; `QuotaReconcilerTest`/`LimitRangeReconcilerTest` gained the matching default-tenant pairs (violating and within-bounds); `ApiServerTest#a_submission_past_the_default_tenants_quota_is_rejected`, `#a_replica_ceiling_configured_on_the_default_tenant_is_enforced`, `#a_limit_range_min_request_on_the_default_tenant_is_enforced`, `#a_cronjob_firing_past_the_default_tenants_quota_materializes_no_job` |
 | GIMLE-607 | gimle-controlplane | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name. |
 | GIMLE-833 | gimle-controlplane | A dry run that answers in verdict shape for every rejection, including a manifest the parser refuses | Admission Control | ApiServerDryRunTest, GimleCliTest |
 | GIMLE-652 | gimle-mimir | Deleting a Workload Clears Its Revision History | Application Platform | `StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset) |
@@ -8884,6 +9485,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-608 | gimle-andvari | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Artifact Registry | `ArtifactStoreBundleTest`/`AndvariServerBundleTest`/`AndvariPeerSyncTest` (registry), `ArtifactPullCacheTest` (agent-side unpack), `ArtifactResolverTest` (metadata-only resolution), `AgentBundleLaunchTest` (launch command/workdir), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest`/`ArtifactSetMojoTest` (publishing surface), and `BundleVesselIT` in gimle-smoke-tests (real-cluster end to end) |
 | GIMLE-837 | gimle-andvari | The Maven-shaped repository surface answers HEAD on every path it answers GET on | Artifact Registry | AndvariServerMavenRepositoryTest |
 | GIMLE-839 | gimle-cli | An ArtifactSet publishes every member it can read and reports the ones it could not | Artifact Registry | ArtifactSetCommandTest |
+| GIMLE-858 | gimle-andvari | A failed peer-sync or registry call names its real cause instead of the literal text `null` | Artifact Registry | `AndvariPeerSyncResilienceTest#an_unresolvable_peer_is_logged_with_its_real_cause_and_never_wedges_the_syncer`, `#a_peer_whose_downloads_keep_failing_leaves_this_replica_able_to_sync_again`; `AndvariClientTest#an_unresolvable_registry_host_is_reported_with_its_real_cause` |
 | GIMLE-306 | gimle-andvari | Maven-2-shaped `/repository/**` interop surface | Artifact Registry / API Server | `AndvariServerMavenRepositoryTest` — `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable` |
 | GIMLE-265 | gimle-controlplane | `/artifacts/*` streaming proxy to Andvari | Artifact Registry / Internal-Infra | `AndvariClientTest`; end-to-end in `gimle-smoke-tests/AndvariRegistryIT` |
 | GIMLE-266 | gimle-controlplane | Andvari-client multi-endpoint failover with rotation | Artifact Registry / Internal-Infra | `AndvariClientTest` — `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable` |
@@ -8895,7 +9497,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-309 | gimle-andvari | Maven GAV coordinate translation | Artifact Registry / Internal-Infra | `MavenCoordinatesTest` — `a_multi_segment_group_joins_with_the_artifact_id_by_dots`, `distinct_gavs_can_alias_to_the_same_module_coordinate` |
 | GIMLE-249 | gimle-controlplane | PUT-time re-tenanting double-authorization | Authorization | `ApiServerAuthzTest#a_write_permission_scoped_to_only_one_tenant_cannot_retenant_another_tenants_same_name`, `#a_write_permission_covering_both_tenants_can_retenant_a_shared_name` |
 | GIMLE-250 | gimle-controlplane | RBAC-gated resource CRUD across every workload kind | Authorization | `ApiServerAuthzTest`, `ApiServerEndpointsAuthzTest` |
-| GIMLE-252 | gimle-controlplane | `gimle-system` reserved-tenant operator-only guard | Authorization | Exercised within `ApiServerAuthzTest`'s broader RBAC test set |
+| GIMLE-252 | gimle-controlplane | `gimle-system` reserved-tenant operator-only guard | Authorization | Exercised within `ApiServerAuthzTest`'s broader RBAC test set `ApiServerTest#a_plaintext_caller_cannot_write_or_delete_the_reserved_system_tenant`, `#a_plaintext_caller_cannot_deploy_into_the_reserved_system_tenant`, `#a_plaintext_dry_run_into_the_reserved_system_tenant_reports_the_refusal`, `#a_plaintext_caller_holding_an_operator_session_may_write_the_reserved_system_tenant`, `#a_plaintext_session_without_the_operator_group_still_cannot_write_it`. `gimle-smoke-tests`' `GreeterSmokeClusterSupport` now logs in as the operator account it already creates before writing the reserved tenant, instead of relying on plaintext bypassing the veto. |
 | GIMLE-253 | gimle-controlplane | Node-scoped self-service authorization (`gimle:nodes` group) | Authorization | `ApiServerAuthzTest`; `NodeBootstrapCsrTest#fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake` |
 | GIMLE-254 | gimle-controlplane | Node-tenant-scoped `/endpoints/*` read access | Authorization | `ApiServerEndpointsAuthzTest` — `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden` |
 | GIMLE-310 | gimle-andvari | Defense-in-depth authorization (independent re-check, `ResourceKind.ARTIFACT`) | Authorization | `AndvariServerTlsTest#a_forwarded_principal_wins_over_the_peer_certificate_and_is_re_checked`, `an_ungrouped_certificate_is_refused_by_the_independent_rbac_check` |
@@ -8906,6 +9508,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-727 | gimle-core | RBAC permissions accept a wildcard sentinel in the resource, verb and tenant-scope positions | Authorization | PermissionTest (10 new: wildcard in each position, wildcard combined with a named value, token round-trip, malformed/blank/unknown input, wildcard-qualifier rejection, wildcard never reaching a {kind}/status write); WildcardPermissionAuthzTest (new, 11: every ResourceKind covered by one stored grant, the stored role staying a single unexpanded permission, codec round-trip preserving the wildcard, a narrower grant alongside a wildcard grant, hasAnyReadGrant, an unbound principal unaffected); GimleCliTest (3 added). |
 | GIMLE-756 | gimle-controlplane | Live permission vocabulary endpoint driving the console's Roles picker | Authorization | ApiServerAuthzTest#authz_vocabulary_serves_every_resource_kind_and_verb_this_build_enforces (full enum round-trip, 405 on a write, 401 unauthenticated); console lib/authz-vocabulary.test.ts (7), repository tests (7), store tests (6). |
 | GIMLE-256 | gimle-controlplane | Console session login/logout/session cookie flow | Authorization / API Server | `ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` |
+| GIMLE-861 | gimle-controlplane | An artifact push or delete through the control plane names the artifact it affected in the audit trail | Authorization / API Server | None directly: the audit target itself is not asserted by a control-plane test. The equivalent coordinate-naming on the registry's own side is covered by `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate`. |
 | GIMLE-251 | gimle-controlplane | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Authorization / Internal-Infra | `ApiServerAuthzTest#configured_read_resource_kinds_are_audited_allowed_and_denied_reads` |
 | GIMLE-257 | gimle-controlplane | Login throttling (address + username keyed) | Authorization / Internal-Infra | Exercised via shared `LoginThrottle` mechanics (`FafnirObservabilityTest`'s equivalent); no isolated ApiServer-level test method found |
 | GIMLE-287 | gimle-fafnir | Authorization-failure throttling and dual audit logging | Authorization / Internal-Infra | `FafnirObservabilityTest` — `repeated_authorization_failures_from_the_same_principal_are_eventually_throttled`, `a_successful_authorization_clears_prior_recorded_failures`, `audit_log_records_the_decision_without_ever_logging_the_secret_value` |
@@ -8927,6 +9530,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-429 | gimle-maven-plugin | `mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports | Build Tooling | NONE recorded in the baseline |
 | GIMLE-430 | gimle-maven-plugin | `mvn gimle:saga-stop` — best-effort local Saga server shutdown | Build Tooling | NONE recorded in the baseline |
 | GIMLE-573 | gimle-hilmir | Doctor advisory-only outbound-connection hazard detection | Build Tooling | `BytecodeScannerTest`, `DoctorAnalyzerTest` -- see requirements-matrix.json for detail |
+| GIMLE-883 | gimle-hilmir | `hilmir init` and `gimle:init` write generated manifests where the command was run | Build Tooling | `InitCommandTest#writes_into_the_working_directory_not_beside_the_jar_when_no_out_dir_is_given`; `InitMojoTest#the_out_dir_parameter_takes_its_project_basedir_default_as_a_file` |
+| GIMLE-884 | gimle-maven-plugin | `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to | Build Tooling | `ControlPlaneMojoTest#threads_the_muninn_endpoint_through_to_control_plane_main`, `#an_unset_muninn_endpoint_leaves_the_flag_off_entirely` |
+| GIMLE-898 | gimle-maven-plugin | `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run | Build Tooling | `SagaImportMojoTest#re_importing_an_unchanged_report_set_folds_into_the_run_id_it_already_used`, `#a_report_set_whose_content_changed_derives_its_own_run_id`, `#the_derived_run_id_ignores_a_reports_modification_time` |
 | GIMLE-371 | gimle-cli | Deployment resource management (get/apply/delete) | CLI | `GimleCliTest.apply_then_get_deployments_round_trips`, `apply_then_delete_removes_the_deployment`, `apply_then_get_deployments_as_json_round_trips`, `apply_and_delete_deployment_produce_real_json_under_json_output_format`; `DeploymentsCommandTest.the_health_column_reports_limitrange_once_the_reconciler_flags_a_violation` |
 | GIMLE-372 | gimle-cli | Job resource management (get/apply/delete) | CLI | `GimleCliTest.apply_then_get_jobs_round_trips`, `apply_then_delete_removes_the_job` |
 | GIMLE-373 | gimle-cli | CronJob management incl. manual trigger | CLI | `GimleCliTest.apply_then_get_cronjobs_round_trips`, `cronjob_trigger_fires_immediately_and_the_generated_job_is_real`, `cronjob_trigger_on_an_unknown_cronjob_fails` |
@@ -8950,12 +9556,17 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-761 | gimle-cli | A failed invocation exits with a code naming why it failed | CLI | CliOutputContractTest: nine cases producing each code from a real server -- invalid input via both a server 400 and a client-side manifest exception, not found, forbidden via a genuine 403, conflict via an admission 409, unreachable, generic usage error and success. Twenty-four existing assertions were updated to the new contract, each verified against the real observed status rather than weakened. |
 | GIMLE-762 | gimle-cli | gimle logs honours -o json | CLI | LogsCommandTest: three new cases covering structured fields under -o json, an empty array on zero match, and one object per line under --follow, alongside the pre-existing table-mode zero-match assertions. |
 | GIMLE-763 | gimle-cli | gimle metrics: the per-deployment rollup from the terminal | CLI | MetricsCommandTest (8) against a real ApiServer, including the same-deployment-name-across-tenants case asserting both rows present, both flagged, neither merged. |
-| GIMLE-764 | gimle-cli | gimle metrics-history and traces-history | CLI | HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured. |
+| GIMLE-764 | gimle-cli | gimle metrics-history and traces-history | CLI | HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured. Gained `#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`, and the trace-search cases. |
 | GIMLE-765 | gimle-cli | gimle context: pointing the CLI at more than one cluster | CLI | ServerResolverTest (9), ContextCommandTest (19), ContextResolutionCliTest (6) covering no config file, both malformed shapes, and every precedence rung including --server beating a configured context end to end. Surefire pins the config path under target/ so no test can read a developer's real config. |
 | GIMLE-767 | gimle-cli | gimle get --watch observes a resource converging | CLI | ResourceWatchTest (14) against a real in-process cluster: a deployment applied, changed and deleted between ticks; a cordon landing mid-watch; NDJSON envelope shape; a server closed mid-watch giving up with the unreachable exit code; an unreachable first poll failing immediately; a non-watchable noun; a non-positive interval. Mid-watch mutations go over raw HTTP so they cannot pollute the asserted stdout buffer. |
 | GIMLE-768 | gimle-controlplane | Dry-run preview for a workload submission | CLI | ApiServerDryRunTest (8) and DryRunCliTest (6): a predicted quota rejection confirmed identical against a real submission, a LimitRange violation, an infeasible placement whose message names the short dimension and the roomiest node, an RBAC-denied caller receiving no verdict body, and every test comparing a before/after store fingerprint across all five spec collections, assignments, job runs, the audit trail and controller revisions -- with one test proving that fingerprint does change on a real apply, so the assertion is not vacuous. |
 | GIMLE-770 | gimle-cli | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | CLI | ApiServerTest gained a_destroy_naming_no_tenant_never_resolves_to_the_default_tenants_volume (a stub agent records the forwarded URI, proving an omitted tenant reaches the agent omitted rather than rewritten, while the default tenant's attached volume is still guarded with 409 -- so the two coordinates are provably distinct) and a_blank_tenant_parameter_on_a_destroy_is_forwarded_as_untenanted. CliOutputContractTest gained volume_destroy_sends_the_tenant_it_was_given_all_the_way_to_the_owning_agent, volume_destroy_naming_no_tenant_reaches_the_agent_with_no_tenant_at_all, and volume_destroy_under_json_output_reports_the_tenant_it_addressed. LocalDiskVolumeManagerTest gained destroy_naming_the_wrong_tenant_removes_nothing_and_says_so. |
 | GIMLE-805 | gimle-cli | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | CLI | gimle-cli's CliExtensionSeamTest (classpath discovery via a test-only provider, dispatch, help folding, unknown-verb error preserved) and gimle-hugin's HuginExtensionTest. A further CliExtensionSeamTest case pins the scoped `-h` output. |
+| GIMLE-870 | gimle-cli | `gimle volume destroy` exits non-zero when it reclaimed nothing | CLI | `VolumeDestroyExitCodeTest#a_destroy_that_removed_nothing_exits_non_zero_rather_than_reporting_success`, `#a_destroy_that_really_removed_a_volume_still_exits_zero`, `#a_destroy_naming_a_tenant_with_no_such_volume_exits_non_zero_too`; `AgentLogServerTest#destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk`, `#destroying_an_already_destroyed_volume_reports_that_it_removed_nothing` |
+| GIMLE-872 | gimle-cli | `gimle logs` prints the stack trace a log line carries | CLI | `LogsCommandTest#a_line_carrying_a_stack_trace_prints_it_under_the_message`, `#a_line_with_no_stack_trace_prints_exactly_as_before` |
+| GIMLE-873 | gimle-cli | `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name | CLI | `IngressCommandTest#get_ingresses_with_no_name_lists_every_declared_ingress`, `#get_ingresses_filters_the_listing_by_tenant_rather_than_reading_the_flag_as_a_name`, `#get_ingress_by_name_still_reports_the_single_object` |
+| GIMLE-874 | gimle-cli | Every ingress apply is guarded by a compare-and-set version | CLI | `IngressCommandTest#re_applying_a_manifest_carrying_a_version_someone_else_moved_past_is_refused`, `#an_apply_declaring_no_version_creates_and_then_replaces_the_ingress` |
+| GIMLE-894 | gimle-cli | `gimle apply -f`'s help names every kind it accepts | CLI | `ApplyKindCoverageTest#every_non_workload_kind_the_dispatcher_names_really_applies`, `#the_help_text_names_every_kind_apply_accepts`, `#the_apply_usage_names_every_kind_apply_accepts` |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -9041,7 +9652,13 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
+| GIMLE-871 | gimle-mimir | An Ingress route naming an unknown `paramType` is refused at submission | Control Plane API | `IngressSpecTest#a_fabric_route_naming_an_unknown_param_type_is_refused_naming_the_valid_values`, `#a_param_type_is_matched_exactly_and_never_case_folded`, `#every_supported_param_type_is_accepted`, `#a_route_kind_that_declares_no_param_type_at_all_is_untouched_by_the_check`; `ApiServerIngressesTest#a_fabric_route_naming_an_unknown_param_type_is_refused_at_admission` |
 | GIMLE-792 | gimle-controlplane | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Control plane / API server | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
+| GIMLE-849 | gimle-controlplane | `/health` answers from a background store probe rather than dialing the store inline | Control plane / API server | `ApiServerHealthTest#health_answers_503_quickly_once_the_store_is_gone_instead_of_hanging` (asserts both the 503 and that it arrives well inside the store's own worst case) |
+| GIMLE-857 | gimle-controlplane | A LimitRange body declaring no usable bound, or an unrecognized field, is refused | Control plane / API server | `ApiServerLimitRangesTest#a_body_using_flat_flag_shaped_field_names_is_rejected_rather_than_silently_dropped`, `#a_body_declaring_no_bound_at_all_is_rejected`, `#a_body_echoing_the_path_tenant_id_is_accepted_but_a_disagreeing_one_is_not` |
+| GIMLE-868 | gimle-controlplane | A placed instance that never started is reported as not running, in the API and in the CLI's health column | Control plane / API server | `ApiServerNotRunningReasonTest#a_placed_replica_whose_node_refused_to_start_it_is_reported_as_not_running`, `#a_placed_replica_that_has_simply_not_reported_yet_is_not_called_not_running`, `#only_the_index_the_refusal_was_recorded_against_is_counted`; `DeploymentsCommandTest#the_health_column_reports_unhealthy_for_a_replica_its_node_refused_to_start` |
+| GIMLE-875 | gimle-controlplane | An unknown Ingress route kind is rejected naming the kinds a manifest may declare | Control plane / API server | `ApiServerIngressesTest#a_route_naming_an_unknown_kind_is_refused_without_leaking_an_internal_class_name` |
+| GIMLE-893 | gimle-controlplane | `GET /nodes/{nodeId}` serves a single node read | Control plane / API server | `CliOutputContractTest#a_nodes_taint_reads_back_identically_in_the_table_and_in_json`, `#label_node_reads_the_nodes_current_labels_and_applies_its_edit` (which drives the single-node read end to end) |
 | GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
 | GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
@@ -9068,6 +9685,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-369 | gimle-gateway | Vessel proxy: no TLS, no header forwarding (v1 scope limitation) | Gateway/Routing | `GatewayDispatcherTest#a_vessel_route_proxies_to_the_real_target_with_method_path_body_and_response_intact` confirms what *is* forwarded; no test exercises header forwarding since none exists |
 | GIMLE-370 | gimle-gateway | Fabric route "quiet success" ambiguity for a misrouted service name | Gateway/Routing | `GatewayDispatcherTest#a_fabric_route_naming_a_service_nothing_exports_is_served_as_200_with_an_empty_body` |
 | GIMLE-570 | gimle-gateway | Gateway virtual-host routing and Service-backed (SERVICE) route kind | Gateway/Routing | `GatewayDispatcherTest` (6 relevant tests: host-constrained match, host mismatch 404, host-unconstrained route unaffected, fallthrough to host-unconstrained sibling, service route with no ready endpoint returns a clear error, cached endpoint list reused across dispatcher instances); `ServiceEndpointCacheTest` (11 tests: resolution, relay path, TTL caching/staleness fallback, error handling) |
+| GIMLE-863 | gimle-gateway | A gateway follows its own tenant's Ingresses by default | Gateway/Routing | `GatewayHooksRouteReloadTest#a_gateway_follows_its_own_tenants_ingresses_without_being_told_which_tenant_it_is_in`, `#an_explicit_gateway_tenant_id_still_wins_over_the_instances_own_tenant` |
 | GIMLE-200 | gimle-fabric | SWIM Gossip Membership Protocol (Ping/PingReq/Ack) | Gossip Membership | `GossipMemberTest#two_nodes_discover_each_other_via_join`, `#a_killed_member_converges_to_dead_across_the_rest`, `#a_lone_node_with_no_seeds_starts_as_a_new_cluster`, `#a_single_unreachable_seed_is_a_legitimate_bootstrap_not_an_error`, `#multiple_unreachable_seeds_throw_gimle_cluster_exception` |
 | GIMLE-201 | gimle-fabric | SWIM Self-Refutation via Incarnation Bump | Gossip Membership | `GossipMemberTest#a_member_refutes_a_suspicion_of_itself_by_bumping_incarnation`, `#a_stale_suspicion_below_the_current_incarnation_is_ignored` |
 | GIMLE-202 | gimle-fabric | Lifeguard-Style Local Health Multiplier | Gossip Membership | `GossipMemberTest#the_local_health_multiplier_clamps_rather_than_growing_unbounded` |
@@ -9080,7 +9698,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-088 | gimle-worker | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | `ProbeLoopTest#a_passing_check_reports_true_repeatedly`, `#a_failing_check_reports_false`, `#a_check_that_throws_is_reported_as_a_failure_not_propagated`, `#a_check_that_hangs_past_its_timeout_is_reported_as_a_failure`, `#no_tick_fires_before_the_initial_delay_elapses`, `#after_the_initial_delay_ticks_settle_onto_the_ordinary_interval`, `#stop_halts_further_invocations_of_that_key`, `#two_keys_are_scheduled_independently`, `#the_production_constructor_still_schedules_on_a_real_ticker` |
 | GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | NONE recorded in the baseline |
 | GIMLE-798 | gimle-agent | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`. |
+| GIMLE-846 | gimle-agent | A vessel probe's named port survives the assignments round trip | Health / Self-Healing | `ApiServerTest#assignments_endpoint_keeps_the_port_a_vessel_probe_names`; `AgentMainTest#a_fetched_vessel_probe_keeps_the_port_it_names` |
 | GIMLE-830 | gimle-worker | An instance timeline that opens at INSTALLED, names the transition it could not make, and records a liveness-driven restart as its own cause | Instance Lifecycle Events | WorkerMainTest, WorkerRuntimeTest |
+| GIMLE-865 | gimle-worker | Promoting a surge instance records both indexes' timelines | Instance Lifecycle Events | `WorkerMainTest#promoting_a_surge_instance_carries_the_reused_index_timeline_past_its_teardown`, `#promoting_a_surge_instance_closes_off_the_index_it_gave_up`, `#a_promotion_of_an_instance_that_has_since_failed_is_not_recorded_as_a_healthy_one`, `#a_rename_repeating_the_identity_an_instance_already_holds_records_nothing`, `#a_rename_of_a_module_this_worker_no_longer_hosts_records_nothing` |
 | GIMLE-080 | gimle-worker | Newline-delimited control-channel wire protocol (worker side) | Internal-Infra | `ControlChannelClientTest#a_sent_message_is_received_intact_on_the_other_end`, `#receive_returns_empty_once_the_peer_closes_the_connection` |
 | GIMLE-099 | gimle-worker | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-124 | gimle-agent | Periodic certificate rotation check and hot-swap of outbound HttpClient | Internal-Infra | NONE recorded in the baseline |
@@ -9092,7 +9712,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-260 | gimle-controlplane | Certificate rotation (self-rotation and subject-preserving renewal) | Internal-Infra | `CertificateRotationTest` — `rotation_issues_a_new_cert_for_the_same_subject_and_it_works_immediately`, `rotation_csr_with_a_mismatched_subject_is_rejected` |
 | GIMLE-261 | gimle-controlplane | Zero-downtime TLS material reload | Internal-Infra | Exercised via `CertificateRotationTest`; analogous pattern in `FafnirServerTlsTest`/`AndvariServerTlsTest` |
 | GIMLE-267 | gimle-controlplane | `/logs/*` proxy with Muninn fallback | Internal-Infra | `ApiServerLogsFallbackTest` — `a_node_with_no_registration_falls_through_to_muninn_when_configured`, `a_registered_but_unreachable_agent_falls_through_to_muninn_when_configured`, `a_live_reachable_agent_is_still_served_directly_not_from_muninn`, `a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable` |
-| GIMLE-268 | gimle-controlplane | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Internal-Infra | `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest` |
+| GIMLE-268 | gimle-controlplane | `/metrics-history/*` and `/traces-history/*` Muninn proxy | Internal-Infra | `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest` Gained `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`, `#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`, plus the kind-listing and rejection cases on both surfaces. |
 | GIMLE-273 | gimle-controlplane | Per-endpoint request metrics instrumentation | Internal-Infra | `ApiServerMetricsTest` |
 | GIMLE-289 | gimle-fafnir | mTLS HTTP server with dynamic TLS material reload | Internal-Infra | `FafnirServerTlsTest` — `a_real_mtls_request_with_a_ca_signed_client_cert_succeeds`, `reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` |
 | GIMLE-295 | gimle-fafnir | Fafnir-metrics observability instrumentation | Internal-Infra | `FafnirObservabilityTest#a_real_request_is_recorded_in_fafnir_metrics` |
@@ -9105,7 +9725,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-258 | gimle-controlplane | Bootstrap node join via single-use token + CSR | Internal-Infra / API Server (PKI) | `NodeBootstrapCsrTest` — `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` — `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed` |
 | GIMLE-259 | gimle-controlplane | Operator-approval-gated CSR flow | Internal-Infra / API Server (PKI) | `HumanOperatorCsrTest` — `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected` |
 | GIMLE-288 | gimle-fafnir | Three-tier principal resolution (forwarded header > peer cert > session cookie) | Internal-Infra / Authorization | `FafnirSecretsAuthzTest`; `FafnirServerAuthTest` |
-| GIMLE-313 | gimle-andvari | Dual audit logging for push/delete decisions | Internal-Infra / Authorization | Exercised via `AndvariServerTlsTest`'s auth test set |
+| GIMLE-313 | gimle-andvari | Dual audit logging for push/delete decisions | Internal-Infra / Authorization | Exercised via `AndvariServerTlsTest`'s auth test set `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate` covers the plaintext path and the coordinate directly. |
 | GIMLE-294 | gimle-fafnir | Muninn metrics/traces shipping | Internal-Infra / Config | NONE recorded in the baseline |
 | GIMLE-316 | gimle-andvari | Plaintext-mode loud supply-chain warning | Internal-Infra / Config | NONE recorded in the baseline |
 | GIMLE-495 | gimle-saga | Bundled console static serving | Internal-Infra / Config | `SagaServerTest.java#the_bundled_console_is_served_at_console` |
@@ -9134,7 +9754,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-210 | gimle-fabric | module-info JPMS Boundary for gimle-fabric | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-327 | gimle-muninn | Day-bucketed JSON-lines store with oldest-first cursor semantics | Internal/Infra | `MuninnDayFileStoreTest#lines_spanning_two_days_land_in_two_separate_day_files`, `#a_late_arriving_line_appends_into_the_existing_day_file_rather_than_overwriting_it` |
 | GIMLE-328 | gimle-muninn | All-or-nothing batch validation on ingest | Internal/Infra | `MuninnDayFileStoreTest#a_malformed_line_rejects_the_whole_batch_and_writes_nothing`; `MuninnServerLogsIngestTest#a_malformed_batch_is_rejected_entirely_and_nothing_from_it_is_readable` |
-| GIMLE-329 | gimle-muninn | Windows-safe on-disk path sanitization for colon-bearing processId | Internal/Infra | `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error` |
+| GIMLE-329 | gimle-muninn | Windows-safe on-disk path sanitization for colon-bearing processId | Internal/Infra | `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error` `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape`. |
 | GIMLE-330 | gimle-muninn | Path-segment validation / directory-traversal defense | Internal/Infra | `MuninnServerLogsIngestTest#an_invalid_node_id_path_segment_is_rejected_before_touching_the_filesystem`, `MuninnServerMetricsIngestTest#an_invalid_process_kind_path_segment_is_rejected_before_touching_the_filesystem`, `MuninnServerTracesIngestTest` (same) |
 | GIMLE-335 | gimle-muninn | Node-identity check on node-log ingest | Internal/Infra | NONE recorded in the baseline |
 | GIMLE-336 | gimle-muninn | Instance-owner check on instance-log ingest | Internal/Infra | NONE recorded in the baseline |
@@ -9206,6 +9826,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-092 | gimle-worker | Job-kind module execution (run-to-completion, not probed) | Module System | `JobHooksExecutionTest#a_succeeding_job_runs_its_hooks_and_reaches_completed`, `#a_failing_job_reaches_failed`, `#a_job_hooks_run_that_throws_is_treated_as_failed` |
 | GIMLE-616 | gimle-module | Instance identity on ModuleContext (downward API) | Module System | `SimpleModuleContextTest` (instance_info empty default, live supplier reads) |
 | GIMLE-725 | gimle-module | Health probe interval, timeout and liveness failure threshold are declarable per module | Module System | HealthProbesTest (9 new, every validation failure); ModuleDescriptorParserTest (8 added, including zero/negative/non-numeric for each field); WorkerRuntimeProbeTimingTest (5 new, real dynamically-loaded fixture modules through a real ModuleController/WorkerRuntime: a declared timeoutSeconds keeps a 400ms readiness check ready against a 100ms worker default while the same check without it is cut off; declared vs default failureThreshold; a declared long intervalSeconds suppresses fast-cadence probing). |
+| GIMLE-864 | gimle-module | An instance's timeline opens with an INSTALLED event | Module System | `ModuleControllerTest#installing_a_module_opens_its_timeline_rather_than_starting_it_at_resolved` |
+| GIMLE-866 | gimle-module | A lifecycle hook that fails with an `Error` is recorded rather than unwinding the worker | Module System | `HookFailureVisibilityTest#a_start_hook_that_fails_to_link_is_recorded_instead_of_escaping_uncaught`, `#a_start_hook_that_fails_to_link_reaches_the_instances_own_log_with_its_stack_trace` (driven against a real bundled hook jar built by the new `PlatformJars` test support) |
+| GIMLE-885 | gimle-module | A rejected module name says which rule it breaks | Module System | `ModuleDescriptorParserTest#a_hyphenated_name_is_rejected_and_the_rejection_says_it_is_the_name_that_is_wrong`, `#a_name_starting_with_a_digit_is_rejected`, `#a_reverse_dns_name_is_accepted` |
 | GIMLE-617 | gimle-module | Config key enumeration on ModuleContext | Module System / Configuration | `SimpleModuleContextTest` (config_keys_enumerate_every_delivered_key_as_a_snapshot) |
 | GIMLE-008 | gimle-core | Health probe configuration: probe classes, initial delay, and per-module interval/timeout/failure threshold | Module System / Health | `ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws) |
 | GIMLE-047 | gimle-module | Unnamed-module readability grant for bundled hooks/probes | Module System / Internal-Infra | gimle-worker's `RealBundledHookAndProbeInvocationTest`; this module's own `ModuleLayerFactoryTest` exercises the general mechanism |
@@ -9227,7 +9850,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-732 | gimle-core | A tenant can be closed to cross-tenant fabric calls before its first NetworkPolicy exists | Multi-tenancy | ControlMessageCodecTest, NetworkPolicyRelayTest, HttpNetworkPolicySourceTest (including a test asserting only tenants declaring deny-by-default are reported closed), BifrostProxyTest, FabricServerTest. |
 | GIMLE-657 | gimle-controlplane | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.; `ApiServerServicesTest#an_ambiguous_service_name_across_two_tenants_is_a_400_not_a_flaky_404` |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
-| GIMLE-656 | gimle-controlplane | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.; `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all`, `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick`; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant`, `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all` |
+| GIMLE-656 | gimle-controlplane | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.; `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all`, `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick`; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant`, `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all` `ApiServerInstanceTenantResolutionTest#a_bare_instance_log_read_tells_the_agent_which_tenant_it_resolved`, `#a_declared_tenant_is_forwarded_once_not_twice`, `#a_name_no_workload_spec_claims_forwards_no_invented_tenant`, `#a_bare_fabric_endpoint_lookup_resolves_a_tenanted_instance`, `#a_bare_fabric_endpoint_lookup_for_an_unplaced_name_is_still_a_404`. |
 | GIMLE-795 | gimle-agent | Tenant-scoped instance supervision keying (instanceKey) | Multi-tenancy / Scheduling | `AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index` |
 | GIMLE-675 | gimle-controlplane | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`. |
 | GIMLE-654 | gimle-mimir | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide` |
@@ -9238,6 +9861,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-782 | gimle-agent | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing). Regression (M63): UdpServiceListenerTest#binds_at_a_specific_address_already_sharing_its_port_with_a_wildcard_socket, BifrostProxyTest#a_udp_service_binds_despite_a_wildcard_socket_already_holding_its_port. |
 | GIMLE-784 | gimle-skald | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | New SkaldHealthServerTest covers a fresh directory being both alive and ready, a stale one being unready but still alive (with the reason naming the threshold), a directory that has never polled successfully never opening readiness, readiness recovering once a poll succeeds, and the bound port being reported. DaemonSetManifestParserTest gained parses_placement_priority_even_though_anti_affinity_is_rejected_here and placement_priority_defaults_to_zero_when_undeclared. |
 | GIMLE-785 | gimle-controlplane | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | New IngressRoutesTest asserts each of the three route kinds converts to exactly what the config parser produces for the equivalent line (the property that keeps a route behaving identically however declared), that a host constraint and a prefix both survive, that an unknown paramType is rejected rather than defaulted to NONE, that every declared ParamType converts, and that an empty declaration yields no routes. DomainCodecTest gained an_ingress_with_every_route_kind_round_trips, which mixes all three kinds in one spec so a codec reading fields back in the wrong order is caught. |
+| GIMLE-852 | gimle-controlplane | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | Networking | `ApiServerServicesTest#a_service_declaring_no_tenant_fronts_a_deployment_that_declared_none_either` |
 | GIMLE-676 | gimle-fabric | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`. |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
@@ -9257,7 +9881,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-331 | gimle-muninn | Age-based retention sweep | Observability | `RetentionSweeperTest#a_day_file_older_than_the_retention_window_is_deleted`, `#a_day_file_within_the_retention_window_survives`, `#sweeping_twice_is_idempotent...`, `#sweeping_a_data_root_that_does_not_exist_yet_is_a_no_op` |
 | GIMLE-339 | gimle-muninn | `/status` operational endpoint | Observability | `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`, `#a_non_get_status_request_is_rejected` |
 | GIMLE-351 | gimle-observability | JFR-based per-module CPU/allocation attribution | Observability | `ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment — JFR event emission isn't driven from the test) |
-| GIMLE-647 | gimle-console | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged). |
+| GIMLE-647 | gimle-console | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged). `instances-table.test.tsx` renders the table to static markup and asserts the href the worker column builds. |
 | GIMLE-698 | gimle-observability | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | `MuninnShipperTest#two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped` -- verified to fail against the pre-fix tickLogs, passes with the fix; both lines shipped exactly once each and the cursor genuinely catches up. Full gimle-observability module suite re-verified. |
 | GIMLE-699 | gimle-muninn | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | `MuninnDayFileStoreTest#a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown` -- a second day file is repeatedly recreated and deleted from a background thread while the main thread reads 300 times in a loop, asserting neither readAfter nor readOlder ever throws. Full gimle-muninn module suite re-verified. |
 | GIMLE-710 | gimle-console | The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read | Observability | HttpDeploymentsRepositoryTest gained a dedicated errorRatePerSecond pass-through assertion; HttpInstancesRepositoryTest's flatten regression test now asserts errorRatePerSecond survives the flatten step that previously dropped it; MockAccountsRepository-style UNOBSERVED default assertions in deployments/statefulsets/daemonsets tests updated to include the zeroed field. Full gimle-console Vitest suite (294 tests) re-verified green. |
@@ -9274,7 +9898,15 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-788 | gimle-controlplane | Cluster-wide instance lifecycle event read | Observability | StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated). |
 | GIMLE-790 | gimle-controlplane | A durable, replica-agnostic read of whether an AlertRule is currently firing | Observability | AlertReconcilerTest covers an arbitrary starting store with no prior firing history (treated as not-firing) and a freshly instantiated AlertReconciler over the same durable store reading back an already-firing verdict rather than re-notifying (the restart/failover proof), on top of its existing crossed/resolved/disabled/deleted-rule coverage. StateStoreTest covers putAlertFiringState/getAlertFiringState (absent, true, false), the removeAlertRule cascade clearing it, and snapshot round-trip into a fresh store. RaftCodecTest and StoreCodecTest round-trip the new PutAlertFiringState mutation and GetAlertFiringState/AlertFiringStateResult wire shapes respectively. ApiServerAlertRulesFiringTest covers the not-yet-known case (200, known=false, no firing field), the known case once AlertRuleRegistry#putFiringState records a verdict, a 404 for an unknown rule name, and an mTLS RBAC-denial 403 for a caller with no ALERT_RULE grant. |
 | GIMLE-796 | gimle-controlplane | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Observability | `ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured` |
-| GIMLE-844 | gimle-controlplane | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | Observability | `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`. |
+| GIMLE-844 | gimle-controlplane | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | Observability | `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`. `DaemonSetReconcilerTest#a_store_leader_election_does_not_tear_down_a_healthy_daemonset`, `#a_node_that_stays_unheard_from_past_the_grace_window_is_still_evicted`, `#a_store_read_that_throws_mid_tick_publishes_nothing_and_converges_on_a_later_tick`; `StatefulSetReconcilerTest#a_store_leader_election_does_not_evict_an_index_from_the_node_running_it`, `#an_index_that_is_genuinely_unheard_from_is_still_released`, `#an_election_does_not_restart_an_indexs_readiness_stabilization_timer`. |
+| GIMLE-879 | gimle-controlplane | An alert rule declaring no tenant is keyed under the default tenant, and a rule watching nothing says so once | Observability | `ApiServerAlertRulesFiringTest#a_rule_created_with_no_tenant_evaluates_against_the_default_tenants_deployment`; `AlertReconcilerTest#a_rule_watching_a_deployment_nothing_reports_for_says_so_once` |
+| GIMLE-880 | gimle-observability | One source of truth for which process kinds ship metrics and which ship traces, served by the API | Observability | `ApiServerMetricsHistoryTest#the_kinds_that_ship_metrics_are_served_by_the_collection_route`, `#a_process_kind_that_never_ships_metrics_is_rejected_rather_than_proxied`; the traces equivalents in `ApiServerTracesHistoryTest`; `HistoryCommandTest#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`; `useHistoryKindsStore.test.ts`, `metricsHistory.test.ts`, `tracesHistory.test.ts` |
+| GIMLE-881 | gimle-controlplane | The control plane starts a server span for every request it serves | Observability | `ApiServerTracingTest#a_served_request_produces_a_span_naming_the_endpoint_it_hit`; `GimleTracingServerSpanTest#a_started_server_span_reaches_the_installed_exporter_with_its_endpoint_and_status`, `#a_server_error_marks_the_span_as_failed`, `#a_span_started_before_installation_is_inert_and_does_not_block_a_later_installation` |
+| GIMLE-882 | gimle-controlplane | `-Dgimle.controlplane.muninnEndpoint` is honoured alongside the command-line flag | Observability | `ControlPlaneMainTest#command_line_endpoint_wins_over_the_system_property`, `#system_property_supplies_the_endpoint_when_no_flag_was_given`, `#blank_command_line_endpoint_falls_back_to_the_system_property`, `#unset_on_both_sides_ships_nowhere` |
+| GIMLE-895 | gimle-controlplane | An instance event is filed only under a workload that exists | Observability | `ApiServerInstanceEventOwnershipTest#a_reused_name_never_inherits_the_deleted_occupants_closing_events`, `#an_event_for_a_workload_that_does_not_exist_is_discarded_not_filed`, `#a_live_workloads_own_teardown_events_are_still_recorded`, `#a_closing_event_with_no_assignment_left_is_filed_under_the_specs_tenant` |
+| GIMLE-897 | gimle-agent | A vessel's log directory resolves from its own name, so a bare-name log read reaches it | Observability | `WorkerDirectoryKeyTest#a_tenanted_vessel_resolves_without_the_caller_having_to_name_its_tenant`, `#a_declared_tenant_picks_between_two_tenants_sharing_a_vessel_name_and_index` |
+| GIMLE-901 | gimle-controlplane | `GET /trace/{traceId}` and `gimle trace <traceId>` follow a whole trace, wherever it ran | Observability | `ApiServerMetricsHistoryTest#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`; `HistoryCommandTest` covers the CLI verb; `tracesHistory.test.ts` and `-trace-follow.test.ts` cover the console's single-search follow. |
+| GIMLE-902 | gimle-controlplane | A history read forwards the backward-paging parameters instead of dropping them at the proxy hop | Observability | `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`; `HistoryCommandTest` asserts the limit travels as a query parameter |
 | GIMLE-097 | gimle-worker | Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup) | Observability / Cgroup Management | NONE recorded in the baseline |
 | GIMLE-129 | gimle-agent | `hs_err_pid*.log` crash-dump listing and fetch | Observability / Cgroup Management | `AgentLogServerTest#crash_dumps_are_listed_from_the_right_worker_directory_only`, `#crash_dumps_list_is_empty_when_the_worker_never_crashed`, `#a_crash_dump_is_fetched_with_its_exact_content_and_a_plain_text_content_type`, `#crash_dump_fetch_rejects_a_filename_that_does_not_match_the_expected_pattern` |
 | GIMLE-083 | gimle-worker | Per-instance MDC log tagging for lifecycle/hook/probe/request-dispatch logging | Observability / Internal-Infra | `BoundedModuleSchedulerTest#mdc_tags_are_visible_inside_a_tagged_submission`, `#empty_mdc_tags_leave_the_submission_untagged`; `InstanceTaggingServiceRegistryTest#registers_untagged_when_no_identity_is_known_for_the_owner`, `#registers_a_tagging_proxy_when_identity_is_known` |
@@ -9289,28 +9921,30 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-024 | gimle-core | Platform (non-instance) log file appender | Observability / Logging | Exercised via `LogRotationTest`; no dedicated unit test class |
 | GIMLE-025 | gimle-core | Kubelet-style size/count log rotation | Observability / Logging | `LogRotationTest` (rolls over by size and evicts oldest, cursor paging/follow resolve correctly across rotation) |
 | GIMLE-026 | gimle-core | Cursor-based log paging and live-follow streaming | Observability / Logging | `LogRotationTest#cursor_paging_and_follow_resolve_correctly_across_a_rotation_boundary` |
+| GIMLE-892 | gimle-core | A captured stdout record is read back as the record it was written as | Observability / Logging | `LogFileReaderSystemCaptureTest#a_captured_stdout_record_is_read_back_as_the_record_it_was_written_as` |
 | GIMLE-113 | gimle-agent | Worker-crash-to-durable-InstanceEvent relay | Observability / Self-Healing | NONE recorded in the baseline |
 | GIMLE-132 | gimle-agent | Node capacity/instance-observation heartbeat reporting | Observability / Worker Supervision | `AgentMainTest#observation_json_reports_the_instances_real_self_reported_resource_usage`, `#observation_json_reports_the_instances_real_self_reported_request_and_error_rate`, `#observation_json_reports_a_completed_job_run_as_alive_but_not_ready`, `#observation_json_reports_a_failed_instance_as_not_alive` |
 | GIMLE-701 | gimle-mimir | Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore) | Operations | CertificateAuthorityTest-style unit coverage at the codec layer: RaftCodecTest#round_trips_a_restore_snapshot_mutation_through_a_log_entry (byte-level round trip through LogEntry encode/decode) plus the pre-existing round_trips_a_state_snapshot coverage the new mutation reuses. Real 3-node Raft cluster integration test: StoreClientClusterTest#a_restored_backup_lands_on_every_replicas_own_store_not_just_the_leaders proves a restore proposed through any endpoint lands on every replica's own local StateStore (read directly, bypassing StoreClient's own routing) -- not just the leader's. Real HTTP integration: ApiServerBackupTest (GET /backup + PUT /restore over a real loopback ApiServer, real StateStore) proves the full round trip a real CLI invocation would make, including rejecting a corrupt backup body with 400 and a non-GET/backup method with 405. |
 | GIMLE-705 | gimle-agent | Per-worker raw stdout/stderr SYSTEM capture is size/count-rotated instead of growing unbounded | Operations | WorkerProcessSupervisorSystemLogRotationTest drives a real subprocess (ChattyWorkerDriver) flooding stdout against a deliberately tiny gimle.log.maxFileSizeBytes, asserting a real .1 rotated file appears, the active file never grows past the cap, and rotated content survives through LogFileReader's ordinary rotated-file-aware read path. Full gimle-agent module suite (157 tests) re-verified. |
 | GIMLE-706 | gimle-mimir | gimle-controlplane, gimle-mimir, and gimle-agent each expose an operator-pollable health signal | Operations | StoreHealthServerTest (real HttpServer, real single-node RaftNode) covers 200/leader-reporting and 405-on-non-GET. AgentLogServerTest gained health_reports_up_with_no_configuration_needed and health_rejects_a_non_get_method against a real AgentLogServer. ApiServer's /health is exercised indirectly through the full gimle-controlplane suite (no dedicated new HTTP integration test for it in this pass). Full gimle-mimir (574 tests) and gimle-agent (157 tests) module suites re-verified. |
 | GIMLE-707 | gimle-mimir | Audit-trail ring-buffer eviction is observable: logged, counted, and surfaced in the GET /audit response | Operations | Full gimle-mimir (574 tests), gimle-controlplane (606 tests), and gimle-cli (120 tests) module suites re-verified against the new envelope shape and every call site that parses GET /audit's body (gimle-holmgang's ClusterApi, ApiServerCustomKindsTest) was updated to match. No dedicated new eviction-at-50000-events test in this pass (impractical to run at full scale in a unit test); the envelope shape itself is exercised end to end by the updated call sites. |
-| GIMLE-771 | gimle-agent | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Operations | AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something. |
+| GIMLE-771 | gimle-agent | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Operations | AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something. The agent-side tests are now `destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk` and `destroying_an_already_destroyed_volume_reports_that_it_removed_nothing`. |
 | GIMLE-242 | gimle-controlplane | Reconciler-leader election via non-replicated lease | Orchestration / Internal-Infra | Indirect (multi-replica smoke/holmgang tests) |
 | GIMLE-075 | gimle-pki | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | NONE recorded in the baseline |
 | GIMLE-074 | gimle-pki | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | PKI / Internal-Infra | exercised indirectly throughout CertificateAuthorityTest (`generated_leaf_certificate_is_readable_by_openssl`, `certificate_survives_a_keystore_round_trip`); NONE dedicated PemTest |
-| GIMLE-078 | gimle-pki | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | NONE recorded in the baseline |
+| GIMLE-078 | gimle-pki | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | The constituent pieces -- CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem -- are each independently tested, and `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes` now covers the store leaf directly. |
 | GIMLE-834 | gimle-controlplane | A CSR submission answers 400 naming the field it is missing, never an opaque 500 | PKI and Bootstrap | ApiServerTlsTest |
 | GIMLE-560 | gimle-dist | Standalone CLI distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-561 | gimle-dist | Standalone Hilmir bootstrap-tool distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-562 | gimle-dist | Cluster-machine platform distribution archive | Packaging | NONE recorded in the baseline |
-| GIMLE-563 | gimle-dist | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | NONE recorded in the baseline |
+| GIMLE-563 | gimle-dist | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | No unit test; manually validated via gimle-holmgang's docker-compose.bundled-jre.yml. The platform check itself is a build-time assertion in the profile, so building `dist-with-jre` on a machine of another platform fails the build rather than producing an archive. |
 | GIMLE-564 | gimle-dist | Distribution archive checksums and SBOM generation | Packaging | NONE recorded in the baseline |
 | GIMLE-611 | gimle-dist | Midgard Docker dev-cluster distribution archive | Packaging | Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down. |
 | GIMLE-559 | gimle-holmgang | Docker Compose manual validation topologies (bundled-JRE and full-JRE) | Packaging / Internal-Infra | NONE recorded in the baseline |
 | GIMLE-139 | gimle-mimir | Conflicting-Entry Truncation | Raft Consensus | `RaftNodeSafetyMechanicsTest#a_follower_truncates_a_conflicting_entry_and_everything_after_it_before_appending` |
 | GIMLE-140 | gimle-mimir | Leader-Only-Commits-Own-Term Rule (Figure 8) | Raft Consensus | `RaftNodeSafetyMechanicsTest#the_leader_only_commits_an_entry_from_its_own_current_term` |
 | GIMLE-829 | gimle-mimir | Linearizable reads via a Raft read index, replacing round-robin replica reads | Raft Consensus | RaftClusterTest (a_leader_cut_off_from_the_majority_refuses_a_read_rather_than_answer_from_stale_state, a_read_index_from_a_healthy_leader_covers_the_write_it_just_committed), StoreNodeTest (a_non_leader_refuses_a_read_rather_than_answering_from_its_own_replica, a_non_leader_still_answers_status_for_itself) |
+| GIMLE-854 | gimle-mimir | A peer with an RPC still in flight counts as reachable for check-quorum | Raft Consensus | `RaftNodeVirtualTimeTest#an_established_leader_survives_a_round_trip_that_merely_runs_slow` (a peer held mid-call past the check-quorum window on a virtual clock) |
 | GIMLE-565 | gimle-mimir | Norn deterministic virtual-time Raft fault-injection simulation | Raft Consensus / Internal-Infra / Testing | `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends |
 | GIMLE-669 | gimle-controlplane | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | Reconcilers / self-healing | `ReplicaCountReconcilerTest` gains coverage for budget throttling across multiple dead replicas, lowest-index-first ordering, budget exhaustion deferring without resetting the grace-period timer, and unthrottled behavior when no DeploymentSpec exists. Full gimle-controlplane module suite re-verified. |
 | GIMLE-682 | gimle-controlplane | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | Reconcilers / self-healing | `DeploymentReconcilerTest#a_flapping_replacement_never_lets_a_second_migration_overlap_with_the_first`, `#a_genuinely_continuously_ready_replacement_completes_the_migration_and_frees_the_budget`; `StatefulSetReconcilerTest#a_flapping_replacement_during_a_rolling_update_never_lets_the_next_index_start_rolling_too`, `#a_genuinely_continuously_ready_replacement_completes_the_rolling_update_and_hands_off_to_the_next_index`. |
@@ -9319,6 +9953,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-227 | gimle-controlplane | Readiness-only failures never trigger reschedule | Reconciliation | `HealthReconcilerTest#readiness_alone_never_triggers_a_reschedule` |
 | GIMLE-240 | gimle-controlplane | CronJob missed-schedule starting-deadline handling | Reconciliation | Covered indirectly by `CronJobReconcilerTest`'s convergence/missed-schedule handling |
 | GIMLE-239 | gimle-controlplane | CronJob manual trigger (`gimle cronjob trigger`) | Reconciliation / API Server | `CronJobReconcilerTest#trigger_now_fires_immediately_and_does_not_touch_last_schedule_time`; `ApiServerTest#trigger_fires_immediately_and_the_generated_job_appears_on_the_jobs_list` |
+| GIMLE-862 | gimle-controlplane | A shortfall count is never negative, and a DaemonSet's desired count covers what the same tick keeps placed | Reconciliation / API Server | `ApiServerUnplacedReasonTest#more_instances_than_replicas_reports_no_unplaced_rather_than_a_negative_count`; `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed` |
+| GIMLE-896 | gimle-controlplane | A CronJob reports its last real firing separately from how far its schedule has been evaluated | Reconciliation / API Server | `ApiServerCronJobStatusTest#a_cronjob_reports_the_time_of_the_newest_job_it_actually_generated`, `#a_suspended_cronjob_that_never_fired_reports_no_last_schedule_time`, `#another_cronjobs_generated_jobs_are_never_mistaken_for_this_ones`, `#a_cronjob_never_reconciled_at_all_reports_neither_field` |
 | GIMLE-221 | gimle-controlplane | Artifact-hash drift detection at reconcile time | Reconciliation / Internal-Infra | `DeploymentReconcilerTest` — `places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk`, `refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash` |
 | GIMLE-225 | gimle-controlplane | Persisted grace-period bookkeeping (survives leader failover) | Reconciliation / Internal-Infra | `ReplicaCountReconcilerTest`; `HealthReconcilerTest#backoff_state_survives_a_reconciler_reconstruction_against_the_same_store` |
 | GIMLE-231 | gimle-controlplane | DaemonSet reconciliation and rolling update | Reconciliation / Orchestration | `DaemonSetReconcilerTest#rolling_update_replaces_one_node_at_a_time_and_waits_for_readiness` |
@@ -9328,7 +9964,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-236 | gimle-controlplane | Job active-deadline enforcement | Reconciliation / Orchestration | `JobReconcilerTest#exceeding_the_active_deadline_marks_the_job_permanently_failed_even_mid_attempt` |
 | GIMLE-237 | gimle-controlplane | CronJob schedule-driven Job materialization | Reconciliation / Orchestration | `CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix` |
 | GIMLE-238 | gimle-controlplane | CronJob concurrency policy (Allow/Forbid/Replace) | Reconciliation / Orchestration | `CronJobReconcilerTest` — `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one` |
-| GIMLE-789 | gimle-controlplane | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Reconciliation / Orchestration | DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick). |
+| GIMLE-789 | gimle-controlplane | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Reconciliation / Orchestration | DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick). Gained `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed` and `#a_store_read_that_throws_mid_tick_leaves_an_already_published_count_alone`. |
+| GIMLE-886 | gimle-controlplane | A deployment blocked by its artifact says whether it was rejected or unreadable, and why | Reconciliation / Orchestration | `DeploymentReconcilerTest#a_rejected_manifest_is_recorded_as_a_rejection_carrying_its_own_reason` |
 | GIMLE-230 | gimle-controlplane | Autoscaling WEIGHTED combination mode | Reconciliation / Scheduling | `AutoscaleReconcilerTest` — `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average` |
 | GIMLE-224 | gimle-controlplane | Node-death instance reclamation (`ReplicaCountReconciler`) | Reconciliation / Self-healing | `ReplicaCountReconcilerTest` (grace-period and persisted-state convergence tests present) |
 | GIMLE-226 | gimle-controlplane | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Reconciliation / Self-healing | `HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` |
@@ -9355,6 +9992,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-413 | gimle-hilmir | Gateway extension disable (`hilmir disable gateway`) | Release Management | `DisableGatewayCommandTest` (2 tests) |
 | GIMLE-576 | gimle-hilmir | Remote (SSH) fleet bootstrap (`hilmir up/down/status --remote`) | Release Management | `RemoteDispatchTest` (provisioning, material distribution, host-key pinning incl. a simulated mismatch); `ResolvedSshTargetTest`; `SshProcessExecTest`; `PkiBootstrapMainTest`; `PkiInitTest`; `HilmirMainTest.up_with_remote_does_not_require_the_machine_flag`, `down_with_remote_requires_the_file_flag`, `status_with_remote_requires_the_file_flag`; `TopologyParserTest`; `UtgardSshDeployIT` (real Docker+SSH round trip against a genuine sshd) |
 | GIMLE-580 | gimle-hilmir | `hilmir upgrade-cluster --remote` (SSH-dispatched platform binary rollout) | Release Management | `RemoteDispatchTest.upgrade_cluster_dispatches_the_new_classpath_and_roles_to_every_machine` |
+| GIMLE-851 | gimle-hilmir | A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable | Release Management | `DeployCommandTest#a_wait_that_times_out_still_records_the_release_so_it_can_be_undeployed` |
+| GIMLE-887 | gimle-hilmir | `hilmir plan` rejects an unknown `--machine` the way `up` already does | Release Management | `HilmirMainTest#plan_rejects_a_machine_name_the_topology_never_declares`, `#plan_and_up_reject_an_unknown_machine_name_the_same_way` |
+| GIMLE-888 | gimle-hilmir | Every rejected topology document is reported as one coded finding | Release Management | `HilmirMainTest#validate_reports_a_missing_topology_file_as_a_coded_finding_naming_the_path_once`, `#validate_reports_malformed_yaml_as_a_coded_finding`, `#validate_reports_a_structurally_rejected_document_as_a_coded_finding`, `#every_validate_failure_line_carries_a_severity_and_a_code`, `#reports_an_unreadable_topology_file_as_a_clean_error_for_a_verb_without_findings` |
+| GIMLE-890 | gimle-hilmir | A topology may configure a store replica's health port | Release Management | `TopologyParserTest#parses_an_optional_store_health_port_and_leaves_it_unset_when_omitted`; `TopologyValidatorTest#reports_port_conflict_when_a_store_health_port_collides_with_another_claim`; `LaunchPlannerTest#plans_the_store_health_port_flag_only_when_the_topology_configures_one` |
+| GIMLE-891 | gimle-hilmir | `hilmir stop` stops one co-located role, or one process id, on a machine | Release Management | `HilmirMainTest` (6 cases: the required flags, the role/id exclusivity, a rejected non-role and the WORKER role, a clean error with no ledger, and the usage line); `MachineLauncherStopIntegrationTest#stop_kills_only_the_named_role_and_drops_only_its_ledger_entry`, `#stop_by_id_picks_one_of_two_co_located_replicas_of_the_same_role`, `#stop_leaves_the_ledger_ready_for_a_later_up_to_respawn_just_that_process`; `RunLedgerTest` (3 cases); `RemoteDispatchTest#stop_carries_the_role_or_id_selector_through_to_the_remote_verb` |
 | GIMLE-394 | gimle-hilmir | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Release Management / Security | `PkiInitTest` (multiple); `HilmirMainTest.pki_requires_the_init_subcommand`, `pki_init_requires_the_file_flag`, `pki_init_refuses_a_topology_with_no_tls_material_dir_dir` |
 | GIMLE-482 | gimle-saga | NDJSON event ingest API | Reporting backend / Internal-Infra | `SagaServerTest.java` — "ingested_events_round_trip_through_the_runs_and_events_apis", "a_malformed_ingest_line_is_rejected_with_its_line_number"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta` |
 | GIMLE-483 | gimle-saga | Idempotent per-run ingest / re-ingest replacement | Reporting backend / Internal-Infra | `SagaStoreTest.java#re_ingesting_a_whole_run_replaces_it_without_double_counting_the_ledger` |
@@ -9385,6 +10027,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-783 | gimle-controlplane | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | New SchedulerPreemptionTest covers all ten decisions as a pure function over synthetic candidates: a higher-priority workload evicting a lower one, equal priority never being a victim, higher priority never being a victim, nothing evicted when evicting everything still would not fit, lowest-priority victims taken first, the node needing fewest evictions winning, a node with room needing no victims, an ineligible (cordoned) node never preempted however low its residents rank, multiple victims taken when one does not free enough, and CPU pressure alone being sufficient to preempt. |
 | GIMLE-831 | gimle-controlplane | An unplaced workload reports the scheduler's own refusal in its own status | Scheduling | ApiServerUnplacedReasonTest |
 | GIMLE-838 | gimle-controlplane | Placement failure reported against the nodes the operator's own labels actually named | Scheduling | SchedulerTest, SchedulerDiagnosticsTest |
+| GIMLE-850 | gimle-controlplane | An operator can label a running node, and the label counts for placement | Scheduling | `ApiServerTest#an_operator_can_label_a_running_node_and_the_label_counts_for_placement`, `#a_re_registering_node_keeps_the_labels_an_operator_applied_to_it`, `#labelling_a_node_that_was_never_registered_is_a_404`; `CliOutputContractTest#label_node_reads_the_nodes_current_labels_and_applies_its_edit` |
 | GIMLE-215 | gimle-controlplane | Tier 2/3 node-level tenant isolation | Scheduling / Multi-tenancy | `SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant` |
 | GIMLE-217 | gimle-controlplane | StatefulSet sticky node placement | Scheduling / Orchestration | `SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone` |
 | GIMLE-836 | gimle-fafnir | A SecretMap's members are unreadable through the flat secrets path | Secrets | FafnirServerSecretMapTest, ApiServerSecretMapTest |
@@ -9402,6 +10045,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-734 | gimle-fafnir | A secret write may declare its value's shape, validated before anything is stored | Secrets Management | SecretTypeTest (new, 12: wire-name parsing, opaque accepts anything, missing/truncated/empty-body/non-base64 PEM rejection, every openssl private-key label accepted, mismatched begin/end labels rejected, a certificate refused where a private key was declared); SecretStoreTest (4); FafnirServerTest (malformed rejected with 400 and never stored; unknown type rejected); SecretCommandTest (3); console tests. |
 | GIMLE-735 | gimle-fafnir | A tenant's whole secret set can be exported and imported in one authorized, audited call | Secrets Management | SecretStoreTest (2); FafnirServerTest (2); FafnirSecretsAuthzTest (the bulk read runs its own authorizer check and forbids an ungranted caller; is allowed for a caller holding SECRET read; a node is forbidden the bulk read even with an active assignment while keeping its single-key read); SecretCommandTest (5, including owner-only file mode, refusal to overwrite, and a soft-deleted secret omitted). |
 | GIMLE-736 | gimle-core | Secret and config payloads are bounded on both the value and the raw request body | Secrets Management | ApiServerPayloadLimitTest (new), SecretStoreTest and FafnirServerTest boundary cases on both the value-length and request-body paths. |
+| GIMLE-853 | gimle-fafnir | Retiring a secrets key that still encrypts stored data is refused, and `gimle secret rewrap` re-encrypts under the active key | Secrets Management | `SecretStoreTest#a_value_left_under_an_older_key_blocks_retirement_until_it_is_rewrapped`, `#rewrapping_again_finds_nothing_left_to_do`, `#rotation_leaves_nothing_encrypted_under_the_key_it_moved_off`; `FafnirServerSealTest#retiring_a_symmetric_key_is_refused_while_a_value_is_still_encrypted_under_it`; `FafnirCryptoTest` proves a retirement survives a cold reload and is scoped to the one key. |
 | GIMLE-262 | gimle-controlplane | `/secrets/*` byte-for-byte proxy to Fafnir | Secrets Management / Internal-Infra | `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered`, `a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` |
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
@@ -9415,6 +10059,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-691 | gimle-muninn | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | Security / Authorization | New `MuninnServerReadAuthzTest` (9 tests, real mTLS against a real MuninnServer): `#a_caller_whose_own_certificate_holds_the_logs_permission_can_read_instance_logs`, `#a_caller_with_an_unscoped_logs_permission_can_read_metrics` (legitimate cases, confirmed passing pre-fix); `#a_caller_with_no_logs_permission_is_forbidden_reading_instance_logs`, `#a_caller_with_no_logs_permission_is_forbidden_reading_metrics`, `#a_caller_with_no_logs_permission_is_forbidden_reading_traces`, `#a_grant_for_a_different_tenant_does_not_authorize_reading_this_ones_instance_logs`, `#a_node_may_not_read_a_different_nodes_logs` (confirmed failing pre-fix, proving the gap, then passing post-fix); `#a_node_may_read_its_own_node_logs`, `#an_unauthenticated_plaintext_read_is_allowed`. Full gimle-muninn module suite (8 classes, 35 tests) re-verified green, run per-class. |
 | GIMLE-692 | gimle-fafnir | FafnirServer authorizes cluster-wide secrets key rotation and retirement | Security / Authorization | `FafnirSecretsAuthzTest#a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_rotate_key_request_from_a_caller_with_the_permission_succeeds`/`#a_retire_key_request_from_a_caller_with_the_permission_succeeds`/`#a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized`/`#a_retire_key_request_with_no_principal_information_at_all_is_unauthorized`; `FafnirServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` (updated); `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` (re-verified through the real proxy). |
 | GIMLE-791 | gimle-agent | Per-worker certificates: node-minted worker identity carrying the worker's tenant | Security / Identity | `WorkerClientCsrTest` (6 tests against a real mTLS ApiServer: issuance for an assigned tenant with server-stamped groups and a worker certificate refused as a node; unassigned tenant, foreign-node CN, operator caller, and anonymous caller each refused; untenanted worker gets only gimle:workers); `WorkerCertificatesTest` (5 tests against a real CA: issue-once/reuse, untenanted submission, renewal of a due certificate only, refused issuance leaves nothing behind, per-worker directories); `AgentMainTest` (worker's own cert/key plus shared CA forwarded, never the node's; stable flags carry no TLS material); `SubjectsTest`; `CertificateIdentityTest`. |
+| GIMLE-903 | gimle-agent | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | Security / Identity | `NodeCertificateBootstrapTest#a_nodes_identity_lives_under_its_own_data_root_by_default`, `#an_identity_directory_may_be_pointed_somewhere_else_entirely`, `#a_bootstrapped_node_certificate_carries_the_nodes_dns_name_not_only_its_address`, `#a_wildcard_gossip_bind_address_is_not_requested_as_a_name`, `#bootstrapping_repoints_the_tls_material_properties_at_what_it_actually_wrote`, `#an_unwritable_identity_directory_says_what_it_needed_to_write_and_where` |
 | GIMLE-627 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (tenant-client allowed/same-tenant/denied/no-claim callers; per-worker certificate callers identified by tenant; anonymous caller reaches an unrestricted service and is refused by a restricted one), `SimpleModuleContextTest` (plaintext clientSslContext empty), `ApiServerAuthzTest` (tenant certificate minting) |
 | GIMLE-624 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip); `FafnirSecretsAuthzTest` and `AndvariServerTlsTest` each gained a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission and a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused |
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |
@@ -9455,12 +10100,14 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-700 | gimle-fabric | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | `CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown`. Full gimle-fabric module suite re-verified. |
 | GIMLE-780 | gimle-controlplane | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Service fabric | AgentLogServerTest gained a_supervised_instance_reports_the_fabric_address_its_worker_bound, a_worker_that_bound_no_domain_socket_omits_the_uds_path, an_instance_this_node_does_not_supervise_is_a_404, an_instance_whose_worker_has_not_handshaked_yet_is_a_409_not_a_404, and a_malformed_fabric_endpoint_path_is_rejected (including a path-traversal attempt). New ApiServerFabricEndpointTest covers proxying to the hosting node with the forwarded path asserted, StatefulSet-placed resolution (not only Deployment), a 404 that dials no agent, malformed paths, and method rejection. |
 | GIMLE-845 | gimle-fabric | A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup | Service fabric | `FabricServiceRegistryTest` gained `a_replica_saturated_by_other_callers_loses_to_an_idle_remote_one`, which stands a backend up reporting a fixed backlog while this caller has nothing in flight to it -- proven to fail against the pre-fix code. `FabricCodecTest` round-trips the new field. |
+| GIMLE-855 | gimle-fabric | A fabric target's application exception round-trips to its caller, named even when it cannot be loaded or serialized | Service fabric | `FabricRemoteExceptionTest` (9 tests: an unloadable type arrives named rather than as a decode failure, an unserializable exception still produces an answer, null messages report absence rather than an empty string, an undecodable payload falls back to the frame's own type name); `FabricCodecTest` round-trips the added fields; `FabricServiceRegistryTest` covers the caller side. |
 | GIMLE-672 | gimle-fabric | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code. |
 | GIMLE-688 | gimle-fabric | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified. |
 | GIMLE-689 | gimle-fabric | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified. |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-646 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. DeploymentGenerationCasTest pins the tombstone directly: a proposal captured while the name was free is rejected after a create+delete, a delete never leaves the name reading as free, and a genuine later apply still recreates it. |
 | GIMLE-726 | gimle-mimir | Instance event history is cleared when a workload is removed, so a reused name starts clean | State Store | StateStoreTest (7 new: every index cleared; delete-then-recreate starts empty for all three workload kinds; another tenant's same-named timeline survives; a similarly-named workload survives; a cleared timeline does not return through a snapshot/restore round trip); MutationBatchTest (replaying PutDeployment, AppendInstanceEvent, RemoveDeployment, PutDeployment in log order on a fresh replica leaves the recreated name empty). |
+| GIMLE-860 | gimle-mimir | A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved | State Store | `AndvariMainResilienceTest`, `FafnirMainResilienceTest` and `MuninnMainResilienceTest` each assert an already-resolvable endpoint passes through untouched and that a malformed spec still fails fast rather than looping. |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-630 | gimle-module | Multi-volume modules: named volumes and dataDirectory(name) | Storage | `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest` |
@@ -9479,10 +10126,14 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-342 | gimle-observability | Bounded-wait tracer flush | Tracing | `GimleTracingInstallTest#flush_forces_the_batch_processor_to_export_before_the_next_periodic_tick`, `#flush_before_any_install_is_a_noop` |
 | GIMLE-345 | gimle-observability | One-shot trace-batch and prepared-batch shipping | Tracing | `MuninnShipperTest#ship_trace_batch_is_a_one_shot_post_with_no_periodic_ticking`, `#ship_prepared_batch_posts_the_given_body_verbatim_with_no_periodic_ticking`, `#ship_prepared_batch_is_a_noop_for_an_empty_body` |
 | GIMLE-350 | gimle-observability | `MuninnSpanExporter` (OpenTelemetry SDK integration) | Tracing | `MuninnSpanExporterTest#a_real_span_batch_reaches_the_stub_ingest_server_with_the_expected_shape`, `#export_never_throws_even_when_shipping_fails` |
+| GIMLE-899 | gimle-observability | A root span reports no parent rather than the all-zero span id | Tracing | `SpanLineCodecTest#a_root_span_reports_no_parent_rather_than_the_all_zero_span_id`, `#a_child_span_still_reports_its_own_parents_span_id` |
+| GIMLE-900 | gimle-muninn | Every span of one trace is found across processes in a single read | Tracing | `MuninnServerTraceSearchTest#both_hops_of_a_cross_worker_call_come_back_from_one_search`, `#a_span_a_busy_worker_has_paged_past_is_still_found_by_trace_id`, `#a_trace_nothing_ever_shipped_a_span_for_comes_back_empty_rather_than_missing`, `#a_trace_id_that_is_not_32_hex_characters_is_rejected_before_touching_the_filesystem`, `#a_search_that_hits_its_limit_says_so_rather_than_quietly_returning_a_slice`; `MuninnServerReadAuthzTest` covers the authorization; `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape` |
 | GIMLE-722 | gimle-gateway | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Transport Security | GatewayTlsConfigTest and GatewayHooksTlsTest (11 new): per-host certificate presented for each SNI name, no-SNI falls back to the cluster-wide certificate, an unbound hostname falls back rather than failing the handshake, wildcards/duplicate hostnames/wrong field counts/missing files rejected at parse time. |
 | GIMLE-742 | gimle-pki | The one-time bootstrap password never reaches a build log or any other persistent sink | Transport Security | PkiBootstrapMainTest (9): file-mode delivery, the password absent from the captured stream, the written password verifying against bootstrap-account.yaml's hash, owner-only file mode, refusal generating nothing at all, and interactive mode printing without writing a file. PkiInitTest (18) covers the hilmir path. |
 | GIMLE-743 | gimle-controlplane | The unauthenticated CSR bootstrap endpoint is rate limited | Transport Security | RequestRateLimiterTest (8): burst, refusal with a retry instant, no lockout extension, refill, capacity cap, 200 distinct keys admitted while one is exhausted, exact admission count under 64 concurrent virtual threads, argument validation. BootstrapCsrRateLimitTest (4), including the explicit legitimate-fleet case: 50 simultaneous submissions from one address at shipped defaults, all accepted. |
 | GIMLE-799 | gimle-gateway | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`. |
+| GIMLE-859 | gimle-pki | A failed certificate-rotation check no longer ends renewal for the life of the process | Transport Security | `StoreMainResilienceTest`, `FafnirMainResilienceTest`, `MuninnMainResilienceTest` and `AndvariMainResilienceTest` each drive a tick whose rotation check throws and assert the next tick still runs. |
+| GIMLE-905 | gimle-pki | A store replica presents its own leaf certificate rather than the control plane's | Transport Security | `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes`; `LaunchPlannerTest` asserts store replicas are launched with the store leaf |
 | GIMLE-703 | gimle-mimir | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Upgrade path | RaftCodecTest#rejects_an_unrecognized_rpc_version_before_decoding_the_tag and #rejects_an_unrecognized_snapshot_version; StoreCodecTest#rejects_an_unrecognized_version_before_decoding_the_tag -- each forges a frame carrying an out-of-range version byte and asserts GimleCodecException naming both the declared and max-supported version, decoded before any tag/field is touched. Full gimle-mimir module suite (500+ pre-existing cases across both codecs) re-verified against the new framing. |
 | GIMLE-841 | gimle-console | The Gateway screen finds a gateway DaemonSet by the module it runs, not by its name | Web Console | gimle-console/src/addons/gateway/store.test.ts |
 | GIMLE-843 | gimle-andvari-console | The registry overview tells a failed or in-flight catalog read apart from an empty one | Web Console | gimle-andvari-console/src/stores/artifactsStore.test.ts |
@@ -9502,7 +10153,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-446 | gimle-console | Tenants list/detail with quota management and delete | Web Console / Frontend | `src/repositories/http/tenants.test.ts`, `src/stores/tenants.test.ts` |
 | GIMLE-447 | gimle-console | Topology placement map | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-448 | gimle-console | Cluster metrics charts (lifecycle mix, capacity, quota pressure) | Web Console / Frontend | NONE recorded in the baseline |
-| GIMLE-449 | gimle-console | Per-process metrics history (Muninn-backed) | Web Console / Frontend | `src/repositories/http/metricsHistory.test.ts` |
+| GIMLE-449 | gimle-console | Per-process metrics history (Muninn-backed) | Web Console / Frontend | `src/repositories/http/metricsHistory.test.ts`; `useHistoryKindsStore.test.ts`, `tracesHistory.test.ts` |
 | GIMLE-450 | gimle-console | Trace span history viewer | Web Console / Frontend | `src/repositories/http/tracesHistory.test.ts` |
 | GIMLE-451 | gimle-console | Log explorer with live tailing | Web Console / Frontend | `src/routes/logs.test.ts`, `src/repositories/http/logs.test.ts` |
 | GIMLE-452 | gimle-console | Crash-dump (hs_err) listing on Logs screen | Web Console / Frontend | NONE recorded in the baseline |
@@ -9524,14 +10175,14 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-471 | gimle-andvari-console | Client-side SHA-256 checksum verification on download | Web Console / Frontend | `src/lib/hash.test.ts` |
 | GIMLE-472 | gimle-andvari-console | Push artifact dialog (drag-and-drop upload) | Web Console / Frontend | `repositories.test.ts` — "rejects re-pushing an existing version with 409" |
 | GIMLE-473 | gimle-andvari-console | Maven-2 repository interop view | Web Console / Frontend | NONE recorded in the baseline |
-| GIMLE-474 | gimle-andvari-console | Andvari copy-to-clipboard utility | Web Console / Frontend | NONE recorded in the baseline |
+| GIMLE-474 | gimle-andvari-console | Andvari copy-to-clipboard utility | Web Console / Frontend | `CopyButton.test.tsx#names the action it will perform, not one it hasn't performed yet`; `copy.test.ts` covers the two wordings. |
 | GIMLE-481 | gimle-saga-console | Saga console theming (no auth surface) | Web Console / Frontend | `SagaServerTest.java` — "the_bundled_console_is_served_at_console" |
 | GIMLE-585 | gimle-console | ConfigMaps screen | Web Console / Frontend | `repositories/configmaps.test.ts` (Mock repository CRUD, stale-`expectedVersion` conflict, `expectedVersion=0` create case); `repositories/http/configmaps.test.ts` (HTTP repository request shapes, 409 mapped to `ConfigMapConflict`); `stores/useConfigMapsStore.test.ts` (store error surfacing, conflict state distinct from generic error, new-vs-selected `expectedVersion` selection) |
 | GIMLE-586 | gimle-console | Service CRUD and live endpoint lookup (Networking screen) | Web Console / Frontend | `src/repositories/services.test.ts`, `src/repositories/http/services.test.ts` |
 | GIMLE-587 | gimle-console | NetworkPolicy CRUD (Networking screen) | Web Console / Frontend | `src/repositories/networkPolicies.test.ts`, `src/repositories/http/networkPolicies.test.ts` |
 | GIMLE-593 | gimle-console | SecretMaps screen | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection). |
 | GIMLE-596 | gimle-console | SecretMaps screen History panel | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`). |
-| GIMLE-741 | gimle-console | A trace can be followed across processes from the console's Traces screen | Web Console / Frontend | gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more. |
+| GIMLE-741 | gimle-console | A trace can be followed across processes from the console's Traces screen | Web Console / Frontend | gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more. `-trace-follow.test.ts` was rewritten against the single search, and `tracesHistory.test.ts` covers the repository call. |
 | GIMLE-750 | gimle-console | LimitRange management in the web console | Web Console / Frontend | routes/-limitranges.test.ts (15), stores/useLimitRangesStore.test.ts (9), plus Mock and Http repository tests covering whole-spec replacement dropping a bound and an explicit zero staying distinct from absent. |
 | GIMLE-751 | gimle-console | Volumes screen: see and reclaim orphaned StatefulSet volumes | Web Console / Frontend | routes/-volumes.test.ts (19), stores/useVolumesStore.test.ts (11) including error surfacing, the unreachableNodes case and a stale-set-cleared case, plus Mock and Http repository tests. |
 | GIMLE-752 | gimle-console | Seal-key lifecycle in the web console | Web Console / Frontend | routes/-seal.test.ts (8) validation branches and the confirmation gate, stores/useSealStore.test.ts (8) including a refused retire leaving the shown key alone, plus Mock and Http repository tests; the Mock was corrected to refuse the base key and to fail a second retire of the same id, matching Fafnir. |
@@ -9550,7 +10201,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-801 | gimle-console | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | `repositories/http/deployments.test.ts`, `stores/useDeploymentsStore.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-802 | gimle-console | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | `repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-803 | gimle-console | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | `lib/topology.test.ts` -- see requirements-matrix.json for detail |
-| GIMLE-804 | gimle-andvari-console | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail. |
+| GIMLE-804 | gimle-andvari-console | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail. `pushCoordinate.test.ts` covers a derived coordinate being cleared and a typed one surviving. |
+| GIMLE-876 | gimle-console | A throttled control-plane answer is retried instead of read as a signed-out session | Web Console / Frontend | `apiClient.test.ts` (10 cases: retry and return the retried body, wait out Retry-After, bounded retries, surface a long wait, backoff without a header, delta-seconds and HTTP-date parsing); `auth.test.ts` and `useAuthStore.test.ts` cover the session probe riding out a throttle and settling on the principal the retry returns. |
+| GIMLE-877 | gimle-console | An unread kind catalog is not reported as a cluster with no custom kinds | Web Console / Frontend | `-custom-resources.test.ts` (5 cases across the three reasons, including a failed re-read after an earlier success); `useCustomResourcesStore.test.ts` covers the poll re-reading the catalog and the selected kind's rows without blanking the table. |
+| GIMLE-878 | gimle-console | The console dev server proxies every API prefix its repositories use | Web Console / Frontend | None -- `vite.config.ts` is dev-server configuration with no presence in the built console; verified by running the dev server against a real control plane per `gimle-console/LOCAL_DEV.md`. |
+| GIMLE-889 | gimle-console | Config, ConfigMaps, Secrets and SecretMaps carry their tenant in the URL | Web Console / Frontend | `tenant-scope.test.ts` (6 cases) and `-tenant-scope.test.ts` cover URL precedence, an unknown tenant being honoured, the bare-navigation fallback, and the tenant being written back into the URL. |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |
@@ -9569,6 +10224,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-786 | gimle-agent | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained six: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, an oversized module getting a worker to itself, and a worker keeping its recorded size once the instance that spawned it is gone. |
 | GIMLE-793 | gimle-agent | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained coverage for: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, and an oversized module getting a dedicated worker sized at its own limit plus the reserve. |
 | GIMLE-794 | gimle-agent | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | Worker Supervision | AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated by the assertion. |
+| GIMLE-847 | gimle-agent | One unparseable assignment is skipped and reported rather than aborting the whole batch | Worker Supervision | `AgentMainTest#one_unparseable_assignment_does_not_discard_the_rest_of_the_batch` |
+| GIMLE-848 | gimle-agent | Startup registration is retried with backoff instead of killing the agent | Worker Supervision | `AgentMainTest#registration_keeps_retrying_until_the_control_plane_accepts_it` (a stub control plane refusing the first attempts, then accepting), `#registration_backoff_grows_but_stops_at_its_ceiling` |
+| GIMLE-867 | gimle-agent | A start this node refuses is recorded on the instance's own timeline, once per distinct cause | Worker Supervision | `AgentStartFailureEventTest#a_refused_spawn_is_reported_as_a_durable_transition_failed_event_for_that_instance`, `#an_unchanged_refusal_repeated_every_tick_is_reported_once_rather_than_on_every_tick`, `#an_unreadable_artifact_is_reported_the_same_way_a_refused_spawn_is`, `#an_assignment_that_starts_normally_reports_no_failure_event` |
+| GIMLE-869 | gimle-agent | A node reports the binding memory and CPU budget as its capacity | Worker Supervision | `AgentCapacityReportTest#the_reported_capacity_reflects_the_real_worker_ceilings_this_node_has_committed`, `#a_request_sum_larger_than_the_committed_sum_is_still_the_one_reported` |
+| GIMLE-904 | gimle-agent | A worker's handshake is applied to every instance packed onto that worker | Worker Supervision | `SharedWorkerHandshakeTest#an_instance_packed_onto_a_shared_worker_reports_that_workers_id`, `#an_instance_on_a_different_worker_is_left_alone` |
 | GIMLE-106 | gimle-agent | Machine-level capacity tracking and admission (memory/CPU) | Worker Supervision / Config | `CapacityTrackerTest#try_assign_succeeds_within_capacity_and_is_reflected_in_the_snapshot`, `#try_assign_fails_once_it_would_exceed_total_capacity`, `#try_assign_rejects_a_key_already_holding_a_reservation`, `#release_frees_the_reservation_for_reuse`, `#rekey_moves_the_reservation_to_the_new_key_without_changing_total_usage`, `#rekey_is_a_noop_when_the_old_key_holds_no_reservation` |
 | GIMLE-079 | gimle-worker | Worker JVM control-channel bootstrap | Worker Supervision / Internal-Infra | `ControlChannelClientTest#connect_with_retry_succeeds_once_the_listener_is_up`, `#connect_with_retry_gives_up_after_its_timeout_if_nothing_ever_listens`, `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel` (gimle-agent) |
 | GIMLE-101 | gimle-agent | Node agent registration and repeating reconcile/heartbeat/rotate tick loop | Worker Supervision / Internal-Infra | `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel`, `ControlPlaneAgentWorkerIntegrationTest#control_plane_places_replicas_on_real_agents_and_reschedules_after_an_agent_is_killed` |

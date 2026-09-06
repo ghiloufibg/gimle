@@ -79,10 +79,10 @@ gimle get <deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignme
                      [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
 gimle apply -f <manifest.yaml>|- [--dry-run]
                                    (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
-                                    ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
-                                    LimitRange, Role, RoleBinding, Account, or any defined custom
-                                    kind, read from the manifest itself; -f - reads the manifest
-                                    from stdin instead of a file)
+                                    ArtifactSet, Service, NetworkPolicy, Ingress, Tenant,
+                                    LimitRange, Role, RoleBinding, Account, KindDefinition, or any
+                                    defined custom kind, read from the manifest itself; -f - reads
+                                    the manifest from stdin instead of a file)
 gimle kinds
 gimle get <custom-kind|plural|shortName> [name] [--tenant <id>]
 gimle delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -101,6 +101,7 @@ gimle daemonset rollback <name> [--to-revision N] [--tenant <id>]
 gimle cronjob trigger <name> [--tenant <id>]
 gimle get nodes
 gimle get node-assignments <nodeId>
+gimle label node <nodeId> <label>[ <label>-]...
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
 gimle taint <nodeId> <tenantId>
@@ -109,10 +110,11 @@ gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId> [--tenant <id>]
 gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
 gimle metrics
-gimle metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+gimle metrics-history <AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER> <processId>
                        [--since <cursor>] [--limit N]
-gimle traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+gimle traces-history <CONTROLPLANE|WORKER> <processId>
                       [--since <cursor>] [--limit N]
+gimle trace <traceId> [--limit N]
 gimle context list
 gimle context show [name]
 gimle context use <name>
@@ -160,6 +162,7 @@ gimle secret versions <tenantId> <key>
 gimle secret export <tenantId> --out <file>
 gimle secret import <tenantId> --in <file>
 gimle secret rotate-key
+gimle secret rewrap
 gimle secret retire-key <keyId>
 gimle configmap list <tenantId>
 gimle configmap get <tenantId> <name>
@@ -285,12 +288,17 @@ supports POSIX ones; and an existing path is refused rather than silently overwr
 once imported is the operator's job — treat it like the master key file itself.
 
 `rotate-key` generates a new master encryption
-key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is
-destructive in a different, sharper way than `delete`: it stops Fafnir from trusting that key id at
-all, so any value still encrypted under it — one `rotate-key` alone never re-encrypts — becomes
-permanently unrecoverable through this surface from that moment on. Retiring the currently active
-key is rejected outright; rotate first, confirm nothing still depends on the old key, then retire
-it.
+key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is the
+sharper operation: it destroys that key id's material, so a value still encrypted under it would
+become permanently unreadable. Rather than doing that silently, retirement is **refused** while any
+stored value still depends on the key, and the error names how many.
+
+`rewrap` clears that: it re-encrypts every stored secret version that is not already under the
+active key, without minting a new key the way a second `rotate-key` would. It is idempotent, so an
+interrupted run is finished by running it again. The normal sequence is `rotate-key`, then
+`retire-key` — rotation sweeps as it goes, so there is usually nothing left behind; `rewrap` is what
+clears the residue rotation's own sweep can miss (a value written concurrently, after the sweep had
+already passed that entry). Retiring the currently active key, or key id 0, is rejected outright.
 
 Like `secret`, `configmap` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
 `list` here returns names scoped to one tenant-owned ConfigMap object, not the flat per-key rows
@@ -401,12 +409,25 @@ of [Muninn](../architecture/node-topology.md#muninn) through the control plane's
 terminal equivalent of the console's Metrics and Traces screens, so an investigation can be scripted
 instead of clicked. There is no discovery API for which process ids exist: every non-agent id is the
 `host:port` that process chose for itself at startup, an agent's is its node id, and a worker's is
-the composite `{nodeId}:{workerId}` (a worker has no listening address of its own). An unrecognized
-process kind is rejected locally, listing the five that exist. `--since <cursor>` (a line timestamp)
-reads forward from that point and is the one filter the proxy forwards; `--limit N` is therefore
-applied client-side, keeping the most recent N of an oldest-first response, the same treatment
-`events` gives its own `--limit`. Under the table format the last line's own timestamp is printed as
-the cursor to resume from. A cluster with no Muninn configured answers `not found: no muninn
+the composite `{nodeId}:{workerId}` (a worker has no listening address of its own). The two verbs
+accept different process kinds, because the platform ships different signals from different
+processes: most kinds publish metrics but never start a span — a node agent and
+[Skald](../architecture/node-topology.md#skald) install no tracer provider at all, and the store,
+Fafnir and Andvari install one that nothing in them ever feeds — so asking any of them for traces
+could only ever come back empty. A
+kind that ships nothing for the signal being read is rejected locally, listing the kinds that do —
+the same set the control plane itself serves from `GET /metrics-history` and `GET /traces-history`
+and rejects a read against. `--since <cursor>` (a line timestamp)
+reads forward from that point; `--limit N` bounds what the store reads rather than trimming what
+came back. Under the table format the last line's own timestamp is printed as
+the cursor to resume from.
+
+`trace <traceId>` answers a different question: every span of one trace, wherever it ran. The
+per-process verbs above structurally cannot — a caller would have to already know which processes
+took part, and a worker replaced since the call no longer appears in any listing to be named. The
+search runs in Muninn across every process that has ever shipped there, and every configured
+replica is asked and their answers merged, since shipping is best-effort per replica and one
+replica's silence about a span is not evidence it was never recorded. A cluster with no Muninn configured answers `not found: no muninn
 endpoint configured` — history is the only place a process's metrics or traces ever live, so there
 is no live-process fallback the way `logs` has one.
 
@@ -442,13 +463,27 @@ one must be: `--allowed-caller-tenant` (repeatable) allows the named caller tena
 `--deny-all-callers` is the allow-nobody form of the same direction; `--allowed-callee-tenant` /
 `--deny-all-callees` restrict the egress direction the same way.
 
+`ingress` reads and removes an [Ingress](../architecture/service-fabric.md#ingress-routes-as-a-resource)
+— the declared gateway route table. `get ingresses` with no name lists every Ingress (narrowed
+client-side by `--tenant` when given); with a name it reports that one, and `--tenant` is how a
+tenant's own Ingress is addressed, since a bare name reaches only the untenanted namespace. There is
+deliberately no `set ingress`: a route carries up to six fields whose meaning depends on its kind,
+which reads worse on a command line than in the `kind: Ingress` manifest `apply -f` accepts. Every
+apply is compare-and-set guarded — a manifest carrying the `version` a `get ingress` printed is
+refused with a `409` naming both versions if the stored Ingress has moved on since, and a manifest
+carrying no `version` is guarded against whatever is stored when the CLI reads it — so an edit
+built on a revision another operator has already replaced fails loudly instead of discarding their
+change.
+
 `alertrule` manages an [AlertRule](../architecture/observability.md#alerting) — a declared threshold
 on one Deployment's own observed signal (`--metric`, one of `REQUEST_RATE_PER_SECOND`,
 `ERROR_RATE_PER_SECOND`, `QUEUE_DEPTH`, `CPU_MILLICORES_USED`, `MEMORY_BYTES_USED`) that posts a
 webhook notification once when crossed and again once resolved. `set alertrule` POSTs to the
 `/alertrules` collection the same way `set service` does, since a rule names itself in its own
 request body; `--disabled` creates the rule silenced (never evaluated) rather than enabled by
-default.
+default. `--tenant` is optional and omitting it means the **default tenant**, not "no tenant" —
+matching where a workload manifest without a `tenantId` lands, so a rule created without the flag
+watches the deployment an equally flag-less `apply` created.
 
 `limitrange` manages a tenant's [LimitRange](../architecture/multi-tenancy.md#limitrange) — a
 per-workload min/max bound on a single Deployment's own `resources.request`/`resources.limit`,
@@ -701,13 +736,15 @@ mechanism, including how operator modules report the `status` these tables rende
 
 ## Applying non-workload manifests
 
-`apply -f` also covers `Service`, `NetworkPolicy`, `Tenant`, `LimitRange`, `Role`, `RoleBinding`,
-and `Account` — the same manifest-driven convention Deployment/Job/CronJob/DaemonSet/StatefulSet
-already follow, alongside their own bespoke `gimle set <kind> ...` flag-based commands (both stay
-available; a manifest is just an alternative to spelling every field as a flag). Unlike the
-workload kinds, these seven have no `PUT /{kind}/{name}`-shaped route to send the YAML bytes to
-directly, so the CLI parses the manifest client-side and builds the identical JSON body `set`
-already builds from flags, then issues the same request `set` would:
+`apply -f` also covers `Service`, `NetworkPolicy`, `Ingress`, `Tenant`, `LimitRange`, `Role`,
+`RoleBinding`, and `Account` — the same manifest-driven convention
+Deployment/Job/CronJob/DaemonSet/StatefulSet already follow, alongside their own bespoke `gimle set
+<kind> ...` flag-based commands (both stay available; a manifest is just an alternative to spelling
+every field as a flag). `gimle -h` and `gimle apply --help` list every accepted kind, generated from
+the dispatch table itself rather than restated by hand. Unlike the workload kinds, these eight have
+no `PUT /{kind}/{name}`-shaped route to send the YAML bytes to directly, so the CLI parses the
+manifest client-side and builds the identical JSON body `set` already builds from flags, then issues
+the same request `set` would:
 
 ```yaml
 kind: Service
@@ -737,10 +774,20 @@ permissions:
     verb: read
 ```
 
+```yaml
+kind: LimitRange
+name: acme                           # the tenant the bounds apply to
+minRequest: {memory: 24Mi, cpu: 15m} # each bound is a nested block, never a flat
+maxLimit: {memory: 512Mi, cpu: 500m} # minRequestMemory-style field
+```
+
 `Tenant`, `LimitRange`, `RoleBinding`, and `Account` manifests use `name:` for the identifier the
 same way every other kind does, even though their own `get`/`set`/`delete` verbs call it `id` (or
 `username`) — see each kind's own manifest shape by round-tripping `gimle get <kind> <name>
--o json` and reshaping it, or by reading the corresponding `set` command's own flags.
+-o json` and reshaping it, which yields exactly the nested shape a manifest wants. A `LimitRange`
+whose bounds are spelled as flat, flag-mirroring fields (`minRequestMemory: 24Mi`) is **rejected**,
+not quietly stored as a range that bounds nothing, and so is one declaring no bound at all —
+removing a tenant's bounds is `gimle delete limitrange <tenantId>`, which says so unambiguously.
 
 ## Examples
 
@@ -793,6 +840,14 @@ gimle logs controlplane --level=ERROR --contains=quota --follow --server 127.0.0
 gimle get nodes --server 127.0.0.1:8080
 gimle get node-assignments node-1 --server 127.0.0.1:8080
 
+# Label a running node so manifests requiring that label can be placed on it. A trailing "-"
+# removes a label instead of adding it, the same shorthand kubectl uses. This edits only the
+# operator-applied half: labels the node reported for itself at startup (-Dgimle.node.labels)
+# stay put, and survive the node re-registering.
+gimle label node node-1 edge --server 127.0.0.1:8080
+gimle label node node-1 gpu ssd --server 127.0.0.1:8080
+gimle label node node-1 edge- --server 127.0.0.1:8080
+
 # Exclude a node from future placement without evicting what's already running there
 gimle cordon node-1 --server 127.0.0.1:8080
 gimle uncordon node-1 --server 127.0.0.1:8080
@@ -819,7 +874,7 @@ gimle -o json metrics --server 127.0.0.1:8080
 # {nodeId}:{workerId}. --since resumes from the cursor the previous read printed.
 gimle metrics-history CONTROLPLANE 127.0.0.1:8080 --limit 50 --server 127.0.0.1:8080
 gimle metrics-history WORKER node-1:worker-2 --since 2026-08-30T10:00:00Z --server 127.0.0.1:8080
-gimle -o json traces-history AGENT node-1 --server 127.0.0.1:8080
+gimle -o json traces-history WORKER node-1:worker-2 --server 127.0.0.1:8080
 
 # Name each cluster once instead of retyping --server; the selection lives in ~/.gimle/config
 gimle context set dev --server 127.0.0.1:8080

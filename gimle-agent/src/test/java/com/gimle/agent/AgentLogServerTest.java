@@ -336,17 +336,21 @@ class AgentLogServerTest {
     assertTrue(Files.exists(held));
     assertEquals(200, delete("/volumes/sessions/1").statusCode());
     assertFalse(Files.exists(orphan));
+    // Repeating the destroy reclaims nothing the second time, and answers differently from the
+    // first: an operator re-running a reclaim script has to be able to tell which run did the work.
+    assertEquals(404, delete("/volumes/sessions/1").statusCode());
     assertEquals(400, delete("/volumes/..%5Cpwn/1").statusCode());
   }
 
   /**
-   * A destroy naming a tenant this node holds no such volume for must not claim it destroyed
-   * anything. The volume directory tree is keyed by tenant, so an operator who addressed the wrong
-   * one has left the volume they meant to reclaim untouched -- which the response body has to say,
-   * even though the status is the same 200 every repeated delete on this platform answers with.
+   * A destroy naming a tenant this node holds no such volume for must not answer the way a real
+   * reclaim does. The volume directory tree is keyed by tenant, so an operator who addressed the
+   * wrong one has left the volume they meant to reclaim untouched -- and since reclaiming is
+   * irreversible and hand-addressed, that difference has to reach a caller that reads only the
+   * status, not just one that parses the body.
    */
   @Test
-  void destroying_a_volume_under_the_wrong_tenant_reports_nothing_destroyed_and_leaves_it_on_disk()
+  void destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk()
       throws Exception {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
@@ -360,15 +364,14 @@ class AgentLogServerTest {
             logRoot, 0, (tenantId, name, index) -> name + "#" + index, volumeManager, Set::of);
     server.start();
 
-    // Addressing the wrong tenant (or none) is a no-op that says so: the status stays 200 because
-    // deleting is idempotent here like everywhere else on this platform, and "destroyed": false is
-    // what tells the operator their reclaim addressed nothing.
+    // Addressing the wrong tenant (or none) reclaimed nothing, and the status says so rather than
+    // reporting the same success a real reclaim does.
     HttpResponse<String> untenanted = delete("/volumes/sessions/0");
-    assertEquals(200, untenanted.statusCode());
-    assertTrue(untenanted.body().contains("\"destroyed\":false"), untenanted.body());
+    assertEquals(404, untenanted.statusCode(), untenanted.body());
+    assertTrue(untenanted.body().contains("no volume to destroy"), untenanted.body());
     HttpResponse<String> wrongTenant = delete("/volumes/sessions/0?tenant=globex");
-    assertEquals(200, wrongTenant.statusCode());
-    assertTrue(wrongTenant.body().contains("\"destroyed\":false"), wrongTenant.body());
+    assertEquals(404, wrongTenant.statusCode(), wrongTenant.body());
+    assertTrue(wrongTenant.body().contains("for tenant globex"), wrongTenant.body());
     assertTrue(Files.exists(tenanted));
 
     HttpResponse<String> rightTenant = delete("/volumes/sessions/0?tenant=acme");
@@ -402,13 +405,12 @@ class AgentLogServerTest {
   }
 
   /**
-   * A second destroy succeeds like every other repeated delete on this platform -- a reclaim script
-   * re-run must not fail on work it already finished -- while still reporting that this particular
-   * call found nothing left to destroy.
+   * A second destroy removed nothing, and answers as such: an operator re-running a reclaim by hand
+   * or from a script has to be able to tell the run that deleted real data from the one that found
+   * the coordinate already empty, and the exit status is the only part of the answer a script sees.
    */
   @Test
-  void destroying_an_already_destroyed_volume_succeeds_but_reports_nothing_destroyed()
-      throws Exception {
+  void destroying_an_already_destroyed_volume_reports_that_it_removed_nothing() throws Exception {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     volumeManager.allocate(
@@ -423,8 +425,8 @@ class AgentLogServerTest {
     assertTrue(first.body().contains("\"destroyed\":true"), first.body());
 
     HttpResponse<String> second = delete("/volumes/sessions/0");
-    assertEquals(200, second.statusCode());
-    assertTrue(second.body().contains("\"destroyed\":false"), second.body());
+    assertEquals(404, second.statusCode(), second.body());
+    assertTrue(second.body().contains("no volume to destroy"), second.body());
   }
 
   private HttpResponse<String> delete(String path) throws Exception {

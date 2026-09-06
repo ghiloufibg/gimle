@@ -178,6 +178,17 @@ class TopologyValidatorTest {
   }
 
   @Test
+  void reports_port_conflict_when_a_store_health_port_collides_with_another_claim() {
+    assertTrue(
+        has(
+            validate(
+                "name: bad\nmachines:\n  - {name: m1, host: h1}\nstore:\n  replicas:\n"
+                    + "    - {machine: m1, raftPort: 9080, clientPort: 9091, healthPort: 8080}\n"
+                    + "controlPlane:\n  replicas:\n    - {machine: m1, port: 8080}\n"),
+            "PORT_CONFLICT"));
+  }
+
+  @Test
   void does_not_report_port_conflict_when_every_port_on_a_machine_is_distinct() {
     assertFalse(has(validate(HEALTHY_TOPOLOGY), "PORT_CONFLICT"));
   }

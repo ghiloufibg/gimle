@@ -226,6 +226,22 @@ not carrying the operators group — the same generic `403` an ordinary permissi
 returns, so a caller with no access at all still can't distinguish "reserved" from "denied" by
 probing the name.
 
+Plaintext transport is no exception, and this is the one place plaintext is *not* wide open. A
+request that presents no credential resolves to an explicit anonymous principal — a real identity
+belonging to no group at all — rather than to no identity, so it fails the operators-group check
+like any other non-operator caller and is refused. The alternative reading, "nothing authenticated
+this caller, so treat it as the most privileged one," would leave the reserved tenant writable by
+anyone able to reach the port, on exactly the deployments where nothing verifies who is calling.
+What is checked is the credential, not the transport that carried it — the same rule Kubernetes
+applies, where `kube-apiserver` over plain HTTP still honours a bearer token and only a
+credential-less request becomes `system:anonymous`. A caller holding a real operator session is an
+operator whatever connection it arrived on; resolving it as anonymous would discard a credential it
+genuinely holds, and would contradict the very same request's own principal resolution, which
+honours exactly those credentials. The practical consequence is that anything targeting
+`gimle-system` — `hilmir enable gateway`, a `DaemonSet` manifest naming it — needs a real operator
+credential: an mTLS operator certificate, or a session for an account in the operators group. What
+there is no shortcut for is presenting nothing at all.
+
 The tenant itself is seeded once, idempotently, straight into the store at control-plane startup
 (never through the guarded `/tenants/*` path, so the guard needs no "let the bootstrap request
 through" carve-out) with a generous default `ResourceQuota` — a platform-owned tenant is not sized
@@ -373,9 +389,11 @@ every other write already uses — hashing happens server-side, and no response 
 
 No new cluster-wide switch: authorization requires a `Principal`, and a `Principal` requires either
 a verified certificate or a verified session cookie, neither of which exist in plaintext mode. So
-plaintext mode is exactly as it was — fully open, no identity, no enforcement — the same "local,
+RBAC in plaintext mode is exactly as it was — fully open, no grants consulted — the same "local,
 trusted process" carve-out already described for the web console and multi-machine node topology
-below.
+below. The single exception is the reserved `gimle-system` tenant above: an unauthenticated request
+is the anonymous principal there, in no group, and a veto that no grant can buy must not be
+purchasable by presenting nothing at all.
 
 ## Web console
 
@@ -457,6 +475,17 @@ covering the `GROUP_NODES` self-service read branch too, which bypasses `Authori
 entirely but still computes an `allowed` boolean worth recording. `SECRET` reads have always been
 audited; the opt-in above is what lets an operator bring another resource kind's reads up to that
 same bar on the control plane's own general RBAC surface.
+
+Andvari audits the same way for the one thing it stores: every `ARTIFACT` push and delete produces
+both a `com.gimle.andvari.audit` SLF4J line and a durable `AuditEvent`, and both name the affected
+`moduleId:version` coordinate (`targetId`) plus the artifact's tenant, so "who deleted what" is
+answerable without correlating timestamps against a separate version listing. Pulls stay
+unaudited — they are the high-volume path, and a pull discloses only what a deployment manifest
+already references. Both halves fire in plaintext mode too, attributed to the synthetic `anonymous`
+principal: there is no caller identity to authorize there, but a jar still arrived or disappeared,
+and a trail that goes silent in exactly the mode a single-machine cluster runs in is not a trail.
+Note that a push routed through the control plane's `/artifacts/*` proxy produces *two* records —
+the proxy's own `ARTIFACT` decision, which carries no coordinate, and Andvari's, which does.
 
 Reading the trail is itself access-controlled, the same "who can grant access is itself an
 access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —

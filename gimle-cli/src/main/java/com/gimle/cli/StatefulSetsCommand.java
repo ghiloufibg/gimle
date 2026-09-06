@@ -220,6 +220,12 @@ public final class StatefulSetsCommand {
       if (!(entry instanceof Map<?, ?> instance)) {
         continue;
       }
+      // A placed instance the server says never started counts too: it reports no observation at
+      // all, so judging by observation alone rendered a workload with nothing running as HEALTHY.
+      if (instance.get("notRunningReason") != null) {
+        count++;
+        continue;
+      }
       if (instance.get("observation") instanceof Map<?, ?> observation
           && (Boolean.FALSE.equals(observation.get("alive"))
               || "FAILED".equals(observation.get("lifecycleState")))) {

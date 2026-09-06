@@ -1,17 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { useHistoryKindsStore, type HistorySignal } from "@/stores/useHistoryKindsStore";
 import { useNodesStore } from "@/stores/useNodesStore";
 import type { ProcessKind, ProcessTarget } from "@/types";
-
-export const PROCESS_KINDS: ProcessKind[] = [
-  "CONTROLPLANE",
-  "FAFNIR",
-  "STORE",
-  "AGENT",
-  "WORKER",
-  "SKALD",
-];
 
 /**
  * A worker JVM's processId is `{nodeId}:{workerId}` -- workers have no host:port of their own the
@@ -51,23 +43,40 @@ export function defaultProcessTarget(): ProcessTarget {
   return { processKind: "CONTROLPLANE", processId: defaultControlPlaneProcessId() };
 }
 
-/** Kind row + a processId field: an editable text input for CONTROLPLANE/FAFNIR/STORE (no
- * discovery API exists for these, see above), or a real node picker for AGENT (node ids come from
- * the already-loaded nodes store, which genuinely does enumerate every real node). */
+/** Kind row + a processId field: an editable text input for the kinds with no discovery API (see
+ * above), or a real node picker for AGENT (node ids come from the already-loaded nodes store,
+ * which genuinely does enumerate every real node). The kind row itself offers only the kinds that
+ * ship `signal`, so metrics and traces present different rows -- several process kinds ship
+ * metrics and start no spans at all. */
 export function ProcessPicker({
   value,
   onChange,
+  signal,
 }: {
   value: ProcessTarget;
   onChange: (t: ProcessTarget) => void;
+  signal: HistorySignal;
 }) {
   const nodes = useNodesStore((s) => s.items);
   const loadNodes = useNodesStore((s) => s.loadFirstPage);
+  const loadKinds = useHistoryKindsStore((s) => s.load);
+  const kinds = useHistoryKindsStore((s) => s.kindsFor(signal));
   const [idInput, setIdInput] = useState(value.processId);
 
   useEffect(() => {
     if (nodes.length === 0) loadNodes();
   }, [nodes.length, loadNodes]);
+
+  useEffect(() => {
+    loadKinds(signal);
+  }, [loadKinds, signal]);
+
+  // A deep link (or a bookmark made on the other screen) can name a kind this surface has no
+  // history for at all -- reset to the default rather than leaving the row with nothing selected
+  // and the screen asking the backend for a combination it rejects.
+  useEffect(() => {
+    if (!kinds.includes(value.processKind)) onChange(defaultProcessTarget());
+  }, [kinds, value.processKind, onChange]);
 
   // Keep the text input in sync when the kind changes (or a caller resets `value` externally) --
   // it's local state only so keystrokes don't refetch on every character, see the form's onSubmit.
@@ -97,7 +106,7 @@ export function ProcessPicker({
     <div className="flex flex-wrap items-center gap-2">
       <span className="hud-label text-muted-foreground">process</span>
       <div className="flex flex-wrap gap-px bg-primary/10">
-        {PROCESS_KINDS.map((k) => (
+        {kinds.map((k) => (
           <button
             key={k}
             type="button"

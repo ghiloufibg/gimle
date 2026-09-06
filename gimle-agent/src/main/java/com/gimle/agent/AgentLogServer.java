@@ -393,13 +393,26 @@ final class AgentLogServer implements AutoCloseable {
                   + "] is held by a currently-supervised instance");
           return;
         }
-        // Idempotent, like every other DELETE on this platform: the caller asked for this volume
-        // to be gone and it is, so a re-run of a reclaim script doesn't fail on work it already
-        // finished. The earlier 404 existed to stop an operator reading success into a coordinate
-        // that never existed -- a real concern, kept by reporting the distinction in the body
-        // instead of the status: "destroyed" is false when there was nothing on disk to destroy.
+        // A destroy that removed nothing answers 404, not a success carrying "destroyed": false.
+        // Reclaiming a volume is irreversible and addressed by a coordinate an operator types out
+        // -- node, set, index, tenant -- so mistyping any part of it must not be reported the same
+        // way a real reclaim is. Carrying the distinction in the body alone made a caller that
+        // checks only the exit status (every shell script) read a no-op as the deletion it asked
+        // for, and left it unable to tell the two apart at all.
         boolean destroyed = volumeManager.destroy(tenantId, statefulSetName, instanceIndex);
-        respondJson(exchange, 200, Map.of("destroyed", destroyed));
+        if (!destroyed) {
+          respond(
+              exchange,
+              404,
+              "no volume to destroy: "
+                  + statefulSetName
+                  + "["
+                  + instanceIndex
+                  + "]"
+                  + tenantId.map(t -> " for tenant " + t).orElse(" in the untenanted namespace"));
+          return;
+        }
+        respondJson(exchange, 200, Map.of("destroyed", true));
         return;
       }
       respond(exchange, 405, "method not allowed");

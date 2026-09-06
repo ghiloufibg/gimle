@@ -17,22 +17,22 @@ import org.junit.jupiter.api.Test;
 class InitMojoTest {
 
   @Test
-  void the_out_dir_parameter_defaults_to_the_project_basedir_not_the_build_directory() {
-    // Regression pin for the documented default (maven-plugin-goals.md's own table: "Never
-    // overwrites a file that already exists there") -- a generated
-    // gimle-module.yaml/deployment.yaml
-    // belongs beside the project's own sources, not inside target/, which `mvn clean` wipes.
-    // @Parameter carries RetentionPolicy.CLASS, not RUNTIME, so its defaultValue isn't visible via
-    // plain reflection here -- read the plugin descriptor maven-plugin-plugin already generated
-    // from that same annotation instead, the actual artifact `mvn gimle:init` resolves its default
-    // from.
+  void the_out_dir_parameter_takes_its_project_basedir_default_as_a_file() {
+    // A generated gimle-module.yaml/deployment.yaml belongs beside the project's own sources, not
+    // inside target/, which `mvn clean` wipes -- so the default is the project directory. The
+    // parameter's own declared type is what makes that default arrive at all: Maven evaluates a
+    // default value that is exactly one expression to that expression's own type, and
+    // ${project.basedir} is a java.io.File, so a String-typed parameter is left null and the goal
+    // passes no output directory on at all. @Parameter carries RetentionPolicy.CLASS, not RUNTIME,
+    // so this reads the plugin descriptor maven-plugin-plugin generated from that same annotation
+    // -- the actual artifact `mvn gimle:init` resolves its default from.
     String descriptor = readPluginDescriptor();
     Matcher matcher =
-        Pattern.compile(
-                "<outDir implementation=\"java\\.lang\\.String\" default-value=\"([^\"]*)\"")
+        Pattern.compile("<outDir implementation=\"([^\"]*)\" default-value=\"([^\"]*)\"")
             .matcher(descriptor);
     assertTrue(matcher.find(), "expected an outDir parameter in the generated plugin descriptor");
-    assertEquals("${project.basedir}", matcher.group(1));
+    assertEquals("java.io.File", matcher.group(1));
+    assertEquals("${project.basedir}", matcher.group(2));
   }
 
   private static String readPluginDescriptor() {

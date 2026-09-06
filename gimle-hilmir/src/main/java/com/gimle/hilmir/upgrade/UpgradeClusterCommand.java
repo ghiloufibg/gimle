@@ -10,14 +10,8 @@ import com.gimle.hilmir.plan.ProcessCommand;
 import com.gimle.hilmir.plan.ResolvedRuntime;
 import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
-import com.gimle.hilmir.topology.TopologyParser;
-import com.gimle.hilmir.validate.Finding;
-import com.gimle.hilmir.validate.Severity;
-import com.gimle.hilmir.validate.TopologyValidator;
-import java.io.IOException;
-import java.io.InputStream;
+import com.gimle.hilmir.validate.CheckedTopology;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -78,12 +72,14 @@ public final class UpgradeClusterCommand {
    * Package-visible so a test can inject a stubbed {@link RoleRestarter} in place of a real one.
    */
   static int run(final List<String> args, final PrintStream out, final RoleRestarter restarter) {
-    final Topology topology = parseFile(requireFileFlag(args));
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    if (findings.stream().anyMatch(f -> f.severity() == Severity.ERROR)) {
-      findings.forEach(f -> out.println("[" + f.severity() + "] " + f.code() + ": " + f.message()));
+    final CheckedTopology checked = CheckedTopology.check(requireFileFlag(args));
+    if (checked.hasError()) {
+      checked
+          .findings()
+          .forEach(f -> out.println("[" + f.severity() + "] " + f.code() + ": " + f.message()));
       return 1;
     }
+    final Topology topology = checked.require();
 
     final String machine = requireFlag(args, "--machine");
     final String newClasspath = requireFlag(args, "--new-classpath");
@@ -100,10 +96,7 @@ public final class UpgradeClusterCommand {
     final List<ProcessRole> requestedRoles = parseRoles(allValues(args, "--role"));
 
     final ClusterPlan plan = LaunchPlanner.plan(topology, newRuntime);
-    final MachinePlan machinePlan = plan.byMachine().get(machine);
-    if (machinePlan == null) {
-      throw new HilmirException("no machine named '" + machine + "' in this topology");
-    }
+    final MachinePlan machinePlan = plan.requireMachine(machine);
     final List<ProcessRole> rolesToRestart = resolveRoles(machinePlan, machine, requestedRoles);
 
     final List<ProcessRole> restarted = new ArrayList<>();
@@ -185,14 +178,6 @@ public final class UpgradeClusterCommand {
               + " CONTROL_PLANE, FAFNIR, MUNINN, ANDVARI)");
     }
     return role;
-  }
-
-  private static Topology parseFile(final Path file) {
-    try (InputStream in = Files.newInputStream(file)) {
-      return TopologyParser.parse(in);
-    } catch (final IOException e) {
-      throw new HilmirException("failed reading topology file " + file + ": " + e.getMessage(), e);
-    }
   }
 
   private static Path requireFileFlag(final List<String> args) {

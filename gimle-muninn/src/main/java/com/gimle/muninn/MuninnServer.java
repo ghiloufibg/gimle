@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -81,6 +82,23 @@ public final class MuninnServer implements AutoCloseable {
   private static final Pattern PROCESS_ID_SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]*");
 
   private static final int DEFAULT_LIMIT = 200;
+
+  /**
+   * A W3C trace id: exactly 32 hex characters, which is what every span line this store holds
+   * carries. Doubles as the traversal defense for {@link #handleReadTraceById}'s own path segment
+   * -- no {@code /}, {@code \\} or {@code .} can survive this pattern.
+   */
+  private static final Pattern TRACE_ID = Pattern.compile("[0-9a-fA-F]{32}");
+
+  /**
+   * How many spans of one trace a search returns before reporting itself truncated. A real trace
+   * spans a handful of processes and a handful of spans each; a request that reaches this bound is
+   * describing something pathological, and answering it in full would mean holding an unbounded
+   * slice of history in memory to serve one operator's click.
+   */
+  private static final int DEFAULT_TRACE_SEARCH_LIMIT = 500;
+
+  private static final int MAX_TRACE_SEARCH_LIMIT = 5000;
 
   // gimle-controlplane's own claim about who originated a proxied read -- trusted only because it
   // arrives over this mTLS-authenticated connection, never treated as itself proof of authorization
@@ -145,6 +163,7 @@ public final class MuninnServer implements AutoCloseable {
     target.createContext("/metrics/", this::handleReadMetrics);
     target.createContext("/ingest/traces/", this::handleIngestTraces);
     target.createContext("/traces/", this::handleReadTraces);
+    target.createContext("/traces-by-id/", this::handleReadTraceById);
   }
 
   public void start() {
@@ -473,6 +492,68 @@ public final class MuninnServer implements AutoCloseable {
           }
           read(ex, "traces/" + parts[0] + "/" + parts[1], LogFilter.NONE);
         });
+  }
+
+  // ---- GET /traces-by-id/{traceId} ----
+
+  /**
+   * Answers "where did trace {@code X} run, and what did it do" in one request, across every
+   * process that has ever shipped traces here -- the one question the per-process {@code
+   * /traces/{processKind}/{processId}} route above structurally cannot answer, since a trace's
+   * whole point is that it crosses processes and no single process knows which others took part.
+   *
+   * <p>Deliberately not paged. It answers about one named trace rather than about a stream, so
+   * there is no "older" direction to walk: the result is the whole trace or an explicit {@code
+   * truncated} flag saying it hit {@code limit}, never a window a caller has to keep walking back
+   * through and can quietly stop short of.
+   */
+  private void handleReadTraceById(HttpExchange exchange) {
+    handle(
+        exchange,
+        "GET",
+        "trace search",
+        ex -> {
+          String traceId = tailAfter(ex, "/traces-by-id/");
+          if (!TRACE_ID.matcher(traceId).matches()) {
+            respond(ex, 400, "expected /traces-by-id/{traceId}, a 32-character hex trace id");
+            return;
+          }
+          // Same unscoped shape as the per-process metrics/traces reads: a trace has no single
+          // owning tenant, and by construction it spans processes owned by different ones.
+          if (!authorizeRead(ex, Optional.empty(), Optional.empty())) {
+            return;
+          }
+          int limit = parseTraceSearchLimit(parseQuery(ex).get("limit"));
+          List<MuninnDayFileStore.TraceSpanHit> hits =
+              dayFileStore.findSpansByTraceId(traceId.toLowerCase(Locale.ROOT), limit);
+          List<Map<String, Object>> spans = new ArrayList<>();
+          for (MuninnDayFileStore.TraceSpanHit hit : hits) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("processKind", hit.processKind());
+            entry.put("processId", hit.processId());
+            // Nested rather than flattened alongside processKind/processId: a span's attribute set
+            // is free-form, so merging the two would let an attribute silently shadow the very
+            // fields naming where the span was found.
+            entry.put("span", hit.span());
+            spans.add(entry);
+          }
+          Map<String, Object> body = new LinkedHashMap<>();
+          body.put("traceId", traceId);
+          body.put("spans", spans);
+          body.put("truncated", spans.size() >= limit);
+          respondJson(ex, 200, body);
+        });
+  }
+
+  private static int parseTraceSearchLimit(String raw) {
+    if (raw == null) {
+      return DEFAULT_TRACE_SEARCH_LIMIT;
+    }
+    try {
+      return Math.clamp(Integer.parseInt(raw), 1, MAX_TRACE_SEARCH_LIMIT);
+    } catch (NumberFormatException e) {
+      return DEFAULT_TRACE_SEARCH_LIMIT;
+    }
   }
 
   /**

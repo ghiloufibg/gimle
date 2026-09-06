@@ -1,14 +1,13 @@
-import type { ModuleInstance, ProcessTarget, TraceSpanLine } from "@/types";
+import type { ProcessTarget, TraceSpanLine } from "@/types";
 import type { TracesHistoryRepository } from "@/repositories/tracesHistory";
 
 /**
- * Following one trace across processes, without a backend trace-search API.
+ * Following one trace across the processes it ran in.
  *
- * GET /traces-history/{processKind}/{processId} only ever answers for one process, so "show me
- * every span of trace X" has to be assembled client-side: query each process this console can
- * actually name, keep the spans carrying that trace id, and be explicit about which processes were
- * asked and which of them failed. What the result cannot claim is completeness -- see
- * {@link TraceFollowResult.searched} and the caveats the UI renders beside it.
+ * The control plane answers this in one request, searching every process that has ever shipped
+ * traces -- including a worker that has since been replaced and no longer appears in any instance
+ * listing. This module turns that answer into the shape the screen renders: located spans, grouped
+ * by process and indented into a call tree.
  */
 
 /** One span plus the process whose history it was found in. */
@@ -20,14 +19,14 @@ export interface LocatedSpan {
 export interface TraceFollowResult {
   traceId: string;
   spans: LocatedSpan[];
-  /** Every process actually queried, in the order they were queried. */
-  searched: ProcessTarget[];
-  /** Processes whose history could not be read at all, with the reason. */
-  failures: Array<{ target: ProcessTarget; message: string }>;
+  /** The search stopped at its limit, so the trace may carry more spans than these. */
+  truncated: boolean;
+  /** Why the search could not run at all, or `null` when it ran. */
+  failure: string | null;
   /**
-   * Spans naming a parent span that is not among {@link spans}. Non-empty means the trace is
-   * provably incomplete here -- the missing hop ran somewhere this search could not reach, or
-   * scrolled out of that process' loaded window.
+   * Spans naming a parent span that is not among {@link spans}. Non-empty means the trace really
+   * is incomplete: the search covers every process that has shipped, so a parent missing here was
+   * never recorded rather than merely out of reach.
    */
   danglingParentSpanIds: string[];
 }
@@ -36,79 +35,52 @@ export function processTargetKey(target: ProcessTarget): string {
   return `${target.processKind}:${target.processId}`;
 }
 
-/**
- * The WORKER process targets this console can name right now, derived from the instance list it
- * already loads. Workers are the only span producers in the cluster today (the fabric server is
- * the sole place spans are created), so this is the whole searchable surface -- an instance whose
- * worker has not finished its handshake yet reports no workerId and simply isn't searchable.
- */
-export function workerTargetsFromInstances(instances: ModuleInstance[]): ProcessTarget[] {
-  const byKey = new Map<string, ProcessTarget>();
-  for (const instance of instances) {
-    if (!instance.workerId) continue;
-    const target: ProcessTarget = {
-      processKind: "WORKER",
-      processId: `${instance.nodeId}:${instance.workerId}`,
-    };
-    byKey.set(processTargetKey(target), target);
-  }
-  return [...byKey.values()].sort((a, b) => a.processId.localeCompare(b.processId));
-}
-
-export interface FollowTraceOptions {
-  /** Spans requested per page from each process. */
-  pageSize?: number;
+export interface TraceFollowResult {
+  traceId: string;
+  spans: LocatedSpan[];
+  /** The search stopped at its limit, so the trace may carry more spans than these. */
+  truncated: boolean;
+  /** Why the search could not run at all, or `null` when it ran. */
+  failure: string | null;
   /**
-   * How many pages deep to walk back through each process' history. Bounded on purpose: this is N
-   * sequential requests per process with no server-side filter, so an unbounded walk would hammer
-   * the proxy to answer one operator's click.
+   * Spans naming a parent span that is not among {@link spans}. Non-empty means the trace really
+   * is incomplete: the search covers every process that has shipped, so a parent missing here was
+   * never recorded rather than merely out of reach.
    */
-  maxPagesPerTarget?: number;
+  danglingParentSpanIds: string[];
 }
 
 /**
- * Collects every span of {@code traceId} the given processes can be made to reveal. One process
- * failing never fails the whole search -- its reason is reported alongside the spans that were
- * found, because a partial trace an operator knows is partial beats no answer at all.
+ * Collects every span of {@code traceId}. A failure is reported rather than thrown: a search that
+ * could not run at all is a different answer from a trace with no spans, and the screen says which.
  */
-export async function followTraceAcrossProcesses(
+export async function searchTrace(
   repo: TracesHistoryRepository,
   traceId: string,
-  targets: ProcessTarget[],
-  options: FollowTraceOptions = {},
 ): Promise<TraceFollowResult> {
-  const pageSize = options.pageSize ?? 200;
-  const maxPages = options.maxPagesPerTarget ?? 3;
-  const spans: LocatedSpan[] = [];
-  const searched: ProcessTarget[] = [];
-  const failures: Array<{ target: ProcessTarget; message: string }> = [];
-
-  for (const target of targets) {
-    searched.push(target);
-    let cursor: string | null = null;
-    for (let page = 0; page < maxPages; page++) {
-      try {
-        const envelope = await repo.fetchPage({ target, cursor, limit: pageSize });
-        for (const span of envelope.lines) {
-          if (span.traceId === traceId) spans.push({ span, target });
-        }
-        if (envelope.olderCursor === null || envelope.lines.length === 0) break;
-        cursor = envelope.olderCursor;
-      } catch (e) {
-        failures.push({ target, message: (e as Error).message });
-        break;
-      }
-    }
+  try {
+    const found = await repo.searchByTraceId(traceId);
+    const spans: LocatedSpan[] = found.spans.map((hit) => ({
+      span: hit.span,
+      target: { processKind: hit.processKind, processId: hit.processId },
+    }));
+    spans.sort((a, b) => a.span.timestamp.localeCompare(b.span.timestamp));
+    return {
+      traceId,
+      spans,
+      truncated: found.truncated,
+      failure: null,
+      danglingParentSpanIds: danglingParents(spans),
+    };
+  } catch (e) {
+    return {
+      traceId,
+      spans: [],
+      truncated: false,
+      failure: (e as Error).message,
+      danglingParentSpanIds: [],
+    };
   }
-
-  spans.sort((a, b) => a.span.timestamp.localeCompare(b.span.timestamp));
-  return {
-    traceId,
-    spans,
-    searched,
-    failures,
-    danglingParentSpanIds: danglingParents(spans),
-  };
 }
 
 function danglingParents(spans: LocatedSpan[]): string[] {
@@ -168,13 +140,12 @@ export function spanDepths(spans: LocatedSpan[]): Map<string, number> {
  * Rendered verbatim in the UI rather than left to the operator to infer from an empty table.
  */
 export function coverageSummary(result: TraceFollowResult): string {
-  const reachable = result.searched.length - result.failures.length;
-  const parts = [
-    `${result.spans.length} span${result.spans.length === 1 ? "" : "s"} found`,
-    `${reachable}/${result.searched.length} worker process${result.searched.length === 1 ? "" : "es"} read`,
-  ];
-  if (result.failures.length > 0) {
-    parts.push(`${result.failures.length} unreachable`);
+  if (result.failure !== null) {
+    return `trace search failed: ${result.failure}`;
+  }
+  const parts = [`${result.spans.length} span${result.spans.length === 1 ? "" : "s"} found`];
+  if (result.truncated) {
+    parts.push("truncated at the search limit");
   }
   if (result.danglingParentSpanIds.length > 0) {
     parts.push(

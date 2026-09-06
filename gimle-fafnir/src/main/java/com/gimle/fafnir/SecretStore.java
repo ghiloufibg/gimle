@@ -3,6 +3,8 @@ package com.gimle.fafnir;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.fafnir.secret.SecretCipher;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
@@ -385,6 +387,78 @@ public final class SecretStore {
     if (storeClient.getTenant(tenantId).isEmpty()) {
       throw GimleSecretsException.unknownTenant(tenantId);
     }
+  }
+
+  /**
+   * How many stored secret versions, across every tenant, are still encrypted under {@code keyId}.
+   * Retirement destroys a key's material, so anything left under it becomes permanently unreadable;
+   * counting first is what lets that be refused rather than discovered afterwards.
+   *
+   * <p>Counts every version, not only each secret's current one: an older version is still real
+   * stored data a caller can ask for by number, and losing it silently would be the same accident
+   * one version later.
+   */
+  public int countVersionsEncryptedUnder(byte keyId) {
+    int count = 0;
+    for (Tenant tenant : storeClient.listTenants()) {
+      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
+        if (isEncryptedUnder(entry, keyId)) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Re-encrypts every stored secret version that is not already under the active key, so a key can
+   * then be retired without destroying anything. Decrypt-then-encrypt through {@link FafnirCrypto},
+   * one entry at a time: each write stands alone, so an interrupted run leaves every entry it did
+   * reach re-encrypted and the rest exactly as they were, and re-running finishes the job.
+   *
+   * <p>Returns how many entries were rewritten. An entry whose own key material is already gone
+   * cannot be recovered here and is left alone rather than aborting the run -- the rest of the
+   * cluster's secrets are not hostage to one unreadable entry.
+   */
+  public int rewrapAll() {
+    int rewrapped = 0;
+    byte activeKeyId = crypto.activeKeyId();
+    for (Tenant tenant : storeClient.listTenants()) {
+      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
+        if (!isSecretVersionEntry(entry) || isEncryptedUnder(entry, activeKeyId)) {
+          continue;
+        }
+        try {
+          byte[] reencrypted = crypto.encrypt(crypto.decrypt(entry.value()));
+          storeClient.propose(
+              new StateMutation.PutConfigEntry(
+                  new ConfigEntry(tenant.id(), entry.key(), reencrypted, true)));
+          rewrapped++;
+        } catch (RuntimeException e) {
+          log.warn(
+              "skipping secret {}/{} during rewrap: {}", tenant.id(), entry.key(), e.getMessage());
+        }
+      }
+    }
+    return rewrapped;
+  }
+
+  private static boolean isEncryptedUnder(ConfigEntry entry, byte keyId) {
+    if (!isSecretVersionEntry(entry)) {
+      return false;
+    }
+    OptionalInt embedded = SecretCipher.peekKeyId(entry.value());
+    return embedded.isPresent() && (byte) embedded.getAsInt() == keyId;
+  }
+
+  /** A {@code key@<n>} ciphertext row, as opposed to a {@code key@meta} pointer or plain config. */
+  private static boolean isSecretVersionEntry(ConfigEntry entry) {
+    int at = entry.key().lastIndexOf('@');
+    if (at < 0 || entry.key().endsWith(META_SUFFIX)) {
+      return false;
+    }
+    String suffix = entry.key().substring(at + 1);
+    return !suffix.isEmpty() && suffix.chars().allMatch(Character::isDigit);
   }
 
   private static String metaKey(String key) {

@@ -52,6 +52,39 @@ class LaunchPlannerTest {
   }
 
   @Test
+  void plans_the_store_health_port_flag_only_when_the_topology_configures_one() {
+    final Topology withHealthPort =
+        parse(
+            """
+            name: health
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+            """);
+    final List<String> command =
+        only(LaunchPlanner.plan(withHealthPort, RUNTIME), "m1", "store-0").command();
+    assertTrue(command.contains("--health-port"));
+    assertEquals("9095", command.get(command.indexOf("--health-port") + 1));
+
+    final Topology withoutHealthPort =
+        parse(
+            """
+            name: no-health
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1, raftPort: 9080, clientPort: 9091}
+            """);
+    assertFalse(
+        only(LaunchPlanner.plan(withoutHealthPort, RUNTIME), "m1", "store-0")
+            .command()
+            .contains("--health-port"));
+  }
+
+  @Test
   void plans_a_minimal_single_machine_plaintext_topology() {
     final Topology topology =
         parse(
@@ -265,7 +298,21 @@ class LaunchPlannerTest {
             "-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt"),
             "-Dgimle.tls.keyFile=" + tlsPath("controlplane-host1.example.com.key"),
             "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
-    assertTrue(only(plan, "m1", "store-0").command().containsAll(controlPlaneTlsFlags));
+
+    // The store presents its own leaf, never the control plane's: borrowing it made a store
+    // replica indistinguishable on the wire from the process that authenticates to it.
+    final List<String> storeTlsFlags =
+        List.of(
+            "-Dgimle.transport.protocol=tls",
+            "-Dgimle.tls.certFile=" + tlsPath("store-host1.example.com.crt"),
+            "-Dgimle.tls.keyFile=" + tlsPath("store-host1.example.com.key"),
+            "-Dgimle.tls.caFile=" + tlsPath("ca.crt"));
+    final ProcessCommand store = only(plan, "m1", "store-0");
+    assertTrue(store.command().containsAll(storeTlsFlags));
+    assertFalse(
+        store
+            .command()
+            .contains("-Dgimle.tls.certFile=" + tlsPath("controlplane-host1.example.com.crt")));
 
     final ProcessCommand controlPlane = only(plan, "m1", "controlplane-0");
     assertTrue(controlPlane.command().containsAll(controlPlaneTlsFlags));

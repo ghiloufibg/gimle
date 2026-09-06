@@ -75,11 +75,33 @@ if defined JAVA_HOME (
     echo ragnarok: JAVA_HOME is set to "%JAVA_HOME%", but !java_bin! reports "!version_line!" -- Gimle requires JDK 25+; point JAVA_HOME at a JDK 25+ install or unset it 1>&2
     exit /b 1
   )
-) else if exist "%script_dir%..\jre\ragnarok\bin\java.exe" (
+) else if exist "%script_dir%..\jre\ragnarok" (
   set "java_bin=%script_dir%..\jre\ragnarok\bin\java.exe"
+  rem A bundled runtime only ever runs on the one platform it was built for (jre\PLATFORM records
+  rem which), and an archive travels further than the machine that built it. A runtime built for
+  rem any other platform has no java.exe here at all, so rather than falling through to PATH
+  rem without a word, say what was found and why it is being ignored. Keep in sync with the
+  rem bin/ragnarok sh script.
+  if not exist "!java_bin!" (
+    set "bundled_platform=an unrecorded platform"
+    if exist "%script_dir%..\jre\PLATFORM" (
+      for /f "usebackq delims=" %%p in ("%script_dir%..\jre\PLATFORM") do set "bundled_platform=%%p"
+    )
+    echo ragnarok: this archive's bundled JRE ^(built for !bundled_platform!^) does not run on this machine -- ignoring it and looking for a java of this machine's own 1>&2
+    for %%e in (java.exe) do set "java_bin=%%~$PATH:e"
+    if not defined java_bin set "java_bin=java"
+  )
 ) else (
   for %%e in (java.exe) do set "java_bin=%%~$PATH:e"
   if not defined java_bin set "java_bin=java"
+)
+
+rem Nothing above resolved to a real path: no JAVA_HOME, no usable bundled runtime, and no java.exe
+rem on PATH. Said here, where the reason is still known, rather than left to surface as cmd.exe's
+rem own "'java' is not recognized" from the launch line below.
+if "%java_bin%"=="java" (
+  echo ragnarok: no Java runtime to run on -- put a JDK 25+ java.exe on PATH, or set JAVA_HOME to a JDK 25+ install 1>&2
+  exit /b 1
 )
 
 "%java_bin%" -cp "%classpath%" com.gimle.ragnarok.RagnarokMain %*

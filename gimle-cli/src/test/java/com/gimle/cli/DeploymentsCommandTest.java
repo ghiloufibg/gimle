@@ -9,6 +9,8 @@ import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.reconcile.LimitRangeReconciler;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -221,6 +224,58 @@ class DeploymentsCommandTest {
                 InstanceObservation.builder("billing", 0, moduleId, "FAILED", true, false)
                     .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
                     .build())));
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "deployments", "--server", serverAddress));
+    String out = outBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(out.contains("UNHEALTHY(1)"), out);
+  }
+
+  /**
+   * A node that refused to start a replica leaves it placed but reporting no observation at all.
+   * Judging health by observation alone rendered a workload with nothing running as HEALTHY, which
+   * is the one state an operator most needs the table to call out.
+   */
+  @Test
+  void the_health_column_reports_unhealthy_for_a_replica_its_node_refused_to_start()
+      throws Exception {
+    Path jar = buildFixtureJar(tempDir.resolve("jars3"));
+    Path manifest = tempDir.resolve("deployment3.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Deployment
+        name: refused
+        module:
+          name: com.gimle.fixture.limitrange
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        """
+            .formatted(jar.toAbsolutePath()));
+    assertEquals(
+        0, run("apply", "-f", manifest.toString(), "--server", serverAddress), errBuffer::toString);
+
+    store.putAssignment(
+        new InstanceAssignment(
+            "refused",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+    // The node recorded why it would not start it; no heartbeat observation ever follows.
+    store.putInstanceEvent(
+        Optional.of(Tenant.DEFAULT_TENANT_ID),
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            "refused",
+            0,
+            InstanceEventKind.TRANSITION_FAILED,
+            "instance start refused by this node",
+            Optional.of("committing its 1Gi ceiling would exceed this node's own memory budget"),
+            System.currentTimeMillis()));
 
     outBuffer.reset();
     assertEquals(0, run("get", "deployments", "--server", serverAddress));

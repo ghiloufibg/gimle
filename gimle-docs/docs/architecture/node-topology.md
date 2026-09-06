@@ -63,6 +63,15 @@ filesystem. Skald (below) is a sixth: cluster DNS, resolving `<service>.<tenant>
 own `/services/*` API directly — see [Service fabric](./service-fabric.md) for the Service
 abstraction Skald resolves against.
 
+Fafnir, Muninn and Andvari each reach the store by name, and each waits for that name rather than
+dying on it: a `--store-endpoints` hostname that does not resolve at the moment the process starts
+is retried with capped exponential backoff (one second, doubling to thirty), logging which name it
+could not resolve on every attempt. The wait is deliberate. A `java.net.InetSocketAddress` resolves
+its hostname exactly once, when it is constructed, so accepting an unresolved address at startup
+would leave the process permanently unable to reach a store that started resolving seconds later —
+running, listening, and answering every request with an error. A malformed endpoint spec is a
+different thing entirely and still fails fast: no amount of retrying turns it into an address.
+
 The north-south HTTP gateway (`gimle-gateway`) is deliberately *not* a ninth process kind here —
 it's an ordinary hosted module running inside a Worker JVM like any other, just one an operator
 deploys as a `DaemonSet` onto edge-labeled nodes. See [Service fabric § the gateway

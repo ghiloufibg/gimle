@@ -104,6 +104,8 @@ network (see `mvn gimle:store` above) rather than embedding one.
 | `gimle.controlplane.port` | `8080` | API server port. |
 | `gimle.controlplane.secretKeyPath` | `${project.build.directory}/gimle-state/secret.key` | Where this replica's own AES-256 secrets master key persists to disk. |
 | `gimle.controlplane.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
+| `gimle.controlplane.fafnirEndpoint` | `127.0.0.1:9092` | `host:port` of the secrets vault this replica proxies every `/secrets/*` and `/config/*` decryption to — matches `mvn gimle:fafnir`'s own default port. Required at the process level (the control plane performs no cryptography itself), so a cluster assembled goal by goal against a Fafnir on a non-default port must set this, or every secret read fails against whatever is listening on `9092`. |
+| `gimle.controlplane.muninnEndpoint` | *(unset, ships nowhere)* | `host:port,...` of every Muninn replica this replica ships its own metrics and traces to, and falls back to when serving `/logs/*` for a node or instance that no longer exists — see [Node topology](../architecture/node-topology.md#muninn). Unset by default, unlike the three addresses above: shipping to an address where nothing is listening buys a local-dev session nothing but a retry every interval. Set it to `127.0.0.1:9093` (`mvn gimle:muninn`'s own default port) whenever that goal is running too, or this control plane's observability data goes nowhere at all. |
 | `gimle.controlplane.andvariEndpoint` | `127.0.0.1:9094` | `host:port` of the artifact registry replica to resolve registry-coordinate deployments against — matches `mvn gimle:andvari`'s own default port. Optional at the process level (a cluster with no reachable Andvari keeps working on local-`artifactPath` manifests unchanged), but defaulted here so `mvn gimle:publish` and a coordinate-only `mvn gimle:deploy` work against a plain `mvn gimle:controlplane` with no extra flags. |
 | `gimle.controlplane.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 | `gimle.controlplane.audit.readResourceKinds` | *(unset, no READ auditing)* | Comma-separated `ResourceKind` names to opt into READ-decision audit-trail coverage — see [Authentication and authorization § Audit logging](../architecture/authn-authz.md#audit-logging). |
@@ -125,6 +127,8 @@ itself](../architecture/node-topology.md)). Requires `mvn install` to have alrea
 | `gimle.agent.nodeId` | `node-1` | This node's identifier. |
 | `gimle.agent.controlPlaneUrl` | `http://127.0.0.1:8080` | Control plane to register with. |
 | `gimle.agent.gossipAddress` | `127.0.0.1:9090` | This node's own gossip listen address — see [Service fabric](../architecture/service-fabric.md). |
+| `gimle.agent.fafnirEndpoint` | `127.0.0.1:9092` | `host:port` of the secrets vault this agent fetches secret values from directly, on its own node identity, rather than through the control plane — matches `mvn gimle:fafnir`'s own default port. |
+| `gimle.agent.muninnEndpoint` | *(unset, ships nowhere)* | `host:port,...` of every Muninn replica this agent ships its own platform log to, plus every supervised worker's logs, metrics and traces (a worker has no outbound network identity of its own, so its agent forwards for it). Unset for the same reason `gimle.agent.andvariEndpoint` below is; set it to `127.0.0.1:9093` (`mvn gimle:muninn`'s own default port) whenever that goal is running too. |
 | `gimle.agent.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 | `gimle.agent.andvariEndpoint` | *(unset)* | `host:port,...` of one or more artifact registry replicas to pull module jars from on a coordinate-only deployment's cache miss, rotating and failing over between them — see [Node topology](../architecture/node-topology.md#andvari). An agent whose tenants only ever use a local `artifactPath` never needs this configured. |
 
@@ -309,7 +313,7 @@ wherever it's invoked, not self-filtered" shape as `gimle:doctor` and `gimle:pub
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.init.jar` | `${project.build.directory}/${project.build.finalName}.jar` | The jar to inspect. |
-| `gimle.init.outDir` | `${project.basedir}` | Where to write the generated file(s). Never overwrites a file that already exists there. |
+| `gimle.init.outDir` | `${project.basedir}` | Where to write the generated file(s) — this project's own directory, beside its `pom.xml`, never inside `target/` where the next `mvn clean` would delete them. Never overwrites a file that already exists there. |
 | `gimle.init.hilmirVersion` | `${plugin.version}` | Same meaning as `gimle:doctor`'s own property. |
 
 ```bash
@@ -398,7 +402,7 @@ safe no-op rather than a duplicate.
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.saga.port` | `9096` | Same as `gimle:saga` above. |
-| `gimle.saga.runId` | *(unset)* | Run id to fold the reports into. Unset derives one deterministically from the reports' own content, so re-running the import twice against unchanged reports is idempotent. |
+| `gimle.saga.runId` | *(unset)* | Run id to fold the reports into. Unset derives one — `import-<16 hex>` — from the swept reports themselves: a SHA-256 over each report's reactor-relative path and its exact bytes, and nothing else. Neither the wall clock nor a file's modification time enters it, so re-importing an unchanged report set keeps folding into the one run it describes instead of minting a new one each time; two genuinely different test runs still separate, since a surefire report records every suite's and test case's own measured duration and outcome. |
 
 ```bash
 mvn gimle:saga-import -Dgimle.saga.runId=2026-08-16T10-30-05_abc1234

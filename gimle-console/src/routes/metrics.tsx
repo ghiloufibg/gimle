@@ -32,7 +32,7 @@ import type { DeploymentMetricsRollup, LifecycleState, ProcessTarget } from "@/t
 // back to the default target rather than throwing out of validateSearch, the same posture
 // routes/logs.tsx's own searchSchemaWithFallback takes.
 export const processTargetSearchSchema = z.object({
-  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD"]),
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD", "ANDVARI"]),
   processId: z.string(),
 });
 export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>
@@ -736,7 +736,7 @@ function Metrics() {
               Process time series
             </h2>
           </div>
-          <ProcessPicker value={historyTarget} onChange={updateHistoryTarget} />
+          <ProcessPicker value={historyTarget} onChange={updateHistoryTarget} signal="metrics" />
         </div>
         <MetricsHistoryPanel
           key={`${historyTarget.processKind}:${historyTarget.processId}`}

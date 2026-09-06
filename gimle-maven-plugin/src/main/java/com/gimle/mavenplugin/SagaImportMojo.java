@@ -1,8 +1,15 @@
 package com.gimle.mavenplugin;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
@@ -15,6 +22,13 @@ import org.apache.maven.plugins.annotations.Parameter;
  * run's results into Saga after the fact; {@link SagaVerifyMojo} does the same sweep automatically
  * around a child build. Unlike the other saga goals this never spawns a server -- an import with
  * nothing listening is an error, not a reason to boot one.
+ *
+ * <p>With no explicit {@code gimle.saga.runId}, the run id is derived from the swept reports
+ * themselves ({@link #deriveRunId(List, Path)}) rather than from the wall clock: importing an
+ * unchanged set of reports repeatedly folds into the same run instead of minting a new one every
+ * time. Nothing outside the report bytes enters the digest, so the import's own timing is
+ * irrelevant while the per-test durations and outcomes recorded *inside* each report still separate
+ * two genuinely different test runs.
  */
 @Mojo(name = "saga-import", threadSafe = true)
 public final class SagaImportMojo extends AbstractGimleRootMojo {
@@ -25,7 +39,7 @@ public final class SagaImportMojo extends AbstractGimleRootMojo {
   @Parameter(property = "gimle.saga.port", defaultValue = "9096")
   String port;
 
-  /** Run to import into; unset mints a fresh one the same way {@link SagaVerifyMojo} does. */
+  /** Run to import into; unset derives one from the swept reports' own content. */
   @Parameter(property = "gimle.saga.runId")
   String runId;
 
@@ -42,10 +56,7 @@ public final class SagaImportMojo extends AbstractGimleRootMojo {
       getLog().warn("no surefire reports found under " + root + "; nothing to import");
       return;
     }
-    String effectiveRunId =
-        runId == null || runId.isBlank()
-            ? SagaVerifyMojo.mintRunId(LocalDateTime.now(), GitInfo.capture(root).shortSha())
-            : runId;
+    String effectiveRunId = runId == null || runId.isBlank() ? deriveRunId(reports, root) : runId;
     int imported = 0;
     for (Path report : reports) {
       try {
@@ -88,5 +99,47 @@ public final class SagaImportMojo extends AbstractGimleRootMojo {
                 + totals.skipped()
                 + " skipped");
     getLog().info("Saga run report: " + client.endpoint() + "/console/runs/" + effectiveRunId);
+  }
+
+  /**
+   * A run id that is a pure function of what is being imported: SHA-256 over every swept report's
+   * reactor-relative path and its exact bytes, in the sweep's own already-stable sorted order. The
+   * path is part of the digest so the same suite results appearing under a different module stay a
+   * different import; the file's modification time deliberately is not, since re-running this goal
+   * rewrites nothing and an unchanged report set must keep folding into the same run. Nothing about
+   * the machine or the moment of the import contributes either -- not the wall clock, not the
+   * checkout's location, not the commit currently checked out -- since none of those changes what
+   * is being imported, and letting any of them in is exactly what turns a repeated import of one
+   * test run into several runs. Two genuinely different test runs still separate: a surefire report
+   * records each suite's and each test case's own measured duration and outcome, so their bytes
+   * differ even when every test passed both times.
+   */
+  static String deriveRunId(List<Path> reports, Path root) {
+    MessageDigest digest = sha256();
+    for (Path report : reports) {
+      digest.update(relativize(root, report).getBytes(StandardCharsets.UTF_8));
+      digest.update((byte) 0);
+      try {
+        digest.update(Files.readAllBytes(report));
+      } catch (IOException e) {
+        throw new UncheckedIOException("failed to read surefire report " + report, e);
+      }
+      digest.update((byte) 0);
+    }
+    return "import-" + HexFormat.of().formatHex(digest.digest()).substring(0, 16);
+  }
+
+  private static String relativize(Path root, Path report) {
+    Path relative = report.startsWith(root) ? root.relativize(report) : report;
+    // '/' unconditionally, so the same checkout imported on Windows and on Linux digests alike.
+    return relative.toString().replace(File.separatorChar, '/');
+  }
+
+  private static MessageDigest sha256() {
+    try {
+      return MessageDigest.getInstance("SHA-256");
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 is required of every JRE", e);
+    }
   }
 }

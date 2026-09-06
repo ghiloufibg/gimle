@@ -9,6 +9,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,6 +44,16 @@ class HilmirMainTest {
   }
 
   private record Result(int exitCode, String out, String err) {}
+
+  private static int occurrences(final String text, final String needle) {
+    int count = 0;
+    int from = text.indexOf(needle);
+    while (from >= 0) {
+      count++;
+      from = text.indexOf(needle, from + needle.length());
+    }
+    return count;
+  }
 
   private static Result run(final String... args) {
     final ByteArrayOutputStream outBytes = new ByteArrayOutputStream();
@@ -118,6 +129,24 @@ class HilmirMainTest {
   }
 
   @Test
+  void plan_rejects_a_machine_name_the_topology_never_declares() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result result = run("plan", "-f", file.toString(), "--machine", "typo");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no machine named 'typo'"));
+    assertTrue(result.err().contains("m1"));
+  }
+
+  @Test
+  void plan_and_up_reject_an_unknown_machine_name_the_same_way() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result planResult = run("plan", "-f", file.toString(), "--machine", "typo");
+    final Result upResult = run("up", "-f", file.toString(), "--machine", "typo");
+    assertEquals(upResult.exitCode(), planResult.exitCode());
+    assertEquals(upResult.err(), planResult.err());
+  }
+
+  @Test
   void plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error() throws IOException {
     final Path file = writeTopology("name: broken\n");
     final Result result = run("plan", "-f", file.toString());
@@ -134,10 +163,71 @@ class HilmirMainTest {
   }
 
   @Test
-  void reports_an_unreadable_topology_file_as_a_clean_error() {
-    final Result result = run("validate", "-f", tempDir.resolve("missing.yaml").toString());
+  void reports_an_unreadable_topology_file_as_a_clean_error_for_a_verb_without_findings() {
+    final Result result = run("pki", "init", "-f", tempDir.resolve("missing.yaml").toString());
     assertEquals(1, result.exitCode());
     assertTrue(result.err().startsWith("error: "));
+  }
+
+  @Test
+  void validate_reports_a_missing_topology_file_as_a_coded_finding_naming_the_path_once() {
+    final Path missing = tempDir.resolve("missing.yaml");
+    final Result result = run("validate", "-f", missing.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.out().contains("[ERROR] UNREADABLE_TOPOLOGY: "));
+    assertEquals(1, occurrences(result.out(), missing.toString()));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void validate_reports_malformed_yaml_as_a_coded_finding() throws IOException {
+    final Path file = writeTopology("name: [unterminated\n");
+    final Result result = run("validate", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.out().contains("[ERROR] MALFORMED_TOPOLOGY: "));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void validate_reports_a_structurally_rejected_document_as_a_coded_finding() throws IOException {
+    // fafnir.keyFile is required whenever fafnir.replicas is non-empty, and that rejection comes
+    // from the document's own construction rather than the semantic rule catalog.
+    final Path file =
+        writeTopology(
+            """
+            name: no-key
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            fafnir:
+              replicas:
+                - {machine: m1}
+            """);
+    final Result result = run("validate", "-f", file.toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.out().contains("[ERROR] MALFORMED_TOPOLOGY: "));
+    assertTrue(result.out().contains("fafnir.keyFile"));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void every_validate_failure_line_carries_a_severity_and_a_code() throws IOException {
+    final Path missing = tempDir.resolve("gone.yaml");
+    final Path unknownField =
+        writeTopology(
+            """
+            name: typo
+            machines:
+              - {name: m1, host: 127.0.0.1, frobnicate: true}
+            """);
+    final Path semantic = writeTopology("name: broken\n");
+    for (final Path file : List.of(missing, unknownField, semantic)) {
+      final Result result = run("validate", "-f", file.toString());
+      assertEquals(1, result.exitCode(), file.toString());
+      assertTrue(result.err().isEmpty(), file + " wrote to stderr: " + result.err());
+      for (final String line : result.out().lines().toList()) {
+        assertTrue(line.matches("\\[(ERROR|WARNING)\\] [A-Z_]+: .*"), file + " printed: " + line);
+      }
+    }
   }
 
   @Test
@@ -177,6 +267,60 @@ class HilmirMainTest {
         run("down", "--machine", "m1", "--data-root", tempDir.resolve("empty").toString());
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("no run recorded"));
+  }
+
+  @Test
+  void stop_requires_the_machine_flag() {
+    final Result result = run("stop", "--role", "STORE");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--machine"));
+  }
+
+  @Test
+  void stop_requires_exactly_one_of_role_or_id() {
+    final Result neither = run("stop", "--machine", "m1");
+    assertEquals(1, neither.exitCode());
+    assertTrue(neither.err().contains("--role"));
+    assertTrue(neither.err().contains("--id"));
+
+    final Result both = run("stop", "--machine", "m1", "--role", "STORE", "--id", "store-0");
+    assertEquals(1, both.exitCode());
+    assertTrue(both.err().contains("exactly one"));
+  }
+
+  @Test
+  void stop_rejects_a_role_that_is_not_a_process_role() {
+    final Result result = run("stop", "--machine", "m1", "--role", "FROBNICATOR");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("invalid --role 'FROBNICATOR'"));
+  }
+
+  @Test
+  void stop_rejects_the_worker_role_as_never_hilmir_launched() {
+    final Result result = run("stop", "--machine", "m1", "--role", "WORKER");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("node agent"));
+  }
+
+  @Test
+  void stop_reports_a_clean_error_when_no_run_is_recorded_at_the_data_root() {
+    final Result result =
+        run(
+            "stop",
+            "--machine",
+            "m1",
+            "--role",
+            "STORE",
+            "--data-root",
+            tempDir.resolve("empty").toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no run recorded"));
+  }
+
+  @Test
+  void usage_lists_the_stop_verb() {
+    final Result result = run("frobnicate");
+    assertTrue(result.err().contains("stop --machine <name>"));
   }
 
   @Test

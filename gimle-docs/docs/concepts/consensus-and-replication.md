@@ -159,23 +159,33 @@ state, and it is exactly what an operator reaches for when there is no leader to
 
 A leader doesn't just wait to be told it lost its majority — it checks proactively.
 `checkQuorumTick` runs every heartbeat interval and tracks whether the leader has heard back from a
-majority of peers within the last `CHECK_QUORUM_WINDOW` (300ms). If it hasn't — because it's on the
-minority side of a network partition, say — it steps itself down to `FOLLOWER` immediately, rather
-than continuing to believe it's in charge.
+majority of peers within the last `CHECK_QUORUM_WINDOW` (600ms — twice the longest election
+timeout). If it hasn't — because it's on the minority side of a network partition, say — it steps
+itself down to `FOLLOWER` immediately, rather than continuing to believe it's in charge.
+
+"Hasn't heard back" means a peer that is genuinely silent, not one whose answer simply hasn't
+arrived yet. A single round trip may legitimately run far longer than this window (see
+`PeerConnection`'s connect plus read timeouts), so a peer with an attempt still in flight counts as
+reachable. Judged by completed round trips alone, a leader self-demotes whenever one heartbeat
+merely runs slow — a loaded host, a GC pause — while that very heartbeat is still on its way to
+succeeding, and its successor does the same, so an idle, perfectly healthy cluster churns through
+elections. A peer that fails *fast* (an immediate connection refusal) clears its in-flight marker
+at once and is judged within the ordinary window, so genuine unreachability is still caught just as
+promptly.
 
 That window governs a leader already exchanging heartbeats. Getting those exchanges *started* is a
 different and much slower one-off, and conflating the two is its own outage: a freshly elected
 leader has no open connections to anyone, so every peer socket must be opened from scratch — a TCP
 connect, and under mTLS a full TLS handshake on top of it — before a single round trip can complete.
 `PeerConnection` allows one attempt a connect timeout plus a read timeout to finish or fail, orders
-of magnitude longer than 300ms. Judged against the steady-state window, a new leader whose first
+of magnitude longer than 600ms. Judged against the steady-state window, a new leader whose first
 connects are merely slow (a loaded machine, or a peer still starting up underneath a rolling
 platform upgrade) is indistinguishable from one whose peers are all gone, and demotes on its first
 tick — and its successor inherits the same empty table and does the same thing, so the cluster
 elects leaders indefinitely without any of them surviving long enough to serve a write. So until a
 tenure has reached a majority even once, `LEADERSHIP_CONTACT_GRACE` applies instead: one full
 attempt's worth of time, after which silence is real evidence rather than an answer that hasn't
-arrived yet. Once contact is established the ordinary 300ms window takes over, so a leader that
+arrived yet. Once contact is established the ordinary 600ms window takes over, so a leader that
 genuinely loses its majority still steps down within it.
 
 This is worth sitting with, because Gimlé's own test suite caught a real bug here that's a

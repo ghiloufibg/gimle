@@ -103,6 +103,29 @@ final class RunLedger {
     write(dataRoot, updated);
   }
 
+  /**
+   * Read-modify-write removal of exactly one entry: drops the record whose {@code id} matches,
+   * leaving every other co-located process's record untouched. Removing the last entry leaves an
+   * empty ledger file rather than deleting it, so a subsequent {@code status} still reports "this
+   * data root was brought up and has nothing running" rather than "no run was ever recorded here."
+   */
+  static void remove(final Path dataRoot, final String id) {
+    final List<RunRecord> remaining = new ArrayList<>();
+    boolean removed = false;
+    for (final RunRecord record : read(dataRoot)) {
+      if (record.id().equals(id)) {
+        removed = true;
+      } else {
+        remaining.add(record);
+      }
+    }
+    if (!removed) {
+      throw new HilmirException(
+          "no run ledger entry with id '" + id + "' under " + dataRoot + " to remove");
+    }
+    write(dataRoot, remaining);
+  }
+
   static void delete(final Path dataRoot) {
     final Path file = dataRoot.resolve(FILE_NAME);
     try {

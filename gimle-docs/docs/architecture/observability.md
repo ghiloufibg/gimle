@@ -169,9 +169,17 @@ averaging each enabled rule's configured signal across its deployment's current
 tick a condition merely continues to hold. `WebhookAlertNotifier` POSTs a small JSON body
 (`{rule, deploymentName, metric, comparator, threshold, observedValue, state}`) and is best-effort:
 an unreachable webhook is logged and dropped, never allowed to fail the reconcile tick. Which rule
-is currently firing is tracked purely in-process, not durable state — a control-plane restart
-forgets it and may re-notify once on the first tick after, the same tradeoff `MuninnShipper`'s own
-in-memory shipping cursor already accepts.
+is currently firing is durable state, replicated through `gimle-mimir` and read back through `GET
+/alertrules/{name}/firing` — `known: false` there means the rule has never crossed or resolved
+since it was created, a different answer from `known: true, firing: false`.
+
+A rule is matched to its deployment by `(tenantId, deploymentName)`, so a rule submitted without a
+`tenantId` is stored under the **default tenant**, exactly as a workload manifest that omits one
+is: a rule left genuinely untenanted would watch a namespace no deployment can be created in, find
+no instance, average zero, and so sit at `known: false` forever while its condition was in fact
+continuously true. For the same reason, a rule whose deployment currently reports no instance
+metrics at all — misspelled, deleted, or not yet placed — is logged once by the reconciler rather
+than silently evaluated against a zero.
 
 `gimle-controlplane` exposes `POST`/`GET`/`DELETE /alertrules*`, RBAC-gated via
 `ResourceKind.ALERT_RULE` (a tenant able to deploy a workload can also alert on it, without a
@@ -198,12 +206,43 @@ ships its own metrics. `gimle-worker` installs it a third way, `install(new Rela
 (the plain `SpanExporter` overload, not `installWithMuninnShipping`, since `RelayingSpanExporter`
 relays through the agent's control channel rather than shipping to Muninn directly — see above).
 `gimle-agent` deliberately doesn't install tracing at all: its local log-tail surface isn't part of
-the fabric-call trace chain, so there's no span parent/child to attach to. Idempotent: a process
+the fabric-call trace chain, so there's no span parent/child to attach to. Neither does
+`gimle-skald`, which answers DNS over UDP and ships gauges only — so a traces-history read naming
+either is rejected rather than answered with an empty page (see
+[the history read surface](#reading-history-back) below).
+
+Installing an exporter is only half of having traces, though: `gimle-controlplane` starts a
+server-kind span of its own for every request its `ApiServer` serves (named `{verb} /{endpoint}`,
+carrying the endpoint, method and response status), so its shipped trace history is its own request
+traffic rather than an empty stream. Without that, a correctly configured exporter still ships
+nothing, which from the outside looks exactly like a broken shipping path. Idempotent: a process
 that's already installed a tracer provider (or a test that pre-configured one) is left alone rather
 than double-registered. `GimleTracing.flush()` forces the installed provider's `BatchSpanProcessor`
 to export immediately rather than waiting for its own periodic interval — `WorkerMain` calls it
 alongside its `StopModule` metrics flush (above), the tracing half of the same "don't lose a
 short-lived instance's final data" concern.
+
+### Reading history back
+
+`GET /metrics-history/{processKind}/{processId}` and `GET /traces-history/{processKind}/{processId}`
+read a process's own shipped history back through the control plane's proxy onto Muninn. Which
+kinds exist is the platform's own answer, not a client's list: `GET /metrics-history` and `GET
+/traces-history` (no path segments) each return `{"processKinds": [...]}`, and a per-process read
+naming a kind that never ships that signal is a `400` listing the kinds that do, rather than an
+empty page indistinguishable from a quiet process.
+
+| Signal | Process kinds |
+|---|---|
+| Metrics | `AGENT`, `ANDVARI`, `CONTROLPLANE`, `FAFNIR`, `SKALD`, `STORE`, `WORKER` |
+| Traces | `CONTROLPLANE`, `WORKER` |
+
+`MUNINN` appears in neither: it is the sink, never a shipper. A hosted module — the gateway
+included — ships under `WORKER`, the worker JVM running it, relayed by that worker's own node
+agent. The traces column is the shorter one because installing an exporter is not the same as
+producing a span: `gimle-mimir`, `gimle-fafnir` and `gimle-andvari` each install a Muninn-backed
+exporter and then never start one, so their trace history is permanently empty and is not offered.
+Only the control plane's own request spans and the fabric's per-call spans (relayed under `WORKER`)
+exist today; a process that starts producing spans belongs in that column the same day.
 
 ### Sampling
 
@@ -245,6 +284,40 @@ instance, and lifecycle-hook execution is MDC-tagged so a hook's own synchronous
 correctly attributed to that instance's `APPLICATION` output rather than miscategorized as platform
 noise — a real gap the `greeter-provider`/`greeter-consumer` example surfaced and fixed, not a
 default that was always correct.
+
+### Runtime configuration: the `gimle.log.*` properties
+
+Four JVM system properties configure logging, read directly by `gimle-core` at startup. They are
+plain `-D` flags on the process's own command line — there is no logging section in a manifest or a
+topology file, and no way to change any of them on a running process.
+
+| Property | Default | What it does |
+|---|---|---|
+| `gimle.log.console` | *(unset — text)* | Which encoder the shared `CONSOLE` appender uses. `json` selects the same one-JSON-object-per-line format the platform log file always uses; `text`, `pretty`, and `plain` all select the colored human-readable encoder. Matching is case-insensitive, and **any other value falls back to text** rather than failing — so a typo silently gets you the default. |
+| `gimle.log.root` | `gimle-logs` | The directory a process writes its own platform log and its instances' application logs under, resolved against the process's working directory when relative. |
+| `gimle.log.maxFileSizeBytes` | `10485760` (10 MiB) | The size a log file is rotated at. |
+| `gimle.log.maxFiles` | `5` | How many copies of one log stream are kept: the active file plus `maxFiles - 1` rotated ones (`<file>.1` … `<file>.4` by default). The oldest is discarded on each rollover. |
+
+Console format is a **presentation** choice only, never a data one. Every process writes a
+complete, unconditional JSON trail to its own `<gimle.log.root>/<role>-platform.log` through a
+separate appender that this property does not touch, and that file — not stdout — is what the Logs
+screen, `gimle logs`, and Muninn all read. So `gimle.log.console=text` loses nothing that is read
+back later, and the default is text for every process on that basis.
+
+The one exception is a **worker JVM**, which its node agent always spawns with an explicit
+`-Dgimle.log.console=json`. The agent reads a worker's raw piped stdout live and tells structured
+lines apart from unstructured ones (a JVM banner printed before Logback initializes, a stray
+`System.out.println`) by trying to parse each as JSON; a structured line is already captured by the
+worker's own file appender, so re-logging it from the pipe would duplicate it under the wrong
+category. That is a deliberate, visible flag on the worker's command line rather than a guess made
+from the pipe's shape.
+
+The two rotation properties apply to every rotated log surface alike — a process's platform log,
+each instance's application log, and a node agent's raw per-worker stdout/stderr capture — and the
+readers behind `gimle logs` and the console's Logs screen read `gimle.log.maxFiles` too, so a
+rotated copy stays visible through the API instead of only the active file. Set them consistently
+across a cluster: a reader configured for fewer files than the writer produced simply stops looking
+before the oldest copies.
 
 ### Reading logs back: cursor, level, and text
 

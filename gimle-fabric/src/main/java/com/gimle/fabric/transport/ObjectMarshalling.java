@@ -30,6 +30,20 @@ public final class ObjectMarshalling {
   }
 
   /**
+   * {@link #serialize}, yielding an empty array rather than throwing when {@code value} -- or
+   * anything it reaches -- is not serializable. Reserved for the error path: an exception a target
+   * genuinely threw still has to reach its caller as an answer, and refusing to produce the frame
+   * at all would drop the connection and leave the caller reporting a transport failure instead.
+   */
+  public static byte[] serializeIfPossible(Object value) {
+    try {
+      return serialize(value);
+    } catch (RuntimeException e) {
+      return new byte[0];
+    }
+  }
+
+  /**
    * Resolves classes against {@code loader} rather than {@code ObjectInputStream}'s own default
    * (the caller's "latest user-defined loader" on the stack) -- a plain no-loader {@code
    * readObject()} cannot see a type private to one hosted module's own {@code ModuleLayer}, since

@@ -36,6 +36,14 @@ import org.slf4j.LoggerFactory;
  * {@code onUninstall}) are best-effort — a misbehaving hook is recorded in a {@code
  * TransitionFailed} event but never blocks resource disposal.
  *
+ * <p>A hook is module-supplied code, so a failing one is caught as a {@link Throwable} rather than
+ * only as a {@code RuntimeException}. A module that fails to link -- a missing transitive class
+ * surfacing as {@code NoClassDefFoundError} the first time a hook touches it, the most common way a
+ * badly-packaged artifact breaks -- throws an {@code Error}, and letting that escape recorded the
+ * failure nowhere at all: no FAILED state, no {@code TransitionFailed} event, no log line naming
+ * the cause, and, since the escape unwound the worker's control loop, every co-tenant module
+ * sharing that JVM torn down alongside it.
+ *
  * <p>Doesn't itself touch the shared {@link ServiceRegistry} beyond handing each module's {@link
  * ModuleContext} a reference to it — marking a stopping module's services not-ready and removing
  * them on uninstall is {@code gimle-worker}'s {@code WorkerRuntime}'s job, reacting to the same
@@ -266,6 +274,23 @@ public final class ModuleController {
     }
   }
 
+  /**
+   * Registers {@code artifact} as a new instance and announces the INSTALLED state that every later
+   * transition builds on. Registering through the registry directly skips this announcement:
+   * nothing else ever mints a {@link LifecycleEvent.Installed}, so an instance's timeline opened at
+   * RESOLVED and never recorded that the artifact had been installed at all -- a timeline that
+   * begins mid-sequence reads as if the first step were lost rather than never taken.
+   *
+   * <p>{@code instanceKey} distinguishes replicas of one deployment sharing a worker; it is empty
+   * for a module installed with no deployment identity. Whatever identity an instance has must
+   * already be recorded before this call, since the event emitted here is what carries it onward.
+   */
+  public ModuleInstanceId install(ModuleArtifact artifact, String instanceKey) {
+    ModuleInstanceId id = registry.register(artifact, instanceKey);
+    emit(new LifecycleEvent.Installed(id, Instant.now()));
+    return id;
+  }
+
   public ModuleWiring resolve(ModuleInstanceId id) {
     return resolve(id, Map.of());
   }
@@ -335,7 +360,7 @@ public final class ModuleController {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
       }
-    } catch (RuntimeException e) {
+    } catch (Throwable e) {
       contextsByModule.remove(id);
       hooksByModule.remove(id);
       GimleLifecycleException wrapped =
@@ -367,7 +392,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         GimleLifecycleException wrapped = GimleLifecycleException.hookFailed(id, "onStart", e);
         markFailedAndEmit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
         throw wrapped;
@@ -401,7 +426,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
@@ -440,7 +465,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
@@ -517,6 +542,32 @@ public final class ModuleController {
     requireState(id, ModuleState.ACTIVE, ModuleState.FAILED);
     markFailedAndEmit(
         id, ModuleState.ACTIVE, ModuleState.FAILED, new IllegalStateException(reason));
+  }
+
+  /**
+   * Reports an instance as failed when it is past the point {@link #forceFailed} can help: a
+   * restart that already drove the module through {@code UNINSTALLED} removed it from the registry
+   * entirely, so there is no state left to mark, and requiring {@code ACTIVE} would leave the
+   * instance stranded with nothing anywhere recording that it is dead.
+   *
+   * <p>Emits the same {@link LifecycleEvent.TransitionFailed} the registry-backed path emits -- the
+   * event, not the registry write, is what reaches the agent as {@code
+   * ControlMessage.ModuleStateChanged("FAILED")} and lets the machine-tier reschedule fire. Marks
+   * the registry too when the module is still known, so an instance that never got uninstalled ends
+   * in the same terminal state either way.
+   */
+  public void abandonFailed(ModuleInstanceId id, String reason) {
+    ModuleState from;
+    try {
+      from = registry.state(id);
+      registry.markFailed(id);
+    } catch (RuntimeException e) {
+      // Already gone from the registry -- the event below is the only record left to make.
+      from = ModuleState.UNINSTALLED;
+    }
+    emit(
+        new LifecycleEvent.TransitionFailed(
+            id, from, ModuleState.FAILED, new IllegalStateException(reason), Instant.now()));
   }
 
   /**

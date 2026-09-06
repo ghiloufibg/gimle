@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
+import com.gimle.module.lifecycle.ControlPlaneRelayClient;
+import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.sun.net.httpserver.HttpServer;
@@ -18,6 +20,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -53,6 +56,9 @@ class GatewayHooksRouteReloadTest {
 
   /** What the stub control plane currently declares, swapped mid-test to drive a reload. */
   private final AtomicReference<String> declaredPaths = new AtomicReference<>("");
+
+  /** Which tenant the stub control plane files its Ingress under. */
+  private final AtomicReference<String> declaredTenant = new AtomicReference<>("default");
 
   @AfterEach
   void stopEverything() {
@@ -116,7 +122,44 @@ class GatewayHooksRouteReloadTest {
     assertEquals(200, send(client, "/greet").statusCode());
   }
 
+  /**
+   * A gateway deployed into a tenant serves that tenant's declared routes. Defaulting to the
+   * cluster's default tenant instead left such an instance filtering every Ingress away and serving
+   * nothing, while listening happily and reporting itself healthy.
+   */
+  @Test
+  void a_gateway_follows_its_own_tenants_ingresses_without_being_told_which_tenant_it_is_in()
+      throws Exception {
+    declaredTenant.set("gimle-system");
+    declaredPaths.set("/greet");
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
+    hooks.onStart(contextForInstanceInTenant("gimle-system"));
+
+    awaitStatus(HttpClient.newHttpClient(), "/greet", 200);
+  }
+
+  @Test
+  void an_explicit_gateway_tenant_id_still_wins_over_the_instances_own_tenant() throws Exception {
+    declaredTenant.set("other-tenant");
+    declaredPaths.set("/greet");
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
+    hooks.onStart(contextForInstanceInTenant("gimle-system", "gateway.tenantId", "other-tenant"));
+
+    awaitStatus(HttpClient.newHttpClient(), "/greet", 200);
+  }
+
+  /** Like {@link #contextPointingAtStubControlPlane}, but the instance reports a real tenant. */
+  private SimpleModuleContext contextForInstanceInTenant(String tenantId, String... extraConfig)
+      throws IOException {
+    return contextPointingAtStubControlPlane(Optional.of(tenantId), extraConfig);
+  }
+
   private SimpleModuleContext contextPointingAtStubControlPlane() throws IOException {
+    return contextPointingAtStubControlPlane(Optional.empty());
+  }
+
+  private SimpleModuleContext contextPointingAtStubControlPlane(
+      Optional<String> instanceTenantId, String... extraConfig) throws IOException {
     controlPlane = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     controlPlane.createContext(
         "/ingresses",
@@ -140,7 +183,20 @@ class GatewayHooksRouteReloadTest {
     ModuleInstanceId gatewayId =
         ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0")));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
-    return new SimpleModuleContext(gatewayId, registry, configValues);
+    for (int i = 0; i + 1 < extraConfig.length; i += 2) {
+      configValues.put(extraConfig[i], extraConfig[i + 1]);
+    }
+    return new SimpleModuleContext(
+        gatewayId,
+        registry,
+        configValues,
+        Map.of(),
+        ControlPlaneRelayClient.unavailable(),
+        () ->
+            instanceTenantId.map(
+                tenant ->
+                    new ModuleContext.InstanceInfo(
+                        "gimle-gateway", 0, "test-node", instanceTenantId)));
   }
 
   private String ingressesJson() {
@@ -158,7 +214,11 @@ class GatewayHooksRouteReloadTest {
                             + "\",\"majorVersion\":1,\"methodName\":\"greet\","
                             + "\"paramType\":\"STRING\"}")
                 .collect(Collectors.joining(","));
-    return "[{\"name\":\"greeter\",\"tenantId\":\"default\",\"routes\":[" + routes + "]}]";
+    return "[{\"name\":\"greeter\",\"tenantId\":\""
+        + declaredTenant.get()
+        + "\",\"routes\":["
+        + routes
+        + "]}]";
   }
 
   private HttpResponse<String> send(HttpClient client, String path) throws Exception {

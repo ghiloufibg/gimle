@@ -36,6 +36,14 @@ public final class ModuleDescriptorParser {
   private static final Pattern BINARY_NAME =
       Pattern.compile("^[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$");
 
+  // A module's declared name is the name its own ModuleLayer is resolved by, so anything the JPMS
+  // module system cannot name is rejected here, where the reason can still be stated, rather than
+  // surfacing later as an unresolvable layer at instance start.
+  private static final String NAME_RULE =
+      "a module name must be dot-separated Java identifiers (letters, digits, _ and $, never"
+          + " starting with a digit), because it is used verbatim as the JPMS module name this"
+          + " module's own layer is resolved by";
+
   private ModuleDescriptorParser() {}
 
   public static ModuleDescriptor parse(InputStream yamlContent) {
@@ -58,7 +66,7 @@ public final class ModuleDescriptorParser {
   private static ModuleDescriptor parseRoot(Map<?, ?> root) {
     String name = requireString(root, "name");
     if (!BINARY_NAME.matcher(name).matches()) {
-      throw new GimleManifestException("'name' is not a valid module name: " + name);
+      throw new GimleManifestException("rejected module name '" + name + "': " + NAME_RULE);
     }
     Version version = parseField(root, "version", Version::parse);
     List<Requirement> requires = parseRequires(root);

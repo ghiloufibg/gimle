@@ -144,9 +144,11 @@ polling" means exactly that on every screen.
 
 The screens that poll are the ones showing cluster state that changes on its own: Overview,
 Topology, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances, Nodes, Tenants,
-Volumes, Networking, Applications, Gateway, and Skald DNS. Configuration and key-management screens (Config, ConfigMaps, Secrets,
-SecretMaps, Seal Keys, LimitRanges, Access Control, Custom Resources, Artifacts) deliberately do
-not: their contents change only when a person changes them, they are edit surfaces where a re-read
+Volumes, Networking, Applications, Gateway, Skald DNS, and Custom Resources — that last one because
+a custom resource's status is written by whatever operator reconciles it, so the generation it has
+caught up to moves with nobody at the browser touching anything. Configuration and key-management
+screens (Config, ConfigMaps, Secrets, SecretMaps, Seal Keys, LimitRanges, Access Control,
+Artifacts) deliberately do not: their contents change only when a person changes them, they are edit surfaces where a re-read
 under a half-finished form is a hazard rather than a service, and Seal Keys in particular is a
 destructive-operation surface that should do nothing an operator did not ask for.
 
@@ -188,9 +190,13 @@ its own — that gap is closed. Three additions, all backed by real API surfaces
 before the UI did:
 
 - **Metrics history** (`GET /metrics-history/{processKind}/{processId}`, proxying to
-  [Muninn](./node-topology.md#muninn)): a process picker
-  (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`/`WORKER`/`SKALD`) plus one time-series chart per meter name
-  present in the fetched window, on the Metrics screen. There is no discovery API for which
+  [Muninn](./node-topology.md#muninn)): a process picker plus one time-series chart per meter name
+  present in the fetched window, on the Metrics screen. The picker's kinds are not a list the
+  console maintains: it reads them from `GET /metrics-history` (no path segments), which answers
+  with every kind whose metrics genuinely reach Muninn
+  (`AGENT`/`ANDVARI`/`CONTROLPLANE`/`FAFNIR`/`SKALD`/`STORE`/`WORKER`), so the row cannot drift from
+  what the platform ships — the Traces screen asks `GET /traces-history` the same way and gets a
+  deliberately shorter row. There is no discovery API for which
   `processId` (a self-reported `host:port` string, e.g. a `ControlPlaneMain` replica's own
   `selfApiAddress`) exists — `CONTROLPLANE` defaults to `window.location.host` (accurate whenever
   the console is served by that same replica, same origin), `AGENT` picks from the already-loaded
@@ -209,21 +215,23 @@ before the UI did:
 - **Traces** (`GET /traces-history/{processKind}/{processId}`, same envelope and process-picker
   pattern as metrics history): a flat, sortable span table (trace id, span name, kind, status,
   time) — not a flame graph or waterfall, since the wire shape carries no span duration or start
-  time today. The only production code that creates a span at all is `gimle-fabric`'s
-  `FabricServer` (an inbound cross-worker service call) and its own instance's `WorkerMain`
-  relay — so this screen only ever shows data for the `WORKER` process kind, none of the other
-  four, an accurate reflection of where spans are actually created today rather than a gap in
-  this UI. Selecting a trace id opens **Follow trace**, which assembles that one trace's spans
-  from every worker process the console can currently name, grouped by process and indented into a
-  call tree — the cross-worker case (a consumer's client span and a provider's server span sharing
-  one trace id across two JVMs) read end to end instead of by opening two views and eyeballing
-  truncated id prefixes. There is no server-side trace search, so this fans the same per-process
-  history call out client-side, and the panel states its own limits in place rather than implying
-  completeness: only `WORKER` processes are searched, searchable workers come from the instance
-  list (a torn-down worker's spans may still be in Muninn but cannot be addressed from here), each
-  worker's history is walked only a few pages back, any process that failed to answer is named,
-  and a parent span that no searched process produced is reported as making the trace provably
-  incomplete.
+  time today. Only two process kinds create spans at all: `gimle-fabric`'s `FabricServer` (an
+  inbound cross-worker service call), relayed by its own instance's `WorkerMain` under `WORKER`,
+  and the control plane's `ApiServer`, which starts one server span per request it serves under
+  `CONTROLPLANE`. The rest install a trace exporter and never feed it, so this screen shows data
+  for those two kinds only — an accurate reflection of where spans are actually created today
+  rather than a gap in this UI, and what `GET /traces-history` (no path segments) returns as the
+  kinds worth offering. Selecting a trace id opens **Follow trace**, which shows that one trace's
+  spans grouped by process and indented into a call tree — the cross-worker case (a consumer's
+  client span and a provider's server span sharing one trace id across two JVMs) read end to end
+  instead of by opening two views and eyeballing truncated id prefixes. It is one request,
+  `GET /trace/{traceId}`, answered by a search across every process that has ever shipped spans:
+  a worker torn down since the call included, since the search reads what was stored rather than
+  what is currently running, and every configured Muninn replica is asked and the answers merged
+  (shipping is best-effort per replica, so one replica's silence about a span is not evidence it
+  was never recorded). Because the search covers everything stored, a parent span missing from the
+  result was genuinely never recorded rather than merely out of reach — the panel reports that as a
+  provably incomplete trace, and says so separately when a search stopped at its own limit.
 - **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=&cursor=`): a filterable
   table, most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode
   — see [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only
@@ -364,6 +372,22 @@ poor UX) — a `/login` route, a root-level redirect guard, and a "log out" cont
 footer. A 401 from any endpoint clears local session state and redirects to `/login`; a 403 surfaces
 in place as "you don't have permission" instead, since the user is legitimately logged in and just
 lacks that specific permission.
+
+A **429 is neither**. The control plane refuses a caller it is currently throttling — its
+per-address request rate limiter, which a single page-load's burst of reads can trip, or admission
+control finding no permit free — with a 429 and a `Retry-After` header, before the request's own
+handler runs at all. That answer means "ask again shortly", and the console treats it that way
+everywhere: the shared request layer waits out `Retry-After` (or its own short backoff) and
+re-sends, a few times, for reads and writes alike, since a throttled request never reached its
+handler and so cannot have half-happened. A refusal asking for a long wait — a login lockout, whose
+whole point is that the caller be told — is surfaced instead of slept through. Read as an answer, a
+429 would say things the control plane never said: a throttled `/auth/session` reads as "nobody is
+signed in", which in plaintext mode sends an operator with no credentials at all to a sign-in
+screen, and a throttled `/kinddefinitions` reads as "this cluster has no custom kinds". So the
+session probe treats a failure to answer as unknown rather than signed-out — the router guard
+bounces only on a definite "unauthenticated" — and asks again on a short backoff, and every
+list screen's empty state distinguishes "the read came back empty" from "the read did not come
+back".
 
 An expired session gets exactly one explanation, on the screen the operator is sent to. The 401
 never surfaces as an error of its own — no toast, and no `control plane responded 401` anywhere;

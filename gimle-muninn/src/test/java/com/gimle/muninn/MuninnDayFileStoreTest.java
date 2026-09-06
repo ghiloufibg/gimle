@@ -173,11 +173,33 @@ class MuninnDayFileStoreTest {
     assertEquals(1, lines.size());
     assertEquals("sample", lines.get(0).get("message"));
 
-    // The on-disk layout is an implementation detail (nothing reads a directory name back into a
-    // processId), but asserting it directly here is what actually distinguishes "fixed" from
-    // "happened not to throw" -- the sanitized directory must exist, the literal-colon one must
-    // not.
-    assertTrue(Files.isDirectory(tempDir.resolve("metrics/CONTROLPLANE/127.0.0.1_8080")));
+    // Asserting the on-disk layout directly is what distinguishes "fixed" from "happened not to
+    // throw" -- the escaped directory must exist, the literal-colon one must not. The escape is
+    // percent-shaped because a cross-process trace search reads the processId back out of this
+    // directory name, and a processId may itself contain "_" but never "%".
+    assertTrue(Files.isDirectory(tempDir.resolve("metrics/CONTROLPLANE/127.0.0.1%3A8080")));
+  }
+
+  @Test
+  void a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape()
+      throws Exception {
+    store.appendLines(
+        "traces/WORKER/node_a:worker-1",
+        List.of(traceLine("2026-08-10T10:00:00Z", "0af7651916cd43dd8448eb211c80319c")));
+
+    List<MuninnDayFileStore.TraceSpanHit> hits =
+        store.findSpansByTraceId("0af7651916cd43dd8448eb211c80319c", 10);
+
+    assertEquals(1, hits.size());
+    assertEquals("WORKER", hits.get(0).processKind());
+    assertEquals("node_a:worker-1", hits.get(0).processId());
+  }
+
+  private static Map<String, Object> traceLine(String timestamp, String traceId) {
+    Map<String, Object> line = new LinkedHashMap<>();
+    line.put("timestamp", timestamp);
+    line.put("traceId", traceId);
+    return line;
   }
 
   private static Map<String, Object> leveledLine(String timestamp, String level, String message) {

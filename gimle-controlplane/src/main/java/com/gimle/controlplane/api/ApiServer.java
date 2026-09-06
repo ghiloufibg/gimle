@@ -144,6 +144,9 @@ import com.gimle.mimir.store.WorkloadTokenRecord;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
 import com.gimle.observability.CertificateRotationMetrics;
+import com.gimle.observability.GimleTracing;
+import com.gimle.observability.ObservedProcessKind;
+import com.gimle.observability.ServerSpan;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
@@ -195,7 +198,12 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -222,6 +230,16 @@ public final class ApiServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(ApiServer.class);
 
   private static final String SESSION_COOKIE_NAME = "gimle_session";
+
+  /**
+   * The identity of a caller that presented no credential at all -- the only identity available
+   * under plaintext transport, where nothing authenticates anybody. Deliberately a real principal
+   * belonging to no group whatsoever rather than the absence of one: a membership check ({@link
+   * BuiltinRoles#GROUP_OPERATORS}, say) needs a subject it can answer "no" for, and every audit row
+   * written in this mode needs a name to attribute the write to.
+   */
+  private static final Principal ANONYMOUS_PRINCIPAL = new Principal("anonymous", Set.of());
+
   private static final Duration SESSION_TTL = Duration.ofHours(12);
   // Generous on purpose: gimle-system hosts the platform's own self-hosted extensions, not a
   // workload a human sizes deployment-by-deployment, so these ceilings just need enough headroom
@@ -259,6 +277,9 @@ public final class ApiServer implements AutoCloseable {
   // any public constructor parameter (no test/caller has ever needed to inject a custom
   // registry); a same-package test reads it back through #metrics().
   private final ApiServerMetrics metrics = new ApiServerMetrics();
+
+  /** Instrumentation scope every span this server starts is attributed to. */
+  private static final String TRACING_SCOPE = "com.gimle.controlplane.api";
 
   /**
    * Mirrors the cadence {@code ControlPlaneMain}'s own ticker calls {@link
@@ -412,6 +433,53 @@ public final class ApiServer implements AutoCloseable {
       new ConcurrencyLimiter(Integer.getInteger(ADMISSION_NODE_LIMIT_PROPERTY, 64));
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
+  static final String STORE_PROBE_INTERVAL_PROPERTY =
+      "gimle.controlplane.health.storeProbeIntervalMillis";
+
+  /**
+   * How stale the last completed store probe may be before {@code /health} calls the store down.
+   * Generous enough by default to ride out a couple of missed cycles, short enough that a probe
+   * wedged behind {@code StoreClient}'s own leader search is reported rather than waited on.
+   */
+  static final String STORE_PROBE_MAX_AGE_PROPERTY =
+      "gimle.controlplane.health.storeProbeMaxAgeMillis";
+
+  /** How long {@link #start()} waits on the first store probe before carrying on without it. */
+  private static final Duration FIRST_STORE_PROBE_GRACE = Duration.ofSeconds(2);
+
+  private final Duration storeProbeInterval =
+      Duration.ofMillis(Long.getLong(STORE_PROBE_INTERVAL_PROPERTY, 2_000));
+  private final Duration storeProbeMaxAge =
+      Duration.ofMillis(Long.getLong(STORE_PROBE_MAX_AGE_PROPERTY, 15_000));
+
+  private final ScheduledExecutorService storeProbe =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> Thread.ofPlatform().name("controlplane-store-probe").daemon(true).unstarted(r));
+
+  /**
+   * The last completed store probe. {@code /health} reads this and answers immediately instead of
+   * making the caller wait on a live round trip: a store with no reachable leader blocks that round
+   * trip for as long as {@code StoreClient}'s own leader search runs, and a probe that answers
+   * nothing at all is strictly worse than one that answers "down" -- a caller cannot act on
+   * silence, and enough silent handlers pile up to take the endpoint out entirely.
+   */
+  private volatile StoreProbeResult lastStoreProbe = StoreProbeResult.notYetProbed();
+
+  private record StoreProbeResult(boolean up, int tenantCount, String reason, Instant completedAt) {
+
+    static StoreProbeResult notYetProbed() {
+      return new StoreProbeResult(false, 0, "store has not been probed yet", Instant.EPOCH);
+    }
+
+    static StoreProbeResult up(int tenantCount) {
+      return new StoreProbeResult(true, tenantCount, "", Instant.now());
+    }
+
+    static StoreProbeResult down(String reason) {
+      return new StoreProbeResult(false, 0, reason, Instant.now());
+    }
+  }
+
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
   // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
@@ -637,7 +705,12 @@ public final class ApiServer implements AutoCloseable {
     target.createContext(
         "/metrics-history/", instrument("metrics-history", this::handleMetricsHistory));
     target.createContext(
+        "/metrics-history", instrument("metrics-history", this::handleMetricsHistoryKinds));
+    target.createContext(
         "/traces-history/", instrument("traces-history", this::handleTracesHistory));
+    target.createContext(
+        "/traces-history", instrument("traces-history", this::handleTracesHistoryKinds));
+    target.createContext("/trace/", instrument("trace", this::handleTraceSearch));
     target.createContext("/roles/", instrument("roles", this::handleRole));
     target.createContext("/roles", instrument("roles", this::handleRolesList));
     target.createContext("/rolebindings/", instrument("rolebindings", this::handleRoleBinding));
@@ -648,6 +721,8 @@ public final class ApiServer implements AutoCloseable {
         "/secrets/rotate-key", instrument("secrets-rotate-key", this::handleRotateSecretsKey));
     target.createContext(
         "/secrets/retire-key", instrument("secrets-retire-key", this::handleRetireSecretsKeyProxy));
+    target.createContext(
+        "/secrets/rewrap", instrument("secrets-rewrap", this::handleRewrapSecretsProxy));
     target.createContext("/secrets/", instrument("secrets", this::handleSecretsProxy));
     target.createContext("/secretmaps/", instrument("secretmaps", this::handleSecretMapsProxy));
     target.createContext(
@@ -724,6 +799,13 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       long startNanos = System.nanoTime();
+      // The control plane's own spans: nothing else in this process ever begins a trace, so
+      // without this its shipped trace history stays permanently empty however correctly the
+      // exporter behind it is wired. A no-op until a tracer provider is installed. Ended in the
+      // finally block below rather than by try-with-resources, so the span carries the status the
+      // handler actually produced -- a resource is closed before that status can be read.
+      ServerSpan span =
+          GimleTracing.startServerSpan(TRACING_SCOPE, verb + " /" + endpoint, endpoint, verb);
       try {
         Optional<Instant> retryAt = rateLimited(exchange);
         if (retryAt.isPresent()) {
@@ -749,6 +831,8 @@ public final class ApiServer implements AutoCloseable {
         int status = exchange.getResponseCode();
         boolean error = status <= 0 || status >= 400;
         metrics.recordRequest(endpoint, verb, latency, error);
+        span.recordStatus(status);
+        span.close();
       }
     };
   }
@@ -889,6 +973,36 @@ public final class ApiServer implements AutoCloseable {
 
   public void start() {
     server.start();
+    // The first probe runs on the probe thread and start() waits only briefly for it: long enough
+    // that a reachable store makes the very first /health answer about reality, bounded so an
+    // unreachable one delays startup by that bound rather than by StoreClient's own leader search.
+    // Whatever the outcome, the scheduled refresh below takes over.
+    Future<?> first = storeProbe.submit(this::refreshStoreProbe);
+    try {
+      first.get(FIRST_STORE_PROBE_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (ExecutionException | TimeoutException e) {
+      log.debug("first store probe did not complete before startup continued: {}", e.getMessage());
+    }
+    storeProbe.scheduleWithFixedDelay(
+        this::refreshStoreProbe,
+        storeProbeInterval.toMillis(),
+        storeProbeInterval.toMillis(),
+        TimeUnit.MILLISECONDS);
+  }
+
+  /**
+   * Runs on its own thread so a slow or hanging store round trip delays only the next probe, never
+   * a caller of {@code /health}. Fixed *delay* rather than fixed rate: a probe that overran its
+   * interval must not have a queue of catch-up runs waiting behind it.
+   */
+  private void refreshStoreProbe() {
+    try {
+      lastStoreProbe = StoreProbeResult.up(storeClient.listTenants().size());
+    } catch (RuntimeException e) {
+      lastStoreProbe = StoreProbeResult.down(String.valueOf(e.getMessage()));
+    }
   }
 
   public int port() {
@@ -897,6 +1011,7 @@ public final class ApiServer implements AutoCloseable {
 
   @Override
   public void close() {
+    storeProbe.shutdownNow();
     server.stop(0);
   }
 
@@ -2200,8 +2315,15 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing service name");
       return;
     }
+    // Defaulted to the default tenant, not left untenanted: a workload manifest's own omitted
+    // tenantId already resolves to it, so no Deployment/StatefulSet/DaemonSet can ever land in the
+    // untenanted namespace. A Service that stayed untenanted would join against that namespace and
+    // find nothing, for every deployment it names, whatever ports either side declares -- silently,
+    // since there is no instance to report an exclusion about.
     Optional<String> tenantId =
-        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+        body.get("tenantId") instanceof String s && !s.isBlank()
+            ? Optional.of(s)
+            : Optional.of(Tenant.DEFAULT_TENANT_ID);
     Set<String> deploymentNames = new LinkedHashSet<>();
     if (body.get("deploymentNames") instanceof List<?> rawNames) {
       for (Object rawName : rawNames) {
@@ -2456,8 +2578,16 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing alert rule name");
       return;
     }
+    // An omitted tenantId resolves to the default tenant, never Optional.empty(): a rule is only
+    // ever evaluated against the assignments of the deployment it names, and a manifest's own
+    // omitted tenantId already resolves to that same default tenant, so an untenanted rule would
+    // be keyed under a namespace no deployment can ever land in -- it would match no instance,
+    // average zero forever, and so never cross its threshold nor ever report a verdict at all.
     Optional<String> tenantId =
-        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+        Optional.of(
+            body.get("tenantId") instanceof String s && !s.isBlank()
+                ? s
+                : Tenant.DEFAULT_TENANT_ID);
     String deploymentName = (String) body.get("deploymentName");
     AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf((String) body.get("metric"));
     AlertRuleSpec.Comparator comparator =
@@ -2510,9 +2640,11 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing alert rule name");
         return;
       }
-      // Caller-declared ?tenant= hint, same convention #handleService's own GET/DELETE uses: a
-      // per-tenant AlertRule name can't resolve its own tenant from the bare name alone.
-      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Caller-declared ?tenant= hint: a per-tenant AlertRule name can't resolve its own tenant
+      // from the bare name alone. Defaulted the workload way rather than to Optional.empty(),
+      // because that is the key POST writes an omitted tenantId under -- reading it back with a
+      // bare empty Optional would address a rule this API can no longer create.
+      Optional<String> tenant = workloadTenantHint(exchange);
       if (slash >= 0) {
         String subResource = tail.substring(slash + 1);
         if (!"firing".equals(subResource)) {
@@ -2714,9 +2846,26 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * {@code Enum.valueOf}'s own failure names the fully-qualified enum class, which means nothing to
+   * whoever wrote the manifest -- this names the kinds a route may actually declare instead.
+   */
+  private static IngressRule.Kind ingressRouteKind(String declared) {
+    try {
+      return IngressRule.Kind.valueOf(declared.toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "unknown route kind '"
+              + declared
+              + "'; expected one of "
+              + Arrays.stream(IngressRule.Kind.values())
+                  .map(Enum::name)
+                  .collect(Collectors.joining(", ")));
+    }
+  }
+
   private static IngressRule ingressRuleFromJson(Map<String, Object> route) {
-    IngressRule.Kind kind =
-        IngressRule.Kind.valueOf(String.valueOf(route.get("kind")).toUpperCase(Locale.ROOT));
+    IngressRule.Kind kind = ingressRouteKind(String.valueOf(route.get("kind")));
     return new IngressRule(
         Optional.ofNullable((String) route.get("host")),
         (String) route.get("path"),
@@ -3324,8 +3473,16 @@ public final class ApiServer implements AutoCloseable {
       Map<String, Object> runMap = new LinkedHashMap<>();
       runMap.put("attempt", run.attempt());
       runMap.put("nodeId", run.nodeId());
-      findObservationForJobRun(run)
-          .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservationForJobRun(run);
+      observation.ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        // A run whose node never got it started has no observation to report a state from, and the
+        // phase above still reads RUNNING because nothing has moved this job to a terminal one.
+        // Reported in the same "reason" a finished run carries, so the run that never started and
+        // the run that ended both say what happened rather than showing an empty state.
+        notRunningReason(spec.tenantId(), spec.name(), run.attempt())
+            .ifPresent(reason -> runMap.put("reason", reason));
+      }
       status.put("currentRun", runMap);
     } else {
       // A terminal job's own JobRun is removed at the same transition that makes it terminal (see
@@ -3461,9 +3618,11 @@ public final class ApiServer implements AutoCloseable {
    * The {@code gimle cronjob trigger <name>} verb's server-side implementation -- fires
    * immediately, bypassing the schedule entirely (still subject to {@code concurrencyPolicy}), via
    * the same {@link CronJobReconciler#triggerNow} the scheduled tick path shares. 404 if the
-   * CronJob doesn't exist; 409 if {@code concurrencyPolicy: FORBID} blocked it against a
-   * still-running previous firing -- distinguishable from "doesn't exist" so a caller isn't left
-   * guessing which happened.
+   * CronJob doesn't exist; 409 if the firing was refused -- either {@code concurrencyPolicy:
+   * FORBID} against a still-running previous firing, or an admission check (tenant quota, limit
+   * range) that the generated Job failed. Distinguishable from "doesn't exist" so a caller isn't
+   * left guessing which happened; which of the two refusals it was is in the control plane's own
+   * log, since the firing decision is a single yes/no here.
    */
   private void handleCronJobTrigger(HttpExchange exchange, Optional<String> tenantHint, String name)
       throws IOException {
@@ -3477,7 +3636,12 @@ public final class ApiServer implements AutoCloseable {
     }
     Optional<String> generatedJobName = cronJobReconciler.triggerNow(tenantHint, name);
     if (generatedJobName.isEmpty()) {
-      respond(exchange, 409, "cronjob " + name + " not triggered: concurrencyPolicy forbids it");
+      respond(
+          exchange,
+          409,
+          "cronjob "
+              + name
+              + " not triggered: its concurrencyPolicy or an admission check refused the firing");
       return;
     }
     respondJson(exchange, 200, Map.of("jobName", generatedJobName.get()));
@@ -3532,10 +3696,46 @@ public final class ApiServer implements AutoCloseable {
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
+    lastFiringTime(spec).ifPresent(t -> status.put("lastScheduleTime", t.toString()));
     storeClient
         .getCronJobLastSchedule(spec.tenantId(), spec.name())
-        .ifPresent(t -> status.put("lastScheduleTime", t.toString()));
+        .ifPresent(t -> status.put("scheduleEvaluatedThrough", t.toString()));
     return status;
+  }
+
+  /**
+   * When this CronJob last actually produced a Job, read off the generated Jobs themselves -- each
+   * is named {@code {cronJobName}-{epochSeconds}}, so their own names carry the firing times.
+   *
+   * <p>Deliberately not the stored last-schedule value, which is the reconciler's cursor over the
+   * schedule rather than a record of anything running: it is stamped with the current time the
+   * first time a CronJob is reconciled at all, and keeps advancing past every instant that comes
+   * due while the CronJob is suspended. Reported as {@code lastScheduleTime}, that cursor claimed a
+   * firing for a CronJob that had never fired once. It is still worth surfacing -- an operator
+   * asking why nothing has fired wants to know how far the schedule has been evaluated -- so it is
+   * reported alongside, under a name that says what it is.
+   */
+  private Optional<Instant> lastFiringTime(CronJobSpec spec) {
+    return storeClient.listJobSpecs().stream()
+        .filter(job -> job.tenantId().equals(spec.tenantId()))
+        .flatMap(job -> firingTimeOf(spec.name(), job.name()).stream())
+        .max(Comparator.naturalOrder());
+  }
+
+  /**
+   * The firing instant encoded in {@code jobName}, when it names a Job {@code cronJobName}
+   * generated.
+   */
+  private static Optional<Instant> firingTimeOf(String cronJobName, String jobName) {
+    String prefix = cronJobName + "-";
+    if (!jobName.startsWith(prefix)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.ofEpochSecond(Long.parseLong(jobName.substring(prefix.length()))));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
   }
 
   // ---- /daemonsets/{name}, /daemonsets ----
@@ -3755,18 +3955,31 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (DaemonSetAssignment assignment :
         storeClient.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("nodeId", assignment.nodeId());
-      findObservationForDaemonSetAssignment(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservationForDaemonSetAssignment(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        // A DaemonSet places at most one instance per node, so every one of its own timeline
+        // events is recorded against index 0 -- the same index its assignments are handed to an
+        // agent under.
+        notRunningReason(spec.tenantId(), spec.name(), 0)
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
+    putNotRunningRollup(status, notRunningReasons);
     // Absent until DaemonSetReconciler's first tick for this daemonset -- see
     // StoreReader#getDaemonSetDesiredCount's own javadoc. Present alongside instances.size() (the
     // placed count) is what lets a shortfall be read back at all, the same "desired" vs "placed"
@@ -3776,7 +3989,10 @@ public final class ApiServer implements AutoCloseable {
         .ifPresent(
             desired -> {
               status.put("desired", desired);
-              status.put("unplacedCount", desired - instances.size());
+              // Clamped: a count of "how many are still missing" is never negative. A scale-down
+              // releases one index per tick by design, so instances legitimately outnumber the
+              // target for a few ticks, and a raw subtraction published that as a negative.
+              status.put("unplacedCount", Math.max(0, desired - instances.size()));
             });
     return status;
   }
@@ -4010,22 +4226,35 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (StatefulSetAssignment assignment :
         storeClient.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
-      findObservationForStatefulSetAssignment(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation =
+          findObservationForStatefulSetAssignment(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        notRunningReason(spec.tenantId(), spec.name(), assignment.instanceIndex())
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
-    status.put("unplacedCount", spec.replicas() - instances.size());
+    // Clamped for the same reason the DaemonSet count is: a scale-down leaves more instances than
+    // replicas for a few ticks, and "how many are still missing" cannot be negative.
+    status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
+    putNotRunningRollup(status, notRunningReasons);
     return status;
   }
 
@@ -4071,6 +4300,43 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
+  /**
+   * Why an instance that <em>is</em> placed is nevertheless not running: its owning node's own
+   * agent recorded a durable {@code TRANSITION_FAILED} against this index and no node currently
+   * reports an observation for it. A workload whose replicas were all placed but none of which ever
+   * started otherwise reads back as fully healthy -- every index accounted for, nothing unplaced,
+   * and simply no observation where a live one would be -- which is precisely the state an operator
+   * most needs told.
+   *
+   * <p>Conditioned on a recorded failure rather than on the missing observation alone: an instance
+   * placed moments ago has legitimately not reported anything yet, and calling that "not running"
+   * would flag every fresh deployment for its first few seconds.
+   */
+  private Optional<String> notRunningReason(
+      Optional<String> tenantId, String name, int instanceIndex) {
+    List<InstanceEvent> events = storeClient.listInstanceEvents(tenantId, name, instanceIndex);
+    if (events.isEmpty() || events.get(0).kind() != InstanceEventKind.TRANSITION_FAILED) {
+      return Optional.empty();
+    }
+    InstanceEvent event = events.get(0);
+    return Optional.of(
+        event.causeSummary().map(cause -> event.message() + ": " + cause).orElse(event.message()));
+  }
+
+  /**
+   * Folds the per-instance {@code notRunning} reasons collected while building a workload's {@code
+   * instances[]} into the workload-level rollup an operator's own tooling reads: a count that is
+   * always present (so "how many of my replicas are actually running" is a subtraction, not an
+   * inference from an absent key) and the first of the reasons as the one line to show, with each
+   * instance keeping its own alongside it.
+   */
+  private static void putNotRunningRollup(Map<String, Object> status, List<String> reasons) {
+    status.put("notRunningCount", reasons.size());
+    if (!reasons.isEmpty()) {
+      status.put("notRunningReason", reasons.get(0));
+    }
+  }
+
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
     specMap.put("name", spec.name());
@@ -4083,22 +4349,34 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (InstanceAssignment assignment :
         storeClient.listAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
-      findObservation(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservation(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        notRunningReason(spec.tenantId(), spec.name(), assignment.instanceIndex())
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
-    status.put("unplacedCount", spec.replicas() - instances.size());
+    // Clamped for the same reason the DaemonSet count is: a scale-down leaves more instances than
+    // replicas for a few ticks, and "how many are still missing" cannot be negative.
+    status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
+    putNotRunningRollup(status, notRunningReasons);
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.tenantId(), spec.name()));
     // Present only once the autoscaler has actually moved this deployment -- what its own
     // stabilization windows are measured against, so an operator can see why a scale decision is
@@ -4207,6 +4485,10 @@ public final class ApiServer implements AutoCloseable {
       case VesselProbeSpec.Tcp ignored -> map.put("tcp", true);
       case VesselProbeSpec.Http http -> map.put("http", http.path());
     }
+    // Emitted under the same key the manifest parser reads, so a spec read back out of the API
+    // and re-applied keeps naming the port it dials -- without it, a multi-port vessel's probe
+    // silently becomes ambiguous on the round trip.
+    probe.portName().ifPresent(name -> map.put("port", name));
     return map;
   }
 
@@ -4417,6 +4699,8 @@ public final class ApiServer implements AutoCloseable {
   private void handleInstanceFabricEndpoint(HttpExchange exchange) {
     try {
       handleInstanceFabricEndpointRequest(exchange);
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("fabric-endpoint request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -4446,7 +4730,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
 
-    Optional<String> tenantId = workloadTenantHint(exchange);
+    Optional<String> tenantId = instanceTenantHint(exchange, deploymentName);
     Optional<InstancePlacement> placement =
         resolveInstancePlacement(tenantId, deploymentName, instanceIndex);
     if (placement.isEmpty()) {
@@ -4645,22 +4929,33 @@ public final class ApiServer implements AutoCloseable {
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
       int slash = tail.indexOf('/');
-      if (slash < 0) {
-        respond(exchange, 400, "expected /nodes/{nodeId}/register|heartbeat|assignments");
-        return;
-      }
-      String nodeId = tail.substring(0, slash);
-      String action = tail.substring(slash + 1);
+      String nodeId = slash < 0 ? tail : tail.substring(0, slash);
       if (nodeId.isBlank()) {
         respond(exchange, 400, "missing nodeId");
         return;
       }
+      if (slash < 0) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (requireAuthorized(
+            exchange, ResourceKind.NODE, Verb.READ, Optional.empty(), Optional.of(nodeId))) {
+          handleNodeRead(exchange, nodeId);
+        }
+        return;
+      }
+      String action = tail.substring(slash + 1);
       // targetId=nodeId is what lets a gimle:nodes principal reach exactly its own subresources
       // (Authorizer's node self-service short-circuit) with no RoleBinding needing to exist for
-      // it -- and nothing else.
+      // it -- and nothing else. Labelling is deliberately excluded from that: a node that could
+      // label itself could grant itself the very labels placement uses to keep workloads off it,
+      // so this one action is withheld from the self-service path and needs a real grant.
       Verb verb = "assignments".equals(action) ? Verb.READ : Verb.WRITE;
+      Optional<String> selfServiceTarget =
+          "labels".equals(action) ? Optional.empty() : Optional.of(nodeId);
       if (!requireAuthorized(
-          exchange, ResourceKind.NODE, verb, Optional.empty(), Optional.of(nodeId))) {
+          exchange, ResourceKind.NODE, verb, Optional.empty(), selfServiceTarget)) {
         return;
       }
       switch (action) {
@@ -4671,6 +4966,7 @@ public final class ApiServer implements AutoCloseable {
         case "uncordon" -> handleCordon(exchange, nodeId, false);
         case "taint" -> handleTaint(exchange, nodeId, true);
         case "untaint" -> handleTaint(exchange, nodeId, false);
+        case "labels" -> handleNodeLabels(exchange, nodeId);
         case "events" -> handleAppendInstanceEvent(exchange);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
@@ -4694,13 +4990,60 @@ public final class ApiServer implements AutoCloseable {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     NodeCapabilities capabilities = capabilitiesFromJson((Map<?, ?>) body.get("capabilities"));
     Object apiAddress = body.get("apiAddress");
+    // Carried over rather than reset: a node restarting re-reports only what it knows about
+    // itself, and dropping the operator's labels here would silently un-place every workload
+    // that was scheduled because of them.
+    Set<String> operatorLabels =
+        storeClient
+            .getNodeRegistration(nodeId)
+            .map(NodeRegistration::operatorLabels)
+            .orElse(Set.of());
     storeClient.propose(
         new StateMutation.PutNodeRegistration(
             new NodeRegistration(
                 nodeId,
                 capabilities,
-                apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress))));
+                apiAddress == null ? Optional.empty() : Optional.of((String) apiAddress),
+                operatorLabels)));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code PUT /nodes/{nodeId}/labels} -- replaces this node's operator-applied label set with the
+   * one in the body ({@code {"labels": ["edge"]}}), the same declarative shape every other write
+   * here takes: the request states the labels the node should have, not an edit to apply.
+   *
+   * <p>Only the operator half is touched. Labels the node reported for itself at startup stay
+   * exactly as they are and cannot be removed through this endpoint, since they are a property of
+   * how the node was launched, not of cluster state.
+   */
+  private void handleNodeLabels(HttpExchange exchange, String nodeId) throws IOException {
+    if (!"PUT".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Optional<NodeRegistration> existing = storeClient.getNodeRegistration(nodeId);
+    if (existing.isEmpty()) {
+      respond(exchange, 404, "no such node: " + nodeId);
+      return;
+    }
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object rawLabels = body.get("labels");
+    if (!(rawLabels instanceof List<?> list)) {
+      respond(exchange, 400, "expected {\"labels\": [...]}");
+      return;
+    }
+    Set<String> labels = new LinkedHashSet<>();
+    for (Object label : list) {
+      if (!(label instanceof String text) || text.isBlank()) {
+        respond(exchange, 400, "every label must be a non-blank string");
+        return;
+      }
+      labels.add(text.trim());
+    }
+    storeClient.propose(
+        new StateMutation.PutNodeRegistration(existing.get().withOperatorLabels(labels)));
+    respondJson(exchange, 200, Map.of("nodeId", nodeId, "labels", List.copyOf(labels)));
   }
 
   /**
@@ -4902,8 +5245,9 @@ public final class ApiServer implements AutoCloseable {
    * InstanceAssignment} (Deployment-kind bookkeeping alone) here left every StatefulSet/DaemonSet
    * instance's own relayed events permanently misfiled under the untenanted namespace regardless of
    * their real tenant, indistinguishable from "genuinely untenanted" to any later {@code ?tenant=}
-   * read. Untenanted (rather than rejected) if no matching assignment is found in any of the four,
-   * e.g. a final lifecycle event arriving just after the assignment itself was already torn down.
+   * read. When no assignment matches -- the ordinary case for a closing event arriving just after
+   * its own placement was torn down -- the owning workload spec's tenant stands in; an event naming
+   * no workload at all is discarded rather than filed anywhere.
    */
   private void handleAppendInstanceEvent(HttpExchange exchange) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -4923,9 +5267,43 @@ public final class ApiServer implements AutoCloseable {
             (String) body.get("message"),
             causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
             ((Number) body.get("occurredAtEpochMilli")).longValue());
-    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex);
+    // A workload's removal wipes the instance timelines it owned, but its instances are only torn
+    // down afterwards, so their last few lifecycle events arrive with nothing left to own them.
+    // Filing those anyway is what let a deleted occupant's STOPPING/UNINSTALLED pair reappear
+    // underneath the fresh timeline of whatever was next created under the same name and index.
+    List<WorkloadSpec> owners = workloadSpecsNamed(deploymentName);
+    if (owners.isEmpty()) {
+      log.debug(
+          "discarding instance event {} for {}#{}: no workload of that name exists",
+          event.id(),
+          deploymentName,
+          instanceIndex);
+      respond(exchange, 200, "discarded: no workload named " + deploymentName);
+      return;
+    }
+    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex, owners);
     storeClient.propose(new StateMutation.AppendInstanceEvent(tenant, event));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Every Deployment/Job/DaemonSet/StatefulSet spec currently named {@code name}, across every
+   * tenant -- the "is there anything this event could belong to at all" question, which {@link
+   * #resolveTenantForWorkloadName} cannot answer on its own because it collapses "no such workload"
+   * and "found, but untenanted" into the same empty result.
+   */
+  private List<WorkloadSpec> workloadSpecsNamed(String name) {
+    List<WorkloadSpec> matching = new ArrayList<>();
+    collectNamed(matching, storeClient.listDeployments(), name);
+    collectNamed(matching, storeClient.listJobSpecs(), name);
+    collectNamed(matching, storeClient.listDaemonSetSpecs(), name);
+    collectNamed(matching, storeClient.listStatefulSetSpecs(), name);
+    return matching;
+  }
+
+  private static void collectNamed(
+      List<WorkloadSpec> into, List<? extends WorkloadSpec> specs, String name) {
+    specs.stream().filter(spec -> spec.name().equals(name)).forEach(into::add);
   }
 
   /**
@@ -4933,11 +5311,13 @@ public final class ApiServer implements AutoCloseable {
    * kinds in turn -- Deployment ({@link InstanceAssignment}), StatefulSet, DaemonSet (index always
    * {@code 0}, keyed by node instead), then Job (matched by attempt number) -- exactly the same
    * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
-   * since the whole point here is discovering which tenant owns the name in the first place. {@link
-   * Optional#empty()} (the untenanted namespace) if none of the four currently has a matching
-   * assignment.
+   * since the whole point here is discovering which tenant owns the name in the first place. With
+   * no matching assignment left, {@code owners} -- the workload specs currently carrying this name
+   * -- answers instead, and only a name genuinely claimed by no tenant, or by more than one, falls
+   * through to {@link Optional#empty()} (the untenanted namespace).
    */
-  private Optional<String> resolveInstanceEventTenant(String deploymentName, int instanceIndex) {
+  private Optional<String> resolveInstanceEventTenant(
+      String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
     Optional<Optional<String>> deployment =
         storeClient.listAssignments().stream()
             .filter(
@@ -4969,11 +5349,21 @@ public final class ApiServer implements AutoCloseable {
         return daemonSet.get();
       }
     }
-    return storeClient.listJobRuns().stream()
-        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
-        .map(JobRun::tenantId)
-        .findFirst()
-        .orElse(Optional.empty());
+    Optional<Optional<String>> jobRun =
+        storeClient.listJobRuns().stream()
+            .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+            .map(JobRun::tenantId)
+            .findFirst();
+    if (jobRun.isPresent()) {
+      return jobRun.get();
+    }
+    // No live assignment matches, which is the ordinary case for an event describing an instance
+    // that has just gone away. The owning spec still says which tenant's timeline it belongs on,
+    // and using it is what keeps that timeline sweepable by the owner's own later removal --
+    // an event misfiled under the untenanted namespace would outlive it.
+    List<String> ownerTenants =
+        owners.stream().flatMap(spec -> spec.tenantId().stream()).distinct().toList();
+    return ownerTenants.size() == 1 ? Optional.of(ownerTenants.get(0)) : Optional.empty();
   }
 
   /**
@@ -5021,7 +5411,8 @@ public final class ApiServer implements AutoCloseable {
       Optional<String> tenant =
           declaredTenant.isPresent()
               ? declaredTenant
-              : resolveInstanceEventTenant(deploymentName, instanceIndex);
+              : resolveInstanceEventTenant(
+                  deploymentName, instanceIndex, workloadSpecsNamed(deploymentName));
       if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
@@ -5217,37 +5608,66 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      List<Map<String, Object>> nodes = new ArrayList<>();
       Instant now = Instant.now();
       Instant observingSince = storeClient.nodeObservationWindowStart();
-      for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("nodeId", registration.nodeId());
-        Map<String, Object> capabilities = new LinkedHashMap<>();
-        capabilities.put(
-            "supportedTiers",
-            registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
-        capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
-        node.put("capabilities", capabilities);
-        node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
-        node.put(
-            "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
-        Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
-        node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
-        observed.ifPresent(
-            heartbeat -> {
-              node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
-              node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
-            });
-        nodes.add(node);
-      }
-      respondJson(exchange, 200, nodes);
+      respondJson(
+          exchange,
+          200,
+          storeClient.listNodeRegistrations().stream()
+              .map(registration -> nodeJson(registration, observingSince, now))
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("nodes list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * One registered node's full read shape -- shared by the whole-cluster listing and the
+   * single-node read, so the two can never drift into describing the same node differently.
+   */
+  private Map<String, Object> nodeJson(
+      NodeRegistration registration, Instant observingSince, Instant now) {
+    Map<String, Object> node = new LinkedHashMap<>();
+    node.put("nodeId", registration.nodeId());
+    Map<String, Object> capabilities = new LinkedHashMap<>();
+    capabilities.put(
+        "supportedTiers",
+        registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+    capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
+    capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
+    capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
+    node.put("capabilities", capabilities);
+    node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
+    node.put("taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
+    Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
+    node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
+    observed.ifPresent(
+        heartbeat -> {
+          node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
+          node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
+        });
+    return node;
+  }
+
+  /**
+   * {@code GET /nodes/{nodeId}} -- the single-node read, in the identical shape {@code GET /nodes}
+   * lists. Without it, addressing one node by name reached the sub-resource dispatcher below and
+   * came back as a usage error, so a caller wanting one node's current labels or taints had no way
+   * to ask for them but to list the whole cluster and filter client-side.
+   */
+  private void handleNodeRead(HttpExchange exchange, String nodeId) throws IOException {
+    Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
+    if (registration.isEmpty()) {
+      respond(exchange, 404, "unknown node: " + nodeId);
+      return;
+    }
+    respondJson(
+        exchange,
+        200,
+        nodeJson(registration.get(), storeClient.nodeObservationWindowStart(), Instant.now()));
   }
 
   // ---- (de)serialization ----
@@ -6157,13 +6577,7 @@ public final class ApiServer implements AutoCloseable {
     if (!(exchange instanceof HttpsExchange)) {
       if (verb == Verb.WRITE || verb == Verb.DELETE) {
         recordCustomResourceAudit(
-            new Principal("anonymous", Set.of()),
-            kindName,
-            verb,
-            tenant,
-            targetId,
-            true,
-            AuditOutcome.APPLIED);
+            ANONYMOUS_PRINCIPAL, kindName, verb, tenant, targetId, true, AuditOutcome.APPLIED);
       }
       return true;
     }
@@ -6205,7 +6619,7 @@ public final class ApiServer implements AutoCloseable {
   private Optional<Principal> requireCustomResourceWrite(
       HttpExchange exchange, String kindName, Optional<String> tenant, boolean statusSubresource) {
     if (!(exchange instanceof HttpsExchange)) {
-      return Optional.of(new Principal("anonymous", Set.of()));
+      return Optional.of(ANONYMOUS_PRINCIPAL);
     }
     Optional<Principal> principal = resolvePrincipal(exchange);
     if (principal.isEmpty()) {
@@ -6337,6 +6751,10 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- /limitranges and /limitranges/{tenantId} ----
 
+  /** The four bound keys a {@code PUT /limitranges/{tenantId}} body may carry, in schema order. */
+  private static final List<String> LIMIT_RANGE_BOUND_KEYS =
+      List.of("minRequest", "maxRequest", "minLimit", "maxLimit");
+
   private void handleLimitRangesList(HttpExchange exchange) {
     try {
       Optional<Predicate<Optional<String>>> readableTenant =
@@ -6403,17 +6821,89 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Strict about the body's shape, deliberately: a field this doesn't recognize is refused, never
+   * dropped. A silently-dropped bound is the worst of the three possible outcomes -- the operator
+   * is told the floor they wrote was applied, a boundless LimitRange is stored under that tenant,
+   * and the mistake only surfaces later as a workload that should have been refused running
+   * happily. The nested {@code {memory, cpu}} block is the only accepted spelling of a bound, so a
+   * body mirroring {@code gimle set limitrange}'s flat flag names ({@code minRequestMemory}) is
+   * named back to the caller rather than quietly ignored.
+   *
+   * <p>A body declaring no bound at all is refused for the same reason: a LimitRange bounding
+   * nothing is indistinguishable from having no LimitRange, so it can only ever be a mistake or a
+   * roundabout way of saying {@code DELETE /limitranges/{tenantId}}, which says it unambiguously.
+   */
   private void handlePutLimitRange(HttpExchange exchange, String tenantId) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    List<String> unrecognized =
+        body.keySet().stream()
+            .map(String::valueOf)
+            .filter(key -> !LIMIT_RANGE_BOUND_KEYS.contains(key) && !"tenantId".equals(key))
+            .sorted()
+            .toList();
+    if (!unrecognized.isEmpty()) {
+      respond(
+          exchange,
+          400,
+          "unrecognized limit range field(s): "
+              + String.join(", ", unrecognized)
+              + "; each bound is a nested block, e.g. minRequest: {memory: 24Mi, cpu: 15m} (bounds:"
+              + " "
+              + String.join(", ", LIMIT_RANGE_BOUND_KEYS)
+              + ")");
+      return;
+    }
+    // The resource's identity is the URL path; a body repeating it is tolerated (a GET response
+    // handed straight back as a PUT body round-trips) but never allowed to disagree with it.
+    Object bodyTenantId = body.get("tenantId");
+    if (bodyTenantId != null && !tenantId.equals(String.valueOf(bodyTenantId))) {
+      respond(
+          exchange,
+          400,
+          "body tenantId '" + bodyTenantId + "' does not match path tenant '" + tenantId + "'");
+      return;
+    }
+    if (LIMIT_RANGE_BOUND_KEYS.stream().noneMatch(body::containsKey)) {
+      respond(
+          exchange,
+          400,
+          "a limit range must declare at least one of "
+              + String.join(", ", LIMIT_RANGE_BOUND_KEYS)
+              + "; to remove a tenant's bounds use DELETE /limitranges/"
+              + tenantId);
+      return;
+    }
     LimitRangeSpec spec =
         new LimitRangeSpec(
             tenantId,
-            resourceSpecFromJson((Map<?, ?>) body.get("minRequest")),
-            resourceSpecFromJson((Map<?, ?>) body.get("maxRequest")),
-            resourceSpecFromJson((Map<?, ?>) body.get("minLimit")),
-            resourceSpecFromJson((Map<?, ?>) body.get("maxLimit")));
+            boundFromJson(body, "minRequest"),
+            boundFromJson(body, "maxRequest"),
+            boundFromJson(body, "minLimit"),
+            boundFromJson(body, "maxLimit"));
     storeClient.propose(new StateMutation.PutLimitRange(spec));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Both halves of a bound are required together: a floor on memory alone is a coherent wish, but
+   * {@link ResourceSpec} has no representation for it, so accepting one half would mean inventing a
+   * value for the other.
+   */
+  private static Optional<ResourceSpec> boundFromJson(Map<?, ?> body, String key) {
+    Object bound = body.get(key);
+    if (bound == null) {
+      return Optional.empty();
+    }
+    if (!(bound instanceof Map<?, ?> pair)) {
+      throw new IllegalArgumentException(key + " must be a block with 'memory' and 'cpu'");
+    }
+    Object memory = pair.get("memory");
+    Object cpu = pair.get("cpu");
+    if (memory == null || cpu == null) {
+      throw new IllegalArgumentException(key + " requires both 'memory' and 'cpu'");
+    }
+    return Optional.of(new ResourceSpec(String.valueOf(memory), String.valueOf(cpu)));
   }
 
   private void handleGetLimitRange(HttpExchange exchange, String tenantId) throws IOException {
@@ -7329,6 +7819,15 @@ public final class ApiServer implements AutoCloseable {
     forwardGlobalAdminRoute(exchange, "/secrets/retire-key", ResourceKind.SECRET);
   }
 
+  /**
+   * Sibling of the two above, same global gate: re-encrypting every tenant's secrets under the
+   * active key is what makes retiring an older one safe, so it is the same class of operation and
+   * relays the same way.
+   */
+  private void handleRewrapSecretsProxy(HttpExchange exchange) {
+    forwardGlobalAdminRoute(exchange, "/secrets/rewrap", ResourceKind.SECRET);
+  }
+
   // ---- /seal/public-key, /seal/rotate-key, /seal/retire-key ----
 
   /**
@@ -7577,15 +8076,29 @@ public final class ApiServer implements AutoCloseable {
       Map<String, Object> status = new LinkedHashMap<>();
       status.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
       status.put("transportProtocol", TransportProtocol.fromConfig().name());
-      try {
-        status.put("storeTenantCount", storeClient.listTenants().size());
-        status.put("status", "UP");
-        respondJson(exchange, 200, status);
-      } catch (RuntimeException e) {
+      StoreProbeResult probe = lastStoreProbe;
+      Duration age = Duration.between(probe.completedAt(), Instant.now());
+      // A probe too old to trust is reported down rather than waited on: the prober being stuck is
+      // itself evidence the store cannot be reached.
+      if (age.compareTo(storeProbeMaxAge) > 0) {
         status.put("status", "DOWN");
-        status.put("reason", String.valueOf(e.getMessage()));
+        status.put(
+            "reason",
+            probe.completedAt().equals(Instant.EPOCH)
+                ? probe.reason()
+                : "last store probe completed " + age.toSeconds() + "s ago");
         respondJson(exchange, 503, status);
+        return;
       }
+      if (!probe.up()) {
+        status.put("status", "DOWN");
+        status.put("reason", probe.reason());
+        respondJson(exchange, 503, status);
+        return;
+      }
+      status.put("storeTenantCount", probe.tenantCount());
+      status.put("status", "UP");
+      respondJson(exchange, 200, status);
     } catch (IOException | RuntimeException e) {
       log.warn("health request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -7678,6 +8191,19 @@ public final class ApiServer implements AutoCloseable {
    * the caller's socket through to Andvari and a pull flows back, never a whole jar buffered in
    * this process.
    */
+  /**
+   * The {@code moduleId:version} a {@code /artifacts/**} path addresses, absent for the catalog and
+   * per-module listings, which name no single artifact.
+   */
+  private static Optional<String> artifactCoordinateOf(String path) {
+    String tail = path.startsWith("/artifacts/") ? path.substring("/artifacts/".length()) : "";
+    String[] segments = tail.split("/");
+    if (segments.length < 2 || segments[0].isBlank() || segments[1].isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.of(segments[0] + ":" + segments[1]);
+  }
+
   private void handleArtifactsProxy(HttpExchange exchange) {
     try {
       String path = exchange.getRequestURI().getPath();
@@ -7705,7 +8231,10 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      if (!requireAuthorized(exchange, ResourceKind.ARTIFACT, verb, Optional.empty())) {
+      // Named in the audit record rather than left empty: with concurrent pushes, "someone deleted
+      // an artifact" is useless without which one, and the coordinate is right there in the path.
+      if (!requireAuthorized(
+          exchange, ResourceKind.ARTIFACT, verb, Optional.empty(), artifactCoordinateOf(path))) {
         return;
       }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();
@@ -8061,7 +8590,7 @@ public final class ApiServer implements AutoCloseable {
         // the console doesn't force a login screen that, with no bootstrap account seeded in
         // plaintext mode, may not be satisfiable by any credential at all. A genuine login (see
         // the branch above) still takes priority whenever a valid cookie is actually presented.
-        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of()), true));
+        respondJson(exchange, 200, principalToJson(ANONYMOUS_PRINCIPAL, true));
         return;
       }
       respondQuietly(exchange, 401, "not authenticated");
@@ -8116,7 +8645,7 @@ public final class ApiServer implements AutoCloseable {
       Principal principal;
       boolean allowed;
       if (!(exchange instanceof HttpsExchange)) {
-        principal = new Principal("anonymous", Set.of());
+        principal = ANONYMOUS_PRINCIPAL;
         allowed = true;
       } else {
         Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -8651,10 +9180,11 @@ public final class ApiServer implements AutoCloseable {
       // whose owning tenant wasn't literally "default" 404'd on this live path forever -- workable
       // only through Muninn's own fallback store -- even though {@code resolveInstanceNodeId}
       // itself has always been able to resolve it correctly once given the right tenant.
-      Optional<String> tenantId =
+      InstanceLogsTenant instanceTenant =
           tail.startsWith("instances/")
               ? resolveInstanceLogsTenant(exchange, tail)
-              : Optional.empty();
+              : InstanceLogsTenant.NONE;
+      Optional<String> tenantId = instanceTenant.tenantId();
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
@@ -8663,7 +9193,7 @@ public final class ApiServer implements AutoCloseable {
       } else if (tail.startsWith("nodes/")) {
         handleNodeLogsProxy(exchange, tail.substring("nodes/".length()));
       } else if (tail.startsWith("instances/")) {
-        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), tenantId);
+        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), instanceTenant);
       } else {
         respond(exchange, 404, "unknown logs endpoint: " + tail);
       }
@@ -8692,15 +9222,36 @@ public final class ApiServer implements AutoCloseable {
    * the full post-{@code /logs/} path (still carrying its {@code instances/} prefix), matching what
    * {@link #handleLogs} already has in hand.
    */
-  private Optional<String> resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
+  private InstanceLogsTenant resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
     Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
     if (declared.isPresent()) {
-      return declared;
+      return new InstanceLogsTenant(declared, Optional.empty());
     }
     String instanceTail = tail.substring("instances/".length());
     String deploymentName = instanceTail.split("/", 2)[0];
     Optional<String> resolved = resolveTenantForWorkloadName(deploymentName);
-    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
+    return new InstanceLogsTenant(
+        resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID), resolved);
+  }
+
+  /**
+   * How an instance-log request's owning tenant was arrived at. {@code tenantId} is what the
+   * request is authorized and placement-resolved against; {@code agentHint} is the same value only
+   * when it should additionally be spelled out to the node agent on the proxy hop.
+   *
+   * <p>Spelling it out matters because an agent handed a bare name and index has to answer from
+   * whatever it happens to supervise, and that name search does not cover every hosting mode: a
+   * workload running as its own process is filed under a tenant-scoped key with no bare name to
+   * match, so its logs read back empty while an identically-addressed module-hosted instance reads
+   * back fine. The hint is deliberately absent in the two cases where adding it could only do harm
+   * -- the caller already put a {@code tenant=} on the query itself (it is forwarded verbatim), and
+   * the tenant is only {@link #resolveInstanceLogsTenant}'s own default-namespace fallback for a
+   * name no workload spec claims anywhere, where an invented value would turn the agent's working
+   * name search into an exact key miss.
+   */
+  private record InstanceLogsTenant(Optional<String> tenantId, Optional<String> agentHint) {
+    static final InstanceLogsTenant NONE =
+        new InstanceLogsTenant(Optional.empty(), Optional.empty());
   }
 
   /**
@@ -8708,7 +9259,22 @@ public final class ApiServer implements AutoCloseable {
    * own {@code GET /metrics/{processKind}/{processId}}, via {@link #handleHistoryProxy}.
    */
   private void handleMetricsHistory(HttpExchange exchange) {
-    handleHistoryProxy(exchange, "/metrics-history/", "/metrics/", "metrics history");
+    handleHistoryProxy(
+        exchange,
+        "/metrics-history/",
+        "/metrics/",
+        "metrics history",
+        ObservedProcessKind.Signal.METRICS);
+  }
+
+  /**
+   * {@code GET /metrics-history} -- the process kinds whose own metrics are ever shipped here, so a
+   * caller offering the operator a choice builds it from what the platform actually ships rather
+   * than from a list of its own that can quietly fall behind. The same read gate the per-process
+   * route below applies, since the answer describes that route.
+   */
+  private void handleMetricsHistoryKinds(HttpExchange exchange) {
+    handleHistoryKinds(exchange, ObservedProcessKind.Signal.METRICS, "metrics history kinds");
   }
 
   /**
@@ -8718,7 +9284,36 @@ public final class ApiServer implements AutoCloseable {
    * #handleHistoryProxy}.
    */
   private void handleTracesHistory(HttpExchange exchange) {
-    handleHistoryProxy(exchange, "/traces-history/", "/traces/", "traces history");
+    handleHistoryProxy(
+        exchange,
+        "/traces-history/",
+        "/traces/",
+        "traces history",
+        ObservedProcessKind.Signal.TRACES);
+  }
+
+  /** {@code GET /traces-history} -- see {@link #handleMetricsHistoryKinds}. */
+  private void handleTracesHistoryKinds(HttpExchange exchange) {
+    handleHistoryKinds(exchange, ObservedProcessKind.Signal.TRACES, "traces history kinds");
+  }
+
+  private void handleHistoryKinds(
+      HttpExchange exchange, ObservedProcessKind.Signal signal, String requestNoun) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      respondJson(exchange, 200, Map.of("processKinds", ObservedProcessKind.namesShipping(signal)));
+    } catch (IOException | RuntimeException e) {
+      log.warn("{} request failed: {}", requestNoun, e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   /**
@@ -8737,7 +9332,11 @@ public final class ApiServer implements AutoCloseable {
    *     history"}
    */
   private void handleHistoryProxy(
-      HttpExchange exchange, String pathPrefix, String muninnPathPrefix, String requestNoun) {
+      HttpExchange exchange,
+      String pathPrefix,
+      String muninnPathPrefix,
+      String requestNoun,
+      ObservedProcessKind.Signal signal) {
     try {
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
@@ -8752,14 +9351,31 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "expected " + pathPrefix + "{processKind}/{processId}");
         return;
       }
+      // A kind nothing ships this signal for could only ever read back an empty history, which is
+      // indistinguishable from "the process is quiet" -- naming the kinds that do ship it turns a
+      // typo, or a picker offering a kind this signal has no data for, into an answerable error.
+      if (!ObservedProcessKind.shipsSignal(parts[0], signal)) {
+        respond(
+            exchange,
+            400,
+            "no "
+                + signal.name().toLowerCase(Locale.ROOT)
+                + " are shipped for process kind '"
+                + parts[0]
+                + "' (expected one of "
+                + String.join(", ", ObservedProcessKind.namesShipping(signal))
+                + ")");
+        return;
+      }
       if (muninnClient == null) {
         respond(exchange, 404, "no muninn endpoint configured");
         return;
       }
       Map<String, String> query = parseQuery(exchange);
-      String since = query.get("since");
-      String muninnPath =
-          muninnPathPrefix + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
+      // Forwarding every filter the caller sent, not just `since`: dropping `cursor` re-serves the
+      // newest page for each request of a backward walk, so a caller paging back reads the same
+      // page repeatedly and can never reach anything older, however many pages it asks for.
+      String muninnPath = muninnPathPrefix + parts[0] + "/" + parts[1] + historyQuery(query);
       proxyToMuninn(exchange, muninnPath);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -8769,6 +9385,101 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * {@code GET /trace/{traceId}} -- every span of one trace, wherever it ran, proxied to Muninn's
+   * own trace search. The per-process history routes cannot answer this: a caller would have to
+   * already know which processes took part, and a worker that has since been replaced no longer
+   * appears in any live instance listing to be named at all.
+   *
+   * <p>Every replica is asked and their answers merged, rather than the first that responds:
+   * shipping is best-effort per replica, so one replica's silence about a span is not evidence the
+   * span was never recorded.
+   */
+  private void handleTraceSearch(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      String traceId = exchange.getRequestURI().getPath().substring("/trace/".length());
+      if (traceId.isBlank()) {
+        respond(exchange, 400, "expected /trace/{traceId}");
+        return;
+      }
+      if (muninnClient == null) {
+        respond(exchange, 404, "no muninn endpoint configured");
+        return;
+      }
+      String limit = parseQuery(exchange).get("limit");
+      String path =
+          "/traces-by-id/"
+              + URLEncoder.encode(traceId, StandardCharsets.UTF_8)
+              + (limit == null ? "" : "?limit=" + URLEncoder.encode(limit, StandardCharsets.UTF_8));
+      respondJson(
+          exchange, 200, mergeTraceSearchAnswers(traceId, muninnClient.getFromEveryReplica(path)));
+    } catch (IOException | RuntimeException e) {
+      log.warn("trace search request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * One trace assembled from every replica that answered. A span found on more than one replica is
+   * kept once, identified by where it was found plus its own span id, so a replica that holds a
+   * batch another missed adds to the trace instead of duplicating it.
+   */
+  private static Map<String, Object> mergeTraceSearchAnswers(
+      String traceId, List<MuninnClient.RawResponse> answers) {
+    Map<String, Map<String, Object>> spansByIdentity = new LinkedHashMap<>();
+    boolean truncated = false;
+    for (MuninnClient.RawResponse answer : answers) {
+      if (answer.statusCode() != 200) {
+        continue;
+      }
+      Map<String, Object> body =
+          Json.asObject(Json.parse(new String(answer.body(), StandardCharsets.UTF_8)));
+      truncated |= Boolean.TRUE.equals(body.get("truncated"));
+      for (Map<String, Object> entry : Json.asObjectList(body.get("spans"))) {
+        Map<String, Object> span = Json.asObject(entry.get("span"));
+        spansByIdentity.putIfAbsent(
+            entry.get("processKind") + "/" + entry.get("processId") + "/" + span.get("spanId"),
+            entry);
+      }
+    }
+    Map<String, Object> merged = new LinkedHashMap<>();
+    merged.put("traceId", traceId);
+    merged.put("spans", List.copyOf(spansByIdentity.values()));
+    merged.put("truncated", truncated);
+    return merged;
+  }
+
+  /**
+   * The read filters a history request forwards to Muninn: {@code since} for a forward poll, {@code
+   * cursor} plus {@code limit} for a backward page. {@code since} and {@code cursor} are mutually
+   * exclusive by the read API's own contract, so a request naming both keeps {@code since} and the
+   * poll it describes.
+   */
+  private static String historyQuery(Map<String, String> query) {
+    List<String> params = new ArrayList<>();
+    String since = query.get("since");
+    String cursor = query.get("cursor");
+    if (since != null) {
+      params.add("since=" + URLEncoder.encode(since, StandardCharsets.UTF_8));
+    } else if (cursor != null) {
+      params.add("cursor=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+    }
+    String limit = query.get("limit");
+    if (limit != null) {
+      params.add("limit=" + URLEncoder.encode(limit, StandardCharsets.UTF_8));
+    }
+    return params.isEmpty() ? "" : "?" + String.join("&", params);
   }
 
   /** Served directly from this process's own platform log -- it's the process answering. */
@@ -8800,7 +9511,8 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleInstanceLogsProxy(
-      HttpExchange exchange, String tail, Optional<String> tenantId) throws IOException {
+      HttpExchange exchange, String tail, InstanceLogsTenant tenant) throws IOException {
+    Optional<String> tenantId = tenant.tenantId();
     // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. AgentLogServer's
     // "crashdumps" or "crashdumps/<name>") -- a plain 2-way split on the first slash used to
     // swallow anything past the instanceIndex into a failed Integer.parseInt, breaking any
@@ -8842,7 +9554,8 @@ public final class ApiServer implements AutoCloseable {
     }
     // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
     // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
-    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath);
+    proxyToAgent(
+        exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath, tenant.agentHint());
   }
 
   /**
@@ -8942,6 +9655,19 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * {@code rawQuery} with a {@code tenant=} appended when {@code addedTenant} is present, leaving
+   * every other parameter byte-for-byte as the caller sent it. The value is percent-encoded, since
+   * a tenant id reaches this class as arbitrary text from a manifest or a path segment.
+   */
+  private static String withAddedTenant(String rawQuery, Optional<String> addedTenant) {
+    if (addedTenant.isEmpty()) {
+      return rawQuery;
+    }
+    String parameter = "tenant=" + URLEncoder.encode(addedTenant.get(), StandardCharsets.UTF_8);
+    return rawQuery == null || rawQuery.isBlank() ? parameter : rawQuery + "&" + parameter;
+  }
+
+  /**
    * Values are re-encoded on the way out: {@link #parseQuery} hands back already-decoded text, and
    * a content filter's own search text is arbitrary operator input -- a space or {@code &} in it
    * would otherwise splice into, or outright invalidate, the URI built for the downstream hop.
@@ -9031,6 +9757,21 @@ public final class ApiServer implements AutoCloseable {
   private void proxyToAgent(
       HttpExchange exchange, String nodeId, String path, String muninnFallbackPath)
       throws IOException {
+    proxyToAgent(exchange, nodeId, path, muninnFallbackPath, Optional.empty());
+  }
+
+  /**
+   * As above, additionally spelling out {@code addedTenant} as a {@code tenant=} on the forwarded
+   * query -- for a route whose own resolution already established which tenant owns the target and
+   * whose agent-side counterpart would otherwise have to re-derive it from the bare name.
+   */
+  private void proxyToAgent(
+      HttpExchange exchange,
+      String nodeId,
+      String path,
+      String muninnFallbackPath,
+      Optional<String> addedTenant)
+      throws IOException {
     Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
     if (registration.isEmpty()) {
       if (muninnFallbackPath != null) {
@@ -9052,7 +9793,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 502, "node " + nodeId + " has no known log-server address");
       return;
     }
-    String query = exchange.getRequestURI().getRawQuery();
+    String query = withAddedTenant(exchange.getRequestURI().getRawQuery(), addedTenant);
     URI target =
         URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
 
@@ -9251,6 +9992,24 @@ public final class ApiServer implements AutoCloseable {
 
   private static Optional<String> workloadTenantHint(HttpExchange exchange) {
     return Optional.of(parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID));
+  }
+
+  /**
+   * {@link #workloadTenantHint} for a route addressing one instance by bare {@code (name, index)}:
+   * an explicit {@code ?tenant=} still wins, but an omitted one resolves the owning tenant from
+   * whichever workload spec actually carries {@code name} -- the same search {@code
+   * /endpoints/{name}} and the instance-log routes already use -- before falling back to the
+   * default namespace. Defaulting straight to {@code default} instead answered "no placement found"
+   * for a perfectly healthy instance whose workload simply belongs to another tenant, even though
+   * the caller had named it unambiguously.
+   */
+  private Optional<String> instanceTenantHint(HttpExchange exchange, String name) {
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    if (declared.isPresent()) {
+      return declared;
+    }
+    Optional<String> resolved = resolveTenantForWorkloadName(name);
+    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
   }
 
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
@@ -9463,7 +10222,7 @@ public final class ApiServer implements AutoCloseable {
       throws IOException {
     String requestId = pendingCsrStore.submit(Pem.encodeCsr(csr));
     recordAuditEvent(
-        new Principal("anonymous", Set.of()),
+        ANONYMOUS_PRINCIPAL,
         ResourceKind.CERTIFICATE_REQUEST,
         Verb.WRITE,
         Optional.empty(),
@@ -9837,8 +10596,7 @@ public final class ApiServer implements AutoCloseable {
           || verb == Verb.DELETE
           || verb == Verb.APPROVE
           || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
-        recordAuditEvent(
-            new Principal("anonymous", Set.of()), resource, verb, tenant, targetId, true);
+        recordAuditEvent(ANONYMOUS_PRINCIPAL, resource, verb, tenant, targetId, true);
       }
       return true;
     }
@@ -9994,7 +10752,7 @@ public final class ApiServer implements AutoCloseable {
   private Optional<Principal> requireAuthorizedForWrite(
       HttpExchange exchange, ResourceKind resource, Optional<String> tenant) {
     if (!(exchange instanceof HttpsExchange)) {
-      return Optional.of(new Principal("anonymous", Set.of()));
+      return Optional.of(ANONYMOUS_PRINCIPAL);
     }
     Optional<Principal> principal = resolvePrincipal(exchange);
     if (principal.isEmpty()) {
@@ -10031,12 +10789,7 @@ public final class ApiServer implements AutoCloseable {
     if (!(exchange instanceof HttpsExchange)) {
       if (auditReadResourceKinds.contains(resource)) {
         recordAuditEvent(
-            new Principal("anonymous", Set.of()),
-            resource,
-            Verb.READ,
-            Optional.empty(),
-            Optional.empty(),
-            true);
+            ANONYMOUS_PRINCIPAL, resource, Verb.READ, Optional.empty(), Optional.empty(), true);
       }
       return Optional.of(itemTenant -> true);
     }
@@ -10134,18 +10887,35 @@ public final class ApiServer implements AutoCloseable {
   /**
    * True for a caller carrying the bootstrap-level {@code gimle:operators} group -- reusing the
    * exact signal {@link Authorizer#authorize} already special-cases as its implicit cluster-admin
-   * bypass, rather than inventing a second notion of "trusted enough." Plaintext mode resolves no
-   * principal at all (see {@link #requireAuthorized}'s identical carve-out just above) and is
-   * treated as trusted here too, matching every other authorization decision this class makes for a
-   * plaintext deployment.
+   * bypass, rather than inventing a second notion of "trusted enough."
+   *
+   * <p>A caller presenting no credential at all is {@link #ANONYMOUS_PRINCIPAL}, which carries no
+   * groups, so it is never an operator. That is the whole point of the reserved tenant's veto: it
+   * exists precisely because a broad grant must not be enough, and "nobody authenticated" is weaker
+   * than any grant, not stronger than all of them. Treating the credential-less case as the one
+   * credential that can never be granted would leave the reserved tenant wide open exactly where
+   * nothing verifies who is calling.
    */
   private boolean isOperatorCaller(HttpExchange exchange) {
-    if (!(exchange instanceof HttpsExchange)) {
-      return true;
-    }
-    return resolvePrincipal(exchange)
+    return callerIdentity(exchange)
         .map(principal -> principal.groups().contains(BuiltinRoles.GROUP_OPERATORS))
         .orElse(false);
+  }
+
+  /**
+   * The request's effective identity for a group-membership question: whichever credential the
+   * request actually presented, or the explicit anonymous principal when it presented none.
+   * Distinct from {@link #resolvePrincipal}, which answers only "which credential did this request
+   * present" and stays empty when there is none.
+   *
+   * <p>Privilege follows the credential, not the transport that carried it. Resolving a caller as
+   * anonymous merely because the connection is plaintext would discard a session cookie or bearer
+   * token the caller genuinely holds, and would contradict {@link #resolvePrincipal}, which honours
+   * exactly those credentials on the same request. What must never confer privilege is presenting
+   * nothing at all.
+   */
+  private Optional<Principal> callerIdentity(HttpExchange exchange) {
+    return resolvePrincipal(exchange).or(() -> Optional.of(ANONYMOUS_PRINCIPAL));
   }
 
   /**

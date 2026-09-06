@@ -112,6 +112,13 @@ public final class AndvariServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(AndvariServer.class);
   private static final Logger auditLog = LoggerFactory.getLogger("com.gimle.andvari.audit");
 
+  /**
+   * Who a push or delete is attributed to in plaintext mode, where the transport carries no caller
+   * identity at all -- the same name this server's own session endpoint already reports for that
+   * mode, so the trail reads consistently rather than inventing a second placeholder.
+   */
+  private static final Principal ANONYMOUS = new Principal("anonymous", Set.of());
+
   private static final String FORWARDED_PRINCIPAL_HEADER = "X-Gimle-Forwarded-Principal";
   private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
@@ -495,7 +502,11 @@ public final class AndvariServer implements AutoCloseable {
         expectedSha256);
     boolean quarantined = artifactStore.quarantine(moduleId, version);
     recordAudit(
-        new Principal("andvari:integrity-check", Set.of()), Verb.DELETE, target, quarantined);
+        new Principal("andvari:integrity-check", Set.of()),
+        Verb.DELETE,
+        target,
+        Optional.empty(),
+        quarantined);
   }
 
   /**
@@ -522,7 +533,12 @@ public final class AndvariServer implements AutoCloseable {
     if (deleted) {
       log.info("retired {} via retention sweep ({})", target, reason);
     }
-    recordAudit(new Principal("andvari:retention-sweep", Set.of()), Verb.DELETE, target, deleted);
+    recordAudit(
+        new Principal("andvari:retention-sweep", Set.of()),
+        Verb.DELETE,
+        target,
+        Optional.empty(),
+        deleted);
   }
 
   /**
@@ -895,6 +911,14 @@ public final class AndvariServer implements AutoCloseable {
       Optional<String> tenantId)
       throws IOException {
     if (!(exchange instanceof HttpsExchange)) {
+      // Plaintext mode has no identity to check -- fully open, matching the documented design --
+      // but a jar still just arrived or disappeared, and the trail must say which one rather than
+      // showing nothing at all for every push and delete this process ever received in this mode.
+      // Attributed to the same synthetic "anonymous" principal the console's own session endpoint
+      // reports here.
+      if (verb != Verb.READ) {
+        recordAudit(ANONYMOUS, verb, target, tenantId, true);
+      }
       return true;
     }
     Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -919,7 +943,7 @@ public final class AndvariServer implements AutoCloseable {
                     Optional.ofNullable(moduleId),
                     Optional.empty());
     if (verb != Verb.READ) {
-      recordAudit(principal, verb, target, allowed);
+      recordAudit(principal, verb, target, tenantId, allowed);
     }
     if (!allowed) {
       respond(exchange, 403, "forbidden");
@@ -979,10 +1003,23 @@ public final class AndvariServer implements AutoCloseable {
         && assigned.version().toString().equals(version);
   }
 
-  /** Dual audit for a push/delete decision: the tailable SLF4J line plus the durable event. */
-  private void recordAudit(Principal principal, Verb verb, String target, boolean allowed) {
+  /**
+   * Dual audit for a push/delete decision: the tailable SLF4J line plus the durable event. Both
+   * name {@code target}, the affected {@code moduleId:version} coordinate -- without it the trail
+   * can prove that someone deleted something and when, but not which artifact, which under
+   * concurrent pushes from several callers leaves timestamp correlation as the only way to find
+   * out. The SLF4J line is written first, so the coordinate reaches an operator's log even when the
+   * durable append below cannot reach the store.
+   */
+  private void recordAudit(
+      Principal principal, Verb verb, String target, Optional<String> tenantId, boolean allowed) {
     auditLog.info(
-        "principal={} target={} verb={} allow={}", principal.name(), target, verb, allowed);
+        "principal={} target={} tenant={} verb={} allow={}",
+        principal.name(),
+        target,
+        tenantId.orElse("<untenanted>"),
+        verb,
+        allowed);
     storeClient.propose(
         new StateMutation.AppendAuditEvent(
             new AuditEvent(
@@ -991,7 +1028,7 @@ public final class AndvariServer implements AutoCloseable {
                 principal.groups(),
                 ResourceKind.ARTIFACT.name(),
                 verb.name(),
-                Optional.empty(),
+                tenantId,
                 Optional.of(target),
                 allowed,
                 System.currentTimeMillis())));

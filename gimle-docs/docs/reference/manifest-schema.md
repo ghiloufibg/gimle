@@ -38,7 +38,7 @@ health:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `name` | yes | The module's identifier (reverse-DNS style by convention, not enforced). |
+| `name` | yes | The module's identifier. Used verbatim as the JPMS module name its own `ModuleLayer` is resolved by, so it must be dot-separated Java identifiers (letters, digits, `_` and `$`, never starting with a digit) — `com.example.orders`, never `orders-service`. Reverse-DNS style is convention on top of that; the identifier shape itself is enforced, and a manifest that breaks it is rejected naming the name, not the artifact. |
 | `version` | yes | The module's own version. |
 | `resources.request.memory` / `.cpu` | yes | Requested memory (`Mi`/`Gi` suffix) and CPU (millicores, `m` suffix) — what the scheduler bin-packs against. |
 | `resources.limit.memory` / `.cpu` | yes | Hard ceiling passed to the `ResourceLimiter` (see [Tiered isolation](../architecture/tiered-isolation.md)) — enforced today via portable JVM flags (`-Xmx`, `ActiveProcessorCount`). |
@@ -479,15 +479,19 @@ suspend: false                   # optional -- defaults to false; true pauses th
 | `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
 | `suspend` | no | `true` pauses the schedule: no firing is materialized while it is set. Defaults to `false`. Matches Kubernetes CronJob's own field name and default. |
 
-A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
-`gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
+A cronjob's `lastScheduleTime` and `scheduleEvaluatedThrough` are both read-only, computed state —
+never part of the manifest you submit. `lastScheduleTime` is when the CronJob last actually
+generated a Job, and is absent for one that has never fired; `scheduleEvaluatedThrough` is how far
+the reconciler has evaluated the schedule, which keeps advancing whether or not a firing resulted.
+`gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read them back, alongside
 every Job it has generated (visible on the Jobs screen, by the shared name prefix).
 
 **Pausing a schedule**: `suspend: true` stops a CronJob firing without deleting it — the CronJob
 stays listed, keeps every Job it has already generated (history pruning still runs), and keeps its
-own `lastScheduleTime` advancing past each instant that comes due while it is paused. That last part
-is what makes unsuspending resume at the *next* due instant rather than back-firing every schedule
-missed during the pause. Apply the same manifest with `suspend: false` (or the key removed) to
+own `scheduleEvaluatedThrough` advancing past each instant that comes due while it is paused. That
+last part is what makes unsuspending resume at the *next* due instant rather than back-firing every
+schedule missed during the pause. `lastScheduleTime` does not move while paused, because no Job is
+generated. Apply the same manifest with `suspend: false` (or the key removed) to
 resume. Without this field the only way to stop a misbehaving or temporarily unwanted schedule is to
 delete and recreate the CronJob, which loses that firing history.
 
@@ -631,7 +635,11 @@ whether the store still attaches it — `attached: false` marks a retained orpha
 `Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId> [--tenant <id>]`
 reclaims one explicitly; both the control plane (store attachment) and the owning agent (a live
 supervised instance) independently refuse to destroy a volume that is still in use, and a
-coordinate with nothing on disk is a `404` rather than a reported success. `--tenant` is part of
+coordinate with nothing on disk is a `404` rather than a reported success — which the CLI carries
+out to [exit code `3`](./cli-reference.md#exit-codes), so a reclaim that removed nothing (a mistyped
+node, an already-destroyed volume, an untenanted coordinate whose only volumes are tenant-scoped) is
+distinguishable from a real one by the exit status alone, not just by the sentence it prints.
+`--tenant` is part of
 the volume's address, not a filter: omit it and the request names the untenanted volume at that
 set and index, never a tenanted one — the two are separate directories on the node, and each is
 only ever reachable by naming its own tenant. The console's

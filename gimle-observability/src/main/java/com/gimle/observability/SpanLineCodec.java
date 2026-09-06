@@ -33,7 +33,11 @@ public final class SpanLineCodec {
     line.put("timestamp", Instant.ofEpochSecond(0, span.getEndEpochNanos()).toString());
     line.put("traceId", span.getTraceId());
     line.put("spanId", span.getSpanId());
-    line.put("parentSpanId", span.getParentSpanId());
+    // A root span reports the all-zero invalid span id here, not the absence of a parent. Writing
+    // that through verbatim makes every root span look like it names a parent nothing can resolve,
+    // so a reader assembling a trace reports it as provably incomplete when it is in fact whole.
+    // The empty string is the only unambiguous "no parent" this flat line shape can carry.
+    line.put("parentSpanId", span.getParentSpanContext().isValid() ? span.getParentSpanId() : "");
     line.put("name", span.getName());
     line.put("kind", span.getKind().name());
     line.put("status", span.getStatus().getStatusCode().name());

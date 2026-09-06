@@ -100,6 +100,7 @@ public final class ControlPlaneMain {
           "usage: ControlPlaneMain <port> <secretKeyPath> --store-endpoints "
               + "host1:clientPort1,host2:clientPort2,... --fafnir-endpoint host:port"
               + " [--host <hostname>] [--muninn-endpoint host1:port1,host2:port2,...]"
+              + " (or -Dgimle.controlplane.muninnEndpoint=host1:port1,...)"
               + " [--andvari-endpoint host:port[,host:port...]]");
       System.exit(2);
       return;
@@ -124,6 +125,9 @@ public final class ControlPlaneMain {
         andvariEndpoint = args[++i];
       }
     }
+    muninnEndpoint =
+        resolveMuninnEndpoint(
+            muninnEndpoint, System.getProperty("gimle.controlplane.muninnEndpoint"));
     if (storeEndpoints.isEmpty()) {
       System.err.println("--store-endpoints is required (at least one host:clientPort)");
       System.exit(2);
@@ -448,6 +452,20 @@ public final class ControlPlaneMain {
         certRotationTick, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
 
     return List.of(leaseExecutor, reconcileExecutor, certRotationExecutor);
+  }
+
+  /**
+   * The Muninn endpoint this process ships to: its own command line first, then the system property
+   * every other shipping process kind reads for the same setting, then nowhere. Accepting only the
+   * command-line form left this the one process kind that silently shipped nothing whenever it was
+   * started any way other than with that flag spelled out. A blank on either side means "unset"
+   * rather than an endpoint named the empty string, so the callers downstream keep testing for null
+   * alone.
+   */
+  static String resolveMuninnEndpoint(String fromCommandLine, String fromSystemProperty) {
+    String resolved =
+        fromCommandLine == null || fromCommandLine.isBlank() ? fromSystemProperty : fromCommandLine;
+    return resolved == null || resolved.isBlank() ? null : resolved;
   }
 
   private static List<SocketAddress> parseStoreEndpoints(String spec) {

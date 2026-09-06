@@ -2,6 +2,7 @@ package com.gimle.pki;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -90,6 +91,29 @@ class PkiBootstrapMainTest {
 
     X509Certificate fafnir = readCertificate(outputDir.resolve("fafnir-h1.crt"));
     assertEquals(Set.of(), Subjects.principalFrom(fafnir).groups());
+  }
+
+  /**
+   * The store used to present the control plane's own leaf, so on the wire a store replica was
+   * indistinguishable from the very process that authenticates to it and neither side's identity
+   * meant anything.
+   */
+  @Test
+  void the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes() throws Exception {
+    bootstrapToPasswordFile("h1");
+
+    X509Certificate store = readCertificate(outputDir.resolve("store-h1.crt"));
+    assertTrue(Files.exists(outputDir.resolve("store-h1.key")));
+    Principal principal = Subjects.principalFrom(store);
+    assertEquals("h1", principal.name());
+    // No group of its own: the store authorizes nothing on group membership, and carrying the
+    // control plane's group would hand it that role's grants for free.
+    assertEquals(Set.of(), principal.groups());
+    X509Certificate controlPlane = readCertificate(outputDir.resolve("controlplane-h1.crt"));
+    assertNotEquals(
+        controlPlane.getSubjectX500Principal(),
+        store.getSubjectX500Principal(),
+        "the store must not present the control plane's own Subject");
   }
 
   @Test

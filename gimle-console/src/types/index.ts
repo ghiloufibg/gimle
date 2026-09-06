@@ -539,12 +539,21 @@ export interface Principal {
  * Process-scoped history (metrics + traces) -- GET /metrics-history/*, GET /traces-history/*
  * ------------------------------------------------------------------------ */
 
-// The processKind values Muninn actually receives -- no discovery API exists for this list, see
-// components/process-picker.tsx's own note on why it's hardcoded rather than fetched. WORKER is
+// Every processKind Muninn can receive either signal from. Which of them ship a *given* signal is
+// the control plane's own answer, read per signal from GET /metrics-history and GET /traces-history
+// (see stores/useHistoryKindsStore.ts): several kinds ship metrics and no spans at all, so a picker
+// built from this union alone would offer trace histories that are permanently empty. WORKER is
 // shipped one level below AGENT: a worker JVM has no host:port of its own, so its processId is
 // `{nodeId}:{workerId}` rather than a self-reported address. SKALD ships under its own responder's
 // `host:dnsPort`, the address that replica answers DNS queries on.
-export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT" | "WORKER" | "SKALD";
+export type ProcessKind =
+  | "AGENT"
+  | "ANDVARI"
+  | "CONTROLPLANE"
+  | "FAFNIR"
+  | "SKALD"
+  | "STORE"
+  | "WORKER";
 
 export interface ProcessTarget {
   processKind: ProcessKind;

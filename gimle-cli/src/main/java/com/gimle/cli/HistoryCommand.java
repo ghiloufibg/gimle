@@ -19,34 +19,44 @@ import java.util.Set;
  * <p>There is no discovery API for which process ids exist: every non-agent id is a {@code
  * host:port} that process chose for itself at startup, and a worker's is the composite {@code
  * {nodeId}:{workerId}} (a worker has no listening address of its own). The process kind is checked
- * against the known set here so a typo reports the five legal kinds instead of silently reading an
- * empty history; the id itself can only be checked for shape.
+ * against the kinds that really do ship the signal being read, so a typo -- or a kind that ships
+ * the other signal only -- reports the legal kinds instead of silently reading an empty history;
+ * the id itself can only be checked for shape. The two surfaces accept different kinds because the
+ * platform ships different signals from different processes: most process kinds publish metrics but
+ * never start a span (a node agent and Skald install no tracer provider at all; the store, Fafnir
+ * and Andvari install one and produce nothing for it), so asking any of them for traces could only
+ * ever come back empty. The control plane serves the same two sets from {@code GET
+ * /metrics-history} and {@code GET /traces-history}.
  *
- * <p>{@code --since <cursor>} is the one filter the control-plane proxy forwards. {@code --limit N}
- * is therefore applied here, to the tail of an oldest-first response, rather than as a query
- * parameter the proxy would drop on the floor -- the same client-side treatment {@link
- * EventsCommand} gives its own {@code --limit} for the same reason.
+ * <p>{@code --since <cursor>} and {@code --limit N} both travel to the store as query parameters,
+ * so a limit bounds what is read rather than trimming what came back.
  */
 public final class HistoryCommand {
 
-  /** Which of the two history surfaces an invocation reads. */
+  /** Which of the two history surfaces an invocation reads, and which kinds ship to it. */
   public enum Surface {
-    METRICS("metrics-history"),
-    TRACES("traces-history");
+    METRICS(
+        "metrics-history",
+        List.of("AGENT", "ANDVARI", "CONTROLPLANE", "FAFNIR", "SKALD", "STORE", "WORKER")),
+    TRACES("traces-history", List.of("CONTROLPLANE", "WORKER"));
 
     private final String verb;
+    private final List<String> processKinds;
 
-    Surface(String verb) {
+    Surface(String verb, List<String> processKinds) {
       this.verb = verb;
+      this.processKinds = processKinds;
     }
 
     String verb() {
       return verb;
     }
-  }
 
-  private static final Set<String> PROCESS_KINDS =
-      Set.of("CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER");
+    /** The process kinds whose own data is shipped to this surface, alphabetically. */
+    public List<String> processKinds() {
+      return processKinds;
+    }
+  }
 
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
@@ -74,15 +84,15 @@ public final class HistoryCommand {
       path.append("?since=").append(URLEncoder.encode(since, StandardCharsets.UTF_8));
     }
 
-    Map<String, Object> envelope = client.getObject(path.toString());
-    List<Map<String, Object>> lines = Json.asObjectList(envelope.get("lines"));
     String limitValue = flags.getOrDefault("--limit", null);
     if (limitValue != null) {
-      int limit = parseLimit(limitValue);
-      if (lines.size() > limit) {
-        lines = lines.subList(lines.size() - limit, lines.size());
-      }
+      path.append(path.indexOf("?") < 0 ? "?" : "&")
+          .append("limit=")
+          .append(parseLimit(limitValue));
     }
+
+    Map<String, Object> envelope = client.getObject(path.toString());
+    List<Map<String, Object>> lines = Json.asObjectList(envelope.get("lines"));
     OutputFormat.printList(output, lines, out);
     printResumeHint(lines);
   }
@@ -105,11 +115,15 @@ public final class HistoryCommand {
 
   private static String requireProcessKind(Surface surface, String value) {
     String upper = value.toUpperCase(Locale.ROOT);
-    if (!PROCESS_KINDS.contains(upper)) {
+    if (!surface.processKinds().contains(upper)) {
       throw new CliException(
-          "unknown process kind: "
+          "no "
+              + surface.name().toLowerCase(Locale.ROOT)
+              + " are shipped for process kind: "
               + value
-              + " (expected one of CONTROLPLANE, FAFNIR, STORE, AGENT, WORKER)\n\n"
+              + " (expected one of "
+              + String.join(", ", surface.processKinds())
+              + ")\n\n"
               + usage(surface));
     }
     return upper;
@@ -144,9 +158,39 @@ public final class HistoryCommand {
     return limit;
   }
 
+  /**
+   * {@code gimle trace <traceId>} -- every span of one trace, wherever it ran. The per-process
+   * reads above cannot answer this: a caller would have to already know which processes took part,
+   * and a worker replaced since the call no longer appears in any live listing to be named.
+   */
+  void runTraceSearch(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException(traceUsage());
+    }
+    String traceId = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), traceUsage());
+    StringBuilder path =
+        new StringBuilder("/trace/").append(URLEncoder.encode(traceId, StandardCharsets.UTF_8));
+    String limitValue = flags.getOrDefault("--limit", null);
+    if (limitValue != null) {
+      path.append("?limit=").append(parseLimit(limitValue));
+    }
+    Map<String, Object> found = client.getObject(path.toString());
+    OutputFormat.printList(output, Json.asObjectList(found.get("spans")), out);
+    if (Boolean.TRUE.equals(found.get("truncated"))) {
+      out.println("(truncated at the limit; raise --limit to read the rest)");
+    }
+  }
+
+  static String traceUsage() {
+    return "usage: gimle trace <traceId> [--limit N]";
+  }
+
   static String usage(Surface surface) {
     return "usage: gimle "
         + surface.verb()
-        + " <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]";
+        + " <"
+        + String.join("|", surface.processKinds())
+        + "> <processId> [--since <cursor>] [--limit N]";
   }
 }

@@ -100,6 +100,23 @@ twice, and a duplicate arriving while the original is still in flight waits for 
 it. The window is finite by design, which is why `@Idempotent` stays an author's declaration rather
 than something inferred: a retry arriving after it expires genuinely does execute again.
 
+## When the target throws
+
+An application exception is an answer, not a transport failure, and the caller is never left unable
+to tell the two apart. `FabricFrame.InvokeError` carries three things: the thrown `Throwable`
+serialized, plus its own binary type name and message as plain text. `FabricServiceRegistry`
+rethrows the deserialized exception itself whenever the calling module can load that type, so a
+caller sharing the contract keeps catching it by type; otherwise it raises
+`RemoteInvocationException` (`com.gimle.fabric.transport`), whose `remoteTypeName()`/
+`remoteMessage()` name exactly what the target threw and what it said.
+
+The two plain-text fields exist because the object frequently cannot cross. A hosted module defines
+its service contract's exception types inside its own `ModuleLayer`, so the calling module has no
+copy of them to deserialize against; and an exception holding a live, unserializable handle cannot
+be written at all — which previously produced no frame whatsoever, dropping the connection and
+leaving the caller reporting an `IOException` for a call the target had answered clearly. Neither
+case can now be mistaken for a broken wire.
+
 ## The Service abstraction: a stable name in front of a Deployment
 
 Everything above is about a *fabric-published service* — an interface one module exports and
@@ -218,12 +235,15 @@ the same reasoning `NETWORK_POLICY` already establishes: deciding what the outsi
 is a more consequential grant than declaring an in-cluster Service), and written through the same
 lease-guarded compare-and-set path `NetworkPolicy` uses, so a stale `expectedVersion` is a `409`
 rather than a lost update. Each route is validated at submission, so a malformed declaration is a
-`400` naming the field.
+`400` naming the field — an unknown `kind`, a `FABRIC` route declaring a `prefix`, a missing
+kind-required field, and a `paramType` outside `NONE`/`STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN` are
+all refused there rather than stored and then found unusable by whichever gateway next loads them.
 
 ```yaml
 kind: Ingress
 name: public
 tenantId: acme
+version: 3          # optional: the version this edit was made against
 routes:
   - {kind: SERVICE, path: /api/*, prefix: true, serviceName: orders}
   - {kind: SERVICE, host: shop.example, path: /shop, serviceName: storefront}
@@ -232,9 +252,21 @@ routes:
      methodName: greet, paramType: STRING}
 ```
 
+Every `gimle apply -f` of an Ingress carries that compare-and-set guard, whether or not the manifest
+declares one. A manifest carrying the `version` a `gimle get ingress` printed guards against exactly
+the revision its author edited, so an apply built on a revision someone else has since replaced is
+refused with a `409` naming both versions instead of silently discarding the other operator's
+change; a manifest declaring no `version` is guarded against whatever is stored at the moment the
+CLI reads it, so the version counter never advances past a revision no client ever saw. Neither form
+needs a version typed by hand.
+
 A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
 declared routes into its own table on the same level-triggered reload tick it already uses for
-config changes — each fetch returns the full current set, so a missed poll self-heals and an
+config changes. Which tenant's Ingresses it follows defaults to the tenant the gateway instance
+itself runs in — a gateway deployed into a tenant serves that tenant's routes, and defaulting to the
+cluster's `default` tenant instead would leave it filtering every Ingress away and serving nothing
+while listening happily and reporting itself healthy. Set `gateway.tenantId` to override it, for a
+gateway deliberately fronting a tenant other than its own — each fetch returns the full current set, so a missed poll self-heals and an
 unreachable control plane leaves the working table untouched rather than tearing it down. Two
 Ingresses declaring the same `(host, path, prefix)` are resolved by the gateway's own dispatch
 precedence rather than refused at submission: neither is wrong on its own, and rejecting the second

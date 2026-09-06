@@ -12,11 +12,10 @@ import { useTracesStore } from "@/stores/useTracesStore";
 import type { ProcessTarget, TraceSpanLine } from "@/types";
 import {
   coverageSummary,
-  followTraceAcrossProcesses,
+  searchTrace,
   groupSpansByProcess,
   processTargetKey,
   spanDepths,
-  workerTargetsFromInstances,
   type TraceFollowResult,
 } from "./-trace-follow";
 
@@ -24,7 +23,7 @@ import {
 // process' trace history (e.g. an instance's own "view worker traces" link), falling back to the
 // default target for a bare /traces navigation with no query string.
 export const processTargetSearchSchema = z.object({
-  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD"]),
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD", "ANDVARI"]),
   processId: z.string(),
 });
 export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>
@@ -274,29 +273,21 @@ function TraceTable({
  * back each process' own history is walked -- stated plainly in the panel rather than left implied.
  */
 function TraceFollowPanel({ traceId, onClose }: { traceId: string; onClose: () => void }) {
-  const instances = useInstancesStore((s) => s.items);
-  const loadInstances = useInstancesStore((s) => s.loadFirstPage);
   const [result, setResult] = useState<TraceFollowResult | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (instances.length === 0) loadInstances();
-  }, [instances.length, loadInstances]);
-
-  const targets = useMemo(() => workerTargetsFromInstances(instances), [instances]);
 
   const follow = useCallback(async () => {
     setLoading(true);
     try {
-      setResult(await followTraceAcrossProcesses(tracesRepo, traceId, targets));
+      setResult(await searchTrace(tracesRepo, traceId));
     } finally {
       setLoading(false);
     }
-  }, [traceId, targets]);
+  }, [traceId]);
 
   useEffect(() => {
-    if (targets.length > 0) follow();
-  }, [follow, targets.length]);
+    follow();
+  }, [follow]);
 
   const groups = useMemo(() => (result ? groupSpansByProcess(result.spans) : []), [result]);
   const depths = useMemo(() => (result ? spanDepths(result.spans) : new Map()), [result]);
@@ -327,7 +318,7 @@ function TraceFollowPanel({ traceId, onClose }: { traceId: string; onClose: () =
       <div className="border-b border-primary/10 p-3">
         <div className="font-mono text-[11px] text-signal break-all">{traceId}</div>
         <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-          {loading ? "searching worker processes…" : result ? coverageSummary(result) : "…"}
+          {loading ? "searching…" : result ? coverageSummary(result) : "…"}
         </div>
       </div>
 
@@ -370,24 +361,15 @@ function TraceFollowPanel({ traceId, onClose }: { traceId: string; onClose: () =
 
       <div className="border-t border-primary/10 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
         <p>
-          Only WORKER processes are searched: the service fabric is the sole place spans are created
-          today, so no other process kind has trace history to contribute.
+          The whole trace is searched at once, across every process that has shipped spans — a
+          worker already torn down included, since the search reads what was stored rather than what
+          is currently running.
         </p>
         <p>
-          Searchable workers come from the instance list ({targets.length} found), so a worker with
-          no currently listed instance — one already torn down, or whose handshake has not reported
-          a worker id — cannot be reached from here even if Muninn still holds its spans.
+          Only the service fabric and the control plane create spans today, so no other process kind
+          has trace history to contribute.
         </p>
-        <p>
-          Each worker&apos;s history is walked only a few pages back per search; a span older than
-          that window is not shown. There is no server-side trace search to ask instead.
-        </p>
-        {result && result.failures.length > 0 && (
-          <p className="text-status-bad">
-            unreachable:{" "}
-            {result.failures.map((f) => `${f.target.processId} (${f.message})`).join(", ")}
-          </p>
-        )}
+        {result?.failure && <p className="text-status-bad">{result.failure}</p>}
       </div>
     </Panel>
   );
@@ -416,7 +398,7 @@ function Traces() {
         title="Trace History"
         eyebrow="Gimlé // Traces"
         subtitle="Span records per process. Select a trace id to follow it across every worker this console can name."
-        actions={<ProcessPicker value={target} onChange={updateTarget} />}
+        actions={<ProcessPicker value={target} onChange={updateTarget} signal="traces" />}
       />
       {followedTraceId && (
         <TraceFollowPanel

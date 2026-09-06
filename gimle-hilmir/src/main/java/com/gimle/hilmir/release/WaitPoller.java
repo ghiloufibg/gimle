@@ -26,7 +26,17 @@ import java.util.function.Predicate;
  */
 final class WaitPoller {
 
-  private static final Duration TIMEOUT = Duration.ofMinutes(5);
+  /**
+   * How long {@code --wait} keeps polling before giving up. Configurable because how long a cluster
+   * needs to place and start a workload varies with its size and the workload's own startup cost --
+   * five minutes is a default, not a property of the platform.
+   */
+  public static final String TIMEOUT_PROPERTY = "gimle.hilmir.waitTimeoutMillis";
+
+  private static Duration timeout() {
+    return Duration.ofMillis(Long.getLong(TIMEOUT_PROPERTY, Duration.ofMinutes(5).toMillis()));
+  }
+
   private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 
   private WaitPoller() {}
@@ -58,7 +68,8 @@ final class WaitPoller {
       RenderedWorkload workload,
       PrintStream out,
       Predicate<Map<String, Object>> ready) {
-    long deadlineNanos = System.nanoTime() + TIMEOUT.toNanos();
+    Duration timeout = timeout();
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (true) {
       if (ready.test(api.getObject(path))) {
         out.println(workload.kind() + " " + workload.name() + " ready");
@@ -67,7 +78,7 @@ final class WaitPoller {
       if (System.nanoTime() > deadlineNanos) {
         throw new HilmirException(
             "timed out after "
-                + TIMEOUT
+                + timeout
                 + " waiting for "
                 + workload.kind()
                 + " "

@@ -1,6 +1,8 @@
 package com.gimle.mavenplugin;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.saga.SagaEvent;
 import com.gimle.core.saga.SagaEventCodec;
@@ -10,6 +12,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -23,10 +27,11 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * {@link SagaImportMojo#executeAtRoot()} needs a live Maven session to run at all, but a fake Saga
  * server standing in for the real one lets the whole flow run for real otherwise -- real surefire
- * XML on disk, real HTTP calls -- without the actual {@code gimle-saga} process. Two real bugs
+ * XML on disk, real HTTP calls -- without the actual {@code gimle-saga} process. Three real bugs
  * regression-tested here: a multi-module {@code -pl} invocation silently sweeping only one module's
- * own reports (GIMLE saga-import), and the persisted run summary reflecting only the first imported
- * report's own totals instead of every swept report's combined totals.
+ * own reports, the persisted run summary reflecting only the first imported report's own totals
+ * instead of every swept report's combined totals, and an unset run id being minted from the wall
+ * clock, which turned repeated imports of one unchanged report set into several distinct runs.
  */
 class SagaImportMojoTest {
 
@@ -77,6 +82,68 @@ class SagaImportMojoTest {
     // testsuite attributes would report 10 tests here, not the real 50 across all five files.
     assertEquals(50, runFinished.totals().tests());
     assertEquals(50, runFinished.totals().passed());
+  }
+
+  @Test
+  void re_importing_an_unchanged_report_set_folds_into_the_run_id_it_already_used(
+      @TempDir Path repoRoot) throws Exception {
+    writeSurefireReport(repoRoot.resolve("gimle-core"), "TEST-A.xml", suiteXml(2, 0, 0, 0));
+    writeSurefireReport(repoRoot.resolve("gimle-mimir"), "TEST-B.xml", suiteXml(4, 1, 0, 0));
+    startFakeSagaServer();
+
+    String first = importWithDerivedRunId(repoRoot);
+    String second = importWithDerivedRunId(repoRoot);
+    String third = importWithDerivedRunId(repoRoot);
+
+    assertEquals(first, second, "an unchanged report set must import into the same run");
+    assertEquals(second, third, "an unchanged report set must import into the same run");
+  }
+
+  @Test
+  void a_report_set_whose_content_changed_derives_its_own_run_id(@TempDir Path repoRoot)
+      throws Exception {
+    writeSurefireReport(repoRoot.resolve("gimle-core"), "TEST-A.xml", suiteXml(2, 0, 0, 0));
+    startFakeSagaServer();
+
+    String before = importWithDerivedRunId(repoRoot);
+    // A second test run of the same suite: same file, different recorded outcome.
+    writeSurefireReport(repoRoot.resolve("gimle-core"), "TEST-A.xml", suiteXml(2, 1, 0, 0));
+    String after = importWithDerivedRunId(repoRoot);
+
+    assertNotEquals(before, after, "a different test run must not fold into the earlier run");
+  }
+
+  @Test
+  void the_derived_run_id_ignores_a_reports_modification_time(@TempDir Path repoRoot)
+      throws Exception {
+    writeSurefireReport(repoRoot.resolve("gimle-core"), "TEST-A.xml", suiteXml(2, 0, 0, 0));
+    List<Path> reports = SurefireReports.sweep(repoRoot, null);
+    String before = SagaImportMojo.deriveRunId(reports, repoRoot);
+
+    // A rebuild that reran nothing still restamps the file; the run it describes has not changed.
+    Files.setLastModifiedTime(reports.get(0), FileTime.from(Instant.parse("2001-02-03T04:05:06Z")));
+
+    assertEquals(before, SagaImportMojo.deriveRunId(reports, repoRoot));
+  }
+
+  /** Runs the goal with no explicit run id and returns the one it derived. */
+  private String importWithDerivedRunId(Path repoRoot) throws Exception {
+    importedQueries.clear();
+    mojoFor(repoRoot, "gimle-core", "gimle-mimir").execute();
+    List<String> runIds =
+        importedQueries.stream().map(SagaImportMojoTest::runIdOf).distinct().toList();
+    assertEquals(1, runIds.size(), "one import must post every report under a single run id");
+    assertTrue(runIds.get(0).startsWith("import-"), "unexpected derived run id " + runIds.get(0));
+    return runIds.get(0);
+  }
+
+  private static String runIdOf(String query) {
+    for (String parameter : query.split("&")) {
+      if (parameter.startsWith("runId=")) {
+        return parameter.substring("runId=".length());
+      }
+    }
+    throw new IllegalStateException("no runId in import query: " + query);
   }
 
   private SagaEvent.RunFinished onlyRunFinished() {

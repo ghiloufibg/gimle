@@ -150,6 +150,19 @@
     <gimle.dist.jre.cli.jdkModules>java.base,java.net.http,java.logging</gimle.dist.jre.cli.jdkModules>
     <!-- duplicated from gimle-ragnarok/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.ragnarok.jdkModules>java.base,java.net.http</gimle.dist.jre.ragnarok.jdkModules>
+
+    <!--
+      The platform the dist-with-jre profile's bundled runtimes are meant to run on, checked
+      against what jlink actually produced (see that profile's own verify-bundled-jre-platform
+      execution). jlink builds a runtime image for the machine it runs on and no other, so this is
+      the one thing about that profile a build cannot infer for itself: the default is the platform
+      the cluster-machine archive targets, and anyone building for a different one says so
+      explicitly and gets the same check against their answer. Both values are spelled exactly as a
+      JDK's own release file spells them (OS_NAME/OS_ARCH), so no normalization table has to exist
+      anywhere: Linux/Darwin/Windows and x86_64/aarch64/amd64.
+    -->
+    <gimle.dist.jre.targetOsName>Linux</gimle.dist.jre.targetOsName>
+    <gimle.dist.jre.targetOsArch>x86_64</gimle.dist.jre.targetOsArch>
   </properties>
 
   <build>
@@ -292,6 +305,25 @@
         every module gimle-dist depends on finishes package before gimle-dist's own package phase
         starts), so every source file this copies already exists.
 
+        The platform and midgard SBOMs additionally get their root metadata.component rewritten to
+        name the archive they actually describe. cyclonedx-maven-plugin always writes the current
+        Maven project as that component and offers no way to override it, so both files would
+        otherwise arrive claiming to describe "gimle-dist", a module that ships nothing an operator
+        can install, and a name a consumer scanning gimle-platform-<version>.tar.gz has no way to
+        reconcile with the archive in front of them. Only that root component's own name,
+        description and coordinate are rewritten; the resolved dependency components below it,
+        which are what an SBOM is actually read for, are already correct and distinct per archive
+        and are left exactly as generated. The coordinate goes through a plain string replacement
+        because the identical string appears three times (the component's bom-ref, its purl, and
+        the dependency graph's own root ref) and all three must keep agreeing. Both rewrites happen
+        as filters on the copy rather than in place afterwards, so the generator's own bom-*.json
+        (which this module still attaches under its own coordinate) keeps describing gimle-dist
+        truthfully, and the shipped file is an ordinary freshly-created copy.
+
+        The <fail> after each copy is what keeps this honest: a rewrite that silently stopped
+        matching (a reworded module description, a formatting change in the generator) would leave
+        the wrong name in a shipped artifact, so it breaks the build instead of shipping quietly.
+
         Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
         producing archives an operator unpacks on their own machine, which includes Windows, where a
         hardcoded /bin/sh has no equivalent. maven-antrun-plugin runs pure Java, no external process
@@ -322,9 +354,41 @@
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <copy file="${project.build.directory}/bom-platform.json"
-                      tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"/>
+                      tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"
+                      overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
+                  <filterchain>
+                    <tokenfilter>
+                      <filetokenizer/>
+                      <replaceregex pattern="&quot;name&quot; : &quot;gimle-dist&quot;,(\s*&quot;version&quot; : &quot;[^&quot;]*&quot;,\s*)&quot;description&quot; : &quot;[^&quot;]*&quot;"
+                                    replace="&quot;name&quot; : &quot;gimle-platform&quot;,\1&quot;description&quot; : &quot;The Gimle cluster-machine platform distribution archive: every process kind's jars plus the hilmir and gimle launchers.&quot;"/>
+                      <replacestring from="pkg:maven/com.gimle/gimle-dist@${project.version}?type=pom"
+                                     to="pkg:maven/com.gimle/gimle-platform@${project.version}?type=tar.gz"/>
+                    </tokenfilter>
+                  </filterchain>
+                </copy>
+                <fail message="gimle-platform's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
+                  <condition>
+                    <resourcecontains resource="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                  </condition>
+                </fail>
                 <copy file="${project.build.directory}/bom-midgard.json"
-                      tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"/>
+                      tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"
+                      overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
+                  <filterchain>
+                    <tokenfilter>
+                      <filetokenizer/>
+                      <replaceregex pattern="&quot;name&quot; : &quot;gimle-dist&quot;,(\s*&quot;version&quot; : &quot;[^&quot;]*&quot;,\s*)&quot;description&quot; : &quot;[^&quot;]*&quot;"
+                                    replace="&quot;name&quot; : &quot;gimle-midgard&quot;,\1&quot;description&quot; : &quot;The Gimle Midgard dev-cluster Docker build context: the platform archive's own jars plus the example modules it seeds.&quot;"/>
+                      <replacestring from="pkg:maven/com.gimle/gimle-dist@${project.version}?type=pom"
+                                     to="pkg:maven/com.gimle/gimle-midgard@${project.version}?type=tar.gz"/>
+                    </tokenfilter>
+                  </filterchain>
+                </copy>
+                <fail message="gimle-midgard's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
+                  <condition>
+                    <resourcecontains resource="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                  </condition>
+                </fail>
                 <copy file="${project.basedir}/../gimle-cli/target/bom.json"
                       tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
                 <copy file="${project.basedir}/../gimle-hilmir/target/bom.json"
@@ -585,6 +649,70 @@
                     <argument>--no-header-files</argument>
                     <argument>--no-man-pages</argument>
                   </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!--
+            Every image above was produced by ${java.home}'s own jlink, which builds a runtime for
+            the machine it runs on and no other. A Windows-built archive carries Windows binaries
+            under jre/, which a Linux cluster machine cannot execute, and nothing about the archive
+            itself would have said so. This stops the build when the runtime being bundled isn't
+            the one these archives are being built for, so that mismatch can never leave a
+            developer's machine unnoticed, and stamps the answer into jre/PLATFORM inside every
+            archive that bundles a runtime, so an unpacked archive says which machines its own jre/
+            is for and each wrapper script can name it when the bundled runtime turns out not to
+            run.
+
+            The platform is read from the building JDK's own release file rather than from a
+            produced image's: jlink writes only JAVA_VERSION and MODULES into the release file of
+            the image it creates, and the two are the same platform by construction anyway, since
+            jlink cannot build an image for anything but its own JDK's.
+          -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>verify-bundled-jre-platform</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <!-- A release file spells every value in quotes; stripping them lets the
+                         comparison below be against the plain platform names this pom's own
+                         properties carry. Every value is prefixed rather than loaded bare, so
+                         nothing here can collide with a Maven property of the same name. -->
+                    <loadproperties srcFile="${java.home}/release" prefix="bundledJre.">
+                      <filterchain>
+                        <tokenfilter>
+                          <replacestring from="&quot;" to=""/>
+                        </tokenfilter>
+                      </filterchain>
+                    </loadproperties>
+                    <fail
+                        unless="bundledJre.OS_NAME"
+                        message="${java.home}/release records no OS_NAME, so which platform its jlink builds runtime images for cannot be established. Build the dist-with-jre profile with a JDK whose release file records OS_NAME/OS_ARCH, or build without the profile (no runtime is bundled then, and the archives run anywhere a JDK 25+ is installed)."/>
+                    <condition property="bundledJre.matchesTarget">
+                      <and>
+                        <equals arg1="${bundledJre.OS_NAME}" arg2="${gimle.dist.jre.targetOsName}"/>
+                        <equals arg1="${bundledJre.OS_ARCH}" arg2="${gimle.dist.jre.targetOsArch}"/>
+                      </and>
+                    </condition>
+                    <!-- The message is an attribute, not nested text: Ant expands a task's nested
+                         text when the build file is parsed, which is before loadproperties above
+                         has run, so the platform names would come out as literal ${...} in the one
+                         message that most needs them. ${line.separator} keeps it readable. -->
+                    <fail
+                        unless="bundledJre.matchesTarget"
+                        message="-P dist-with-jre bundled a ${bundledJre.OS_NAME}-${bundledJre.OS_ARCH} runtime, but these archives target ${gimle.dist.jre.targetOsName}-${gimle.dist.jre.targetOsArch}.${line.separator}jlink builds a runtime image for the machine it runs on and no other, so this build would ship a jre/ the target machines cannot execute.${line.separator}Build on a machine (or container) of the target platform, or pass -Dgimle.dist.jre.targetOsName=${bundledJre.OS_NAME} -Dgimle.dist.jre.targetOsArch=${bundledJre.OS_ARCH} to declare that this really is what you are building for.${line.separator}The default build (no -P dist-with-jre) bundles no runtime at all and its archives run anywhere a JDK 25+ is already installed."/>
+                    <echo
+                        file="${project.build.directory}/jre-images/PLATFORM"
+                        message="${bundledJre.OS_NAME}-${bundledJre.OS_ARCH}${line.separator}"/>
+                  </target>
                 </configuration>
               </execution>
             </executions>

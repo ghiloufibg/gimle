@@ -47,6 +47,17 @@ public final class AgentMojo extends AbstractGimleMojo {
   private String andvariEndpoint;
 
   /**
+   * {@code host:port,...} of every Muninn replica this agent ships its own platform log to, plus
+   * every supervised worker's logs, metrics and traces (a worker has no outbound network identity
+   * of its own, so its agent forwards for it). Unset by default for the same reason {@code
+   * andvariEndpoint} above is: shipping to an address where nothing is listening buys a local-dev
+   * session nothing but a retry every interval. Point it at {@code gimle:muninn}'s own default port
+   * ({@code 127.0.0.1:9093}) whenever that goal is running too.
+   */
+  @Parameter(property = "gimle.agent.muninnEndpoint")
+  private String muninnEndpoint;
+
+  /**
    * Local-dev convenience for {@code gimle.transport.protocol} -- same shape as {@code
    * ControlPlaneMojo#transportProtocol}, unset by default.
    */
@@ -93,6 +104,9 @@ public final class AgentMojo extends AbstractGimleMojo {
     command.add("-Dgimle.agent.fafnirEndpoint=" + fafnirEndpoint);
     if (andvariEndpoint != null && !andvariEndpoint.isBlank()) {
       command.add("-Dgimle.agent.andvariEndpoint=" + andvariEndpoint);
+    }
+    if (muninnEndpoint != null && !muninnEndpoint.isBlank()) {
+      command.add("-Dgimle.agent.muninnEndpoint=" + muninnEndpoint);
     }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));

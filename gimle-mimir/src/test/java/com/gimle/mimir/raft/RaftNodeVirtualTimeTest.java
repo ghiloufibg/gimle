@@ -1,5 +1,6 @@
 package com.gimle.mimir.raft;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,6 +11,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -94,6 +97,42 @@ class RaftNodeVirtualTimeTest {
     }
   }
 
+  /**
+   * Answers normally until {@code slow} is armed, then blocks the one call that catches it on
+   * {@code gate} before answering successfully -- a round trip that merely runs slow (a loaded
+   * host, a GC pause) and then completes, as opposed to one that resolves unreachable.
+   */
+  private static final class SlowOnceThenHealthyPeer implements RaftPeerClient {
+    private final CountDownLatch gate = new CountDownLatch(1);
+    private final AtomicBoolean slow = new AtomicBoolean();
+    private final AtomicInteger completedCalls = new AtomicInteger();
+
+    @Override
+    public RequestVoteResponse requestVote(RequestVote request) {
+      return new RequestVoteResponse(request.term(), true);
+    }
+
+    @Override
+    public AppendEntriesResponse appendEntries(AppendEntries request) {
+      if (slow.compareAndSet(true, false)) {
+        try {
+          gate.await();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException(e);
+        }
+      }
+      completedCalls.incrementAndGet();
+      return new AppendEntriesResponse(
+          request.term(), true, request.prevLogIndex() + request.entries().size());
+    }
+
+    @Override
+    public InstallSnapshotResponse installSnapshot(InstallSnapshot request) {
+      return new InstallSnapshotResponse(request.term());
+    }
+  }
+
   private static void awaitTrue(BooleanSupplier condition, Duration timeout)
       throws InterruptedException {
     long deadline = System.nanoTime() + timeout.toNanos();
@@ -175,6 +214,63 @@ class RaftNodeVirtualTimeTest {
           selfDemoted,
           "once the in-flight attempt resolves to failure, self-demotion must follow promptly, "
               + "not wait out the rest of the worst-case grace");
+    } finally {
+      node.close();
+    }
+  }
+
+  /**
+   * The steady-state counterpart of the grace above, and the defect it did not cover: once a leader
+   * has reached quorum at least once, a peer whose round trip merely runs slow was counted as
+   * silent the moment the check-quorum window elapsed -- self-demoting a perfectly healthy leader
+   * while that very heartbeat was still on its way to succeeding. One attempt may legitimately run
+   * far longer than that window, so an attempt still in flight is not evidence of unreachability.
+   */
+  @Test
+  @Timeout(20)
+  void an_established_leader_survives_a_round_trip_that_merely_runs_slow() throws Exception {
+    Path dir = tempDir.resolve("virtual-time-slow-steady-state");
+    StateStore store = new StateStore();
+    RaftLog raftLog = new RaftLog(dir.resolve("raft"));
+    TestClock clock = new TestClock();
+    TestScheduler scheduler = new TestScheduler(clock);
+    SlowOnceThenHealthyPeer peer = new SlowOnceThenHealthyPeer();
+    RaftNode node =
+        new RaftNode(
+            "self", Map.of("peer", peer), raftLog, store, Duration.ofSeconds(5), clock, scheduler);
+    try {
+      node.start();
+      scheduler.advance(Duration.ofMillis(300));
+      awaitTrue(node::isLeader, Duration.ofSeconds(2));
+      // Let several heartbeats complete, so this leader has genuinely reached quorum and is past
+      // the new-leader grace entirely -- the state the QA cluster was in when it self-demoted.
+      awaitTrue(() -> peer.completedCalls.get() >= 2, Duration.ofSeconds(5));
+      assertTrue(node.isLeader());
+      // The term is what makes this test meaningful: a self-demotion is immediately followed by
+      // this node winning the next election (its peer still grants votes), so leadership alone
+      // cannot tell "never demoted" apart from "demoted and re-elected" -- which is exactly the
+      // churn the defect produced. A stable term proves no demotion happened at all.
+      long termWhileHealthy = raftLog.currentTerm();
+
+      // The next round trip blocks. Nothing is wrong with the peer; the call simply takes a while.
+      peer.slow.set(true);
+      // compareAndSet clears the flag as a call enters the slow path, so this waits for one to be
+      // genuinely blocked rather than merely armed.
+      awaitTrue(() -> !peer.slow.get(), Duration.ofSeconds(5));
+      // Well past the 600ms check-quorum window, while that one attempt is still outstanding.
+      scheduler.advance(Duration.ofSeconds(3));
+      Thread.sleep(50);
+
+      assertEquals(
+          termWhileHealthy,
+          raftLog.currentTerm(),
+          "an established leader must not self-demote while a round trip is still in flight");
+      assertTrue(node.isLeader());
+
+      peer.gate.countDown();
+      awaitTrue(() -> peer.completedCalls.get() >= 4, Duration.ofSeconds(5));
+      assertTrue(node.isLeader(), "the slow round trip succeeded, so leadership must be intact");
+      assertEquals(termWhileHealthy, raftLog.currentTerm());
     } finally {
       node.close();
     }

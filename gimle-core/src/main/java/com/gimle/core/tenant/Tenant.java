@@ -48,14 +48,19 @@ public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isol
    * a real tenant -- {@link #DEFAULT_TENANT_ID} counts the same as {@code Optional.empty()} here,
    * matching real Kubernetes: the {@code default} namespace carries no {@code ResourceQuota} object
    * unless an admin explicitly creates one, so nothing is enforced against it by default either.
-   * Used by every admission plugin/reconciler that sums or caps resource usage per tenant ({@code
-   * TenantQuotaPlugin}, {@code LimitRangePlugin}, {@code PolicyConfigPlugin}, {@code
-   * QuotaReconciler}, {@code LimitRangeReconciler}), and by {@code ApiServer#admissionArtifact}'s
-   * registry-coordinate ownership check (a workload that never declared a real tenant has nothing
-   * for a tenant-mismatch check to protect) -- deliberately <em>not</em> used by the config
-   * addressability path ({@code Authorizer#isNodeTenantScopedConfigRead}) or the scheduler's own
-   * node-taint check, both of which are meant to treat {@code default} as a real, ordinary tenant
-   * now that it exists.
+   *
+   * <p>Deliberately <em>not</em> what decides whether a quota, limit range or replica ceiling is
+   * enforced: that keys on whether such a constraint actually exists for the tenant, so one an
+   * operator explicitly sets on {@code default} is honoured like any other. Using this predicate
+   * there instead approximated "no constraint object" as "the tenant is named default", which
+   * silently ignored every constraint written against it.
+   *
+   * <p>What remains is the narrower question of whether a workload named a real tenant at all:
+   * {@code TenantQuotaPlugin}'s refusal to admit against a tenant row that does not exist, and
+   * {@code ApiServer#admissionArtifact}'s registry-coordinate ownership check (a workload that
+   * never declared a real tenant has nothing for a tenant-mismatch check to protect). Also not used
+   * by the config addressability path ({@code Authorizer#isNodeTenantScopedConfigRead}) or the
+   * scheduler's own node-taint check, both of which treat {@code default} as an ordinary tenant.
    */
   public static boolean isEnforceable(Optional<String> tenantId) {
     return tenantId.isPresent() && !tenantId.get().equals(DEFAULT_TENANT_ID);

@@ -21,6 +21,21 @@ class TopologyParserTest {
   }
 
   @Test
+  void parses_an_optional_store_health_port_and_leaves_it_unset_when_omitted() {
+    final Topology topology =
+        parse(
+            """
+            name: health
+            store:
+              replicas:
+                - {machine: m1, healthPort: 9095}
+                - {machine: m2}
+            """);
+    assertEquals(Optional.of(9095), topology.store().replicas().get(0).healthPort());
+    assertEquals(Optional.empty(), topology.store().replicas().get(1).healthPort());
+  }
+
+  @Test
   void parses_a_complete_topology_document() {
     final Topology topology =
         parse(

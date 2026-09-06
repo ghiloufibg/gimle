@@ -22,6 +22,7 @@ import com.gimle.module.lifecycle.ControlPlaneRelayClient;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleController;
+import com.gimle.module.lifecycle.ModuleState;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.module.resolve.ModuleRegistry;
@@ -40,6 +41,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -208,17 +211,6 @@ public final class WorkerMain {
             fabricEndpoints.tcpAddress().getHostString(),
             fabricEndpoints.tcpAddress().getPort()));
 
-    if (isAotTrainingMode()) {
-      // Training-only: this worker exists solely to populate a JDK AOT cache with the classes its
-      // own pre-ready boot path touches (JEP 514 assembles the cache at JVM exit, and only a
-      // clean exit triggers that -- destroyForcibly, this process's normal shutdown, never would).
-      // No hosted module is ever installed above this line, so the cache this produces holds no
-      // tenant or module bytes. Shared prerequisite for both the Sleipnir startup-cache benchmark
-      // and its agent-managed trainer, not throwaway scaffolding.
-      channel.close();
-      return;
-    }
-
     Optional<ControlMessage> received;
     while ((received = channel.receive()).isPresent()) {
       handle(
@@ -248,10 +240,6 @@ public final class WorkerMain {
     System.exit(0);
   }
 
-  /**
-   * True when this worker was launched purely to populate a JDK AOT cache: it should complete its
-   * normal pre-ready boot, send Hello, then exit cleanly rather than enter the receive loop.
-   */
   /** Bridges the worker's own control-channel relay onto the module-facing client shape. */
   private static ControlPlaneRelayClient relayClient(ControlPlaneRelay relay) {
     return new ControlPlaneRelayClient() {
@@ -266,10 +254,6 @@ public final class WorkerMain {
         return relay.requestStatusPut(kindName, tenantId, name, statusJson);
       }
     };
-  }
-
-  private static boolean isAotTrainingMode() {
-    return Boolean.getBoolean("gimle.worker.aotTraining");
   }
 
   /**
@@ -722,11 +706,10 @@ public final class WorkerMain {
           // worker: same artifact, same coordinate, but each needs its own layer, lifecycle state
           // and exported services. Empty for a module installed with no deployment identity.
           //
-          // Both the key and this instance's identity are settled before the artifact is
-          // registered, because registering it is what emits the INSTALLED lifecycle event: an
-          // event arriving before the instance has an identity has no deployment/index to attach
-          // to and is dropped, which is why an instance's timeline used to open at RESOLVED and
-          // never show the install at all.
+          // Both the key and this instance's identity are settled before the install below,
+          // because that install is what emits the INSTALLED lifecycle event: an event arriving
+          // before the instance has an identity has no deployment/index to attach to and is
+          // dropped.
           String instanceKey =
               m.deploymentName().isBlank()
                   ? ""
@@ -738,24 +721,21 @@ public final class WorkerMain {
             identityRegistry.register(
                 id, new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
           }
-          registry.register(artifact, instanceKey);
-          channel.send(new ControlMessage.ModuleStateChanged(id, "INSTALLED"));
+          // Installed through the controller rather than straight into the registry so this
+          // transition travels the same lifecycle-sink path every later one does: that sink is
+          // what turns it into both the agent's ModuleStateChanged and this instance's own durable
+          // INSTALLED timeline entry. A direct registry write announced it to nobody, which is why
+          // an instance's timeline used to open at RESOLVED and never show the install at all.
+          controller.install(artifact, instanceKey);
           channel.send(new ControlMessage.Ack(m.correlationId()));
         } catch (RuntimeException e) {
           channel.send(new ControlMessage.Nack(m.correlationId(), String.valueOf(e.getMessage())));
         }
       }
       case ControlMessage.RenameInstance m -> {
-        // Overwrites this ModuleId's InstanceIdentityRegistry entry in place -- the same
-        // register() call InstallModule's own case above makes when it has a deployment name,
-        // just with a new instanceIndex and made unconditionally here (a rename always targets an
-        // already-identified instance, so there's no "blank name" case to guard against).
-        // mdcTagsFor reads the registry live on every command, so this instance's logging picks
-        // up the new identity on its very next tagged line with no other propagation needed; the
-        // module itself is never touched (no resolve/start/stop), matching this message's whole
-        // point -- retarget, don't restart.
-        identityRegistry.register(
-            m.id(), new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
+        for (InstanceEvent event : applyRename(m, registry, identityRegistry, tenantId)) {
+          sendQuietly(channel, new ControlMessage.InstanceEventOccurred(event));
+        }
         channel.send(new ControlMessage.Ack(m.correlationId()));
       }
       case ControlMessage.ResolveModule m ->
@@ -990,6 +970,91 @@ public final class WorkerMain {
             + (consecutiveFailures == 1 ? " time" : " times")
             + " in a row; restarting module",
         Instant.now().toEpochMilli());
+  }
+
+  /**
+   * Retargets an already-installed instance onto a new deployment name and index, and returns the
+   * timeline entries recording that it moved.
+   *
+   * <p>The identity overwrite itself is the same {@code register()} call the install path makes,
+   * just with a new index and made unconditionally (a rename always targets an already-identified
+   * instance, so there is no "blank name" case to guard against). {@code mdcTagsFor} reads the
+   * registry live on every command, so this instance's logging picks up the new identity on its
+   * very next tagged line with no other propagation needed, and the module itself is never touched
+   * -- no resolve, start or stop -- which is this message's whole point: retarget, don't restart.
+   *
+   * <p>Not restarting is also exactly why the returned entries have to be minted by hand: no
+   * transition happens, so nothing flows through the lifecycle sink, and both indexes involved are
+   * otherwise left describing a world that no longer exists. The index taken over stays frozen at
+   * whatever its previous occupant's last transition was -- an UNINSTALLED teardown, for the
+   * rolling update this message exists to serve -- while the instance now answering to it is
+   * running and serving; and the index handed over goes on claiming a live instance it no longer
+   * has.
+   *
+   * <p>Empty when nothing actually moves (a rename repeating an identity this instance already
+   * holds) and when this worker does not host the module at all, since there is then no state to
+   * report the new index as being in. That live state, rather than an assumed ACTIVE, is what the
+   * taken-over index's entry is built from: promoting an instance that has since failed must not be
+   * recorded as promoting a healthy one.
+   */
+  // Package-visible (no `private`), not for production reuse but so WorkerMainTest can exercise
+  // this against a real registry pair rather than only indirectly through a full worker process.
+  static List<InstanceEvent> applyRename(
+      ControlMessage.RenameInstance message,
+      ModuleRegistry registry,
+      InstanceIdentityRegistry identityRegistry,
+      Optional<String> tenantId) {
+    Optional<InstanceIdentity> previous = identityRegistry.lookup(message.id());
+    InstanceIdentity renamed =
+        new InstanceIdentity(message.deploymentName(), message.instanceIndex(), tenantId);
+    identityRegistry.register(message.id(), renamed);
+    if (previous.map(renamed::equals).orElse(false) || !registry.contains(message.id())) {
+      return List.of();
+    }
+    long occurredAtEpochMilli = Instant.now().toEpochMilli();
+    List<InstanceEvent> events = new ArrayList<>();
+    previous.ifPresent(
+        identity ->
+            events.add(
+                new InstanceEvent(
+                    UUID.randomUUID().toString(),
+                    identity.deploymentName(),
+                    identity.instanceIndex(),
+                    InstanceEventKind.UNINSTALLED,
+                    "index retired; this instance now runs as index " + renamed.instanceIndex(),
+                    occurredAtEpochMilli)));
+    events.add(
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            renamed.deploymentName(),
+            renamed.instanceIndex(),
+            kindOf(registry.state(message.id())),
+            previous
+                .map(
+                    identity ->
+                        "index taken over, without a restart, by the instance previously running"
+                            + " as index "
+                            + identity.instanceIndex())
+                .orElse("index taken over, without a restart, by an already-running instance"),
+            occurredAtEpochMilli));
+    return List.copyOf(events);
+  }
+
+  /**
+   * The timeline kind describing a module sitting in {@code state} right now -- as opposed to
+   * {@link #instanceEventFor}, which describes the transition that put it there.
+   */
+  private static InstanceEventKind kindOf(ModuleState state) {
+    return switch (state) {
+      case INSTALLED -> InstanceEventKind.INSTALLED;
+      case RESOLVED -> InstanceEventKind.RESOLVED;
+      case STARTING -> InstanceEventKind.STARTING;
+      case ACTIVE -> InstanceEventKind.ACTIVE;
+      case STOPPING -> InstanceEventKind.STOPPING;
+      case UNINSTALLED -> InstanceEventKind.UNINSTALLED;
+      case FAILED -> InstanceEventKind.TRANSITION_FAILED;
+      case COMPLETED -> InstanceEventKind.COMPLETED;
+    };
   }
 
   /**

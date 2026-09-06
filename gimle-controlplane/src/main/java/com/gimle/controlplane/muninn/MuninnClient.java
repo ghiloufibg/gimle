@@ -98,6 +98,46 @@ public final class MuninnClient implements AutoCloseable {
     throw lastFailure;
   }
 
+  /**
+   * Every configured replica's answer to {@code pathAndQuery}, for a read whose correct result is
+   * the union of what the replicas hold rather than whichever one answers first. A shipper fans a
+   * batch out best-effort and treats one acceptance as success, so a replica that was briefly
+   * unreachable is permanently missing that batch -- and its silence about a record is not evidence
+   * the record does not exist. Only transport failures are skipped; an HTTP answer, 404 included,
+   * is a real answer and is returned for the caller to merge.
+   *
+   * @throws IOException only when no configured replica could be reached at all
+   */
+  public List<RawResponse> getFromEveryReplica(String pathAndQuery) throws IOException {
+    List<RawResponse> answers = new ArrayList<>();
+    IOException lastFailure = null;
+    for (URI baseUri : baseUris) {
+      try {
+        HttpResponse<byte[]> response =
+            httpClient.send(
+                HttpRequest.newBuilder(baseUri.resolve(pathAndQuery))
+                    .timeout(REQUEST_TIMEOUT)
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        answers.add(
+            new RawResponse(
+                response.statusCode(),
+                response.headers().firstValue("Content-Type").orElse("application/octet-stream"),
+                response.body()));
+      } catch (IOException e) {
+        lastFailure = e;
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("interrupted while reaching muninn", e);
+      }
+    }
+    if (answers.isEmpty()) {
+      throw lastFailure;
+    }
+    return answers;
+  }
+
   /** A raw HTTP response relayed verbatim back to the original caller by {@code ApiServer}. */
   public record RawResponse(int statusCode, String contentType, byte[] body) {}
 

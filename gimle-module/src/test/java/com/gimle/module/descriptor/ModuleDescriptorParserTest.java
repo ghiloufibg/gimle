@@ -39,6 +39,42 @@ class ModuleDescriptorParserTest {
       """;
 
   @Test
+  void a_hyphenated_name_is_rejected_and_the_rejection_says_it_is_the_name_that_is_wrong() {
+    // A hyphen is the shape most likely to be tried (it reads like an artifact id), and the whole
+    // point of the check is that the message explains itself: this rejection travels outward as
+    // the reason a deployment never started, where "the artifact is bad" would send an operator
+    // looking at the jar rather than at the one line of YAML that is actually wrong.
+    GimleManifestException failure =
+        assertThrows(
+            GimleManifestException.class,
+            () ->
+                ModuleDescriptorParser.parse(
+                    yaml(BASE.replace("com.gimle.example.orders", "orders-service"))));
+
+    assertTrue(
+        failure.getMessage().contains("rejected module name 'orders-service'"),
+        "the rejection must name the offending value: " + failure.getMessage());
+    assertTrue(
+        failure.getMessage().contains("JPMS module name"),
+        "the rejection must say why the name is unusable: " + failure.getMessage());
+  }
+
+  @Test
+  void a_name_starting_with_a_digit_is_rejected() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ModuleDescriptorParser.parse(yaml(BASE.replace("com.gimle.example.orders", "9lives"))));
+  }
+
+  @Test
+  void a_reverse_dns_name_is_accepted() {
+    ModuleDescriptor descriptor = ModuleDescriptorParser.parse(yaml(BASE));
+
+    assertEquals("com.gimle.example.orders", descriptor.name());
+  }
+
+  @Test
   void health_with_no_initial_delay_leaves_it_empty() {
     ModuleDescriptor descriptor =
         ModuleDescriptorParser.parse(

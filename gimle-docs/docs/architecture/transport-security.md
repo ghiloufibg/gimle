@@ -38,6 +38,18 @@ never generating a CSR of its own. `gimle-mimir` submits its own rotation CSRs t
 own) — CA custody stays on the API-server side even after the etcd-store-extraction split,
 mirroring how Kubernetes' own CSR API lives on `kube-apiserver`, not `etcd`.
 
+### One leaf per role and hostname
+
+`hilmir pki init` mints a separate leaf for every (role, hostname) pair — `controlplane-`, `store-`,
+`fafnir-`, `muninn-` and `andvari-`, each named `<role>-<hostname>.crt/.key` — so every process's
+identity is attributable to its own certificate Subject rather than one borrowed from another role.
+Only the control-plane leaf carries a group (`O=gimle:controlplane`, which its own artifact pulls
+need); the rest carry a bare `CN=<hostname>`, because they authorize nothing on group membership.
+
+The store is included here for the same reason as the rest: presenting the control plane's leaf
+would make a store replica indistinguishable on the wire from the very process that authenticates
+to it, and would hand it that role's grants for free.
+
 ### Per-worker certificates
 
 A worker JVM presents its own leaf certificate on the fabric's cross-machine mTLS hops, not the
@@ -87,6 +99,31 @@ chicken-and-egg problem Kubernetes' bootstrap-token/CSR flow solves. `POST /boot
 one endpoint in the system reachable without a client certificate, for exactly this reason. The
 bootstrap token is single-use and short-lived, tracked in-memory on the control-plane node that
 issued it (not Raft-replicated — the same reasoning heartbeats aren't).
+
+### Where a node's own identity is written
+
+The material a node bootstraps for itself lands in that node's own identity directory —
+`gimle.agent.identityDir`, defaulting to a `tls` directory under the node's own `gimle.data.root` —
+as `node-<nodeId>.crt`/`node-<nodeId>.key`, with each spawned worker's own certificate beside it
+under `workers/`. Deliberately **not** the directory holding the shared cluster CA material
+`gimle.tls.caFile` points into: that directory is identical on every node, holds only material a
+node reads, and is correctly mounted read-only in a least-privilege deployment — which a node must
+not have to give up to obtain an identity of its own. Once written, the agent re-points its own
+`gimle.tls.certFile`/`keyFile` at what it actually wrote, so rotation and every mTLS client it
+builds resolve the same files. An agent launched already pointing at a certificate and key that
+both exist keeps them untouched and bootstraps nothing — that is an operator-provisioned identity.
+If the identity directory cannot be written, startup fails naming the directory and the two
+properties that move it, rather than surfacing a bare filesystem error.
+
+### What a node's leaf certificate is named
+
+A node's CSR requests, as Subject Alternative Names, the DNS name the machine calls itself, the
+host half of its own gossip address (its topology hostname), `localhost`, and — last — its current
+IP address. A node is reached by name, so a leaf carrying only the address the interface happened
+to hold at bootstrap time matches nothing after the node restarts onto a new one; the address is
+still requested so a peer dialing the node by bare IP literal keeps verifying, since only an
+`iPAddress` SAN entry ever matches an IP-dialed handshake and only a `dNSName` entry a name-dialed
+one. A wildcard bind address (`0.0.0.0`, `::`) names no reachable peer and is never requested.
 
 Being the one unauthenticated route, and the most expensive one per request (a PKCS#10 parse and
 signature verify, then an RSA signing for an auto-approved join), it is also the one route with a
@@ -159,6 +196,17 @@ the error, the streak length, the expiry of the certificate still in use and the
 and a durable `AuditEvent` at the start and escalation point of a streak and on every completed
 rotation. See [Observability](./observability.md#certificate-rotation-health) for the meter names
 and how to alert on them.
+
+The retry itself has to survive the failure, which is a separate property from reporting it. Each
+process's rotation ticker is a `scheduleAtFixedRate` task, and that contract cancels a repeating
+task permanently the first time one execution throws — so a single transient failure would silently
+end renewal for the rest of the process's life, with the certificate expiring on schedule some days
+later. Every process kind that renews its own certificate (`gimle-controlplane`, `gimle-mimir`,
+`gimle-fafnir`, `gimle-muninn`, `gimle-andvari`, `gimle-agent`) therefore runs each check behind its
+own exception barrier: reading the TLS settings, contacting the CSR endpoint, and rebuilding the
+listener afterwards all fail into a `WARN` line and the next tick, never out of the task. A
+misconfiguration no retry can fix — a missing required flag, an unusable data directory — still
+fails fast at startup instead, before the ticker is scheduled.
 
 ## CLI surface
 

@@ -42,11 +42,12 @@ import org.slf4j.LoggerFactory;
  * an inherited or redirected stream would put the cluster's initial administrator credential into a
  * build log, which is the one place this design exists to keep it out of.
  *
- * <p>Known limitation: every leaf's SAN only carries DNS names (this module's {@link
- * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a process reached by bare
- * IP literal (e.g. {@code https://127.0.0.1:8080}) will fail hostname verification even though the
- * handshake and CA trust chain are otherwise valid -- point clients at one of the SAN'd hostnames
- * (the positional {@code hostname...} arguments here) instead.
+ * <p>Known limitation: every leaf minted here is named only by the positional {@code hostname...}
+ * arguments, which are DNS names, so a process reached by bare IP literal (e.g. {@code
+ * https://127.0.0.1:8080}) fails hostname verification even though the handshake and CA trust chain
+ * are otherwise valid -- point clients at one of those hostnames instead, or pass the literal as a
+ * hostname argument, since {@link CertificateSigningRequests} does type an IP literal as an {@code
+ * iPAddress} SAN entry (the only kind an IP-dialed handshake ever matches).
  */
 public final class PkiBootstrapMain {
 
@@ -114,12 +115,17 @@ public final class PkiBootstrapMain {
           "controlplane-" + hostname,
           "O=" + BuiltinRoles.GROUP_CONTROLPLANE + ",CN=" + hostname,
           List.of(hostname, "localhost"));
-      // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
-      // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in
-      // local dev, per that class's own code comment): every action Fafnir takes being attributable
-      // to its own certificate Subject, not a borrowed one, is directly load-bearing for its audit
-      // story, since it's the one component whose entire job is being the trust boundary for secret
-      // material.
+      // The store gets its own leaf rather than presenting the control plane's: borrowing it made
+      // the store claim, on the wire, to be the very process that authenticates to it, so a peer
+      // could not tell a store replica apart from a control-plane client and neither side's
+      // identity meant anything. Its Subject carries no O= -- the store authorizes nothing on
+      // group membership, it only needs to be identifiable as itself.
+      issueLeaf(
+          outputDir, ca, "store-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
+      // Fafnir gets its own distinct identity from cluster-bootstrap time: every action Fafnir
+      // takes being attributable to its own certificate Subject, not a borrowed one, is directly
+      // load-bearing for its audit story, since it's the one component whose entire job is being
+      // the trust boundary for secret material.
       issueLeaf(
           outputDir, ca, "fafnir-" + hostname, "CN=" + hostname, List.of(hostname, "localhost"));
       // Muninn gets its own distinct identity for the identical reason Fafnir does: it re-runs its
@@ -144,7 +150,7 @@ public final class PkiBootstrapMain {
     final String bootstrapPassword = writeBootstrapAccount(outputDir);
 
     out.println(
-        "wrote cluster CA, control-plane/fafnir/muninn/andvari material for "
+        "wrote cluster CA, control-plane/store/fafnir/muninn/andvari material for "
             + options.hostnames().size()
             + " hostname(s), and initial-operator material to "
             + outputDir);

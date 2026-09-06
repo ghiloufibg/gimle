@@ -119,8 +119,9 @@ failing in an obvious way.
 
 If you want to try it anyway: capture `System.getProperty("java.class.path")` immediately before
 your own `GimleCluster.start()` call, train a cache against exactly that string (same
-`-Dgimle.worker.aotTraining=true -XX:AOTCacheOutput=<path>` one-shot recipe `WorkerStartupBenchIT`
-in `gimle-agent` uses), point a topology's `jvm: worker: [...]` at the result, and diff that run's
+`-XX:AOTCacheOutput=<path>` one-shot recipe `WorkerStartupBenchIT` in `gimle-agent` uses: spawn an
+ordinary worker, wait for its `Hello`, then close its control channel and let it end on its own —
+the JVM assembles the cache only from the shutdown path of a process that ends of its own accord), point a topology's `jvm: worker: [...]` at the result, and diff that run's
 `summary.json` against a baseline run's. A durable, checked-in version of this needs a
 runtime-image-style launch path for Holmgang-booted clusters (a stable, jars-only classpath) before
 it's worth automating — out of scope for Phase A.

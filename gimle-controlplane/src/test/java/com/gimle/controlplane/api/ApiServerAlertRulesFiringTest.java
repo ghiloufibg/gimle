@@ -3,12 +3,22 @@ package com.gimle.controlplane.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import com.gimle.controlplane.alert.AlertNotification;
+import com.gimle.controlplane.alert.AlertReconciler;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
@@ -23,9 +33,11 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -157,6 +169,79 @@ class ApiServerAlertRulesFiringTest {
                 .GET()
                 .build());
     assertEquals(404, response.statusCode());
+  }
+
+  /**
+   * A rule submitted without a {@code tenantId} must land on the same key its own deployment does.
+   * Every deployment this API can create is keyed under the default tenant, so a rule left in the
+   * untenanted namespace would watch a deployment that cannot exist there: it would see no
+   * instance, average zero, and sit at "never evaluated" forever while its condition was in fact
+   * continuously true.
+   */
+  @Test
+  @Timeout(10)
+  void a_rule_created_with_no_tenant_evaluates_against_the_default_tenants_deployment()
+      throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/alertrules"))
+                .POST(HttpRequest.BodyPublishers.ofString(untenantedAlertRuleJson("high-errors")))
+                .build());
+    assertEquals(200, post.statusCode());
+    oneDefaultTenantInstanceReporting(8.0);
+
+    List<AlertNotification> notifications = new ArrayList<>();
+    new AlertReconciler(server.alertRuleRegistry(), inProcessStore.client(), notifications::add)
+        .reconcileOnce();
+
+    assertEquals(1, notifications.size(), "the rule's condition is crossed, so it must fire");
+    HttpResponse<String> firing =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/alertrules/high-errors/firing"))
+                .GET()
+                .build());
+    assertEquals(200, firing.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(firing.body()));
+    assertEquals(true, body.get("known"), "a rule that has fired must no longer read as unknown");
+    assertEquals(true, body.get("firing"));
+  }
+
+  private static String untenantedAlertRuleJson(String name) {
+    return """
+        {"name": "%s", "deploymentName": "checkout-service",
+         "metric": "ERROR_RATE_PER_SECOND", "comparator": "GREATER_THAN", "threshold": 5.0,
+         "webhookUrl": "https://hooks.example.com/alerts"}
+        """
+        .formatted(name);
+  }
+
+  /** One placed, heartbeating instance of {@code checkout-service} in the default tenant. */
+  private void oneDefaultTenantInstanceReporting(double errorRatePerSecond) {
+    ModuleId moduleId = new ModuleId("com.gimle.example.checkout", Version.parse("1.0.0"));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    "checkout-service",
+                    0,
+                    "node-1",
+                    moduleId,
+                    "/artifacts/checkout.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
+    inProcessStore
+        .client()
+        .putHeartbeat(
+            new NodeHeartbeat(
+                "node-1",
+                new ResourceUsageSnapshot(0, 0, 0, 0),
+                List.of(
+                    InstanceObservation.builder(
+                            "checkout-service", 0, moduleId, "ACTIVE", true, true)
+                        .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                        .errorRatePerSecond(errorRatePerSecond)
+                        .build())));
   }
 
   @Test
