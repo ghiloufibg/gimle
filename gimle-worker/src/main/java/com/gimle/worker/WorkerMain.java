@@ -211,17 +211,6 @@ public final class WorkerMain {
             fabricEndpoints.tcpAddress().getHostString(),
             fabricEndpoints.tcpAddress().getPort()));
 
-    if (isAotTrainingMode()) {
-      // Training-only: this worker exists solely to populate a JDK AOT cache with the classes its
-      // own pre-ready boot path touches (JEP 514 assembles the cache at JVM exit, and only a
-      // clean exit triggers that -- destroyForcibly, this process's normal shutdown, never would).
-      // No hosted module is ever installed above this line, so the cache this produces holds no
-      // tenant or module bytes. Shared prerequisite for both the Sleipnir startup-cache benchmark
-      // and its agent-managed trainer, not throwaway scaffolding.
-      channel.close();
-      return;
-    }
-
     Optional<ControlMessage> received;
     while ((received = channel.receive()).isPresent()) {
       handle(
@@ -251,10 +240,6 @@ public final class WorkerMain {
     System.exit(0);
   }
 
-  /**
-   * True when this worker was launched purely to populate a JDK AOT cache: it should complete its
-   * normal pre-ready boot, send Hello, then exit cleanly rather than enter the receive loop.
-   */
   /** Bridges the worker's own control-channel relay onto the module-facing client shape. */
   private static ControlPlaneRelayClient relayClient(ControlPlaneRelay relay) {
     return new ControlPlaneRelayClient() {
@@ -269,10 +254,6 @@ public final class WorkerMain {
         return relay.requestStatusPut(kindName, tenantId, name, statusJson);
       }
     };
-  }
-
-  private static boolean isAotTrainingMode() {
-    return Boolean.getBoolean("gimle.worker.aotTraining");
   }
 
   /**

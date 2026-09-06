@@ -8,6 +8,7 @@ import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
@@ -394,6 +395,39 @@ class DeploymentReconcilerTest {
     assertEquals(
         InstanceEventKind.TRANSITION_FAILED,
         store.listInstanceEvents(Optional.empty(), "orders-service", 0).get(0).kind());
+  }
+
+  /**
+   * A jar the platform refuses to read and a jar whose manifest the platform rejects are different
+   * problems: the first needs a file fixed, the second needs the manifest fixed. The durable event
+   * an operator reads must say which, and must carry the parser's own reason -- reporting a
+   * rejected manifest as an unreadable artifact sends them looking at the wrong thing.
+   */
+  @Test
+  void a_rejected_manifest_is_recorded_as_a_rejection_carrying_its_own_reason() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+    // A valid jar whose descriptor names a module the parser refuses: a JPMS module name may not
+    // contain a hyphen, and the manifest name is used verbatim as one.
+    Path jar =
+        TestModuleBuilder.module("module com.gimle.fixture.rejected {\n}\n")
+            .withDescriptor(TestModuleBuilder.minimalDescriptor("orders-service", "1.0.0"))
+            .build(tempDir, "rejected-manifest.jar");
+    store.putDeployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
+
+    new DeploymentReconciler(store, scheduler).reconcileOnce();
+
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.empty(), "orders-service", 0);
+    assertEquals(1, events.size());
+    assertEquals(InstanceEventKind.TRANSITION_FAILED, events.get(0).kind());
+    assertTrue(
+        events.get(0).message().startsWith("artifact rejected: "),
+        "a rejected manifest must not be reported as an unreadable artifact: "
+            + events.get(0).message());
+    assertTrue(
+        events.get(0).message().contains("orders-service"),
+        "the event must carry the parser's own reason: " + events.get(0).message());
   }
 
   /**
