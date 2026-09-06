@@ -510,7 +510,12 @@ function Designer() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      {
+        // Same fix as the header row above: the palette and inspector are fixed-width rails that
+        // never shrink, so below a phone-width viewport they forced the whole page wider than it
+        // -- overflow-x-auto contains that to this row instead.
+      }
+      <div className="flex min-h-0 flex-1 overflow-x-auto">
         <Palette />
         <div ref={middleRef} className="flex min-w-0 flex-1 flex-col">
           <div ref={canvasRef} className="relative min-h-0 flex-1 bg-background">
