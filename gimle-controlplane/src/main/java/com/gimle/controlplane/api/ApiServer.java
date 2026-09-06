@@ -5229,9 +5229,43 @@ public final class ApiServer implements AutoCloseable {
             (String) body.get("message"),
             causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
             ((Number) body.get("occurredAtEpochMilli")).longValue());
-    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex);
+    // A workload's removal wipes the instance timelines it owned, but its instances are only torn
+    // down afterwards, so their last few lifecycle events arrive with nothing left to own them.
+    // Filing those anyway is what let a deleted occupant's STOPPING/UNINSTALLED pair reappear
+    // underneath the fresh timeline of whatever was next created under the same name and index.
+    List<WorkloadSpec> owners = workloadSpecsNamed(deploymentName);
+    if (owners.isEmpty()) {
+      log.debug(
+          "discarding instance event {} for {}#{}: no workload of that name exists",
+          event.id(),
+          deploymentName,
+          instanceIndex);
+      respond(exchange, 200, "discarded: no workload named " + deploymentName);
+      return;
+    }
+    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex, owners);
     storeClient.propose(new StateMutation.AppendInstanceEvent(tenant, event));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Every Deployment/Job/DaemonSet/StatefulSet spec currently named {@code name}, across every
+   * tenant -- the "is there anything this event could belong to at all" question, which {@link
+   * #resolveTenantForWorkloadName} cannot answer on its own because it collapses "no such workload"
+   * and "found, but untenanted" into the same empty result.
+   */
+  private List<WorkloadSpec> workloadSpecsNamed(String name) {
+    List<WorkloadSpec> matching = new ArrayList<>();
+    collectNamed(matching, storeClient.listDeployments(), name);
+    collectNamed(matching, storeClient.listJobSpecs(), name);
+    collectNamed(matching, storeClient.listDaemonSetSpecs(), name);
+    collectNamed(matching, storeClient.listStatefulSetSpecs(), name);
+    return matching;
+  }
+
+  private static void collectNamed(
+      List<WorkloadSpec> into, List<? extends WorkloadSpec> specs, String name) {
+    specs.stream().filter(spec -> spec.name().equals(name)).forEach(into::add);
   }
 
   /**
@@ -5243,7 +5277,8 @@ public final class ApiServer implements AutoCloseable {
    * Optional#empty()} (the untenanted namespace) if none of the four currently has a matching
    * assignment.
    */
-  private Optional<String> resolveInstanceEventTenant(String deploymentName, int instanceIndex) {
+  private Optional<String> resolveInstanceEventTenant(
+      String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
     Optional<Optional<String>> deployment =
         storeClient.listAssignments().stream()
             .filter(
@@ -5275,11 +5310,21 @@ public final class ApiServer implements AutoCloseable {
         return daemonSet.get();
       }
     }
-    return storeClient.listJobRuns().stream()
-        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
-        .map(JobRun::tenantId)
-        .findFirst()
-        .orElse(Optional.empty());
+    Optional<Optional<String>> jobRun =
+        storeClient.listJobRuns().stream()
+            .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+            .map(JobRun::tenantId)
+            .findFirst();
+    if (jobRun.isPresent()) {
+      return jobRun.get();
+    }
+    // No live assignment matches, which is the ordinary case for an event describing an instance
+    // that has just gone away. The owning spec still says which tenant's timeline it belongs on,
+    // and using it is what keeps that timeline sweepable by the owner's own later removal --
+    // an event misfiled under the untenanted namespace would outlive it.
+    List<String> ownerTenants =
+        owners.stream().flatMap(spec -> spec.tenantId().stream()).distinct().toList();
+    return ownerTenants.size() == 1 ? Optional.of(ownerTenants.get(0)) : Optional.empty();
   }
 
   /**
@@ -5327,7 +5372,8 @@ public final class ApiServer implements AutoCloseable {
       Optional<String> tenant =
           declaredTenant.isPresent()
               ? declaredTenant
-              : resolveInstanceEventTenant(deploymentName, instanceIndex);
+              : resolveInstanceEventTenant(
+                  deploymentName, instanceIndex, workloadSpecsNamed(deploymentName));
       if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
