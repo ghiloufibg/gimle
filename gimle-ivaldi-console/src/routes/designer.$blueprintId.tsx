@@ -27,6 +27,16 @@ import { Palette } from "@/components/ivaldi/Palette";
 import { ProblemsDrawer } from "@/components/ivaldi/ProblemsDrawer";
 import { RunDrawer } from "@/components/ivaldi/RunDrawer";
 import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { canvasBridge } from "@/lib/canvasBridge";
 import { collapseProblems, tally } from "@/lib/problemView";
 import { renderFiles } from "@/lib/render";
@@ -218,6 +228,9 @@ function Designer() {
   const redo = useBlueprintStore((s) => s.redo);
   const canUndo = useBlueprintStore((s) => s.past.length > 0);
   const canRedo = useBlueprintStore((s) => s.future.length > 0);
+  const recoverableDraft = useBlueprintStore((s) => s.recoverableDraft);
+  const restoreDraft = useBlueprintStore((s) => s.restoreDraft);
+  const discardDraft = useBlueprintStore((s) => s.discardDraft);
 
   const exitFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -277,9 +290,13 @@ function Designer() {
   const pendingSave = useRef(false);
   const saveRef = useRef(save);
   saveRef.current = save;
+  const persistDraftNow = useBlueprintStore((s) => s.persistDraftNow);
 
   useEffect(() => {
     if (!blueprint || !dirty) return;
+    // Synchronous, immediate localStorage snapshot -- covers the crash/force-kill window between
+    // now and the debounced network save below (or the network request itself) actually landing.
+    persistDraftNow();
     pendingSave.current = true;
     const t = setTimeout(() => {
       pendingSave.current = false;
@@ -294,7 +311,7 @@ function Designer() {
         void saveRef.current();
       }
     };
-  }, [blueprint, dirty]);
+  }, [blueprint, dirty, persistDraftNow]);
 
   useEffect(() => {
     const flush = () => {
@@ -534,6 +551,28 @@ function Designer() {
         </div>
         <Inspector blueprint={blueprint} />
       </div>
+      <AlertDialog open={recoverableDraft !== null}>
+        <AlertDialogContent className="rounded-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-mono text-sm">
+              Restore unsaved draft?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              A newer edit from a previous session was never saved to the server -- likely a tab or
+              process that closed before the save completed. Restore it, or discard it and keep
+              what's on the server.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-sm font-mono text-[11px]" onClick={discardDraft}>
+              Discard
+            </AlertDialogCancel>
+            <AlertDialogAction className="rounded-sm font-mono text-[11px]" onClick={restoreDraft}>
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

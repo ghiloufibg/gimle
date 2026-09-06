@@ -82,6 +82,16 @@ interface BlueprintState {
   dirty: boolean;
   past: Blueprint[];
   future: Blueprint[];
+  /**
+   * A locally-persisted draft found newer than what `load` fetched from the backend -- surfaced
+   * so the designer can offer to restore it rather than silently editing on top of stale server
+   * state after a tab/process kill inside the debounced-save window lost the in-flight edit.
+   */
+  recoverableDraft: Blueprint | null;
+  restoreDraft: () => void;
+  discardDraft: () => void;
+  /** Synchronous, immediate localStorage snapshot -- the debounced network save's safety net. */
+  persistDraftNow: () => void;
   load: (id: string) => Promise<void>;
   select: (id: string | null) => void;
   setSelection: (nodeIds: string[], edgeIds: string[]) => void;
@@ -124,6 +134,47 @@ function revalidate(bp: Blueprint | null) {
   useValidationStore.getState().recompute(bp);
 }
 
+function draftStorageKey(id: string): string {
+  return `ivaldi:draft:${id}`;
+}
+
+function persistDraft(bp: Blueprint) {
+  try {
+    localStorage.setItem(draftStorageKey(bp.id), JSON.stringify(bp));
+  } catch {
+    // Best-effort only: a private window, cleared site data, or a full quota must never block
+    // the in-memory edit or the real debounced save to the backend.
+  }
+}
+
+function clearDraft(id: string) {
+  try {
+    localStorage.removeItem(draftStorageKey(id));
+  } catch {
+    // See persistDraft.
+  }
+}
+
+function readDraft(id: string): Blueprint | null {
+  try {
+    const raw = localStorage.getItem(draftStorageKey(id));
+    return raw ? (JSON.parse(raw) as Blueprint) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A blueprint fresh off `POST /api/blueprints` carries no `updatedAt` yet -- only `save` ever
+ * stamps one. Treating that (or any other unparseable value) as epoch 0 rather than `Invalid Date`
+ * is what lets a locally-persisted draft win the comparison below instead of every `Date`
+ * comparison against it silently coming back `false`.
+ */
+function timeOf(iso: string | undefined): number {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+
 export const useBlueprintStore = create<BlueprintState>((set, get) => {
   const commit = (next: Blueprint, markDirty = true) => {
     const current = get().blueprint;
@@ -145,9 +196,14 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
     dirty: false,
     past: [],
     future: [],
+    recoverableDraft: null,
 
     load: async (id) => {
       const bp = (await blueprintsRepository.get(id)) ?? null;
+      const draft = readDraft(id);
+      const recoverableDraft =
+        draft && (!bp || timeOf(draft.updatedAt) > timeOf(bp.updatedAt)) ? draft : null;
+      if (draft && !recoverableDraft) clearDraft(id);
       set({
         blueprint: bp,
         selectedId: null,
@@ -156,8 +212,27 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
         dirty: false,
         past: [],
         future: [],
+        recoverableDraft,
       });
       revalidate(bp);
+    },
+
+    restoreDraft: () => {
+      const draft = get().recoverableDraft;
+      if (!draft) return;
+      set({ blueprint: draft, dirty: true, recoverableDraft: null, past: [], future: [] });
+      revalidate(draft);
+    },
+
+    discardDraft: () => {
+      const draft = get().recoverableDraft;
+      if (draft) clearDraft(draft.id);
+      set({ recoverableDraft: null });
+    },
+
+    persistDraftNow: () => {
+      const bp = get().blueprint;
+      if (bp) persistDraft(bp);
     },
 
     select: (id) => set({ selectedId: id, selectedIds: id ? [id] : [], selectedEdgeIds: [] }),
@@ -399,6 +474,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
         updatedAt: new Date().toISOString(),
       };
       await blueprintsRepository.save(next);
+      clearDraft(next.id);
       set({ blueprint: next, dirty: false });
     },
 
