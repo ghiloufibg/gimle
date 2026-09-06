@@ -637,17 +637,16 @@ public final class FabricServer implements AutoCloseable {
           && !request.callerTenantId().equals(verified.get().tenantId())) {
         FabricCodec.write(
             out,
-            new FabricFrame.InvokeError(
+            FabricFrame.InvokeError.of(
                 request.correlationId(),
-                ObjectMarshalling.serialize(
-                    GimleFabricAuthorizationException.callerTenantMismatch(
-                        request.interfaceName(),
-                        "tenant " + request.callerTenantId().get(),
-                        verified
-                            .get()
-                            .tenantId()
-                            .map(id -> "tenant " + id)
-                            .orElse("no tenant at all")))));
+                GimleFabricAuthorizationException.callerTenantMismatch(
+                    request.interfaceName(),
+                    "tenant " + request.callerTenantId().get(),
+                    verified
+                        .get()
+                        .tenantId()
+                        .map(id -> "tenant " + id)
+                        .orElse("no tenant at all"))));
         continue;
       }
       FabricFrame.InvokeRequest effective =
@@ -669,13 +668,11 @@ public final class FabricServer implements AutoCloseable {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       span.recordException(cause);
       span.setStatus(StatusCode.ERROR);
-      return new FabricFrame.InvokeError(
-          request.correlationId(), ObjectMarshalling.serialize(cause), queueDepthFor(request));
+      return FabricFrame.InvokeError.of(request.correlationId(), cause, queueDepthFor(request));
     } catch (RuntimeException | ReflectiveOperationException e) {
       span.recordException(e);
       span.setStatus(StatusCode.ERROR);
-      return new FabricFrame.InvokeError(
-          request.correlationId(), ObjectMarshalling.serialize(e), queueDepthFor(request));
+      return FabricFrame.InvokeError.of(request.correlationId(), e, queueDepthFor(request));
     } finally {
       span.end();
     }

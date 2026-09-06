@@ -1,6 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.Scheduler;
@@ -72,15 +73,22 @@ import org.slf4j.LoggerFactory;
  * assigned node's own heartbeat freshness -- only whether the *last* heartbeat that node ever sent
  * happened to report this index ready, which stays true forever once a node goes dark and simply
  * stops heartbeating. {@link #nodeIsGenuinelyGone}, checked once per scanned index alongside {@link
- * #isReady}, closes that gap the same stateless way {@link DaemonSetReconciler#hasGoneDark}/{@code
- * isMerelyDarkWithinGracePeriod} already do -- measured directly off {@link
+ * #isReady}, closes that gap the same stateless way {@code
+ * DaemonSetReconciler#isUnconfirmedRatherThanGone} already does -- measured directly off {@link
  * ObservedHeartbeat#receivedAt()} against {@code nodeDarkTimeout + placementGracePeriod}, no
- * persisted per-index timer needed. Only the {@link StatefulSetAssignment} is removed, never the
- * sticky {@link StateStore#getStatefulSetIndexNode} binding -- the very same "wait a beat, one
- * destructive step per tick" posture scale-down already takes, so the next tick's scan sees this
- * index as missing and lets {@link #placeIndex} either land it back on the same node once it
- * recovers, or leave it unplaced-and-retrying exactly as this class's own sticky-placement javadoc
- * already documents, never silently relocated to a different node.
+ * persisted per-index timer needed. A node with no heartbeat on record at all is judged by {@link
+ * NodeFreshness} rather than treated as gone outright: heartbeats live only on whichever store
+ * replica is currently leader and are never replicated, so an election leaves the new leader
+ * holding nothing for any node, and acting on that emptiness would evict every index in the cluster
+ * off nodes that never stopped running them. {@link #isReady} leaves its persisted stabilization
+ * timer alone in that same window for the same reason -- a heartbeat the store has not had the
+ * opportunity to receive is not an instance reporting itself unready. Only the {@link
+ * StatefulSetAssignment} is removed, never the sticky {@link StateStore#getStatefulSetIndexNode}
+ * binding -- the very same "wait a beat, one destructive step per tick" posture scale-down already
+ * takes, so the next tick's scan sees this index as missing and lets {@link #placeIndex} either
+ * land it back on the same node once it recovers, or leave it unplaced-and-retrying exactly as this
+ * class's own sticky-placement javadoc already documents, never silently relocated to a different
+ * node.
  *
  * <p><b>Crash-loop backoff</b>: {@link #isReady}'s own node-heartbeat lookup only ever answers "is
  * this index caught up and ready" -- it never distinguished "still starting" from "the worker
@@ -121,6 +129,7 @@ public final class StatefulSetReconciler {
   private final ArtifactResolver artifactResolver;
   private final WorkloadCrashLoopBackoff crashLoopBackoff;
   private final NodeCandidateSource candidateSource;
+  private final NodeFreshness freshness;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public StatefulSetReconciler(StateStore store, Scheduler scheduler) {
@@ -172,6 +181,9 @@ public final class StatefulSetReconciler {
     this.artifactResolver = artifactResolver;
     this.crashLoopBackoff = new WorkloadCrashLoopBackoff(store);
     this.candidateSource = new NodeCandidateSource(store, nodeDarkTimeout, clock);
+    // Same threshold the candidate source judges darkness by, so the two can never disagree about
+    // whether a node is answering.
+    this.freshness = new NodeFreshness(nodeDarkTimeout);
   }
 
   public void reconcileOnce() {
@@ -243,7 +255,10 @@ public final class StatefulSetReconciler {
     }
     ModuleDescriptor descriptor = artifact.descriptor();
 
-    handleRollingUpdate(spec, descriptor);
+    Instant now = clock.instant();
+    Instant observingSince = store.nodeObservationWindowStart();
+
+    handleRollingUpdate(spec, now, observingSince);
 
     // Re-read: handleRollingUpdate above may have just removed an entry.
     List<StatefulSetAssignment> existing =
@@ -253,7 +268,6 @@ public final class StatefulSetReconciler {
     // the first one that isn't both present and ready. Placing that one missing index (if any) and
     // returning is what keeps index i+1 from ever being attempted before index i is ready --
     // no separate "am I mid-rollout" bookkeeping needed beyond this scan itself.
-    Instant now = clock.instant();
     for (int index = 0; index < spec.replicas(); index++) {
       int currentIndex = index;
       Optional<StatefulSetAssignment> assignment =
@@ -266,7 +280,7 @@ public final class StatefulSetReconciler {
       if (crashLoopBackoff.isPermanentlyFailed(WORKLOAD_KIND, spec.name(), slot, spec.tenantId())) {
         return; // never skip past a stuck index -- see class javadoc's "Crash-loop backoff" note.
       }
-      if (nodeIsGenuinelyGone(assignment.get().nodeId(), now)) {
+      if (nodeIsGenuinelyGone(assignment.get().nodeId(), now, observingSince)) {
         log.warn(
             "statefulset {} index {} on node {} is no longer confirmed by a heartbeat; releasing"
                 + " its assignment for re-placement (its sticky node binding is preserved)",
@@ -281,7 +295,7 @@ public final class StatefulSetReconciler {
         handleCrashLoop(spec, index, slot, now);
         return; // one destructive step per tick -- see class javadoc.
       }
-      if (!isReady(assignment.get())) {
+      if (!isReady(assignment.get(), now, observingSince)) {
         return;
       }
       crashLoopBackoff
@@ -437,7 +451,7 @@ public final class StatefulSetReconciler {
    * node binding survives this removal untouched) so {@link #reconcileStatefulSet}'s own
    * OrderedReady scan re-places it with the current spec's {@code moduleId} on that same node.
    */
-  private void handleRollingUpdate(StatefulSetSpec spec, ModuleDescriptor descriptor) {
+  private void handleRollingUpdate(StatefulSetSpec spec, Instant now, Instant observingSince) {
     Optional<Integer> rollingIndex = store.getRollingStatefulSetIndex(spec.tenantId(), spec.name());
     if (rollingIndex.isPresent()) {
       int index = rollingIndex.get();
@@ -445,7 +459,7 @@ public final class StatefulSetReconciler {
           store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
-      if (current.isPresent() && isReady(current.get())) {
+      if (current.isPresent() && isReady(current.get(), now, observingSince)) {
         mutations.propose(
             new StateMutation.ClearRollingStatefulSetIndex(spec.tenantId(), spec.name()));
       }
@@ -490,10 +504,19 @@ public final class StatefulSetReconciler {
    * WorkloadHealthState}'s own javadoc. {@link WorkloadCrashLoopBackoff} never touches this field;
    * each writer starts from the currently persisted record so neither ever clobbers the other's
    * bookkeeping.
+   *
+   * <p>Answers "not ready" without touching that persisted timer while the store holds no heartbeat
+   * for the node and has not been listening long enough for the silence to mean anything --
+   * clearing it there would restart the stabilization window for an instance that never stopped
+   * being ready, stalling the whole {@code OrderedReady} scan behind an artifact of a store leader
+   * election.
    */
-  private boolean isReady(StatefulSetAssignment assignment) {
-    boolean currentlyObservedReady = isCurrentlyObservedReady(assignment);
-    Instant now = clock.instant();
+  private boolean isReady(StatefulSetAssignment assignment, Instant now, Instant observingSince) {
+    Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(assignment.nodeId());
+    if (heartbeat.isEmpty() && !freshness.hasGoneDark(true, heartbeat, observingSince, now)) {
+      return false;
+    }
+    boolean currentlyObservedReady = isCurrentlyObservedReady(assignment, heartbeat);
     WorkloadHealthState persisted = currentReadinessState(assignment);
     if (!currentlyObservedReady) {
       if (persisted.firstContinuousReadyAtEpochMilli() != WorkloadHealthState.ABSENT) {
@@ -511,9 +534,9 @@ public final class StatefulSetReconciler {
             .plus(READINESS_STABILIZATION_WINDOW));
   }
 
-  private boolean isCurrentlyObservedReady(StatefulSetAssignment assignment) {
-    return store
-        .getNodeHeartbeat(assignment.nodeId())
+  private boolean isCurrentlyObservedReady(
+      StatefulSetAssignment assignment, Optional<ObservedHeartbeat> heartbeat) {
+    return heartbeat
         .map(ObservedHeartbeat::heartbeat)
         .map(NodeHeartbeat::instances)
         .orElse(List.of())
@@ -618,24 +641,24 @@ public final class StatefulSetReconciler {
     return candidateSource.candidates(nodesAlreadyRunningThisStatefulSet);
   }
 
-  private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
-    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
-  }
-
   /**
-   * True once {@code nodeId} is genuinely gone, not merely transiently dark -- either it has never
-   * heartbeated at all (the same "nothing plausible left to wait for" reasoning {@link
-   * DaemonSetReconciler#isMerelyDarkWithinGracePeriod}'s own javadoc gives for treating a missing
-   * heartbeat as immediate), or its last heartbeat is older than {@code nodeDarkTimeout +
-   * placementGracePeriod}. Measured directly off the heartbeat's own {@code receivedAt()} rather
-   * than a persisted per-index timer -- the same stateless approach {@link
-   * DaemonSetReconciler#hasGoneDark} already takes, since "how long has this been true" is already
-   * exactly what the heartbeat's own timestamp answers.
+   * True once {@code nodeId} is genuinely gone, not merely transiently dark -- either its last
+   * heartbeat is older than {@code nodeDarkTimeout + placementGracePeriod}, or it has no heartbeat
+   * on record and {@link NodeFreshness} says the store has been listening long enough for that
+   * silence to be the node's own. Measured directly off the heartbeat's own {@code receivedAt()}
+   * and the store's observation window rather than a persisted per-index timer -- the same
+   * stateless approach {@link DaemonSetReconciler#isUnconfirmedRatherThanGone} takes, since "how
+   * long has this been true" is already exactly what those two timestamps answer.
+   *
+   * <p>The observation window is what keeps an empty read from being mistaken for a fact about the
+   * node: heartbeats are leader-local and never replicated, so a store election leaves every node
+   * momentarily unheard-from, and evicting on that would take a healthy cluster's every StatefulSet
+   * index off the nodes still running them.
    */
-  private boolean nodeIsGenuinelyGone(String nodeId, Instant now) {
+  private boolean nodeIsGenuinelyGone(String nodeId, Instant now, Instant observingSince) {
     Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(nodeId);
     if (heartbeat.isEmpty()) {
-      return true;
+      return freshness.hasGoneDark(true, heartbeat, observingSince, now);
     }
     return Duration.between(heartbeat.get().receivedAt(), now)
             .compareTo(nodeDarkTimeout.plus(placementGracePeriod))

@@ -321,6 +321,23 @@ self-healing actually complete: the reconciler that releases a dead node's assig
 that re-places them use the same timeout, so a released instance moves to a node that is genuinely
 answering rather than bouncing back onto the dead one.
 
+A read that came back empty is deliberately not the same claim as a node that is gone. Heartbeats
+live only on whichever `gimle-mimir` replica is currently leader and are never replicated, so a
+store election leaves the new leader holding nothing for any node in the cluster. `NodeFreshness`
+measures that absence from when the store *started listening* rather than from the epoch, and
+reports a registered node with nothing on record yet as `PENDING` — displayed as its own state, and
+never acted on. `DaemonSetReconciler` and `StatefulSetReconciler` both consult it before releasing
+an assignment: within that window a node keeps the assignment it already has, exactly as a node
+whose heartbeat has merely gone stale does during the placement grace period. Without it, a single
+store election would tear every DaemonSet and StatefulSet instance off machines whose agents never
+stopped supervising them. Past the window, a genuinely silent node is released as before.
+
+The DaemonSet status surface's `desired` count follows the same rule: it counts the nodes the
+reconciler currently intends to occupy — the eligible ones plus any it is deliberately holding —
+and is written only once that tick's evictions and rollout step are decided. Counting eligibility
+alone made `desired` disagree with the very assignments the same tick kept, so `unplacedCount`
+(`desired` minus placed) could read negative.
+
 An operator can also cordon a node (`gimle cordon <nodeId>` / `gimle uncordon <nodeId>`, or
 `POST /nodes/{id}/cordon`/`/uncordon`) to exclude it from future placement — evaluated as the
 scheduler's first filter stage, right after isolation-tier support and before anti-affinity, node

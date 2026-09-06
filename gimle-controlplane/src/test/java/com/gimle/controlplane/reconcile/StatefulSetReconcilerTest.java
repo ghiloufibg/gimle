@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -591,6 +592,169 @@ class StatefulSetReconcilerTest {
     StatefulSetAssignment replaced =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     assertEquals("node-a", replaced.nodeId(), "the sticky index must land back on the same node");
+  }
+
+  // ---- an unreadable node is not a node that is gone ----
+
+  private static StatefulSetReconciler reconciler(
+      com.gimle.mimir.store.StoreReader reads,
+      StateStore store,
+      Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
+      TestClock clock) {
+    return new StatefulSetReconciler(
+        reads,
+        new Scheduler(),
+        mutation -> mutation.applyTo(store),
+        nodeDarkTimeout,
+        placementGracePeriod,
+        clock);
+  }
+
+  @Test
+  void a_store_leader_election_does_not_evict_an_index_from_the_node_running_it(TestClock clock) {
+    // Heartbeats are leader-local and never replicated, so a new leader holds nothing for any
+    // node. Read as "this node is gone", that empties every StatefulSet in the cluster off
+    // machines that never stopped running them -- and a sticky index cannot simply be re-placed
+    // elsewhere, so it stays down until the node is heard from again.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    StatefulSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, placed);
+    reconciler.reconcileOnce();
+
+    store.beginNodeObservationWindow();
+    clock.advance(Duration.ofSeconds(1));
+    reconciler.reconcileOnce();
+
+    List<StatefulSetAssignment> afterElection =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
+    assertEquals(1, afterElection.size(), "an election must not release the assignment");
+    assertEquals("node-a", afterElection.get(0).nodeId());
+  }
+
+  @Test
+  void an_index_that_is_genuinely_unheard_from_is_still_released(TestClock clock) {
+    // The other half of the same property: holding an unconfirmed absence must not turn into never
+    // acting on a real one.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    StatefulSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, placed);
+    reconciler.reconcileOnce();
+    store.beginNodeObservationWindow();
+
+    clock.advance(Duration.ofMinutes(5));
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty(),
+        "a node the store has genuinely never heard from must still lose its assignment");
+    assertTrue(
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isPresent(),
+        "the sticky node binding must survive the release");
+  }
+
+  @Test
+  void an_election_does_not_restart_an_indexs_readiness_stabilization_timer(TestClock clock) {
+    // The readiness stabilization timer is only ever reset by an explicit not-ready observation.
+    // An election produces no observation at all, and treating that silence as one would put every
+    // index back at the start of its window -- stalling the OrderedReady scan behind an artifact
+    // of store leadership moving.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 2));
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    StatefulSetReconciler reconciler =
+        reconciler(store, store, nodeDarkTimeout, nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment zero =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, zero);
+    reconciler.reconcileOnce();
+    long startedAt = readinessTimerOf(store, "orders", 0);
+    assertTrue(startedAt != WorkloadHealthState.ABSENT, "the timer must be running to begin with");
+
+    store.beginNodeObservationWindow();
+    clock.advance(Duration.ofSeconds(1));
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        startedAt,
+        readinessTimerOf(store, "orders", 0),
+        "an election observes nothing about this index and must not restart its window");
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty(),
+        "with nothing observable, the scan still stops at index 0 rather than racing ahead");
+
+    // The node is heard from again, reporting exactly what it was reporting before.
+    reportReady(store, zero);
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isPresent(),
+        "index 0's window ran from when it first reported ready, not from the election");
+  }
+
+  private static long readinessTimerOf(StateStore store, String name, int index) {
+    return store
+        .getWorkloadHealthState(Optional.empty(), "StatefulSet", name, String.valueOf(index))
+        .map(WorkloadHealthState::firstContinuousReadyAtEpochMilli)
+        .orElse(WorkloadHealthState.ABSENT);
+  }
+
+  @Test
+  void a_store_read_that_throws_mid_tick_leaves_state_untouched_and_converges_later(
+      TestClock clock) {
+    // Level-triggered convergence from an arbitrary starting state: a tick that loses the store
+    // part-way through must change nothing at all, and the next one must recompute the whole thing
+    // from the same full snapshot.
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    AtomicBoolean storeUnreachable = new AtomicBoolean(true);
+    StatefulSetReconciler reconciler =
+        reconciler(
+            UnreachableStoreReads.over(store, storeUnreachable, Set.of("getStatefulSetIndexNode")),
+            store,
+            Duration.ofSeconds(15),
+            Duration.ofSeconds(15),
+            clock);
+
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty(),
+        "a tick that could not read the sticky binding must place nothing");
+    assertTrue(
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isEmpty(),
+        "and must not invent one either");
+
+    storeUnreachable.set(false);
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        "node-a",
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0)
+            .orElseThrow()
+            .nodeId());
   }
 
   @Test

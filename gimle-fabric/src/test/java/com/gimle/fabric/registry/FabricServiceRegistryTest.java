@@ -15,6 +15,7 @@ import com.gimle.fabric.catalog.ServiceEndpoint;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.transport.FabricServer;
 import com.gimle.fabric.transport.ModuleWorkExecutor;
+import com.gimle.fabric.transport.RemoteInvocationException;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import java.io.IOException;
@@ -442,6 +443,72 @@ class FabricServiceRegistryTest {
       assertTrue(
           thrown.getMessage().contains("boom: x"), "expected the relayed application exception");
     }
+  }
+
+  /**
+   * An exception carrying a live handle no serializer can write -- the shape a real service
+   * exception takes when it captures something from its own runtime rather than plain data.
+   */
+  private static final class LiveHandleFailure extends RuntimeException {
+
+    private static final long serialVersionUID = 1L;
+
+    private final Object handle;
+
+    LiveHandleFailure(String message, Object handle) {
+      super(message);
+      this.handle = handle;
+    }
+
+    Object handle() {
+      return handle;
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void a_target_exception_that_cannot_be_serialized_reaches_the_caller_named() throws Exception {
+    // The target answered perfectly clearly -- it threw, with a message. Nothing about that is a
+    // transport problem, so the caller must never be told it was one.
+    InetSocketAddress address =
+        startBackend(
+            name -> {
+              throw new LiveHandleFailure("unknown customer: " + name, new Object());
+            });
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-throwing", OWNER, GREETER_EXPORT, Optional.empty(), address);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    RemoteInvocationException thrown =
+        assertThrows(RemoteInvocationException.class, () -> greeter.greet("x"));
+
+    assertEquals(LiveHandleFailure.class.getName(), thrown.remoteTypeName());
+    assertEquals(Optional.of("unknown customer: x"), thrown.remoteMessage());
+  }
+
+  @Test
+  @Timeout(15)
+  void a_target_exception_with_a_null_message_that_cannot_be_serialized_reports_no_message()
+      throws Exception {
+    InetSocketAddress address =
+        startBackend(
+            name -> {
+              throw new LiveHandleFailure(null, new Object());
+            });
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        selfNode, "worker-throwing", OWNER, GREETER_EXPORT, Optional.empty(), address);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+    RemoteInvocationException thrown =
+        assertThrows(RemoteInvocationException.class, () -> greeter.greet("x"));
+
+    assertEquals(LiveHandleFailure.class.getName(), thrown.remoteTypeName());
+    assertEquals(Optional.empty(), thrown.remoteMessage());
+    assertTrue(thrown.getMessage().contains("(no message)"));
   }
 
   @Test

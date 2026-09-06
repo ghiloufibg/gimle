@@ -46,7 +46,16 @@ class FabricCodecTest {
             new byte[] {4, 5, 6},
             Optional.of("tenant-a")),
         new FabricFrame.InvokeResponse(42L, everyByteValue, 7),
-        new FabricFrame.InvokeError(42L, everyByteValue));
+        new FabricFrame.InvokeError(
+            42L,
+            "java.lang.IllegalArgumentException",
+            Optional.of("unknown customer"),
+            everyByteValue,
+            3),
+        // getMessage() was null on the far end: the message stays absent all the way across rather
+        // than becoming an empty string a caller would read as "it said nothing".
+        new FabricFrame.InvokeError(
+            43L, "com.example.ModulePrivateFailure", Optional.empty(), new byte[0], 0));
   }
 
   @ParameterizedTest
@@ -167,8 +176,8 @@ class FabricCodecTest {
             GimleCodecException.class,
             () -> FabricCodec.read(new ByteArrayInputStream(frameBytes)));
     assertTrue(
-        thrown.getMessage().contains("99") && thrown.getMessage().contains("3"),
-        "expected the message to name both the declared (99) and max supported (3) versions, got: "
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("4"),
+        "expected the message to name both the declared (99) and max supported (4) versions, got: "
             + thrown.getMessage());
   }
 
@@ -201,9 +210,13 @@ class FabricCodecTest {
       case FabricFrame.InvokeResponse e ->
           assertArrayEquals(
               e.serializedReturn(), ((FabricFrame.InvokeResponse) actual).serializedReturn());
-      case FabricFrame.InvokeError e ->
-          assertArrayEquals(
-              e.serializedThrowable(), ((FabricFrame.InvokeError) actual).serializedThrowable());
+      case FabricFrame.InvokeError e -> {
+        FabricFrame.InvokeError a = (FabricFrame.InvokeError) actual;
+        assertEquals(e.remoteTypeName(), a.remoteTypeName());
+        assertEquals(e.remoteMessage(), a.remoteMessage());
+        assertArrayEquals(e.serializedThrowable(), a.serializedThrowable());
+        assertEquals(e.reportedQueueDepth(), a.reportedQueueDepth());
+      }
     }
   }
 }

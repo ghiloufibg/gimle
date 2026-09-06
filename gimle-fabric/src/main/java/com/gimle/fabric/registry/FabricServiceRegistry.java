@@ -1064,15 +1064,10 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     return switch (response) {
       case FabricFrame.InvokeResponse resp ->
           ObjectMarshalling.deserialize(resp.serializedReturn(), returnClassLoader);
-      case FabricFrame.InvokeError err -> {
-        Object deserialized =
-            ObjectMarshalling.deserialize(err.serializedThrowable(), returnClassLoader);
-        if (deserialized instanceof Throwable throwable) {
-          throw throwable;
-        }
-        throw new IllegalStateException(
-            "fabric endpoint returned a non-Throwable error payload: " + deserialized);
-      }
+      // The target's own throwable when this caller can rebuild it, otherwise a
+      // RemoteInvocationException naming what it threw -- either way an application failure, never
+      // something a caller could mistake for the wire having broken.
+      case FabricFrame.InvokeError err -> throw err.toThrowable(returnClassLoader);
       case FabricFrame.InvokeRequest ignored ->
           throw new IllegalStateException("fabric endpoint echoed back a request frame");
     };
