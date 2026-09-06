@@ -1693,8 +1693,26 @@ class ApiServerTest {
     assertEquals(0.0, rows.get(0).get("avgErrorRatePerSecond"));
   }
 
+  /**
+   * The workload an event names has to exist for the event to have a timeline to land on -- the
+   * control plane files a relayed event only under a workload it can still see, so a test relaying
+   * one has to stand the workload up the same way a real cluster would.
+   */
+  private void putDeploymentNamed(String name, String tenantId) {
+    store.putDeployment(
+        new com.gimle.mimir.manifest.DeploymentSpec(
+            name,
+            new ModuleId("com.example." + name, Version.parse("1.0.0")),
+            "/tmp/" + name + ".jar",
+            1,
+            com.gimle.mimir.manifest.PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of(tenantId)));
+  }
+
   @Test
   void posting_an_instance_event_makes_it_readable_through_get_events() throws Exception {
+    putDeploymentNamed("orders-service", Tenant.DEFAULT_TENANT_ID);
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
             .POST(
@@ -1741,6 +1759,7 @@ class ApiServerTest {
   @Test
   void a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all()
       throws Exception {
+    putDeploymentNamed("orders-service", Tenant.DEFAULT_TENANT_ID);
     store.putAssignment(
         new InstanceAssignment(
             "orders-service",
@@ -1781,6 +1800,7 @@ class ApiServerTest {
 
   @Test
   void a_posted_transition_failed_event_carries_its_cause_summary() throws Exception {
+    putDeploymentNamed("orders-service", Tenant.DEFAULT_TENANT_ID);
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
             .POST(
@@ -1846,6 +1866,15 @@ class ApiServerTest {
    */
   @Test
   void a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant() throws Exception {
+    store.putStatefulSetSpec(
+        new com.gimle.mimir.manifest.StatefulSetSpec(
+            "sessions",
+            new ModuleId("com.example.sessions", Version.parse("1.0.0")),
+            "/tmp/sessions.jar",
+            1,
+            com.gimle.mimir.manifest.PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty()));
     store.putStatefulSetAssignment(
         new com.gimle.mimir.store.StatefulSetAssignment(
             "sessions",
