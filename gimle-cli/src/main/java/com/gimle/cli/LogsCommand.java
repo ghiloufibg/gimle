@@ -213,13 +213,19 @@ public final class LogsCommand {
     if (line.containsKey("raw")) {
       return line.get("timestamp") + " [SYSTEM] " + line.get("raw");
     }
-    return line.get("timestamp")
-        + " "
-        + line.get("level")
-        + " "
-        + line.get("logger")
-        + " - "
-        + line.get("message");
+    String rendered =
+        line.get("timestamp")
+            + " "
+            + line.get("level")
+            + " "
+            + line.get("logger")
+            + " - "
+            + line.get("message");
+    // Appended when the line carries one: a failure's message alone rarely says what went wrong,
+    // and dropping the trace here is what left a module whose lifecycle hook threw looking like it
+    // failed for no reason at all -- the cause was recorded and shipped, just never printed.
+    Object stackTrace = line.get("stackTrace");
+    return stackTrace == null ? rendered : rendered + System.lineSeparator() + stackTrace;
   }
 
   private static String resolvePath(String target) {

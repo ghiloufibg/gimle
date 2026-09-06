@@ -95,6 +95,37 @@ class LogsCommandTest {
     return line;
   }
 
+  /**
+   * A failure's message alone rarely says what went wrong. Dropping the trace the reader already
+   * returns is what left a module whose lifecycle hook threw looking like it failed for no reason.
+   */
+  @Test
+  void a_line_carrying_a_stack_trace_prints_it_under_the_message() {
+    Map<String, Object> failure = line("WARN", "module com.example@1.0.0 failed transitioning");
+    failure.put(
+        "stackTrace",
+        "java.lang.NoClassDefFoundError: com.example.MissingDependency\n"
+            + "\tat com.example.Hooks.onStart(Hooks.java:12)");
+    pageLines = List.of(failure);
+
+    run("instance/orders/0");
+
+    assertTrue(printed().contains("failed transitioning"), printed());
+    assertTrue(
+        printed().contains("NoClassDefFoundError: com.example.MissingDependency"), printed());
+    assertTrue(printed().contains("at com.example.Hooks.onStart(Hooks.java:12)"), printed());
+  }
+
+  @Test
+  void a_line_with_no_stack_trace_prints_exactly_as_before() {
+    pageLines = List.of(line("INFO", "handled request"));
+
+    run("instance/orders/0");
+
+    assertFalse(printed().contains("null"), printed());
+    assertTrue(printed().contains("handled request"), printed());
+  }
+
   private void run(String... args) {
     run(OutputFormat.Kind.TABLE, args);
   }
