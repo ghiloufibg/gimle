@@ -175,10 +175,21 @@ function ClustersPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="Control plane URL">
+              <Field
+                label="Control plane URL"
+                hint={
+                  draft.clientCertPath.trim() || draft.clientKeyPath.trim()
+                    ? "mTLS target: use https:// and the machine's own hostname, not an IP address or localhost."
+                    : undefined
+                }
+              >
                 <input
                   value={draft.controlPlaneUrl}
-                  placeholder="127.0.0.1:8080"
+                  placeholder={
+                    draft.clientCertPath.trim() || draft.clientKeyPath.trim()
+                      ? "https://cluster-host:8080"
+                      : "127.0.0.1:8080"
+                  }
                   onChange={(e) => patchDraft({ controlPlaneUrl: e.target.value })}
                   className={inputClass}
                 />
@@ -316,10 +327,21 @@ function ClustersPage() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Control plane URL">
+                <Field
+                  label="Control plane URL"
+                  hint={
+                    (c.clientCertPath ?? "").trim() || (c.clientKeyPath ?? "").trim()
+                      ? "mTLS target: use https:// and the machine's own hostname, not an IP address or localhost."
+                      : undefined
+                  }
+                >
                   <input
                     value={c.controlPlaneUrl}
-                    placeholder="http://127.0.0.1:8080"
+                    placeholder={
+                      (c.clientCertPath ?? "").trim() || (c.clientKeyPath ?? "").trim()
+                        ? "https://cluster-host:8080"
+                        : "http://127.0.0.1:8080"
+                    }
                     onChange={(e) => patch(c.id, { controlPlaneUrl: e.target.value })}
                     className={inputClass}
                   />
@@ -374,16 +396,19 @@ const inputClass =
 function Field({
   label,
   className,
+  hint,
   children,
 }: {
   label: string;
   className?: string;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className={className}>
       <div className="hud-label mb-1">{label}</div>
       {children}
+      {hint && <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }

@@ -16,6 +16,7 @@ function PaletteItem({ kind }: { kind: NodeKind }) {
     <button
       type="button"
       draggable
+      data-testid={`palette-add-${kind}`}
       title={`Add ${KIND_LABELS[kind]} to the middle of the canvas`}
       onClick={add}
       onKeyDown={(event) => {
