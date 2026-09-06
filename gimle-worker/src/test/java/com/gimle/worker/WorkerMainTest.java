@@ -4,14 +4,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleLifecycleException;
+import com.gimle.core.module.HealthProbes;
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ModuleArtifact;
+import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ModuleInstanceId;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleState;
+import com.gimle.module.resolve.ModuleRegistry;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -115,5 +125,136 @@ class WorkerMainTest {
     assertEquals(
         "liveness probe failed 1 time in a row; restarting module",
         WorkerMain.livenessFailureEventFor(IDENTITY, 1).message());
+  }
+
+  // ---- surge-promotion renames (ControlMessage.RenameInstance) ----
+
+  /**
+   * A rename retargets a running instance without any lifecycle transition, so nothing reaches the
+   * lifecycle sink and both indexes involved need their timeline entries minted by hand.
+   */
+  private static ModuleRegistry registryHosting(ModuleInstanceId id, ModuleState state) {
+    ModuleDescriptor descriptor =
+        new ModuleDescriptor(
+            id.name(),
+            id.version(),
+            List.of(),
+            List.of(),
+            IsolationTier.TIER_1,
+            new ResourceSpec("16Mi", "10m"),
+            new ResourceSpec("32Mi", "50m"),
+            HealthProbes.NONE,
+            Optional.empty(),
+            Optional.empty(),
+            Map.of());
+    ModuleRegistry registry = new ModuleRegistry();
+    registry.register(
+        new ModuleArtifact(descriptor.id(), Path.of("greeter.jar"), descriptor, "0".repeat(64)),
+        id.instanceKey());
+    switch (state) {
+      case ACTIVE -> registry.markActive(id);
+      case FAILED -> registry.markFailed(id);
+      default -> {}
+    }
+    return registry;
+  }
+
+  private static ControlMessage.RenameInstance renameTo(ModuleInstanceId id, int instanceIndex) {
+    return new ControlMessage.RenameInstance("c1", id, "greeter", instanceIndex);
+  }
+
+  @Test
+  void promoting_a_surge_instance_carries_the_reused_index_timeline_past_its_teardown() {
+    ModuleInstanceId id =
+        ModuleInstanceId.of(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")), "", "greeter", 3);
+    ModuleRegistry registry = registryHosting(id, ModuleState.ACTIVE);
+    InstanceIdentityRegistry identities = new InstanceIdentityRegistry();
+    identities.register(id, new InstanceIdentity("greeter", 3, Optional.empty()));
+
+    List<InstanceEvent> events =
+        WorkerMain.applyRename(renameTo(id, 0), registry, identities, Optional.empty());
+
+    InstanceEvent adopted =
+        events.stream()
+            .filter(event -> event.instanceIndex() == 0)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no entry for the reused index in " + events));
+    assertEquals(
+        InstanceEventKind.ACTIVE,
+        adopted.kind(),
+        "the reused index's timeline must reflect the running instance now holding it");
+    assertTrue(adopted.message().contains("index 3"), "must name where it came from: " + adopted);
+  }
+
+  @Test
+  void promoting_a_surge_instance_closes_off_the_index_it_gave_up() {
+    ModuleInstanceId id =
+        ModuleInstanceId.of(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")), "", "greeter", 3);
+    ModuleRegistry registry = registryHosting(id, ModuleState.ACTIVE);
+    InstanceIdentityRegistry identities = new InstanceIdentityRegistry();
+    identities.register(id, new InstanceIdentity("greeter", 3, Optional.empty()));
+
+    List<InstanceEvent> events =
+        WorkerMain.applyRename(renameTo(id, 0), registry, identities, Optional.empty());
+
+    InstanceEvent retired =
+        events.stream()
+            .filter(event -> event.instanceIndex() == 3)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no entry for the retired index in " + events));
+    assertEquals(InstanceEventKind.UNINSTALLED, retired.kind());
+    assertTrue(retired.message().contains("index 0"), "must name where it went: " + retired);
+    assertEquals(
+        Optional.of(new InstanceIdentity("greeter", 0, Optional.empty())), identities.lookup(id));
+  }
+
+  @Test
+  void a_promotion_of_an_instance_that_has_since_failed_is_not_recorded_as_a_healthy_one() {
+    ModuleInstanceId id =
+        ModuleInstanceId.of(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")), "", "greeter", 3);
+    ModuleRegistry registry = registryHosting(id, ModuleState.FAILED);
+    InstanceIdentityRegistry identities = new InstanceIdentityRegistry();
+    identities.register(id, new InstanceIdentity("greeter", 3, Optional.empty()));
+
+    List<InstanceEvent> events =
+        WorkerMain.applyRename(renameTo(id, 0), registry, identities, Optional.empty());
+
+    assertEquals(
+        InstanceEventKind.TRANSITION_FAILED,
+        events.stream()
+            .filter(event -> event.instanceIndex() == 0)
+            .findFirst()
+            .orElseThrow()
+            .kind());
+  }
+
+  @Test
+  void a_rename_repeating_the_identity_an_instance_already_holds_records_nothing() {
+    ModuleInstanceId id =
+        ModuleInstanceId.of(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")), "", "greeter", 0);
+    ModuleRegistry registry = registryHosting(id, ModuleState.ACTIVE);
+    InstanceIdentityRegistry identities = new InstanceIdentityRegistry();
+    identities.register(id, new InstanceIdentity("greeter", 0, Optional.empty()));
+
+    assertEquals(
+        List.of(), WorkerMain.applyRename(renameTo(id, 0), registry, identities, Optional.empty()));
+  }
+
+  @Test
+  void a_rename_of_a_module_this_worker_no_longer_hosts_records_nothing() {
+    ModuleInstanceId id =
+        ModuleInstanceId.of(
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0")), "", "greeter", 3);
+    InstanceIdentityRegistry identities = new InstanceIdentityRegistry();
+    identities.register(id, new InstanceIdentity("greeter", 3, Optional.empty()));
+
+    assertEquals(
+        List.of(),
+        WorkerMain.applyRename(
+            renameTo(id, 0), new ModuleRegistry(), identities, Optional.empty()));
   }
 }

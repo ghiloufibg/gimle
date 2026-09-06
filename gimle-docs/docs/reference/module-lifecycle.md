@@ -71,6 +71,24 @@ A module supplies lifecycle hooks (`onInstall`/`onStart`/`onStop`/`onUninstall`)
 execution is MDC-tagged, so a hook's own synchronous logging is correctly categorized as that
 instance's own application output.
 
+A hook is module-supplied code, so anything it throws is treated as that module's failure — an
+`Error` as much as an exception. A badly-packaged artifact whose hook touches a class the jar
+doesn't carry fails with `NoClassDefFoundError`, and that is recorded exactly like any other hook
+failure: the instance moves to `FAILED`, a `TransitionFailed` entry naming the module's own
+exception class and message reaches its timeline, and the full stack trace is written to that
+instance's own log. It never unwinds the worker's control loop, which under
+[Tier 1](../architecture/tiered-isolation.md) density would take every co-tenant module in that JVM
+down with it.
+
+## Event timeline
+
+Every transition above is also recorded as a durable, per-instance timeline entry, which
+`gimle events <deployment> <index>` prints newest-first. The timeline opens with `INSTALLED` — the
+artifact having been accepted is itself the first thing worth recording, and a timeline starting at
+`RESOLVED` reads as if an earlier step had been lost rather than never taken. An in-worker restart
+(a repeatedly-failing liveness probe) shows its own `STOPPING`/`UNINSTALLED`/`INSTALLED`/`ACTIVE`
+run on the same timeline, preceded by the `LIVENESS_FAILED` entry naming why it happened.
+
 ## Hot redeploy
 
 Installing a new version doesn't replace the old one in place: the new version is installed

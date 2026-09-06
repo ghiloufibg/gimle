@@ -13,12 +13,11 @@ import com.gimle.module.probe.ReadinessProbe;
 import com.gimle.module.resolve.ModuleRegistry;
 import com.gimle.module.resolve.ModuleResolver;
 import com.gimle.module.testsupport.TestModuleBuilder;
-import java.io.File;
+import com.gimle.worker.testsupport.PlatformJars;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
@@ -194,34 +193,6 @@ class RealBundledHookAndProbeInvocationTest {
   }
 
   private static List<Path> findPlatformJars() {
-    String[] jarNeedles = {"slf4j-api-", "logback-classic-", "logback-core-", "snakeyaml-"};
-    // gimle-module/gimle-core resolve as installed jars when this test runs in isolation, but as
-    // exploded target/classes directories when the reactor builds gimle-module and gimle-worker
-    // together (Maven then points sibling modules at each other's build output, not the local
-    // repo) -- both are valid JPMS module-path entries, so match either shape.
-    String[] moduleArtifacts = {"gimle-module", "gimle-core"};
-    List<Path> result = new ArrayList<>();
-    String cp = System.getProperty("java.class.path");
-    for (String entry : cp.split(File.pathSeparator)) {
-      String fileName = Path.of(entry).getFileName().toString();
-      String normalized = entry.replace('\\', '/');
-      for (String needle : jarNeedles) {
-        if (fileName.startsWith(needle)
-            && fileName.endsWith(".jar")
-            && !fileName.contains("tests")) {
-          result.add(Path.of(entry));
-        }
-      }
-      for (String artifact : moduleArtifacts) {
-        boolean installedJar = fileName.startsWith(artifact + "-") && fileName.endsWith(".jar");
-        boolean reactorClasses =
-            normalized.endsWith("/" + artifact + "/target/classes")
-                || normalized.endsWith("/" + artifact + "/target/test-classes");
-        if ((installedJar && !fileName.contains("tests")) || reactorClasses) {
-          result.add(Path.of(entry));
-        }
-      }
-    }
-    return result;
+    return PlatformJars.onTestClasspath();
   }
 }
