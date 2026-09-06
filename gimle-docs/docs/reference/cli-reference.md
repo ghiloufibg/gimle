@@ -744,10 +744,20 @@ permissions:
     verb: read
 ```
 
+```yaml
+kind: LimitRange
+name: acme                           # the tenant the bounds apply to
+minRequest: {memory: 24Mi, cpu: 15m} # each bound is a nested block, never a flat
+maxLimit: {memory: 512Mi, cpu: 500m} # minRequestMemory-style field
+```
+
 `Tenant`, `LimitRange`, `RoleBinding`, and `Account` manifests use `name:` for the identifier the
 same way every other kind does, even though their own `get`/`set`/`delete` verbs call it `id` (or
 `username`) — see each kind's own manifest shape by round-tripping `gimle get <kind> <name>
--o json` and reshaping it, or by reading the corresponding `set` command's own flags.
+-o json` and reshaping it, which yields exactly the nested shape a manifest wants. A `LimitRange`
+whose bounds are spelled as flat, flag-mirroring fields (`minRequestMemory: 24Mi`) is **rejected**,
+not quietly stored as a range that bounds nothing, and so is one declaring no bound at all —
+removing a tenant's bounds is `gimle delete limitrange <tenantId>`, which says so unambiguously.
 
 ## Examples
 

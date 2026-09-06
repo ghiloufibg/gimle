@@ -6498,6 +6498,10 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- /limitranges and /limitranges/{tenantId} ----
 
+  /** The four bound keys a {@code PUT /limitranges/{tenantId}} body may carry, in schema order. */
+  private static final List<String> LIMIT_RANGE_BOUND_KEYS =
+      List.of("minRequest", "maxRequest", "minLimit", "maxLimit");
+
   private void handleLimitRangesList(HttpExchange exchange) {
     try {
       Optional<Predicate<Optional<String>>> readableTenant =
@@ -6564,17 +6568,89 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Strict about the body's shape, deliberately: a field this doesn't recognize is refused, never
+   * dropped. A silently-dropped bound is the worst of the three possible outcomes -- the operator
+   * is told the floor they wrote was applied, a boundless LimitRange is stored under that tenant,
+   * and the mistake only surfaces later as a workload that should have been refused running
+   * happily. The nested {@code {memory, cpu}} block is the only accepted spelling of a bound, so a
+   * body mirroring {@code gimle set limitrange}'s flat flag names ({@code minRequestMemory}) is
+   * named back to the caller rather than quietly ignored.
+   *
+   * <p>A body declaring no bound at all is refused for the same reason: a LimitRange bounding
+   * nothing is indistinguishable from having no LimitRange, so it can only ever be a mistake or a
+   * roundabout way of saying {@code DELETE /limitranges/{tenantId}}, which says it unambiguously.
+   */
   private void handlePutLimitRange(HttpExchange exchange, String tenantId) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    List<String> unrecognized =
+        body.keySet().stream()
+            .map(String::valueOf)
+            .filter(key -> !LIMIT_RANGE_BOUND_KEYS.contains(key) && !"tenantId".equals(key))
+            .sorted()
+            .toList();
+    if (!unrecognized.isEmpty()) {
+      respond(
+          exchange,
+          400,
+          "unrecognized limit range field(s): "
+              + String.join(", ", unrecognized)
+              + "; each bound is a nested block, e.g. minRequest: {memory: 24Mi, cpu: 15m} (bounds:"
+              + " "
+              + String.join(", ", LIMIT_RANGE_BOUND_KEYS)
+              + ")");
+      return;
+    }
+    // The resource's identity is the URL path; a body repeating it is tolerated (a GET response
+    // handed straight back as a PUT body round-trips) but never allowed to disagree with it.
+    Object bodyTenantId = body.get("tenantId");
+    if (bodyTenantId != null && !tenantId.equals(String.valueOf(bodyTenantId))) {
+      respond(
+          exchange,
+          400,
+          "body tenantId '" + bodyTenantId + "' does not match path tenant '" + tenantId + "'");
+      return;
+    }
+    if (LIMIT_RANGE_BOUND_KEYS.stream().noneMatch(body::containsKey)) {
+      respond(
+          exchange,
+          400,
+          "a limit range must declare at least one of "
+              + String.join(", ", LIMIT_RANGE_BOUND_KEYS)
+              + "; to remove a tenant's bounds use DELETE /limitranges/"
+              + tenantId);
+      return;
+    }
     LimitRangeSpec spec =
         new LimitRangeSpec(
             tenantId,
-            resourceSpecFromJson((Map<?, ?>) body.get("minRequest")),
-            resourceSpecFromJson((Map<?, ?>) body.get("maxRequest")),
-            resourceSpecFromJson((Map<?, ?>) body.get("minLimit")),
-            resourceSpecFromJson((Map<?, ?>) body.get("maxLimit")));
+            boundFromJson(body, "minRequest"),
+            boundFromJson(body, "maxRequest"),
+            boundFromJson(body, "minLimit"),
+            boundFromJson(body, "maxLimit"));
     storeClient.propose(new StateMutation.PutLimitRange(spec));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Both halves of a bound are required together: a floor on memory alone is a coherent wish, but
+   * {@link ResourceSpec} has no representation for it, so accepting one half would mean inventing a
+   * value for the other.
+   */
+  private static Optional<ResourceSpec> boundFromJson(Map<?, ?> body, String key) {
+    Object bound = body.get(key);
+    if (bound == null) {
+      return Optional.empty();
+    }
+    if (!(bound instanceof Map<?, ?> pair)) {
+      throw new IllegalArgumentException(key + " must be a block with 'memory' and 'cpu'");
+    }
+    Object memory = pair.get("memory");
+    Object cpu = pair.get("cpu");
+    if (memory == null || cpu == null) {
+      throw new IllegalArgumentException(key + " requires both 'memory' and 'cpu'");
+    }
+    return Optional.of(new ResourceSpec(String.valueOf(memory), String.valueOf(cpu)));
   }
 
   private void handleGetLimitRange(HttpExchange exchange, String tenantId) throws IOException {
