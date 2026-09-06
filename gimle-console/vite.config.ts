@@ -72,6 +72,21 @@ export default defineConfig(({ command }) => ({
       "/services": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/networkpolicies": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/limitranges": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      // The rest of the read/write surface the Http*Repository implementations use. A path missing
+      // from this list is not proxied at all: the dev server answers it with index.html, and the
+      // screen behind it reads an unparseable body as a failure -- so anything added to a
+      // repository belongs here too, or it works only in the bundled console.
+      "/accounts": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/cronjobs": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/ingresses": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/jobs": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/kinddefinitions": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/resources": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/rolebindings": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/roles": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/secretmaps": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/secrets": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/statefulsets": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/volumes": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/seal": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/events": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
