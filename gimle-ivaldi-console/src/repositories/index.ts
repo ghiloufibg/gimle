@@ -91,6 +91,7 @@ export type {
   RunEndpoint,
   RunFile,
   RunLogLine,
+  RunMachine,
   RunSnapshot,
   RunStatus,
   RunStep,

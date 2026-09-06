@@ -6,6 +6,7 @@ import type {
   RunArtifact,
   RunEndpoint,
   RunLogLine,
+  RunMachine,
   RunSnapshot,
   RunStep,
   RunnerClient,
@@ -54,6 +55,15 @@ interface Topology {
   agents?: TopologyRole[];
 }
 
+const ROLE_LABEL: Record<string, string> = {
+  store: "store",
+  controlPlane: "control plane",
+  fafnir: "fafnir",
+  muninn: "muninn",
+  andvari: "andvari",
+  agent: "agent",
+};
+
 const DEFAULT_PORT: Record<string, number> = {
   store: 9091,
   controlPlane: 8080,
@@ -100,6 +110,31 @@ interface ManifestDoc {
   jobTemplate?: { module?: { name?: string; version?: string } };
 }
 
+/** Groups the topology's own machines with the roles placed on each -- a run's process groups. */
+function machinesOf(
+  topology: Topology,
+  roles: { kind: string; entry: TopologyRole }[],
+  agents: TopologyRole[],
+  fallbackMachine: string,
+): RunMachine[] {
+  const placements: { kind: string; machine: string }[] = [
+    ...roles.map(({ kind, entry }) => ({ kind, machine: entry.machine ?? fallbackMachine })),
+    ...agents.map((a) => ({ kind: "agent", machine: a.machine ?? fallbackMachine })),
+  ];
+  const machines = topology.machines?.length
+    ? topology.machines
+    : [{ name: fallbackMachine, host: "127.0.0.1" }];
+  return machines
+    .filter((m): m is { name: string; host: string } => Boolean(m.name && m.host))
+    .map((m) => ({
+      name: m.name,
+      host: m.host,
+      roles: placements
+        .filter((p) => p.machine === m.name)
+        .map((p) => ROLE_LABEL[p.kind] ?? p.kind),
+    }));
+}
+
 /**
  * Builds the same event stream a real runner daemon would emit, from the very
  * same payload (topology.yaml + manifests) that is POSTed to it.
@@ -108,6 +143,7 @@ function buildScript(request: CreateRunRequest): {
   steps: RunStep[];
   script: ScriptEntry[];
   artifacts: RunArtifact[];
+  machines: RunMachine[];
 } {
   const byPath = new Map(request.files.map((f) => [f.path, f.content]));
   const topology = safeParse<Topology>(byPath.get("topology.yaml")) ?? {};
@@ -313,7 +349,9 @@ function buildScript(request: CreateRunRequest): {
     endpoints,
   });
 
-  return { steps, script, artifacts };
+  const machines = machinesOf(topology, roles, agents, request.machine);
+
+  return { steps, script, artifacts, machines };
 }
 
 export class MockRunnerClient implements RunnerClient {
@@ -332,13 +370,14 @@ export class MockRunnerClient implements RunnerClient {
   }
 
   async createRun(request: CreateRunRequest): Promise<RunSnapshot> {
-    const { steps, script, artifacts } = buildScript(request);
+    const { steps, script, artifacts, machines } = buildScript(request);
     const runId = `run-${Date.now().toString(36)}`;
     const snapshot: RunSnapshot = {
       runId,
       status: "validating",
       steps,
       endpoints: [],
+      machines,
       artifacts,
       startedAt: new Date().toISOString(),
       finishedAt: null,
@@ -450,6 +489,7 @@ export class MockRunnerClient implements RunnerClient {
           status: "idle",
           steps: [],
           endpoints: [],
+          machines: [],
           artifacts: [],
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),

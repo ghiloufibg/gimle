@@ -8,6 +8,7 @@ import type {
   CreateRunRequest,
   RunEndpoint,
   RunLogLine,
+  RunMachine,
   RunSnapshot,
   RunStep,
   RunnerClient,
@@ -32,17 +33,29 @@ interface RawRunSnapshot {
 }
 
 interface TopologyRole {
+  machine?: string;
   port?: number;
 }
 
 interface Topology {
   transport?: string;
-  machines?: { host?: string }[];
+  machines?: { name?: string; host?: string }[];
+  store?: { replicas?: TopologyRole[] };
   controlPlane?: { replicas?: TopologyRole[] };
   fafnir?: { replicas?: TopologyRole[] };
   muninn?: { replicas?: TopologyRole[] };
   andvari?: { replicas?: TopologyRole[] };
+  agents?: { machine?: string }[];
 }
+
+const ROLE_LABEL: Record<string, string> = {
+  store: "store",
+  controlPlane: "control plane",
+  fafnir: "fafnir",
+  muninn: "muninn",
+  andvari: "andvari",
+  agent: "agent",
+};
 
 function safeParseTopology(content: string | undefined): Topology {
   if (!content) return {};
@@ -82,6 +95,32 @@ function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
       url: `${scheme}://${host}:${andvariPort}/console`,
     });
   return endpoints;
+}
+
+/** Groups the topology's own machines with the roles placed on each -- a run's process groups, as
+ * the wire-level RunSnapshot itself doesn't report placement. */
+function machinesFromTopologyText(content: string | undefined): RunMachine[] {
+  const topology = safeParseTopology(content);
+  const roleEntries: { kind: string; machine?: string }[] = [
+    ...(topology.store?.replicas ?? []).map((r) => ({ kind: "store", machine: r.machine })),
+    ...(topology.controlPlane?.replicas ?? []).map((r) => ({
+      kind: "controlPlane",
+      machine: r.machine,
+    })),
+    ...(topology.fafnir?.replicas ?? []).map((r) => ({ kind: "fafnir", machine: r.machine })),
+    ...(topology.muninn?.replicas ?? []).map((r) => ({ kind: "muninn", machine: r.machine })),
+    ...(topology.andvari?.replicas ?? []).map((r) => ({ kind: "andvari", machine: r.machine })),
+    ...(topology.agents ?? []).map((a) => ({ kind: "agent", machine: a.machine })),
+  ];
+  return (topology.machines ?? [])
+    .filter((m): m is { name: string; host: string } => Boolean(m.name && m.host))
+    .map((m) => ({
+      name: m.name,
+      host: m.host,
+      roles: roleEntries
+        .filter((r) => r.machine === m.name)
+        .map((r) => ROLE_LABEL[r.kind] ?? r.kind),
+    }));
 }
 
 function mapStatus(raw: string | undefined): RunSnapshot["status"] {
@@ -166,10 +205,10 @@ export class HttpRunnerClient implements RunnerClient {
     });
     if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
     const raw = (await res.json()) as RawRunSnapshot;
-    const endpoints = endpointsFromTopologyText(
-      request.files.find((f) => f.path === "topology.yaml")?.content,
-    );
-    return this.toSnapshot(raw, initialSteps(), endpoints);
+    const topologyText = request.files.find((f) => f.path === "topology.yaml")?.content;
+    const endpoints = endpointsFromTopologyText(topologyText);
+    const machines = machinesFromTopologyText(topologyText);
+    return this.toSnapshot(raw, initialSteps(), endpoints, machines);
   }
 
   /**
@@ -193,8 +232,10 @@ export class HttpRunnerClient implements RunnerClient {
       if (!res.ok) return null;
       const raw = (await res.json()) as RawRunSnapshot;
       if (!raw.id || mapStatus(raw.status) === "idle") return null;
-      const endpoints = raw.clusterId ? await this.fetchEndpoints(raw.clusterId) : [];
-      return this.toSnapshot(raw, initialSteps(), endpoints);
+      const topologyText = raw.clusterId ? await this.fetchTopologyText(raw.clusterId) : undefined;
+      const endpoints = endpointsFromTopologyText(topologyText);
+      const machines = machinesFromTopologyText(topologyText);
+      return this.toSnapshot(raw, initialSteps(), endpoints, machines);
     } catch {
       return null;
     }
@@ -222,6 +263,7 @@ export class HttpRunnerClient implements RunnerClient {
   subscribe(runId: string, blueprintId: string, onEvent: (event: RunnerEvent) => void): () => void {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];
+    let machines: RunMachine[] = [];
     let endpointsSettled = false;
     let cursor = 0;
     let seq = 0;
@@ -264,13 +306,15 @@ export class HttpRunnerClient implements RunnerClient {
         // caching then pinned the old scheme and host -- every link dead after a
         // plaintext-to-mTLS switch.
         if (raw.clusterId && (endpoints.length === 0 || !endpointsSettled)) {
-          endpoints = await this.fetchEndpoints(raw.clusterId);
+          const topologyText = await this.fetchTopologyText(raw.clusterId);
+          endpoints = endpointsFromTopologyText(topologyText);
+          machines = machinesFromTopologyText(topologyText);
           endpointsSettled = status === "running" || status === "failed";
         }
         const phase = currentPhaseFor(status);
         if (phase) steps = markCurrentPhase(steps, phase);
         if (status === "running" || status === "failed") steps = finalizeSteps(steps, status);
-        onEvent({ type: "snapshot", snapshot: this.toSnapshot(raw, steps, endpoints) });
+        onEvent({ type: "snapshot", snapshot: this.toSnapshot(raw, steps, endpoints, machines) });
         // Polling continues past `running` and `failed`: both still own a live process tree, and a
         // stop from either is asynchronous, so this poll is the only thing that can carry the run
         // to idle. Stopping here left the screen reading STOPPING forever while the backend had
@@ -302,25 +346,30 @@ export class HttpRunnerClient implements RunnerClient {
     );
     if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
     const raw = (await res.json()) as RawRunSnapshot;
-    return this.toSnapshot({ ...raw, id: raw.id ?? runId }, [], []);
+    return this.toSnapshot({ ...raw, id: raw.id ?? runId }, [], [], []);
   }
 
   /** The cluster's own last-applied topology, fetched once per subscription and cached by the
    * caller -- there is no per-run topology endpoint, only a per-cluster one. */
-  private async fetchEndpoints(clusterId: string): Promise<RunEndpoint[]> {
+  private async fetchTopologyText(clusterId: string): Promise<string | undefined> {
     try {
       const res = await fetch(this.url(`/api/clusters/${encodeURIComponent(clusterId)}/topology`), {
         headers: { accept: "application/json" },
       });
-      if (!res.ok) return [];
+      if (!res.ok) return undefined;
       const body = (await res.json()) as { topology?: string | null };
-      return body.topology ? endpointsFromTopologyText(body.topology) : [];
+      return body.topology ?? undefined;
     } catch {
-      return [];
+      return undefined;
     }
   }
 
-  private toSnapshot(raw: RawRunSnapshot, steps: RunStep[], endpoints: RunEndpoint[]): RunSnapshot {
+  private toSnapshot(
+    raw: RawRunSnapshot,
+    steps: RunStep[],
+    endpoints: RunEndpoint[],
+    machines: RunMachine[],
+  ): RunSnapshot {
     const status = mapStatus(raw.status);
     const settled = status === "idle" || status === "running" || status === "failed";
     return {
@@ -328,6 +377,10 @@ export class HttpRunnerClient implements RunnerClient {
       status,
       steps,
       endpoints: status === "running" ? endpoints : [],
+      // Unlike endpoints, shown throughout the run rather than only once running: which machine
+      // hosts which process is exactly what a boot in progress needs to show for a multi-machine
+      // topology, not only its finished state.
+      machines,
       artifacts: [],
       startedAt: raw.startedAt ?? new Date().toISOString(),
       finishedAt: settled ? (raw.updatedAt ?? null) : null,

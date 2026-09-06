@@ -71,6 +71,59 @@ describe("HttpRunnerClient.currentRun", () => {
   });
 });
 
+describe("HttpRunnerClient.createRun", () => {
+  const client = new HttpRunnerClient("http://127.0.0.1:8079");
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("groups a multi-machine topology's roles by the machine each is placed on", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: "run-1",
+        clusterId: "c1",
+        status: "validating",
+        error: null,
+        startedAt: "2026-01-01T00:00:00Z",
+      }),
+    );
+    const topology = [
+      "machines:",
+      "  - name: m1",
+      "    host: 127.0.0.1",
+      "  - name: m2",
+      "    host: 127.0.0.2",
+      "store:",
+      "  replicas:",
+      "    - machine: m1",
+      "controlPlane:",
+      "  replicas:",
+      "    - machine: m1",
+      "andvari:",
+      "  replicas:",
+      "    - machine: m2",
+      "",
+    ].join("\n");
+
+    const snapshot = await client.createRun({
+      blueprintId: "bp-orders",
+      blueprintName: "orders",
+      machine: "m1",
+      files: [{ path: "topology.yaml", content: topology }],
+    });
+
+    expect(snapshot.machines).toEqual([
+      { name: "m1", host: "127.0.0.1", roles: ["store", "control plane"] },
+      { name: "m2", host: "127.0.0.2", roles: ["andvari"] },
+    ]);
+  });
+});
+
 // HttpRunnerClient.subscribe is not covered here: it schedules its poll loop via
 // window.setInterval, and this suite runs in a plain Node environment with no window (see
 // vitest.config.ts) -- the same reason no test here ever exercised it before this change either.

@@ -292,4 +292,17 @@ describe("useBlueprintStore.addNode", () => {
 
     expect(added!.position).toEqual({ x: 500, y: 500 });
   });
+
+  it("gives a second and third machine their own distinct loopback host, not a collision", () => {
+    const bp = blueprintWith([], []);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    const first = useBlueprintStore.getState().addNode("machine", { x: 0, y: 0 });
+    const second = useBlueprintStore.getState().addNode("machine", { x: 100, y: 100 });
+    const third = useBlueprintStore.getState().addNode("machine", { x: 200, y: 200 });
+
+    expect((first!.data as { host: string }).host).toBe("127.0.0.1");
+    expect((second!.data as { host: string }).host).toBe("127.0.0.2");
+    expect((third!.data as { host: string }).host).toBe("127.0.0.3");
+  });
 });

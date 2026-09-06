@@ -9,6 +9,7 @@ import {
   type CreateRunRequest,
   type RunEndpoint,
   type RunLogLine,
+  type RunMachine,
   type RunSnapshot,
   type RunStatus,
   type RunStep,
@@ -36,6 +37,7 @@ interface RunState {
   status: RunStatus;
   steps: RunStep[];
   endpoints: RunEndpoint[];
+  machines: RunMachine[];
   log: RunLogLine[];
   request: CreateRunRequest | null;
   health: RunnerHealth | null;
@@ -62,6 +64,7 @@ function applySnapshot(snapshot: RunSnapshot) {
     status: snapshot.status,
     steps: snapshot.steps,
     endpoints: snapshot.endpoints,
+    machines: snapshot.machines,
     reason: snapshot.error,
   };
 }
@@ -108,6 +111,7 @@ export const useRunStore = create<RunState>((set, get) => {
     status: "idle",
     steps: [],
     endpoints: [],
+    machines: [],
     log: [],
     request: null,
     health: null,
@@ -200,6 +204,7 @@ export const useRunStore = create<RunState>((set, get) => {
         stopError: null,
         log: [],
         endpoints: [],
+        machines: [],
         steps: [],
         request,
         blueprintId: blueprint.id,

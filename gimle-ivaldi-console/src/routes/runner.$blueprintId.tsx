@@ -47,6 +47,7 @@ function RunnerPage() {
     status,
     steps,
     endpoints,
+    machines,
     log,
     request,
     health,
@@ -247,6 +248,27 @@ function RunnerPage() {
               <p className="mt-1 text-[10px] text-muted-foreground">
                 topology.yaml and manifests are sent when the run starts.
               </p>
+            )}
+          </section>
+
+          <section>
+            <div className="hud-label">Machines</div>
+            {!ownsRun || machines.length === 0 ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">Known once the run starts.</p>
+            ) : (
+              <ul className="mt-1 space-y-1.5">
+                {machines.map((m) => (
+                  <li key={m.name}>
+                    <div className="flex justify-between gap-2 font-mono text-[11px]">
+                      <span className="text-foreground">{m.name}</span>
+                      <span className="num text-muted-foreground">{m.host}</span>
+                    </div>
+                    {m.roles.length > 0 && (
+                      <p className="text-[10px] text-muted-foreground">{m.roles.join(", ")}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
 

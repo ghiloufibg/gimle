@@ -243,7 +243,8 @@ const defaultResources = (): Resources => ({
 export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
   switch (kind) {
     case "machine":
-      return { name: `machine-${seed}`, host: "127.0.0.1" } satisfies MachineData;
+      // 127.0.0.0/8 all routes to loopback, so a distinct IP per machine needs no other setup.
+      return { name: `machine-${seed}`, host: `127.0.0.${seed}` } satisfies MachineData;
     case "store":
       return { machine: "", raftPort: 9080, clientPort: 9091 } satisfies StoreData;
     case "controlPlane":

@@ -385,6 +385,14 @@ export function controlPlanePort(bp: Blueprint): number {
   return cp ? (cp.data as RoleData).port : DEFAULT_PORTS.controlPlane;
 }
 
+/** The host of whichever machine the control plane is actually placed on, not just the first. */
+export function controlPlaneHost(bp: Blueprint): string {
+  const cp = nodesOf(bp, "controlPlane")[0];
+  const machineName = cp ? (cp.data as RoleData).machine : "";
+  const machine = nodesOf(bp, "machine").find((m) => (m.data as MachineData).name === machineName);
+  return machine ? (machine.data as MachineData).host : firstMachineHost(bp);
+}
+
 /** The stable release name for a blueprint: its id, or its name for one never yet stored. */
 export function releaseNameOf(bp: Blueprint): string {
   return bp.id?.trim() || bp.name;
@@ -406,11 +414,8 @@ function renderReadme(bp: Blueprint, standalonePaths: string[]): string {
   // leaves the other machine's processes running and its data behind.
   const machines = nodesOf(bp, "machine").map((m) => (m.data as MachineData).name);
   const port = controlPlanePort(bp);
-  // Under mTLS every leaf certificate is minted for the machine's declared hostname (an IP
-  // literal is refused outright by the topology rules), so an IP here would fail SAN matching
-  // even once the scheme is right.
   const mtls = bp.transport === "mtls";
-  const host = mtls ? firstMachineHost(bp) : "127.0.0.1";
+  const host = controlPlaneHost(bp);
   const scheme = mtls ? "https" : "http";
   const server = `${host}:${port}`;
   // Every client below has to speak the same transport as the cluster, and neither bin/gimle nor

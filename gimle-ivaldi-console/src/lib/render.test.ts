@@ -2,7 +2,7 @@ import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 
 import { sampleBlueprints } from "./samples";
-import { controlPlanePort, firstMachineName, renderFiles } from "./render";
+import { controlPlaneHost, controlPlanePort, firstMachineName, renderFiles } from "./render";
 
 const [ordersPlatform] = sampleBlueprints();
 
@@ -233,6 +233,22 @@ describe("renderFiles, on input the file formats cannot take verbatim", () => {
     expect(readme).toContain("hilmir up -f topology.yaml --machine local");
     expect(readme).toContain("hilmir up -f topology.yaml --machine beta");
     expect(readme).toContain("hilmir down --machine beta");
+  });
+
+  it("README's connect address names the machine the control plane is actually placed on", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const machine = structuredClone(bp.nodes.find((n) => n.kind === "machine")!);
+    machine.id = "m-beta";
+    (machine.data as { name: string; host: string }).name = "beta";
+    (machine.data as { name: string; host: string }).host = "127.0.0.2";
+    bp.nodes.push(machine);
+    const controlPlane = bp.nodes.find((n) => n.kind === "controlPlane")!;
+    (controlPlane.data as { machine: string }).machine = "beta";
+
+    expect(controlPlaneHost(bp)).toBe("127.0.0.2");
+    const readme = renderFiles(bp).find((f) => f.path === "README.md")!.content;
+    expect(readme).toContain(`127.0.0.2:${controlPlanePort(bp)}/console`);
+    expect(readme).not.toContain(`127.0.0.1:${controlPlanePort(bp)}/console`);
   });
 
   it("carries a tenant's isolation posture into bundle.yaml, where the platform reads it", () => {

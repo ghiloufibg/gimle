@@ -10,6 +10,13 @@ export interface RunEndpoint {
   url: string;
 }
 
+/** One machine a run's processes are placed on, and which roles it hosts there. */
+export interface RunMachine {
+  name: string;
+  host: string;
+  roles: string[];
+}
+
 /** One planned unit of work the runner reports on (boot store, deploy bundle, ...). */
 export interface RunStep {
   id: string;
@@ -94,6 +101,10 @@ export interface RunSnapshot {
   status: RunStatus;
   steps: RunStep[];
   endpoints: RunEndpoint[];
+  /** Every machine the topology places a process on, each with its own roles -- what a
+   * multi-machine run's process groups are shown by, since the backend itself reports only a
+   * coarse overall status. */
+  machines: RunMachine[];
   artifacts: RunArtifact[];
   startedAt: string;
   finishedAt: string | null;
