@@ -166,7 +166,8 @@ final class RunLedger {
       }
       try {
         Files.writeString(
-            file, Json.write(remaining.stream().map(RunLedger::toJson).toList()),
+            file,
+            Json.write(remaining.stream().map(RunLedger::toJson).toList()),
             StandardCharsets.UTF_8);
       } catch (final IOException e) {
         throw new HilmirException("failed writing run ledger at " + file, e);
