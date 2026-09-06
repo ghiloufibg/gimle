@@ -115,4 +115,33 @@
       <scope>runtime</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        This module's own CycloneDX SBOM, reflecting exactly gimle-ivaldi's own real dependency
+        graph: gimle-dist copies this module's target/bom.json into the standalone Ivaldi
+        archive's own gimle-ivaldi-*-cyclonedx.json rather than generating a whole-reactor bom of
+        its own and renaming it, since cyclonedx-maven-plugin's makeBom has no artifact-level
+        filter and this module already carries the one dependency graph that archive actually
+        ships. includeProvidedScope=false: a provided-scope dependency is never actually bundled.
+      -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <configuration>
+          <includeProvidedScope>false</includeProvidedScope>
+        </configuration>
+        <executions>
+          <execution>
+            <id>sbom</id>
+            <phase>package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
