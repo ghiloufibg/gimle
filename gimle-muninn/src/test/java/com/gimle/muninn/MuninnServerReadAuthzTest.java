@@ -316,6 +316,65 @@ class MuninnServerReadAuthzTest {
   }
 
   /**
+   * The cross-process trace search reaches every process's shipped spans at once, so an unchecked
+   * one would be a wider hole than any single per-process read: it must run the same gate.
+   */
+  @Test
+  @Timeout(10)
+  void a_caller_with_no_logs_permission_is_forbidden_searching_for_a_trace() throws Exception {
+    CertificateAuthority ca = selfSignedCa();
+    configureServerTls(ca);
+
+    try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
+        server.start();
+        HttpClient client = clientWithLeaf(ca, "mallory");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:"
+                                + server.port()
+                                + "/traces-by-id/0af7651916cd43dd8448eb211c80319c"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_with_an_unscoped_logs_permission_can_search_for_a_trace() throws Exception {
+    CertificateAuthority ca = selfSignedCa();
+    configureServerTls(ca);
+
+    try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      grantUnscopedLogsRead(store.store(), "caller");
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
+        server.start();
+        HttpClient client = clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:"
+                                + server.port()
+                                + "/traces-by-id/0af7651916cd43dd8448eb211c80319c"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  /**
    * Plaintext mode has no identity to check -- fully open, matching every other Gimlé process's
    * documented plaintext posture (see {@code FafnirServer#authorizeSecrets}'s own identical
    * carve-out). Proves the fix didn't accidentally regress the unconfigured default.
