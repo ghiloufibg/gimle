@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code get ingresses [<name>] [--tenant <id>]}, {@code delete ingress <name> [--tenant <id>]},
@@ -23,6 +24,8 @@ public final class IngressCommand {
   private static final String TENANT_USAGE =
       "usage: gimle get|delete ingresses [name] [--tenant <id>]";
 
+  private static final String GET_USAGE = "usage: gimle get ingresses [name] [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -34,12 +37,39 @@ public final class IngressCommand {
   }
 
   public void get(List<String> args) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "ingress", GET_USAGE);
+    if (split.name() == null) {
+      // The collection route answers with an array; only the by-name route answers with a single
+      // object, so the two forms cannot share one response shape.
+      List<Map<String, Object>> ingresses =
+          filterByTenant(
+              client.getList("/ingresses"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
+      OutputFormat.printList(output, ingresses, out);
+      return;
+    }
     String path =
-        args.isEmpty()
-            ? TenantQuery.appendTo("/ingresses", args, TENANT_USAGE)
-            : TenantQuery.appendTo(
-                "/ingresses/" + args.get(0), args.subList(1, args.size()), TENANT_USAGE);
+        TenantQuery.appendTo("/ingresses/" + split.name(), split.flagArgs(), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
+  }
+
+  /**
+   * An Ingress's own JSON shape carries {@code tenantId} at the top level rather than nested under
+   * a {@code spec} object, the same way a Service's does -- an Ingress isn't status-wrapped the way
+   * a workload kind is -- so the filter reads it directly.
+   */
+  private static List<Map<String, Object>> filterByTenant(
+      List<Map<String, Object>> ingresses, String tenantId) {
+    if (tenantId == null) {
+      return ingresses;
+    }
+    List<Map<String, Object>> filtered = new ArrayList<>();
+    for (Map<String, Object> ingress : ingresses) {
+      if (tenantId.equals(ingress.get("tenantId"))) {
+        filtered.add(ingress);
+      }
+    }
+    return filtered;
   }
 
   public void delete(List<String> args) {
@@ -65,6 +95,7 @@ public final class IngressCommand {
     if (Json.asObjectList(root.get("routes")).isEmpty()) {
       throw new CliException("manifest " + file + " must declare at least one route");
     }
+    String name = String.valueOf(root.get("name"));
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("name", root.get("name"));
     body.put("tenantId", root.get("tenantId"));
@@ -85,10 +116,7 @@ public final class IngressCommand {
     client.expectSuccess(response);
     ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(
-        output,
-        resultBody("configured", String.valueOf(root.get("name"))),
-        "ingress/" + root.get("name") + " configured",
-        out);
+        output, resultBody("configured", name), "ingress/" + name + " configured", out);
   }
 
   private static Map<String, Object> resultBody(String verb, String name) {
