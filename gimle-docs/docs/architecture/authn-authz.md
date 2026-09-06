@@ -458,6 +458,17 @@ entirely but still computes an `allowed` boolean worth recording. `SECRET` reads
 audited; the opt-in above is what lets an operator bring another resource kind's reads up to that
 same bar on the control plane's own general RBAC surface.
 
+Andvari audits the same way for the one thing it stores: every `ARTIFACT` push and delete produces
+both a `com.gimle.andvari.audit` SLF4J line and a durable `AuditEvent`, and both name the affected
+`moduleId:version` coordinate (`targetId`) plus the artifact's tenant, so "who deleted what" is
+answerable without correlating timestamps against a separate version listing. Pulls stay
+unaudited — they are the high-volume path, and a pull discloses only what a deployment manifest
+already references. Both halves fire in plaintext mode too, attributed to the synthetic `anonymous`
+principal: there is no caller identity to authorize there, but a jar still arrived or disappeared,
+and a trail that goes silent in exactly the mode a single-machine cluster runs in is not a trail.
+Note that a push routed through the control plane's `/artifacts/*` proxy produces *two* records —
+the proxy's own `ARTIFACT` decision, which carries no coordinate, and Andvari's, which does.
+
 Reading the trail is itself access-controlled, the same "who can grant access is itself an
 access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —
 `ResourceKind.AUDIT`, `Verb.READ`. `GET /audit[?principal=&resource=&tenant=&since=&limit=&cursor=]`
