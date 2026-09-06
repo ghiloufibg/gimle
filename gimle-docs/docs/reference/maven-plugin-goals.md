@@ -402,7 +402,7 @@ safe no-op rather than a duplicate.
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.saga.port` | `9096` | Same as `gimle:saga` above. |
-| `gimle.saga.runId` | *(unset)* | Run id to fold the reports into. Unset derives one deterministically from the reports' own content, so re-running the import twice against unchanged reports is idempotent. |
+| `gimle.saga.runId` | *(unset)* | Run id to fold the reports into. Unset derives one — `import-<16 hex>` — from the swept reports themselves: a SHA-256 over each report's reactor-relative path and its exact bytes, and nothing else. Neither the wall clock nor a file's modification time enters it, so re-importing an unchanged report set keeps folding into the one run it describes instead of minting a new one each time; two genuinely different test runs still separate, since a surefire report records every suite's and test case's own measured duration and outcome. |
 
 ```bash
 mvn gimle:saga-import -Dgimle.saga.runId=2026-08-16T10-30-05_abc1234
