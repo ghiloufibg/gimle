@@ -331,7 +331,7 @@ public final class RunController {
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
     runsByDeployment.put(key, run);
     blueprintId.ifPresent(id -> clusters.recordDeployment(clusterId, id));
-    run.worker = Thread.ofVirtual().start(() -> execute(run, files, values));
+    run.worker = Thread.ofVirtual().start(() -> execute(run, files, values, existing));
     return snapshotOf(run).toJsonMap();
   }
 
@@ -504,7 +504,16 @@ public final class RunController {
 
   // ---- the pipeline ----
 
-  private void execute(ActiveRun run, List<RenderedFile> files, Map<String, String> values) {
+  private void execute(
+      ActiveRun run,
+      List<RenderedFile> files,
+      Map<String, String> values,
+      ActiveRun previousDeployment) {
+    // Flips once this attempt starts touching real infrastructure (a boot, a bundle deploy) --
+    // everything before this point is pure validation and preflight, so a failure there has
+    // changed nothing about whatever this deployment key already held. See
+    // #restorePreviousDeploymentOnRejection.
+    boolean touchedRealState = false;
     try {
       run.status = RunStatus.VALIDATING;
       List<Finding> findings = FileSetValidator.validate(files);
@@ -553,6 +562,7 @@ public final class RunController {
       }
 
       requireNotCancelled(run);
+      touchedRealState = true;
       run.status = RunStatus.BOOTING;
       if (reboot) {
         run.log.append(
@@ -712,6 +722,7 @@ public final class RunController {
         teardown(run);
       } else {
         fail(run, e.getMessage());
+        restorePreviousDeploymentOnRejection(run, previousDeployment, touchedRealState);
       }
     } catch (RuntimeException e) {
       // A cancelled run's own failure is the cancellation, whatever shape it arrived in -- an
@@ -722,6 +733,7 @@ public final class RunController {
       } else {
         log.warn("run {} failed", run.id, e);
         fail(run, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        restorePreviousDeploymentOnRejection(run, previousDeployment, touchedRealState);
       }
     } finally {
       Thread.interrupted();
@@ -1103,6 +1115,46 @@ public final class RunController {
     run.status = RunStatus.FAILED;
     run.error = Optional.ofNullable(message);
     run.log.append("FAILED: " + message);
+  }
+
+  /**
+   * A rejected attempt that never touched real infrastructure (a validation error, a mismatched
+   * cluster address, a conflicting topology change) must not cost the deployment it targeted its
+   * own tracked status: {@link #start} already claimed this deployment's map slot for the new,
+   * now-failed {@code run} before any of that was known, so without this a still-genuinely-running
+   * deployment read back as failed with no processes to every poller -- the blueprint's own Runner
+   * page included -- even though nothing about it actually changed. Restoring {@code previous}
+   * keeps its own log as the one place this rejection is recorded, exactly where a caller already
+   * watching that deployment is already looking. Left alone (attempt reached real infrastructure,
+   * there was nothing running before, or something else already replaced this slot -- a concurrent
+   * stop, or a second attempt racing this one) since none of those has a previous good state worth
+   * restoring, or safely can be.
+   */
+  private void restorePreviousDeploymentOnRejection(
+      ActiveRun run, ActiveRun previousDeployment, boolean touchedRealState) {
+    if (previousDeployment == null
+        || !shouldRestorePreviousDeployment(previousDeployment.status, touchedRealState)) {
+      return;
+    }
+    String key = deploymentKey(run.clusterId, run.blueprintId);
+    if (runsByDeployment.replace(key, run, previousDeployment)) {
+      previousDeployment.log.append(
+          "rejected a new deployment attempt against this cluster: " + run.error.orElse(""));
+      previousDeployment.updatedAt = Instant.now();
+    }
+  }
+
+  /**
+   * The pure eligibility check behind {@link #restorePreviousDeploymentOnRejection}, pulled out so
+   * it is directly testable without booting a real deployment to reach {@code RUNNING}: restoring
+   * only ever makes sense for an attempt that never touched real infrastructure, against a
+   * deployment that was actually live -- a previously {@code FAILED} or {@code IDLE} slot has
+   * nothing worth restoring, and there being no previous run at all is handled by the caller's own
+   * null check.
+   */
+  static boolean shouldRestorePreviousDeployment(
+      RunStatus previousStatus, boolean touchedRealState) {
+    return !touchedRealState && previousStatus == RunStatus.RUNNING;
   }
 
   /**

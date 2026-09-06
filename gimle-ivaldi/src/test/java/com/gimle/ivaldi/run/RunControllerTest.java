@@ -634,6 +634,30 @@ class RunControllerTest {
     assertEquals(List.of("api"), body.get("deploymentNames"));
   }
 
+  /**
+   * Pulled out of {@link RunController#execute} so this exact decision is directly testable without
+   * booting a real deployment all the way to {@code RUNNING} -- see the class javadoc. Found by
+   * hand while re-verifying the "one cluster, many deployments" QA scenario: a genuinely running
+   * deployment's own tracked run was being silently replaced by a *different* blueprint's later,
+   * refused attempt against the same cluster, so a Runner page watching the first deployment
+   * suddenly read "failed" with no processes even though nothing about it had actually changed.
+   */
+  @Test
+  void a_rejected_attempt_that_touched_nothing_real_is_eligible_to_restore_a_running_deployment() {
+    assertTrue(RunController.shouldRestorePreviousDeployment(RunStatus.RUNNING, false));
+  }
+
+  @Test
+  void an_attempt_that_already_touched_real_infrastructure_never_restores_anything() {
+    assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.RUNNING, true));
+  }
+
+  @Test
+  void a_previously_failed_or_idle_deployment_has_nothing_worth_restoring() {
+    assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.FAILED, false));
+    assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.IDLE, false));
+  }
+
   private Map<String, Object> awaitSettled() {
     return awaitSettled(controller::currentSnapshotJson);
   }
