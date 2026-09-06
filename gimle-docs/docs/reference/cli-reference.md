@@ -79,10 +79,10 @@ gimle get <deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignme
                      [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
 gimle apply -f <manifest.yaml>|- [--dry-run]
                                    (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
-                                    ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
-                                    LimitRange, Role, RoleBinding, Account, or any defined custom
-                                    kind, read from the manifest itself; -f - reads the manifest
-                                    from stdin instead of a file)
+                                    ArtifactSet, Service, NetworkPolicy, Ingress, Tenant,
+                                    LimitRange, Role, RoleBinding, Account, KindDefinition, or any
+                                    defined custom kind, read from the manifest itself; -f - reads
+                                    the manifest from stdin instead of a file)
 gimle kinds
 gimle get <custom-kind|plural|shortName> [name] [--tenant <id>]
 gimle delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -729,13 +729,15 @@ mechanism, including how operator modules report the `status` these tables rende
 
 ## Applying non-workload manifests
 
-`apply -f` also covers `Service`, `NetworkPolicy`, `Tenant`, `LimitRange`, `Role`, `RoleBinding`,
-and `Account` — the same manifest-driven convention Deployment/Job/CronJob/DaemonSet/StatefulSet
-already follow, alongside their own bespoke `gimle set <kind> ...` flag-based commands (both stay
-available; a manifest is just an alternative to spelling every field as a flag). Unlike the
-workload kinds, these seven have no `PUT /{kind}/{name}`-shaped route to send the YAML bytes to
-directly, so the CLI parses the manifest client-side and builds the identical JSON body `set`
-already builds from flags, then issues the same request `set` would:
+`apply -f` also covers `Service`, `NetworkPolicy`, `Ingress`, `Tenant`, `LimitRange`, `Role`,
+`RoleBinding`, and `Account` — the same manifest-driven convention
+Deployment/Job/CronJob/DaemonSet/StatefulSet already follow, alongside their own bespoke `gimle set
+<kind> ...` flag-based commands (both stay available; a manifest is just an alternative to spelling
+every field as a flag). `gimle -h` and `gimle apply --help` list every accepted kind, generated from
+the dispatch table itself rather than restated by hand. Unlike the workload kinds, these eight have
+no `PUT /{kind}/{name}`-shaped route to send the YAML bytes to directly, so the CLI parses the
+manifest client-side and builds the identical JSON body `set` already builds from flags, then issues
+the same request `set` would:
 
 ```yaml
 kind: Service
