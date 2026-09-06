@@ -1051,16 +1051,21 @@ public final class GimleCli {
   private static final List<String> DRY_RUN_KINDS =
       List.of("Deployment", "Job", "CronJob", "DaemonSet", "StatefulSet");
 
-  /** Every {@code kind:} {@link #handleApply}'s own switch below names, previewable or not. */
-  private static final Set<String> BUILT_IN_APPLY_KINDS =
-      Set.of(
+  /**
+   * Every {@code kind:} {@link #handleApply}'s own switch below names, previewable or not, in the
+   * order the help text lists them: workload kinds first, then the networking, tenancy and access
+   * kinds, then the meta-kind that defines new ones. Every help surface renders this list rather
+   * than restating it, so a kind added to the switch can never stay invisible to {@code gimle -h}
+   * the way half of these once were.
+   */
+  private static final List<String> BUILT_IN_APPLY_KIND_ORDER =
+      List.of(
           "Deployment",
           "Job",
           "CronJob",
           "DaemonSet",
           "StatefulSet",
           "ArtifactSet",
-          "KindDefinition",
           "Service",
           "NetworkPolicy",
           "Ingress",
@@ -1068,19 +1073,38 @@ public final class GimleCli {
           "LimitRange",
           "Role",
           "RoleBinding",
-          "Account");
+          "Account",
+          "KindDefinition");
+
+  static final Set<String> BUILT_IN_APPLY_KINDS = Set.copyOf(BUILT_IN_APPLY_KIND_ORDER);
+
+  /** The kind list wrapped to {@code width} columns, indented to sit under a help-text label. */
+  private static String applyKindLines(int width, String indent) {
+    StringBuilder text = new StringBuilder();
+    StringBuilder line = new StringBuilder();
+    for (String kind : BUILT_IN_APPLY_KIND_ORDER) {
+      String token = kind + ",";
+      if (!line.isEmpty() && line.length() + 1 + token.length() > width) {
+        text.append(line).append(System.lineSeparator()).append(indent);
+        line.setLength(0);
+      }
+      line.append(line.isEmpty() ? "" : " ").append(token);
+    }
+    return text.append(line).append(" or any defined custom kind (see 'gimle kinds')").toString();
+  }
 
   private static final String APPLY_USAGE =
       """
       usage: gimle apply -f <file.yaml>|- [--dry-run]
 
-      kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any
-      defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field
+      kind: read from the manifest file's own 'kind:' field --
+            %s
 
       --dry-run  preview the submission without applying it: authorization, manifest validation,
                  artifact resolution, quota/limit-range admission and a placement forecast.
                  Exits with the status the real apply would have exited with. Supported for
-                 Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only.""";
+                 Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only."""
+          .formatted(applyKindLines(70, "      "));
 
   private static final String KINDS_USAGE =
       "usage: gimle kinds   (lists every KindDefinition: name, scope, declared names, instance"
@@ -1206,7 +1230,9 @@ public final class GimleCli {
           get cronjobs [name]
           get daemonsets [name]
           get statefulsets [name]
-          apply -f <file.yaml> [--dry-run]   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any defined custom kind, read from the file itself)
+          apply -f <file.yaml> [--dry-run]
+            kind, read from the file itself:
+            %s
           kinds
           get <custom-kind|plural|shortName> [name] [--tenant <id>]
           delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -1325,6 +1351,7 @@ public final class GimleCli {
           cert renew [--force]
           cert revoke <serialHex>
           cert unrevoke <serialHex>
-          cert revocations""";
+          cert revocations"""
+        .formatted(applyKindLines(66, "    "));
   }
 }

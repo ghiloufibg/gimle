@@ -3695,10 +3695,46 @@ public final class ApiServer implements AutoCloseable {
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
+    lastFiringTime(spec).ifPresent(t -> status.put("lastScheduleTime", t.toString()));
     storeClient
         .getCronJobLastSchedule(spec.tenantId(), spec.name())
-        .ifPresent(t -> status.put("lastScheduleTime", t.toString()));
+        .ifPresent(t -> status.put("scheduleEvaluatedThrough", t.toString()));
     return status;
+  }
+
+  /**
+   * When this CronJob last actually produced a Job, read off the generated Jobs themselves -- each
+   * is named {@code {cronJobName}-{epochSeconds}}, so their own names carry the firing times.
+   *
+   * <p>Deliberately not the stored last-schedule value, which is the reconciler's cursor over the
+   * schedule rather than a record of anything running: it is stamped with the current time the
+   * first time a CronJob is reconciled at all, and keeps advancing past every instant that comes
+   * due while the CronJob is suspended. Reported as {@code lastScheduleTime}, that cursor claimed a
+   * firing for a CronJob that had never fired once. It is still worth surfacing -- an operator
+   * asking why nothing has fired wants to know how far the schedule has been evaluated -- so it is
+   * reported alongside, under a name that says what it is.
+   */
+  private Optional<Instant> lastFiringTime(CronJobSpec spec) {
+    return storeClient.listJobSpecs().stream()
+        .filter(job -> job.tenantId().equals(spec.tenantId()))
+        .flatMap(job -> firingTimeOf(spec.name(), job.name()).stream())
+        .max(Comparator.naturalOrder());
+  }
+
+  /**
+   * The firing instant encoded in {@code jobName}, when it names a Job {@code cronJobName}
+   * generated.
+   */
+  private static Optional<Instant> firingTimeOf(String cronJobName, String jobName) {
+    String prefix = cronJobName + "-";
+    if (!jobName.startsWith(prefix)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.ofEpochSecond(Long.parseLong(jobName.substring(prefix.length()))));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
   }
 
   // ---- /daemonsets/{name}, /daemonsets ----
@@ -4662,6 +4698,8 @@ public final class ApiServer implements AutoCloseable {
   private void handleInstanceFabricEndpoint(HttpExchange exchange) {
     try {
       handleInstanceFabricEndpointRequest(exchange);
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("fabric-endpoint request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -4691,7 +4729,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
 
-    Optional<String> tenantId = workloadTenantHint(exchange);
+    Optional<String> tenantId = instanceTenantHint(exchange, deploymentName);
     Optional<InstancePlacement> placement =
         resolveInstancePlacement(tenantId, deploymentName, instanceIndex);
     if (placement.isEmpty()) {
@@ -4890,16 +4928,23 @@ public final class ApiServer implements AutoCloseable {
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
       int slash = tail.indexOf('/');
-      if (slash < 0) {
-        respond(exchange, 400, "expected /nodes/{nodeId}/register|heartbeat|assignments");
-        return;
-      }
-      String nodeId = tail.substring(0, slash);
-      String action = tail.substring(slash + 1);
+      String nodeId = slash < 0 ? tail : tail.substring(0, slash);
       if (nodeId.isBlank()) {
         respond(exchange, 400, "missing nodeId");
         return;
       }
+      if (slash < 0) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (requireAuthorized(
+            exchange, ResourceKind.NODE, Verb.READ, Optional.empty(), Optional.of(nodeId))) {
+          handleNodeRead(exchange, nodeId);
+        }
+        return;
+      }
+      String action = tail.substring(slash + 1);
       // targetId=nodeId is what lets a gimle:nodes principal reach exactly its own subresources
       // (Authorizer's node self-service short-circuit) with no RoleBinding needing to exist for
       // it -- and nothing else. Labelling is deliberately excluded from that: a node that could
@@ -5199,8 +5244,9 @@ public final class ApiServer implements AutoCloseable {
    * InstanceAssignment} (Deployment-kind bookkeeping alone) here left every StatefulSet/DaemonSet
    * instance's own relayed events permanently misfiled under the untenanted namespace regardless of
    * their real tenant, indistinguishable from "genuinely untenanted" to any later {@code ?tenant=}
-   * read. Untenanted (rather than rejected) if no matching assignment is found in any of the four,
-   * e.g. a final lifecycle event arriving just after the assignment itself was already torn down.
+   * read. When no assignment matches -- the ordinary case for a closing event arriving just after
+   * its own placement was torn down -- the owning workload spec's tenant stands in; an event naming
+   * no workload at all is discarded rather than filed anywhere.
    */
   private void handleAppendInstanceEvent(HttpExchange exchange) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -5220,9 +5266,43 @@ public final class ApiServer implements AutoCloseable {
             (String) body.get("message"),
             causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
             ((Number) body.get("occurredAtEpochMilli")).longValue());
-    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex);
+    // A workload's removal wipes the instance timelines it owned, but its instances are only torn
+    // down afterwards, so their last few lifecycle events arrive with nothing left to own them.
+    // Filing those anyway is what let a deleted occupant's STOPPING/UNINSTALLED pair reappear
+    // underneath the fresh timeline of whatever was next created under the same name and index.
+    List<WorkloadSpec> owners = workloadSpecsNamed(deploymentName);
+    if (owners.isEmpty()) {
+      log.debug(
+          "discarding instance event {} for {}#{}: no workload of that name exists",
+          event.id(),
+          deploymentName,
+          instanceIndex);
+      respond(exchange, 200, "discarded: no workload named " + deploymentName);
+      return;
+    }
+    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex, owners);
     storeClient.propose(new StateMutation.AppendInstanceEvent(tenant, event));
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * Every Deployment/Job/DaemonSet/StatefulSet spec currently named {@code name}, across every
+   * tenant -- the "is there anything this event could belong to at all" question, which {@link
+   * #resolveTenantForWorkloadName} cannot answer on its own because it collapses "no such workload"
+   * and "found, but untenanted" into the same empty result.
+   */
+  private List<WorkloadSpec> workloadSpecsNamed(String name) {
+    List<WorkloadSpec> matching = new ArrayList<>();
+    collectNamed(matching, storeClient.listDeployments(), name);
+    collectNamed(matching, storeClient.listJobSpecs(), name);
+    collectNamed(matching, storeClient.listDaemonSetSpecs(), name);
+    collectNamed(matching, storeClient.listStatefulSetSpecs(), name);
+    return matching;
+  }
+
+  private static void collectNamed(
+      List<WorkloadSpec> into, List<? extends WorkloadSpec> specs, String name) {
+    specs.stream().filter(spec -> spec.name().equals(name)).forEach(into::add);
   }
 
   /**
@@ -5230,11 +5310,13 @@ public final class ApiServer implements AutoCloseable {
    * kinds in turn -- Deployment ({@link InstanceAssignment}), StatefulSet, DaemonSet (index always
    * {@code 0}, keyed by node instead), then Job (matched by attempt number) -- exactly the same
    * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
-   * since the whole point here is discovering which tenant owns the name in the first place. {@link
-   * Optional#empty()} (the untenanted namespace) if none of the four currently has a matching
-   * assignment.
+   * since the whole point here is discovering which tenant owns the name in the first place. With
+   * no matching assignment left, {@code owners} -- the workload specs currently carrying this name
+   * -- answers instead, and only a name genuinely claimed by no tenant, or by more than one, falls
+   * through to {@link Optional#empty()} (the untenanted namespace).
    */
-  private Optional<String> resolveInstanceEventTenant(String deploymentName, int instanceIndex) {
+  private Optional<String> resolveInstanceEventTenant(
+      String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
     Optional<Optional<String>> deployment =
         storeClient.listAssignments().stream()
             .filter(
@@ -5266,11 +5348,21 @@ public final class ApiServer implements AutoCloseable {
         return daemonSet.get();
       }
     }
-    return storeClient.listJobRuns().stream()
-        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
-        .map(JobRun::tenantId)
-        .findFirst()
-        .orElse(Optional.empty());
+    Optional<Optional<String>> jobRun =
+        storeClient.listJobRuns().stream()
+            .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+            .map(JobRun::tenantId)
+            .findFirst();
+    if (jobRun.isPresent()) {
+      return jobRun.get();
+    }
+    // No live assignment matches, which is the ordinary case for an event describing an instance
+    // that has just gone away. The owning spec still says which tenant's timeline it belongs on,
+    // and using it is what keeps that timeline sweepable by the owner's own later removal --
+    // an event misfiled under the untenanted namespace would outlive it.
+    List<String> ownerTenants =
+        owners.stream().flatMap(spec -> spec.tenantId().stream()).distinct().toList();
+    return ownerTenants.size() == 1 ? Optional.of(ownerTenants.get(0)) : Optional.empty();
   }
 
   /**
@@ -5318,7 +5410,8 @@ public final class ApiServer implements AutoCloseable {
       Optional<String> tenant =
           declaredTenant.isPresent()
               ? declaredTenant
-              : resolveInstanceEventTenant(deploymentName, instanceIndex);
+              : resolveInstanceEventTenant(
+                  deploymentName, instanceIndex, workloadSpecsNamed(deploymentName));
       if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
@@ -5514,39 +5607,66 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      List<Map<String, Object>> nodes = new ArrayList<>();
       Instant now = Instant.now();
       Instant observingSince = storeClient.nodeObservationWindowStart();
-      for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("nodeId", registration.nodeId());
-        Map<String, Object> capabilities = new LinkedHashMap<>();
-        capabilities.put(
-            "supportedTiers",
-            registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
-        capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
-        capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
-        capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
-        node.put("capabilities", capabilities);
-        node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
-        node.put(
-            "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
-        Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
-        node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
-        observed.ifPresent(
-            heartbeat -> {
-              node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
-              node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
-            });
-        nodes.add(node);
-      }
-      respondJson(exchange, 200, nodes);
+      respondJson(
+          exchange,
+          200,
+          storeClient.listNodeRegistrations().stream()
+              .map(registration -> nodeJson(registration, observingSince, now))
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("nodes list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * One registered node's full read shape -- shared by the whole-cluster listing and the
+   * single-node read, so the two can never drift into describing the same node differently.
+   */
+  private Map<String, Object> nodeJson(
+      NodeRegistration registration, Instant observingSince, Instant now) {
+    Map<String, Object> node = new LinkedHashMap<>();
+    node.put("nodeId", registration.nodeId());
+    Map<String, Object> capabilities = new LinkedHashMap<>();
+    capabilities.put(
+        "supportedTiers",
+        registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+    capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
+    capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
+    capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
+    node.put("capabilities", capabilities);
+    node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
+    node.put("taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
+    Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
+    node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
+    observed.ifPresent(
+        heartbeat -> {
+          node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
+          node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
+        });
+    return node;
+  }
+
+  /**
+   * {@code GET /nodes/{nodeId}} -- the single-node read, in the identical shape {@code GET /nodes}
+   * lists. Without it, addressing one node by name reached the sub-resource dispatcher below and
+   * came back as a usage error, so a caller wanting one node's current labels or taints had no way
+   * to ask for them but to list the whole cluster and filter client-side.
+   */
+  private void handleNodeRead(HttpExchange exchange, String nodeId) throws IOException {
+    Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
+    if (registration.isEmpty()) {
+      respond(exchange, 404, "unknown node: " + nodeId);
+      return;
+    }
+    respondJson(
+        exchange,
+        200,
+        nodeJson(registration.get(), storeClient.nodeObservationWindowStart(), Instant.now()));
   }
 
   // ---- (de)serialization ----
@@ -9059,10 +9179,11 @@ public final class ApiServer implements AutoCloseable {
       // whose owning tenant wasn't literally "default" 404'd on this live path forever -- workable
       // only through Muninn's own fallback store -- even though {@code resolveInstanceNodeId}
       // itself has always been able to resolve it correctly once given the right tenant.
-      Optional<String> tenantId =
+      InstanceLogsTenant instanceTenant =
           tail.startsWith("instances/")
               ? resolveInstanceLogsTenant(exchange, tail)
-              : Optional.empty();
+              : InstanceLogsTenant.NONE;
+      Optional<String> tenantId = instanceTenant.tenantId();
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
@@ -9071,7 +9192,7 @@ public final class ApiServer implements AutoCloseable {
       } else if (tail.startsWith("nodes/")) {
         handleNodeLogsProxy(exchange, tail.substring("nodes/".length()));
       } else if (tail.startsWith("instances/")) {
-        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), tenantId);
+        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), instanceTenant);
       } else {
         respond(exchange, 404, "unknown logs endpoint: " + tail);
       }
@@ -9100,15 +9221,36 @@ public final class ApiServer implements AutoCloseable {
    * the full post-{@code /logs/} path (still carrying its {@code instances/} prefix), matching what
    * {@link #handleLogs} already has in hand.
    */
-  private Optional<String> resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
+  private InstanceLogsTenant resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
     Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
     if (declared.isPresent()) {
-      return declared;
+      return new InstanceLogsTenant(declared, Optional.empty());
     }
     String instanceTail = tail.substring("instances/".length());
     String deploymentName = instanceTail.split("/", 2)[0];
     Optional<String> resolved = resolveTenantForWorkloadName(deploymentName);
-    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
+    return new InstanceLogsTenant(
+        resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID), resolved);
+  }
+
+  /**
+   * How an instance-log request's owning tenant was arrived at. {@code tenantId} is what the
+   * request is authorized and placement-resolved against; {@code agentHint} is the same value only
+   * when it should additionally be spelled out to the node agent on the proxy hop.
+   *
+   * <p>Spelling it out matters because an agent handed a bare name and index has to answer from
+   * whatever it happens to supervise, and that name search does not cover every hosting mode: a
+   * workload running as its own process is filed under a tenant-scoped key with no bare name to
+   * match, so its logs read back empty while an identically-addressed module-hosted instance reads
+   * back fine. The hint is deliberately absent in the two cases where adding it could only do harm
+   * -- the caller already put a {@code tenant=} on the query itself (it is forwarded verbatim), and
+   * the tenant is only {@link #resolveInstanceLogsTenant}'s own default-namespace fallback for a
+   * name no workload spec claims anywhere, where an invented value would turn the agent's working
+   * name search into an exact key miss.
+   */
+  private record InstanceLogsTenant(Optional<String> tenantId, Optional<String> agentHint) {
+    static final InstanceLogsTenant NONE =
+        new InstanceLogsTenant(Optional.empty(), Optional.empty());
   }
 
   /**
@@ -9272,7 +9414,8 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleInstanceLogsProxy(
-      HttpExchange exchange, String tail, Optional<String> tenantId) throws IOException {
+      HttpExchange exchange, String tail, InstanceLogsTenant tenant) throws IOException {
+    Optional<String> tenantId = tenant.tenantId();
     // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. AgentLogServer's
     // "crashdumps" or "crashdumps/<name>") -- a plain 2-way split on the first slash used to
     // swallow anything past the instanceIndex into a failed Integer.parseInt, breaking any
@@ -9314,7 +9457,8 @@ public final class ApiServer implements AutoCloseable {
     }
     // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
     // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
-    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath);
+    proxyToAgent(
+        exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath, tenant.agentHint());
   }
 
   /**
@@ -9414,6 +9558,19 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * {@code rawQuery} with a {@code tenant=} appended when {@code addedTenant} is present, leaving
+   * every other parameter byte-for-byte as the caller sent it. The value is percent-encoded, since
+   * a tenant id reaches this class as arbitrary text from a manifest or a path segment.
+   */
+  private static String withAddedTenant(String rawQuery, Optional<String> addedTenant) {
+    if (addedTenant.isEmpty()) {
+      return rawQuery;
+    }
+    String parameter = "tenant=" + URLEncoder.encode(addedTenant.get(), StandardCharsets.UTF_8);
+    return rawQuery == null || rawQuery.isBlank() ? parameter : rawQuery + "&" + parameter;
+  }
+
+  /**
    * Values are re-encoded on the way out: {@link #parseQuery} hands back already-decoded text, and
    * a content filter's own search text is arbitrary operator input -- a space or {@code &} in it
    * would otherwise splice into, or outright invalidate, the URI built for the downstream hop.
@@ -9503,6 +9660,21 @@ public final class ApiServer implements AutoCloseable {
   private void proxyToAgent(
       HttpExchange exchange, String nodeId, String path, String muninnFallbackPath)
       throws IOException {
+    proxyToAgent(exchange, nodeId, path, muninnFallbackPath, Optional.empty());
+  }
+
+  /**
+   * As above, additionally spelling out {@code addedTenant} as a {@code tenant=} on the forwarded
+   * query -- for a route whose own resolution already established which tenant owns the target and
+   * whose agent-side counterpart would otherwise have to re-derive it from the bare name.
+   */
+  private void proxyToAgent(
+      HttpExchange exchange,
+      String nodeId,
+      String path,
+      String muninnFallbackPath,
+      Optional<String> addedTenant)
+      throws IOException {
     Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
     if (registration.isEmpty()) {
       if (muninnFallbackPath != null) {
@@ -9524,7 +9696,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 502, "node " + nodeId + " has no known log-server address");
       return;
     }
-    String query = exchange.getRequestURI().getRawQuery();
+    String query = withAddedTenant(exchange.getRequestURI().getRawQuery(), addedTenant);
     URI target =
         URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
 
@@ -9723,6 +9895,24 @@ public final class ApiServer implements AutoCloseable {
 
   private static Optional<String> workloadTenantHint(HttpExchange exchange) {
     return Optional.of(parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID));
+  }
+
+  /**
+   * {@link #workloadTenantHint} for a route addressing one instance by bare {@code (name, index)}:
+   * an explicit {@code ?tenant=} still wins, but an omitted one resolves the owning tenant from
+   * whichever workload spec actually carries {@code name} -- the same search {@code
+   * /endpoints/{name}} and the instance-log routes already use -- before falling back to the
+   * default namespace. Defaulting straight to {@code default} instead answered "no placement found"
+   * for a perfectly healthy instance whose workload simply belongs to another tenant, even though
+   * the caller had named it unambiguously.
+   */
+  private Optional<String> instanceTenantHint(HttpExchange exchange, String name) {
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    if (declared.isPresent()) {
+      return declared;
+    }
+    Optional<String> resolved = resolveTenantForWorkloadName(name);
+    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
   }
 
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----

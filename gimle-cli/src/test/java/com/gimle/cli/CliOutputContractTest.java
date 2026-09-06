@@ -230,6 +230,53 @@ class CliOutputContractTest {
     assertEquals("node/node-a cordoned", stdout().strip());
   }
 
+  /**
+   * The table and {@code -o json} are two renderings of one {@code GET /nodes} response, so a taint
+   * an operator can see in the table is necessarily in the JSON as well -- pinned here because the
+   * two renderings are produced by different code paths ({@code humanize} flattens, {@code
+   * withStatus} passes the raw shape through) and only this asserts they stay in agreement.
+   */
+  @Test
+  void a_nodes_taint_reads_back_identically_in_the_table_and_in_json() throws Exception {
+    registerNode("node-a", null);
+    assertEquals(0, run("taint", "node-a", "acme"), stderr());
+    outBuffer.reset();
+
+    assertEquals(0, run("get", "nodes"), stderr());
+    String table = stdout();
+    outBuffer.reset();
+    assertEquals(0, run("-o", "json", "get", "nodes"), stderr());
+    List<Map<String, Object>> json = Json.asObjectList(Json.parse(stdout()));
+
+    List<String> columns = List.of(table.lines().findFirst().orElseThrow().split("\t"));
+    int taintsColumn = columns.indexOf("taints");
+    assertTrue(taintsColumn >= 0, table);
+    String tableTaints = table.lines().skip(1).findFirst().orElseThrow().split("\t")[taintsColumn];
+    assertEquals("acme", tableTaints, table);
+    assertEquals(List.of("acme"), json.get(0).get("taints"), stdout());
+  }
+
+  /**
+   * {@code label node} reads the node's current operator labels before folding its own edits into
+   * them, so the read has to be answerable: addressing one node by name used to reach the
+   * sub-resource dispatcher and come back a usage error, which failed the verb outright.
+   */
+  @Test
+  void label_node_reads_the_nodes_current_labels_and_applies_its_edit() throws Exception {
+    registerNode("node-a", null);
+
+    assertEquals(0, run("label", "node", "node-a", "zone=eu"), stderr());
+    assertEquals("node/node-a labelled zone=eu", stdout().strip());
+
+    outBuffer.reset();
+    assertEquals(0, run("label", "node", "node-a", "tier=gold"), stderr());
+    assertEquals("node/node-a labelled zone=eu,tier=gold", stdout().strip());
+
+    outBuffer.reset();
+    assertEquals(0, run("label", "node", "node-a", "zone=eu-"), stderr());
+    assertEquals("node/node-a labelled tier=gold", stdout().strip());
+  }
+
   @Test
   void volume_destroy_under_json_output_emits_a_parsable_result_object() throws Exception {
     registerNode("node-vol", "127.0.0.1:" + stubAgent.getAddress().getPort());
