@@ -47,6 +47,9 @@ import javax.net.ssl.SSLContext;
  */
 public final class AndvariClient implements AutoCloseable {
 
+  /** Bounds the rendered cause chain in {@link #describe} so one log line can never grow huge. */
+  private static final int MAX_CAUSE_DEPTH = 5;
+
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
   private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
   private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
@@ -115,8 +118,40 @@ public final class AndvariClient implements AutoCloseable {
     try {
       return withEndpoints(baseUri -> headOnce(baseUri, moduleId));
     } catch (IOException e) {
-      return new HeadOutcome.Unreachable(String.valueOf(e.getMessage()));
+      return new HeadOutcome.Unreachable(describe(e));
     }
+  }
+
+  /**
+   * Renders a failure as the reason text {@link HeadOutcome.Unreachable} and {@link #withEndpoints}
+   * report. {@link Throwable#getMessage()} alone is not enough: the JDK HTTP client reports an
+   * unresolvable registry host as a {@code ConnectException} with no message at all, so
+   * interpolating the raw message renders the literal text {@code "null"} and the operator reading
+   * "registry unreachable: null" learns nothing. Falls back to the class name, and to the first
+   * cause that does carry a message, with the chain bounded so it can never grow unbounded.
+   */
+  private static String describe(Throwable failure) {
+    if (failure == null) {
+      return "unknown failure";
+    }
+    StringBuilder rendered = new StringBuilder();
+    Throwable current = failure;
+    for (int depth = 0; current != null && depth <= MAX_CAUSE_DEPTH; depth++) {
+      if (depth > 0) {
+        rendered.append(" caused by ");
+      }
+      String message = current.getMessage();
+      if (message != null && !message.isBlank()) {
+        return rendered
+            .append(depth == 0 ? "" : current.getClass().getName() + ": ")
+            .append(message)
+            .toString();
+      }
+      rendered.append(current.getClass().getName());
+      Throwable cause = current.getCause();
+      current = cause == current ? null : cause;
+    }
+    return rendered.toString();
   }
 
   private HeadOutcome headOnce(URI baseUri, ModuleId moduleId)
@@ -269,7 +304,7 @@ public final class AndvariClient implements AutoCloseable {
     }
     throw new IOException(
         "no configured andvari endpoint reachable"
-            + (lastFailure == null ? "" : ": " + lastFailure.getMessage()),
+            + (lastFailure == null ? "" : ": " + describe(lastFailure)),
         lastFailure);
   }
 
