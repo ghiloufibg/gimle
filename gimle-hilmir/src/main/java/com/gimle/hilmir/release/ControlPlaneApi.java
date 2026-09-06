@@ -144,9 +144,18 @@ public final class ControlPlaneApi {
    * POSTs a JSON body to {@code path} and expects a 2xx response. The counterpart to {@link
    * #putJson} for the control-plane collections that create-or-replace by the name their body
    * carries ({@code /services}, {@code /networkpolicies}) rather than by a name in the URL.
+   *
+   * <p>Returns every {@code X-Gimle-Warning} response header value, in the order the control plane
+   * sent them ({@code ApiServer} adds one per advisory rather than a single combined value) --
+   * empty when the submission raised none. A caller that discards this return value silently drops
+   * a real advisory the control plane went out of its way to report (e.g. a Service whose port
+   * overlaps another one already fronting the same deployment); {@link #putJson} has no such return
+   * because {@code PUT /limitranges/*} never attaches this header today.
    */
-  public void postJson(String path, String jsonBody) {
-    expectSuccess(post(path, jsonBody));
+  public List<String> postJson(String path, String jsonBody) {
+    ApiResponse response = post(path, jsonBody);
+    expectSuccess(response);
+    return response.headers().allValues("X-Gimle-Warning");
   }
 
   /** GETs {@code path}, expects a 2xx response, and parses the body as a JSON object. */
@@ -233,7 +242,7 @@ public final class ControlPlaneApi {
     try {
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      return new ApiResponse(response.statusCode(), response.body());
+      return new ApiResponse(response.statusCode(), response.body(), response.headers());
     } catch (IOException e) {
       // e.getMessage() is null for some IOException subtypes (a bare ConnectException on some
       // platforms carries no detail message at all) -- falling back to the exception's own class

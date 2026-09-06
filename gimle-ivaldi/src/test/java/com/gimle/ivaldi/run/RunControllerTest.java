@@ -1,5 +1,6 @@
 package com.gimle.ivaldi.run;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -369,7 +370,42 @@ class RunControllerTest {
 
     // Both settled to "failed", which still counts as live -- neither was ever explicitly stopped.
     assertThrows(
-        RunController.ClusterInUseException.class, () -> controller.requireNoLiveRun("c1"));
+        RunController.DeploymentInUseException.class, () -> controller.requireNoLiveRun("c1"));
+  }
+
+  /**
+   * The blueprint-deletion counterpart to the cluster-side check above: deleting the blueprint
+   * document must not be allowed to silently orphan the real process tree its still-live run holds
+   * open.
+   */
+  @Test
+  void requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled("bp-one");
+
+    assertThrows(
+        RunController.DeploymentInUseException.class,
+        () -> controller.requireNoLiveRunForBlueprint("bp-one"));
+  }
+
+  /**
+   * A blueprint with no run at all, or whose only run already settled to idle, must not be blocked
+   * from deletion -- the guard exists for a live process tree, not for every blueprint that was
+   * ever run.
+   */
+  @Test
+  void requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+
+    assertDoesNotThrow(() -> controller.requireNoLiveRunForBlueprint("bp-never-run"));
+
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled("bp-one");
+    controller.stopBlueprint("bp-one");
+    awaitSettled("bp-one");
+
+    assertDoesNotThrow(() -> controller.requireNoLiveRunForBlueprint("bp-one"));
   }
 
   /**

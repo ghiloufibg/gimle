@@ -239,23 +239,23 @@ public final class RunController {
   }
 
   /**
-   * Thrown for a 409: deleting a cluster connection out from under a still-tracked deployment (live
-   * or failed-but-not-torn-down) used to succeed silently, leaving the real process tree running
-   * with no cluster record and no run pointing at it any more.
+   * Thrown for a 409: deleting a cluster connection, or a blueprint, out from under a still-tracked
+   * deployment (live or failed-but-not-torn-down) used to succeed silently, leaving the real
+   * process tree running with no cluster/blueprint record and no run pointing at it any more.
    */
-  public static final class ClusterInUseException extends RuntimeException {
-    public ClusterInUseException(String message) {
+  public static final class DeploymentInUseException extends RuntimeException {
+    public DeploymentInUseException(String message) {
       super(message);
     }
   }
 
   /**
    * Refuses to proceed while {@code clusterId} still has any non-idle deployment -- see {@link
-   * ClusterInUseException}. {@code idle} is the only status safe to build over: every other status
-   * either has a live process tree or (for a run this controller itself failed mid-transition) may
-   * still have one, and this process is the only thing that remembers where. Checked across every
-   * deployment on the cluster, not just one: a cluster shared by several blueprints must not be
-   * deleted while any of them is still live.
+   * DeploymentInUseException}. {@code idle} is the only status safe to build over: every other
+   * status either has a live process tree or (for a run this controller itself failed
+   * mid-transition) may still have one, and this process is the only thing that remembers where.
+   * Checked across every deployment on the cluster, not just one: a cluster shared by several
+   * blueprints must not be deleted while any of them is still live.
    */
   public synchronized void requireNoLiveRun(String clusterId) {
     List<String> live =
@@ -264,7 +264,7 @@ public final class RunController {
             .map(run -> run.id)
             .toList();
     if (!live.isEmpty()) {
-      throw new ClusterInUseException(
+      throw new DeploymentInUseException(
           "cluster "
               + clusterId
               + " has "
@@ -272,6 +272,35 @@ public final class RunController {
               + " run(s) this process is tracking ("
               + String.join(", ", live)
               + ") -- stop them before deleting the cluster");
+    }
+  }
+
+  /**
+   * The blueprint-deletion counterpart to {@link #requireNoLiveRun(String)} -- deleting a blueprint
+   * document is a different operation from deleting the cluster connection it was run against, so
+   * it needs its own guard rather than relying on the cluster-side one, which a blueprint delete
+   * never goes anywhere near. Without this, deleting a blueprint mid-run 404s the blueprint while
+   * its real process tree keeps running, orphaned: no longer reachable from the blueprint list, and
+   * tracked only under an id nothing else references any more.
+   */
+  public synchronized void requireNoLiveRunForBlueprint(String blueprintId) {
+    List<String> live =
+        runsByDeployment.values().stream()
+            .filter(
+                run ->
+                    run.blueprintId.map(blueprintId::equals).orElse(false)
+                        && run.status != RunStatus.IDLE)
+            .map(run -> run.id)
+            .toList();
+    if (!live.isEmpty()) {
+      throw new DeploymentInUseException(
+          "blueprint "
+              + blueprintId
+              + " has "
+              + live.size()
+              + " run(s) this process is tracking ("
+              + String.join(", ", live)
+              + ") -- stop them before deleting the blueprint");
     }
   }
 
@@ -974,8 +1003,11 @@ public final class RunController {
     }
     body.put("port", port);
     copyIfPresent(mapping, body, "targetPort");
-    api.postJson("/services", Json.write(body));
+    List<String> advisories = api.postJson("/services", Json.write(body));
     run.log.append("applied service " + name);
+    for (String advisory : advisories) {
+      run.log.append("warning: service " + name + ": " + advisory);
+    }
   }
 
   private void applyNetworkPolicy(

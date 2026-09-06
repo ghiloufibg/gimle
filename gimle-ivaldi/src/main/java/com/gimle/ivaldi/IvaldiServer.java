@@ -130,6 +130,8 @@ public final class IvaldiServer implements AutoCloseable {
       respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (BlueprintStore.IdAlreadyExistsException e) {
       respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
+    } catch (RunController.DeploymentInUseException e) {
+      respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("blueprints request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -164,6 +166,7 @@ public final class IvaldiServer implements AutoCloseable {
       }
       case "PUT" -> respondJson(exchange, 200, store.save(id, readBody(exchange)).toJsonMap());
       case "DELETE" -> {
+        runs.requireNoLiveRunForBlueprint(id);
         boolean deleted = store.delete(id);
         respond(exchange, deleted ? 200 : 404, deleted ? "deleted" : "no such blueprint: " + id);
       }
@@ -196,7 +199,7 @@ public final class IvaldiServer implements AutoCloseable {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (BodyTooLargeException e) {
       respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
-    } catch (RunController.ClusterInUseException e) {
+    } catch (RunController.DeploymentInUseException e) {
       respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("clusters request failed: {}", e.getMessage());
@@ -312,7 +315,7 @@ public final class IvaldiServer implements AutoCloseable {
       respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (RunController.NotFoundException e) {
       respondQuietly(exchange, 404, String.valueOf(e.getMessage()));
-    } catch (RunController.RunInProgressException | RunController.ClusterInUseException e) {
+    } catch (RunController.RunInProgressException | RunController.DeploymentInUseException e) {
       respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("runs request failed: {}", e.getMessage());

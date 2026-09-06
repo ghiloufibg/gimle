@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 938,
+  "requirementCount": 940,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16181,6 +16181,39 @@
       "sourceLocations": [
         "`gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`MemoryField`, `CpuField`, `allowBlank`)",
         "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the LimitRange bound fields)"
+      ]
+    },
+    {
+      "id": "GIMLE-939",
+      "module": "gimle-ivaldi",
+      "feature": "Deleting a blueprint refuses while a run is still tracked against it",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "IvaldiServer.handleOneCluster's DELETE already called RunController#requireNoLiveRun before deleting a cluster connection, but handleOneBlueprint's DELETE had no equivalent guard -- deleting a blueprint mid-run 404'd it while its real process tree kept running, orphaned. RunController.Cluste",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`DeploymentInUseException`, `requireNoLiveRunForBlueprint`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneBlueprint`'s `DELETE` case)"
+      ]
+    },
+    {
+      "id": "GIMLE-940",
+      "module": "gimle-ivaldi",
+      "feature": "A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The control plane's own ServiceAdvisories#overlapWarnings fires as an X-Gimle-Warning header on POST /services, but RunController#applyService discarded the response entirely -- it called ControlPlaneApi#postJson (previously void) and logged only \"applied service <name>\", so the platform's o",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries the control plane's own overlap advisory naming both services. Not covered by a dedicated unit test in this module's own suite.",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ApiResponse.java` (`headers`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`postJson`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyService`)"
       ]
     }
   ]

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 937
+- **Total requirements**: 939
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 807
-- **Release-readiness (automated coverage)**: 13.9%
+- **Not covered by automated test**: 809
+- **Release-readiness (automated coverage)**: 13.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -43,7 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 14 | 0 | 14 | 0.0% |
+| gimle-ivaldi | 16 | 0 | 16 | 0.0% |
 | gimle-ivaldi-console | 14 | 0 | 14 | 0.0% |
 
 ## Checklist
@@ -2582,6 +2582,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-930 | Deleting a cluster connection is refused while any of its deployments is still live | Given a cluster with two deployments, one stopped and one still live, When I delete the cluster connection, Then the delete is refused with 409 naming the still-live deployment. | No |
 | [ ] | GIMLE-931 | Stopping a deployment on a shared cluster undeploys only its own release | Given two blueprints deployed on the same cluster, When I stop one of them, Then only its own release is undeployed and the other blueprint's deployment keeps running. | No |
 | [ ] | GIMLE-933 | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster. | No |
+| [ ] | GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | Given a blueprint with a run this process still tracks as non-idle, When I delete that blueprint, Then the delete is refused with a 409 naming the run, and the blueprint remains readable until the run is stopped. | No |
+| [ ] | GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services. | No |
 
 ### gimle-ivaldi-console
 

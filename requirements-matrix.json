@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 938,
+  "requirementCount": 940,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19304,6 +19304,46 @@
       "statusSummary": "Complete",
       "testCoverageLevel": "No",
       "gapNote": "Verified live via a one-off Playwright script against a real server, not by an automated test in this module's own Vitest suite (plain Node environment, no DOM/browser)."
+    },
+    {
+      "id": "GIMLE-939",
+      "module": "gimle-ivaldi",
+      "feature": "Deleting a blueprint refuses while a run is still tracked against it",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator who deletes a blueprint while its deployment is still running, I want the delete refused with a clear message, not silently accepted while the real process tree keeps running behind a 404'd blueprint.",
+      "statusDetail": "IvaldiServer.handleOneCluster's DELETE already called RunController#requireNoLiveRun before deleting a cluster connection (refusing with 409 while any deployment against it is still live), but handleOneBlueprint's DELETE called store.delete(id) directly with no equivalent guard -- deleting a blueprint mid-run 404'd the blueprint while its 4-5 real JVMs kept running, orphaned: no longer reachable from the blueprint list, and tracked only under an id nothing else referenced any more. RunController.ClusterInUseException is renamed to DeploymentInUseException (it now covers both a cluster's own deletion and a blueprint's) and gains a new requireNoLiveRunForBlueprint(blueprintId), the blueprint-scoped counterpart to the existing cluster-scoped check; IvaldiServer's blueprint DELETE calls it before store.delete, and its outer catch block maps the exception to 409 the same way the clusters handler already did.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`DeploymentInUseException`, `requireNoLiveRunForBlueprint`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneBlueprint`'s `DELETE` case)"
+      ],
+      "testCoverageDetail": "`RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped.",
+      "gherkinSteps": [
+        "Given a blueprint with a run this process still tracks as non-idle, When I delete that blueprint, Then the delete is refused with a 409 naming the run, and the blueprint remains readable until the run is stopped."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-940",
+      "module": "gimle-ivaldi",
+      "feature": "A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator whose blueprint declares two Services that overlap (same port/target fronting the same deployment), I want the platform's own overlap advisory to show up in the run log, not be discarded end to end just because Ivaldi's own static validation has no equivalent check.",
+      "statusDetail": "The control plane's own ServiceAdvisories#overlapWarnings fires as one X-Gimle-Warning response header per advisory on POST /services, but neither of Ivaldi's own two validation tiers (browser rules.ts, server FileSetValidator) has an overlap check of its own, and RunController#applyService discarded the response entirely -- it called ControlPlaneApi#postJson (previously void) and logged only \"applied service <name>\", so the platform's own advisory reached nowhere a user could see it, at design time or real-run time alike. ControlPlaneApi#postJson now returns every X-Gimle-Warning header value from the response (ApiResponse gained the response's HttpHeaders); applyService logs each one into the run log as \"warning: service <name>: <advisory>\" right after applying it. Scoped to postJson only (not putJson): only POST /services attaches this header today.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ApiResponse.java` (`headers`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`postJson`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyService`)"
+      ],
+      "testCoverageDetail": "Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries `warning: service svc-b: service svc-b fronts deployment(s) [web] already fronted by service svc-a in the same tenant -- both names route to the same instances` -- the exact advisory the control plane's own ServiceAdvisories computed. Not covered by a dedicated unit test in this module's own suite (ControlPlaneApi's HTTP plumbing is exercised through RunController's existing integration-style tests, none of which assert on response headers).",
+      "gherkinSteps": [
+        "Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial",
+      "gapNote": "Verified live against a real running cluster rather than by a dedicated unit test asserting on ControlPlaneApi's response headers."
     }
   ]
 }

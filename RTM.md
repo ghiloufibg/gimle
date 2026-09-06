@@ -953,6 +953,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | New | Not Covered | — |
 | GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | New | Not Covered | — |
 | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | New | Not Covered | — |
+| GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | New | Not Covered | — |
+| GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9662,6 +9664,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FileSetValidatorTest.java` (`flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range`, `accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range`, `flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against`, `does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range` -- against a real, hand-built JPMS-shaped jar with a real gimle-module.yaml, not a mock). Also manually verified live end to end via a real running IvaldiServer's POST /api/validate against gimle-examples/hello-module's real built jar (declares request memory 16Mi): a 32Mi-minimum LimitRange correctly produces LIMITRANGE_VIOLATION naming both real numbers, and an 8Mi-minimum LimitRange correctly produces none.
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireJarResourcesWithinLimitRange`, `limitRangesByTenant`)
 
+#### GIMLE-939 — Deleting a blueprint refuses while a run is still tracked against it
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(IvaldiServer.handleOneCluster's DELETE already called RunController#requireNoLiveRun before deleting a cluster connection, but handleOneBlueprint's DELETE had no equivalent guard -- deleting a blueprint mid-run 404'd it while its real process tree kept running, orphaned. RunController.Cluste)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped.
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`DeploymentInUseException`, `requireNoLiveRunForBlueprint`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneBlueprint`'s `DELETE` case)
+
+#### GIMLE-940 — A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The control plane's own ServiceAdvisories#overlapWarnings fires as an X-Gimle-Warning header on POST /services, but RunController#applyService discarded the response entirely -- it called ControlPlaneApi#postJson (previously void) and logged only "applied service <name>", so the platform's o)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries the control plane's own overlap advisory naming both services. Not covered by a dedicated unit test in this module's own suite.
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ApiResponse.java` (`headers`), `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`postJson`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyService`)
+
 ### gimle-ivaldi-console
 
 #### GIMLE-910 — Ivaldi web console: blueprint designer canvas
@@ -9794,7 +9814,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**808 of 938 requirements are Not Covered.**
+**810 of 940 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -10027,6 +10047,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-936 | gimle-ivaldi-console | Click-to-add palette nodes no longer stack invisibly on top of each other | Developer tooling / Internal-Infra | `useBlueprintStore.test.ts` (`useBlueprintStore.addNode` describe block: nudges away from an occupied position, keeps nudging past more than one occupied spot in a row, does not nudge a position nothing else occupies). Also live-verified: two successive click-to-adds via a real running console produce two nodes at two distinct rendered positions. |
 | GIMLE-937 | gimle-ivaldi-console | Cluster action failures show a toast title that matches which action actually failed | Developer tooling / Internal-Infra | `useClustersStore.test.ts` (one test per action's own title, plus a successful action clearing both fields). Also live-verified end to end: created a cluster with a real tracked run against it via the real API, clicked Remove in the real UI, and confirmed the toast reads "Couldn't delete cluster" -- not "Couldn't load clusters". |
 | GIMLE-938 | gimle-ivaldi-console | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM. |
+| GIMLE-939 | gimle-ivaldi | Deleting a blueprint refuses while a run is still tracked against it | Developer tooling / Internal-Infra | `RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped. |
+| GIMLE-940 | gimle-ivaldi | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Developer tooling / Internal-Infra | Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries the control plane's own overlap advisory naming both services. Not covered by a dedicated unit test in this module's own suite. |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |

@@ -187,6 +187,49 @@ class FileSetValidatorTest {
   }
 
   @Test
+  void rejects_a_deployment_with_a_negative_autoscale_min_replicas() {
+    String manifest =
+        """
+        kind: Deployment
+        name: web-ui-deployment
+        module:
+          name: com.example.webui
+          version: 1.1.1
+        replicas: 2
+        autoscale:
+          minReplicas: -5
+          maxReplicas: 3
+          targetCpuUtilizationPercent: 70
+        """;
+
+    List<Finding> findings =
+        FileSetValidator.validate(List.of(file("manifests/20-web-ui-deployment.yaml", manifest)));
+
+    assertEquals("MANIFEST_INVALID", only(findings).code());
+  }
+
+  @Test
+  void rejects_a_deployment_with_a_negative_disruption_max_unavailable() {
+    String manifest =
+        """
+        kind: Deployment
+        name: web-ui-deployment
+        module:
+          name: com.example.webui
+          version: 1.1.1
+        replicas: 2
+        disruption:
+          maxUnavailable: -3
+          maxSurge: 1
+        """;
+
+    List<Finding> findings =
+        FileSetValidator.validate(List.of(file("manifests/20-web-ui-deployment.yaml", manifest)));
+
+    assertEquals("MANIFEST_INVALID", only(findings).code());
+  }
+
+  @Test
   void rejects_a_manifest_with_no_kind_field() {
     List<Finding> findings =
         FileSetValidator.validate(List.of(file("manifests/10-mystery.yaml", "name: mystery\n")));

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 937,
+    "totalRequirements": 939,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 807,
-    "releaseReadinessPercent": 13.9
+    "notCoveredByAutomatedTest": 809,
+    "releaseReadinessPercent": 13.8
   },
   "items": [
     {
@@ -10309,6 +10309,28 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "A blank LimitRange bound field no longer shows a spurious \"not a valid value\" error",
       "step": "Given a LimitRange node, When I clear its min memory field, Then no \"not a valid value\" error appears, but typing a non-numeric value into it still does.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-939",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Deleting a blueprint refuses while a run is still tracked against it",
+      "step": "Given a blueprint with a run this process still tracks as non-idle, When I delete that blueprint, Then the delete is refused with a 409 naming the run, and the blueprint remains readable until the run is stopped.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-940",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped",
+      "step": "Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

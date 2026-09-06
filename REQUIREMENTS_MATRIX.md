@@ -948,6 +948,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Developer tooling / Internal-Infra | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -14132,6 +14134,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster.
+  ```
+
+#### GIMLE-939 — Deleting a blueprint refuses while a run is still tracked against it
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator who deletes a blueprint while its deployment is still running, I want the delete refused with a clear message, not silently accepted while the real process tree keeps running behind a 404'd blueprint.
+- **Status**: IvaldiServer.handleOneCluster's DELETE already called RunController#requireNoLiveRun before deleting a cluster connection (refusing with 409 while any deployment against it is still live), but handleOneBlueprint's DELETE called store.delete(id) directly with no equivalent guard -- deleting a blueprint mid-run 404'd the blueprint while its 4-5 real JVMs kept running, orphaned: no longer reachable from the blueprint list, and tracked only under an id nothing else referenced any more. RunController.ClusterInUseException is renamed to DeploymentInUseException (it now covers both a cluster's own deletion and a blueprint's) and gains a new requireNoLiveRunForBlueprint(blueprintId), the blueprint-scoped counterpart to the existing cluster-scoped check; IvaldiServer's blueprint DELETE calls it before store.delete, and its outer catch block maps the exception to 409 the same way the clusters handler already did.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`DeploymentInUseException`, `requireNoLiveRunForBlueprint`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`handleOneBlueprint`'s `DELETE` case)
+- **Test coverage**: `RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint with a run this process still tracks as non-idle, When I delete that blueprint, Then the delete is refused with a 409 naming the run, and the blueprint remains readable until the run is stopped.
+  ```
+
+#### GIMLE-940 — A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator whose blueprint declares two Services that overlap (same port/target fronting the same deployment), I want the platform's own overlap advisory to show up in the run log, not be discarded end to end just because Ivaldi's own static validation has no equivalent check.
+- **Status**: The control plane's own ServiceAdvisories#overlapWarnings fires as one X-Gimle-Warning response header per advisory on POST /services, but neither of Ivaldi's own two validation tiers (browser rules.ts, server FileSetValidator) has an overlap check of its own, and RunController#applyService discarded the response entirely -- it called ControlPlaneApi#postJson (previously void) and logged only "applied service <name>", so the platform's own advisory reached nowhere a user could see it, at design time or real-run time alike. ControlPlaneApi#postJson now returns every X-Gimle-Warning header value from the response (ApiResponse gained the response's HttpHeaders); applyService logs each one into the run log as "warning: service <name>: <advisory>" right after applying it. Scoped to postJson only (not putJson): only POST /services attaches this header today.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ApiResponse.java` (`headers`), `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`postJson`), `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyService`)
+- **Test coverage**: Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries `warning: service svc-b: service svc-b fronts deployment(s) [web] already fronted by service svc-a in the same tenant -- both names route to the same instances` -- the exact advisory the control plane's own ServiceAdvisories computed. Not covered by a dedicated unit test in this module's own suite (ControlPlaneApi's HTTP plumbing is exercised through RunController's existing integration-style tests, none of which assert on response headers).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services.
   ```
 
 ### gimle-ivaldi-console
