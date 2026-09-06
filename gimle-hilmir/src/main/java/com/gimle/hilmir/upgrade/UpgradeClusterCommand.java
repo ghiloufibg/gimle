@@ -100,10 +100,7 @@ public final class UpgradeClusterCommand {
     final List<ProcessRole> requestedRoles = parseRoles(allValues(args, "--role"));
 
     final ClusterPlan plan = LaunchPlanner.plan(topology, newRuntime);
-    final MachinePlan machinePlan = plan.byMachine().get(machine);
-    if (machinePlan == null) {
-      throw new HilmirException("no machine named '" + machine + "' in this topology");
-    }
+    final MachinePlan machinePlan = plan.requireMachine(machine);
     final List<ProcessRole> rolesToRestart = resolveRoles(machinePlan, machine, requestedRoles);
 
     final List<ProcessRole> restarted = new ArrayList<>();

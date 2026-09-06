@@ -118,6 +118,24 @@ class HilmirMainTest {
   }
 
   @Test
+  void plan_rejects_a_machine_name_the_topology_never_declares() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result result = run("plan", "-f", file.toString(), "--machine", "typo");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no machine named 'typo'"));
+    assertTrue(result.err().contains("m1"));
+  }
+
+  @Test
+  void plan_and_up_reject_an_unknown_machine_name_the_same_way() throws IOException {
+    final Path file = writeTopology(HEALTHY_TOPOLOGY);
+    final Result planResult = run("plan", "-f", file.toString(), "--machine", "typo");
+    final Result upResult = run("up", "-f", file.toString(), "--machine", "typo");
+    assertEquals(upResult.exitCode(), planResult.exitCode());
+    assertEquals(upResult.err(), planResult.err());
+  }
+
+  @Test
   void plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error() throws IOException {
     final Path file = writeTopology("name: broken\n");
     final Result result = run("plan", "-f", file.toString());

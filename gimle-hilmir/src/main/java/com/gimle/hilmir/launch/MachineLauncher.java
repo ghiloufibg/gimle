@@ -95,10 +95,7 @@ public final class MachineLauncher {
       final String machineName,
       final ResolvedRuntime runtime,
       final PrintStream out) {
-    final MachinePlan myPlan = clusterPlan.byMachine().get(machineName);
-    if (myPlan == null) {
-      throw new HilmirException("no machine named '" + machineName + "' in this topology");
-    }
+    final MachinePlan myPlan = clusterPlan.requireMachine(machineName);
     createDirectories(runtime.dataRoot());
 
     final Map<String, RunRecord> alreadyRecorded = existingRecordsById(runtime.dataRoot());
@@ -200,10 +197,7 @@ public final class MachineLauncher {
       final ProcessRole role,
       final ResolvedRuntime newRuntime,
       final PrintStream out) {
-    final MachinePlan myPlan = clusterPlan.byMachine().get(machineName);
-    if (myPlan == null) {
-      throw new HilmirException("no machine named '" + machineName + "' in this topology");
-    }
+    final MachinePlan myPlan = clusterPlan.requireMachine(machineName);
     final ProcessCommand command = findRoleCommand(myPlan, role, machineName);
     final RunRecord existing =
         findExistingLedgerRecord(RunLedger.read(newRuntime.dataRoot()), command, machineName);

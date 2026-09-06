@@ -221,7 +221,11 @@ public final class HilmirMain {
     }
     final ResolvedRuntime runtime = resolveRuntime(topology);
     final ClusterPlan plan = LaunchPlanner.plan(topology, runtime);
-    printPlan(plan, machineFlag(args), out);
+    final Optional<String> machineFilter = machineFlag(args);
+    // A preview is only worth anything if it rejects exactly what running it would reject: an
+    // unresolvable machine name here would otherwise print nothing and succeed.
+    machineFilter.ifPresent(plan::requireMachine);
+    printPlan(plan, machineFilter, out);
     return 0;
   }
 

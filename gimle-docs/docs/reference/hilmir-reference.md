@@ -63,6 +63,9 @@ bootstrap](#remote-ssh-fleet-bootstrap) below.
 conflicts, an even-numbered store replica count, TLS material referenced but never declared) without
 starting anything. `plan` resolves a validated topology into the exact per-machine process commands
 each of Gimlé's process kinds expects — useful for inspecting what `up` would run before it runs it.
+`plan --machine <name>` narrows that preview to one machine and rejects a machine name the topology
+never declares exactly as `up --machine <name>` does, naming the machines the plan does cover — a
+preview that silently printed nothing for a typo'd name would be worse than no preview at all.
 `up` actually spawns every process a topology assigns to `--machine`, waiting on any cross-machine
 prerequisite (a store replica another machine hosts, say) via a plain TCP-connect readiness check
 before starting anything that depends on it; `down`/`status` act on the run ledger `up` wrote, so
