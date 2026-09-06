@@ -12,6 +12,7 @@ import {
   type NodeData,
   type NodeKind,
 } from "@/lib/blueprint";
+import { normaliseBlueprint } from "@/lib/import";
 import { blueprintsRepository } from "@/repositories";
 
 import { useValidationStore } from "./useValidationStore";
@@ -175,6 +176,26 @@ function timeOf(iso: string | undefined): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/**
+ * Runs a blueprint fetched from the backend -- or read back out of a localStorage draft -- through
+ * the same defaulting {@link normaliseBlueprint} already gives an imported file, so a document
+ * missing an optional field (no `runtime`/`version`/`transport` yet, say a bare {@code
+ * POST /api/blueprints} body created outside the console) opens instead of crashing the designer
+ * the moment something reads it. `BlueprintStore` documents its own body as opaque JSON it never
+ * validates, so this is the one place that gap has to be closed for every reader downstream.
+ * Genuinely malformed content (an unknown node kind, a dangling edge) still fails -- that document
+ * cannot be opened either way -- so the caller gets it back unchanged rather than losing the error
+ * this exists to surface.
+ */
+function normaliseLoaded<T extends Blueprint | null>(bp: T): T {
+  if (!bp) return bp;
+  try {
+    return normaliseBlueprint(bp) as T;
+  } catch {
+    return bp;
+  }
+}
+
 export const useBlueprintStore = create<BlueprintState>((set, get) => {
   const commit = (next: Blueprint, markDirty = true) => {
     const current = get().blueprint;
@@ -199,8 +220,8 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
     recoverableDraft: null,
 
     load: async (id) => {
-      const bp = (await blueprintsRepository.get(id)) ?? null;
-      const draft = readDraft(id);
+      const bp = normaliseLoaded((await blueprintsRepository.get(id)) ?? null);
+      const draft = normaliseLoaded(readDraft(id));
       const recoverableDraft =
         draft && (!bp || timeOf(draft.updatedAt) > timeOf(bp.updatedAt)) ? draft : null;
       if (draft && !recoverableDraft) clearDraft(id);
