@@ -3885,7 +3885,10 @@ public final class ApiServer implements AutoCloseable {
         .ifPresent(
             desired -> {
               status.put("desired", desired);
-              status.put("unplacedCount", desired - instances.size());
+              // Clamped: a count of "how many are still missing" is never negative. A scale-down
+              // releases one index per tick by design, so instances legitimately outnumber the
+              // target for a few ticks, and a raw subtraction published that as a negative.
+              status.put("unplacedCount", Math.max(0, desired - instances.size()));
             });
     return status;
   }
@@ -4132,7 +4135,9 @@ public final class ApiServer implements AutoCloseable {
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
-    status.put("unplacedCount", spec.replicas() - instances.size());
+    // Clamped for the same reason the DaemonSet count is: a scale-down leaves more instances than
+    // replicas for a few ticks, and "how many are still missing" cannot be negative.
+    status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
     return status;
@@ -4205,7 +4210,9 @@ public final class ApiServer implements AutoCloseable {
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
-    status.put("unplacedCount", spec.replicas() - instances.size());
+    // Clamped for the same reason the DaemonSet count is: a scale-down leaves more instances than
+    // replicas for a few ticks, and "how many are still missing" cannot be negative.
+    status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.tenantId(), spec.name()));
@@ -7938,6 +7945,19 @@ public final class ApiServer implements AutoCloseable {
    * the caller's socket through to Andvari and a pull flows back, never a whole jar buffered in
    * this process.
    */
+  /**
+   * The {@code moduleId:version} a {@code /artifacts/**} path addresses, absent for the catalog and
+   * per-module listings, which name no single artifact.
+   */
+  private static Optional<String> artifactCoordinateOf(String path) {
+    String tail = path.startsWith("/artifacts/") ? path.substring("/artifacts/".length()) : "";
+    String[] segments = tail.split("/");
+    if (segments.length < 2 || segments[0].isBlank() || segments[1].isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.of(segments[0] + ":" + segments[1]);
+  }
+
   private void handleArtifactsProxy(HttpExchange exchange) {
     try {
       String path = exchange.getRequestURI().getPath();
@@ -7965,7 +7985,10 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      if (!requireAuthorized(exchange, ResourceKind.ARTIFACT, verb, Optional.empty())) {
+      // Named in the audit record rather than left empty: with concurrent pushes, "someone deleted
+      // an artifact" is useless without which one, and the coordinate is right there in the path.
+      if (!requireAuthorized(
+          exchange, ResourceKind.ARTIFACT, verb, Optional.empty(), artifactCoordinateOf(path))) {
         return;
       }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();

@@ -9,6 +9,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.InstanceAssignment;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +128,37 @@ class ApiServerUnplacedReasonTest {
     assertEquals(
         "insufficient capacity on every node",
         getDeployment("orders-service").get("unplacedReason"));
+  }
+
+  /**
+   * A scale-down releases one index per tick by design, so for a few ticks more instances exist
+   * than the spec now asks for. "How many are still missing" cannot be negative, and publishing a
+   * negative made the count read as nonsense rather than as zero-still-missing.
+   */
+  @Test
+  void more_instances_than_replicas_reports_no_unplaced_rather_than_a_negative_count()
+      throws Exception {
+    putDeployment("orders-service", 3);
+    for (int index = 0; index < 3; index++) {
+      inProcessStore
+          .client()
+          .propose(
+              new StateMutation.PutAssignment(
+                  new InstanceAssignment(
+                      "orders-service",
+                      index,
+                      "node-a",
+                      InstanceAssignment.UNSPECIFIED_MODULE,
+                      "",
+                      OptionalInt.empty(),
+                      Optional.of(Tenant.DEFAULT_TENANT_ID))));
+    }
+    // The spec shrinks; the assignments have not been released yet.
+    putDeployment("orders-service", 1);
+
+    Map<String, Object> status = getDeployment("orders-service");
+
+    assertEquals(0, ((Number) status.get("unplacedCount")).intValue());
   }
 
   @Test
