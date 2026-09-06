@@ -10413,12 +10413,12 @@ public final class ApiServer implements AutoCloseable {
    * exact signal {@link Authorizer#authorize} already special-cases as its implicit cluster-admin
    * bypass, rather than inventing a second notion of "trusted enough."
    *
-   * <p>A plaintext caller is {@link #ANONYMOUS_PRINCIPAL}, which carries no groups, so it is never
-   * an operator. That is the whole point of the reserved tenant's veto: it exists precisely because
-   * a broad grant must not be enough, and "the transport authenticated nobody" is weaker than any
-   * grant, not stronger than all of them. Treating the credential-less mode as the one credential
-   * that can never be granted would leave the reserved tenant wide open exactly where nothing
-   * verifies who is calling.
+   * <p>A caller presenting no credential at all is {@link #ANONYMOUS_PRINCIPAL}, which carries no
+   * groups, so it is never an operator. That is the whole point of the reserved tenant's veto: it
+   * exists precisely because a broad grant must not be enough, and "nobody authenticated" is weaker
+   * than any grant, not stronger than all of them. Treating the credential-less case as the one
+   * credential that can never be granted would leave the reserved tenant wide open exactly where
+   * nothing verifies who is calling.
    */
   private boolean isOperatorCaller(HttpExchange exchange) {
     return callerIdentity(exchange)
@@ -10427,16 +10427,19 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * The request's effective identity for a group-membership question: the resolved principal under
-   * mTLS, or the explicit anonymous one when no transport-level credential is possible at all.
+   * The request's effective identity for a group-membership question: whichever credential the
+   * request actually presented, or the explicit anonymous principal when it presented none.
    * Distinct from {@link #resolvePrincipal}, which answers only "which credential did this request
    * present" and stays empty when there is none.
+   *
+   * <p>Privilege follows the credential, not the transport that carried it. Resolving a caller as
+   * anonymous merely because the connection is plaintext would discard a session cookie or bearer
+   * token the caller genuinely holds, and would contradict {@link #resolvePrincipal}, which honours
+   * exactly those credentials on the same request. What must never confer privilege is presenting
+   * nothing at all.
    */
   private Optional<Principal> callerIdentity(HttpExchange exchange) {
-    if (!(exchange instanceof HttpsExchange)) {
-      return Optional.of(ANONYMOUS_PRINCIPAL);
-    }
-    return resolvePrincipal(exchange);
+    return resolvePrincipal(exchange).or(() -> Optional.of(ANONYMOUS_PRINCIPAL));
   }
 
   /**

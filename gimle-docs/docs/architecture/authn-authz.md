@@ -232,9 +232,15 @@ belonging to no group at all — rather than to no identity, so it fails the ope
 like any other non-operator caller and is refused. The alternative reading, "nothing authenticated
 this caller, so treat it as the most privileged one," would leave the reserved tenant writable by
 anyone able to reach the port, on exactly the deployments where nothing verifies who is calling.
-The practical consequence is that anything targeting `gimle-system` — `hilmir enable gateway`, a
-`DaemonSet` manifest naming it — needs an mTLS operator credential; there is no plaintext shortcut
-into the reserved tenant.
+What is checked is the credential, not the transport that carried it — the same rule Kubernetes
+applies, where `kube-apiserver` over plain HTTP still honours a bearer token and only a
+credential-less request becomes `system:anonymous`. A caller holding a real operator session is an
+operator whatever connection it arrived on; resolving it as anonymous would discard a credential it
+genuinely holds, and would contradict the very same request's own principal resolution, which
+honours exactly those credentials. The practical consequence is that anything targeting
+`gimle-system` — `hilmir enable gateway`, a `DaemonSet` manifest naming it — needs a real operator
+credential: an mTLS operator certificate, or a session for an account in the operators group. What
+there is no shortcut for is presenting nothing at all.
 
 The tenant itself is seeded once, idempotently, straight into the store at control-plane startup
 (never through the guarded `/tenants/*` path, so the guard needs no "let the bootstrap request

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.ConsoleAddons;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -2066,6 +2067,70 @@ class ApiServerTest {
     assertTrue(
         ((Number) quota.get("maxInstances")).intValue() > 5,
         "the refused PUT must not have narrowed the seeded quota: " + get.body());
+  }
+
+  /**
+   * The other half of the same rule: what must never confer privilege is presenting no credential,
+   * not using a plaintext connection. A caller holding a real operator session is an operator on
+   * whatever transport carried it -- resolving it as anonymous would discard a credential it
+   * genuinely holds, and would contradict the very same request's own principal resolution.
+   */
+  @Test
+  void a_plaintext_caller_holding_an_operator_session_may_write_the_reserved_system_tenant()
+      throws Exception {
+    String cookie = operatorSessionCookie("sys-admin", "sys-admin-password");
+
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
+                .header("Cookie", cookie)
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 5)))
+                .build());
+
+    assertEquals(200, put.statusCode(), put.body());
+  }
+
+  @Test
+  void a_plaintext_session_without_the_operator_group_still_cannot_write_it() throws Exception {
+    String cookie = operatorSessionCookie("plain-user", "plain-user-password", Set.of());
+
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
+                .header("Cookie", cookie)
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 5)))
+                .build());
+
+    assertEquals(403, put.statusCode(), put.body());
+  }
+
+  private String operatorSessionCookie(String username, String password) throws Exception {
+    return operatorSessionCookie(username, password, Set.of(BuiltinRoles.GROUP_OPERATORS));
+  }
+
+  /** Creates an account in {@code groups}, logs it in, and returns its session cookie header. */
+  private String operatorSessionCookie(String username, String password, Set<String> groups)
+      throws Exception {
+    HttpResponse<String> created =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/" + username))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        Json.write(Map.of("password", password, "groups", List.copyOf(groups)))))
+                .build());
+    assertEquals(200, created.statusCode(), created.body());
+
+    HttpResponse<String> login =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/auth/login"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        Json.write(Map.of("username", username, "password", password))))
+                .build());
+    assertEquals(200, login.statusCode(), login.body());
+    String setCookie =
+        login.headers().firstValue("Set-Cookie").orElseThrow(() -> new AssertionError("no cookie"));
+    return setCookie.substring(0, setCookie.indexOf(';'));
   }
 
   @Test
