@@ -8,6 +8,7 @@ import {
   type Blueprint,
   type BlueprintEdge,
   type BlueprintNode,
+  type EdgeKind,
   type NodeData,
   type NodeKind,
 } from "@/lib/blueprint";
@@ -24,6 +25,42 @@ const HISTORY_LIMIT = 50;
  * exactly on top of the last one, silently hiding whatever was already there -- a real
  * drag-and-drop almost never lands on this exact same spot twice, so it is untouched by this.
  */
+/**
+ * The plain-text node field a placedOn/belongsTo edge's own source node had copied into it at
+ * connect time (see `connect` below) -- the field this edge's removal must clear, or it survives
+ * as a stale value the moment the edge is gone: editable again, but still naming the machine/
+ * tenant the link used to point at. Neither of the other three edge kinds (fronts/allowsCaller/
+ * restricts) copies anything into a field at connect time, so there is nothing to clear for them.
+ */
+function linkedFieldFor(kind: EdgeKind): "machine" | "tenantId" | undefined {
+  if (kind === "placedOn") return "machine";
+  if (kind === "belongsTo") return "tenantId";
+  return undefined;
+}
+
+/**
+ * Every surviving source node whose own placedOn/belongsTo edge is about to disappear -- named
+ * explicitly in doomedEdges, or cascaded because its target is in doomedNodes -- mapped to which
+ * field on it needs clearing. A source node itself in doomedNodes needs nothing: it's gone either
+ * way. Shared by every deletion path (removeNode, removeNodes, removeEdges,
+ * removeNodesAndEdges) so the same rule can't drift between them.
+ */
+function clearedFieldsFor(
+  bp: Blueprint,
+  doomedNodes: Set<string>,
+  doomedEdges: Set<string>,
+): Map<string, "machine" | "tenantId"> {
+  const cleared = new Map<string, "machine" | "tenantId">();
+  for (const e of bp.edges) {
+    if (doomedNodes.has(e.source)) continue;
+    const field = linkedFieldFor(e.kind);
+    if (field && (doomedEdges.has(e.id) || doomedNodes.has(e.target))) {
+      cleared.set(e.source, field);
+    }
+  }
+  return cleared;
+}
+
 function nextFreePosition(
   nodes: BlueprintNode[],
   requested: { x: number; y: number },
@@ -172,12 +209,22 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       });
     },
 
+    // This one node's own delete button in the Inspector -- the canvas's combined delete gesture
+    // goes through removeNodesAndEdges instead, but both can remove a placedOn/belongsTo edge, so
+    // both need the same field-clearing treatment (see linkedFieldFor's own comment).
     removeNode: (id) => {
       const bp = get().blueprint;
       if (!bp) return;
+      const doomedNodes = new Set([id]);
+      const clearedFields = clearedFieldsFor(bp, doomedNodes, new Set());
       commit({
         ...bp,
-        nodes: bp.nodes.filter((n) => n.id !== id),
+        nodes: bp.nodes
+          .filter((n) => n.id !== id)
+          .map((n) => {
+            const field = clearedFields.get(n.id);
+            return field ? { ...n, data: { ...n.data, [field]: "" } as NodeData } : n;
+          }),
         edges: bp.edges.filter((e) => e.source !== id && e.target !== id),
       });
       if (get().selectedId === id) set({ selectedId: null });
@@ -188,9 +235,15 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const bp = get().blueprint;
       if (!bp || ids.length === 0) return;
       const doomed = new Set(ids);
+      const clearedFields = clearedFieldsFor(bp, doomed, new Set());
       commit({
         ...bp,
-        nodes: bp.nodes.filter((n) => !doomed.has(n.id)),
+        nodes: bp.nodes
+          .filter((n) => !doomed.has(n.id))
+          .map((n) => {
+            const field = clearedFields.get(n.id);
+            return field ? { ...n, data: { ...n.data, [field]: "" } as NodeData } : n;
+          }),
         edges: bp.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
       });
       set({ selectedId: null, selectedIds: [], selectedEdgeIds: [] });
@@ -200,7 +253,15 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const bp = get().blueprint;
       if (!bp || ids.length === 0) return;
       const doomed = new Set(ids);
-      commit({ ...bp, edges: bp.edges.filter((e) => !doomed.has(e.id)) });
+      const clearedFields = clearedFieldsFor(bp, new Set(), doomed);
+      commit({
+        ...bp,
+        nodes: bp.nodes.map((n) => {
+          const field = clearedFields.get(n.id);
+          return field ? { ...n, data: { ...n.data, [field]: "" } as NodeData } : n;
+        }),
+        edges: bp.edges.filter((e) => !doomed.has(e.id)),
+      });
       set({ selectedEdgeIds: [] });
     },
 
@@ -216,9 +277,15 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       if (!bp || (nodeIds.length === 0 && edgeIds.length === 0)) return;
       const doomedNodes = new Set(nodeIds);
       const doomedEdges = new Set(edgeIds);
+      const clearedFields = clearedFieldsFor(bp, doomedNodes, doomedEdges);
       commit({
         ...bp,
-        nodes: bp.nodes.filter((n) => !doomedNodes.has(n.id)),
+        nodes: bp.nodes
+          .filter((n) => !doomedNodes.has(n.id))
+          .map((n) => {
+            const field = clearedFields.get(n.id);
+            return field ? { ...n, data: { ...n.data, [field]: "" } as NodeData } : n;
+          }),
         edges: bp.edges.filter(
           (e) => !doomedEdges.has(e.id) && !doomedNodes.has(e.source) && !doomedNodes.has(e.target),
         ),
@@ -292,7 +359,15 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
     disconnect: (edgeId) => {
       const bp = get().blueprint;
       if (!bp) return;
-      commit({ ...bp, edges: bp.edges.filter((e) => e.id !== edgeId) });
+      const edge = bp.edges.find((e) => e.id === edgeId);
+      const field = edge && linkedFieldFor(edge.kind);
+      const nodes =
+        edge && field
+          ? bp.nodes.map((n) =>
+              n.id === edge.source ? { ...n, data: { ...n.data, [field]: "" } as NodeData } : n,
+            )
+          : bp.nodes;
+      commit({ ...bp, nodes, edges: bp.edges.filter((e) => e.id !== edgeId) });
     },
 
     patchBlueprint: (patch) => {

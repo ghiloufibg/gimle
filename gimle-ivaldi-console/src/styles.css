@@ -208,3 +208,14 @@
 .react-flow__attribution {
   display: none;
 }
+
+/* React Flow's own base stylesheet explicitly suppresses the native focus outline
+   (`.react-flow__node.selectable:focus-visible { outline: none; }`) so a keyboard user tabbing
+   onto a node that isn't yet selected -- app-level "selected" is a separate ring, styled entirely
+   inside the node's own content -- had no visible indication of where focus landed at all.
+   !important, not just higher specificity: that rule loads from a component-level import
+   (DesignerCanvas.tsx), after this file, so specificity alone would still lose a load-order tie. */
+.react-flow__node.selectable:focus-visible {
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: 2px;
+}

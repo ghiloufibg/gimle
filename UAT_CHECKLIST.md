@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 939
+- **Total requirements**: 951
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 809
-- **Release-readiness (automated coverage)**: 13.8%
+- **Not covered by automated test**: 821
+- **Release-readiness (automated coverage)**: 13.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -44,7 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 16 | 0 | 16 | 0.0% |
-| gimle-ivaldi-console | 14 | 0 | 14 | 0.0% |
+| gimle-ivaldi-console | 26 | 0 | 26 | 0.0% |
 
 ## Checklist
 
@@ -2605,3 +2605,15 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | Given a node already on the canvas at the palette's own drop-center point, When I click a palette item to add another, Then the new node lands at a visibly different position, not exactly on top of the first. | No |
 | [ ] | GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | Given a cluster connection with a live deployment tracked against it, When I click Remove, Then the toast is titled "Couldn't delete cluster", naming the action that actually failed. | No |
 | [ ] | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Given a LimitRange node, When I clear its min memory field, Then no "not a valid value" error appears, but typing a non-numeric value into it still does. | No |
+| [ ] | GIMLE-941 | A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0 | Given a Service node, When I clear its Target Port field, Then no port-range error appears and the exported manifest omits the key entirely. | No |
+| [ ] | GIMLE-942 | Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP) | Given two Services in the same tenant that both front deployment "web", When I validate, Then each shows a SERVICE_OVERLAP warning naming the other. | No |
+| [ ] | GIMLE-943 | Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time | Given a Deployment with autoscale minReplicas -5, When I validate, Then AUTOSCALE_RANGE names the negative value. Given a Deployment with disruption maxUnavailable -3, When I validate, Then DISRUPTION_RANGE names the negative value. | No |
+| [ ] | GIMLE-944 | NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code | Given a NetworkPolicy node, When I read its Tenant id field's hint, Then it states that dragging to a tenant adds an allowed caller, not that it sets the policy's own scope. | No |
+| [ ] | GIMLE-945 | DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported | Given a DaemonSet node, When I check "Tolerate all taints", Then its exported manifest carries `tolerateAllTaints: true`. | No |
+| [ ] | GIMLE-946 | Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale | Given a Service linked to a Tenant, When I delete that Tenant (via the canvas or the Inspector's own delete button) or explicitly unlink it, Then the Service's own Tenant id field is blank and editable, not stuck showing the old tenant. | No |
+| [ ] | GIMLE-947 | A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator | Given a canvas with more than one node, When I Tab to a node without pressing Enter, Then it shows a visible outline distinct from the unfocused resting state. | No |
+| [ ] | GIMLE-948 | Keyboard/screen-reader focus moves to an announced landmark on every client-side route change | Given I am on one screen, When I click a link to another screen, Then keyboard focus moves to an announced landmark on the new screen instead of staying on <body>. | No |
+| [ ] | GIMLE-949 | Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport | Given the Designer open at 1280x800, When I look for the Full and theme-toggle buttons, Then the page itself does not overflow and both buttons are reachable by scrolling the header. | No |
+| [ ] | GIMLE-950 | The Blueprint list table scrolls horizontally at phone width instead of clipping columns | Given the Blueprint list open at 390px width, When I look at the table, Then every column is reachable by scrolling horizontally, not clipped off-screen. | No |
+| [ ] | GIMLE-951 | Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app | Given the Problems drawer is open, When I press Escape, Then the drawer closes. | No |
+| [ ] | GIMLE-952 | Every Inspector and Blueprint Settings form field now has a real accessible name | Given any Inspector or Settings text/number/select field, When a screen reader announces it, Then it announces the field's own visible label, not a bare "edit text". | No |

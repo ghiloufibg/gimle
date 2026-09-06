@@ -104,11 +104,17 @@ function TenantField({
   node,
   problems,
   onChange,
+  freeTextHint,
 }: {
   blueprint: Blueprint;
   node: BlueprintNode;
   problems: Problem[];
   onChange: (tenantId: string) => void;
+  /** Overrides the free-text-mode hint below. NetworkPolicy needs its own: dragging from it to a
+   * Tenant on the canvas never sets this field (it adds an allowed caller instead -- see
+   * edgeKindFor's own comment), so the generic "drag to link" instruction would be actively
+   * misleading for this one kind. */
+  freeTextHint?: string;
 }) {
   const effective = effectiveTenant(blueprint, node);
   return (
@@ -123,7 +129,8 @@ function TenantField({
           ? "Set by the link on the canvas. Remove the link below to type it here."
           : // Same caveat as MachineField: this is a copy of the id, not a belongsTo link, so
             // renaming the tenant won't follow it and it won't appear in Links below.
-            "Free text, not a link. Drag a connection from this node to the tenant on the canvas to link them."
+            (freeTextHint ??
+            "Free text, not a link. Drag a connection from this node to the tenant on the canvas to link them.")
       }
       problems={problems}
     />
@@ -313,6 +320,13 @@ function WorkloadForm({
           }
         />
       )}
+      {kind === "daemonSet" && (
+        <CheckboxField
+          label="Tolerate all taints"
+          checked={Boolean(d.tolerateAllTaints)}
+          onChange={(tolerateAllTaints) => update({ tolerateAllTaints } as Partial<NodeData>)}
+        />
+      )}
       <ListField
         label="Required labels"
         values={d.placement?.requiredLabels ?? []}
@@ -359,6 +373,7 @@ function WorkloadForm({
                     autoscale: { ...d.autoscale!, targetCpuUtilizationPercent },
                   } as Partial<NodeData>)
                 }
+                problems={pick(problems, ["AUTOSCALE_RANGE"])}
               />
             </div>
           )}
@@ -385,7 +400,7 @@ function WorkloadForm({
                 onChange={(maxUnavailable) =>
                   update({ disruption: { ...d.disruption!, maxUnavailable } } as Partial<NodeData>)
                 }
-                problems={pick(problems, ["DISRUPTION_BOTH_ZERO"])}
+                problems={pick(problems, ["DISRUPTION_BOTH_ZERO", "DISRUPTION_RANGE"])}
               />
               {kind === "deployment" && (
                 <NumberField
@@ -394,7 +409,7 @@ function WorkloadForm({
                   onChange={(maxSurge) =>
                     update({ disruption: { ...d.disruption!, maxSurge } } as Partial<NodeData>)
                   }
-                  problems={pick(problems, ["DAEMONSET_MAX_SURGE"])}
+                  problems={pick(problems, ["DISRUPTION_RANGE"])}
                 />
               )}
             </div>
@@ -692,6 +707,9 @@ function NodeForm({
               label="Target port"
               value={d.targetPort}
               onChange={(targetPort) => update({ targetPort } as Partial<NodeData>)}
+              problems={pick(problems, ["SERVICE_PORT_RANGE"])}
+              hint="Blank defaults to Port."
+              allowBlank
             />
           </div>
           <ListField
@@ -699,7 +717,7 @@ function NodeForm({
             values={d.deploymentNames ?? []}
             options={workloadOptions(blueprint)}
             onChange={(deploymentNames) => update({ deploymentNames } as Partial<NodeData>)}
-            problems={pick(problems, ["SERVICE_TARGET_MISSING"])}
+            problems={pick(problems, ["SERVICE_TARGET_MISSING", "SERVICE_OVERLAP"])}
           />
         </>
       );
@@ -718,13 +736,14 @@ function NodeForm({
             node={node}
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
+            freeTextHint="Free text, not a link. Dragging from this node to a tenant on the canvas adds it below as an allowed caller instead -- type the id here to set which tenant this policy itself belongs to."
           />
           <ListField
             label="Deployment names"
             values={d.deploymentNames ?? []}
             options={workloadOptions(blueprint)}
             onChange={(deploymentNames) => update({ deploymentNames } as Partial<NodeData>)}
-            problems={pick(problems, ["POLICY_NO_DIRECTION"])}
+            problems={pick(problems, ["POLICY_TENANT_WIDE"])}
           />
           <ListField
             label="Allowed caller tenants"

@@ -215,6 +215,7 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
       dis.maxSurge = d.disruption.maxSurge;
     doc.disruption = dis;
   }
+  if (node.kind === "daemonSet" && d.tolerateAllTaints) doc.tolerateAllTaints = true;
   return doc;
 }
 
@@ -247,16 +248,20 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
       .filter((n): n is BlueprintNode => Boolean(n))
       .map((n) => (n.data as WorkloadData).name);
     const names = [...new Set([...(d.deploymentNames ?? []), ...fronted])].sort();
+    const serviceDoc: Record<string, unknown> = {
+      kind: "Service",
+      name: d.name,
+      tenantId: tenantIdOf(bp, s) ?? d.tenantId,
+      deploymentNames: names,
+      port: d.port,
+    };
+    // Omitted rather than written as null/undefined when blank -- the platform's own
+    // ServiceSpec.targetPort is an OptionalInt that then defaults to `port`, and an explicit key
+    // here would fail to parse as the number the manifest schema expects.
+    if (d.targetPort !== undefined) serviceDoc.targetPort = d.targetPort;
     files.push({
       path,
-      content: yml({
-        kind: "Service",
-        name: d.name,
-        tenantId: tenantIdOf(bp, s) ?? d.tenantId,
-        deploymentNames: names,
-        port: d.port,
-        targetPort: d.targetPort,
-      }),
+      content: yml(serviceDoc),
     });
   }
 

@@ -245,6 +245,14 @@ function Designer() {
         void document.exitFullscreen();
         return;
       }
+      // Every other dismissible surface here (the delete-confirmation dialog, most native
+      // pickers) already closes on Escape; the Problems/Files/Run drawer didn't, only via its own
+      // header toggle or re-pressing the same toolbar button -- read live off the store, not the
+      // `drawer` in this component's own closure, since this effect's deps array never re-runs it.
+      if (e.key === "Escape" && useUiStore.getState().drawer) {
+        useUiStore.getState().setDrawer(null);
+        return;
+      }
       const target = e.target as HTMLElement | null;
       const typing =
         target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
@@ -328,7 +336,17 @@ function Designer() {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-3 py-2">
+      {/*
+        None of this row's children (the name/version inputs, the run-status badge, the dozen
+        toolbar buttons) ever shrink or wrap -- below a certain viewport width, `justify-between`
+        has no slack left to distribute and used to push the header (and with it the whole page,
+        since nothing here was ever contained) wider than the viewport, hiding real controls (Full,
+        the theme toggle) off the right edge with no on-screen sign anything was off-screen.
+        overflow-x-auto contains that overflow to this one strip, scrollable in place, rather than
+        letting it propagate to <body> -- every control stays reachable at any width instead of a
+        wider structural rework of the toolbar itself.
+      */}
+      <header className="flex shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-border px-3 py-2">
         <div className="flex items-center gap-4">
           <Link to="/">
             <IvaldiWordmark compact />

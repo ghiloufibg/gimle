@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import type { Problem } from "@/lib/blueprint";
 import {
@@ -38,15 +38,26 @@ export function Field({
   problems = [],
   children,
   hint,
+  htmlFor,
 }: {
   label: string;
   problems?: Problem[];
   children: ReactNode;
   hint?: string;
+  /** The id of this field's own control -- turns the label into a real `<label for>` instead of
+   * an unassociated sibling `<div>`, so a screen reader announces which field it's in rather than
+   * a bare "edit text". Omitted by a caller with no single control to point at. */
+  htmlFor?: string;
 }) {
   return (
     <div className="space-y-1">
-      <div className="hud-label">{label}</div>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="hud-label">
+          {label}
+        </label>
+      ) : (
+        <div className="hud-label">{label}</div>
+      )}
       {children}
       {hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}
       <ProblemList problems={problems} />
@@ -72,9 +83,11 @@ export function TextField({
   hint?: string;
   placeholder?: string;
 }) {
+  const id = useId();
   return (
-    <Field label={label} problems={problems} hint={hint}>
+    <Field label={label} problems={problems} hint={hint} htmlFor={id}>
       <input
+        id={id}
         className={inputClass}
         value={value}
         placeholder={placeholder}
@@ -103,10 +116,12 @@ export function SuggestField({
   placeholder?: string;
   readOnly?: boolean;
 }) {
-  const listId = `suggest-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const id = useId();
+  const listId = `${id}-options`;
   return (
-    <Field label={label} problems={problems} hint={hint}>
+    <Field label={label} problems={problems} hint={hint} htmlFor={id}>
       <input
+        id={id}
         className={cn(inputClass, readOnly && "text-muted-foreground")}
         value={value}
         list={listId}
@@ -129,20 +144,31 @@ export function NumberField({
   onChange,
   problems,
   hint,
+  allowBlank = false,
 }: {
   label: string;
   value: number | undefined;
-  onChange: (value: number) => void;
+  onChange: (value: number | undefined) => void;
   problems?: Problem[];
   hint?: string;
+  /** Blank is its own valid state here (e.g. an unset Service targetPort, which then defaults to
+   * `port`), not a synonym for zero -- see MemoryField's own doc for the same rationale. Default
+   * false, so a required numeric field (replicas, a role's own port) keeps coercing a cleared
+   * input to 0 exactly as it always has. */
+  allowBlank?: boolean;
 }) {
+  const id = useId();
   return (
-    <Field label={label} problems={problems} hint={hint}>
+    <Field label={label} problems={problems} hint={hint} htmlFor={id}>
       <input
+        id={id}
         type="number"
         className={cn(inputClass, "num")}
         value={value ?? ""}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => {
+          const raw = e.target.value;
+          onChange(raw === "" ? (allowBlank ? undefined : 0) : Number(raw));
+        }}
       />
     </Field>
   );
@@ -161,9 +187,15 @@ export function SelectField<T extends string>({
   onChange: (value: T) => void;
   problems?: Problem[];
 }) {
+  const id = useId();
   return (
-    <Field label={label} problems={problems}>
-      <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value as T)}>
+    <Field label={label} problems={problems} htmlFor={id}>
+      <select
+        id={id}
+        className={inputClass}
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+      >
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -214,8 +246,10 @@ export function ListField({
 }) {
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  const id = useId();
+  const listId = `${id}-options`;
   return (
-    <Field label={label} problems={problems} hint={note ?? undefined}>
+    <Field label={label} problems={problems} hint={note ?? undefined} htmlFor={id}>
       <div className="flex flex-wrap gap-1">
         {values.map((v) => (
           <span
@@ -226,6 +260,7 @@ export function ListField({
             <button
               type="button"
               onClick={() => onChange(values.filter((x) => x !== v))}
+              aria-label={`Remove ${v}`}
               className="text-muted-foreground hover:text-status-bad"
             >
               <X className="size-2.5" />
@@ -234,9 +269,10 @@ export function ListField({
         ))}
       </div>
       <input
+        id={id}
         className={inputClass}
         value={draft}
-        list={options ? `list-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined}
+        list={options ? listId : undefined}
         placeholder={placeholder ?? "Add and press Enter"}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
@@ -254,7 +290,7 @@ export function ListField({
         }}
       />
       {options && (
-        <datalist id={`list-${label.replace(/\s+/g, "-").toLowerCase()}`}>
+        <datalist id={listId}>
           {options.map((o) => (
             <option key={o} value={o} />
           ))}
@@ -288,6 +324,7 @@ export function MemoryField({
    * still reads as an error the way it always has. */
   allowBlank?: boolean;
 }) {
+  const id = useId();
   const blank = value.trim() === "";
   const validNonBlank = isValidMemory(value);
   const ok = validNonBlank || (allowBlank && blank);
@@ -302,8 +339,10 @@ export function MemoryField({
           ? `${formatMemory(bytes)} · ${bytes.toLocaleString()} B`
           : "Ki / Mi / Gi / Ti")
       }
+      htmlFor={id}
     >
       <input
+        id={id}
         className={cn(inputClass, "num", !ok && "border-status-bad")}
         value={value}
         placeholder="256Mi"
@@ -329,6 +368,7 @@ export function CpuField({
   /** See MemoryField's own doc -- the same allowBlank rationale applies here. */
   allowBlank?: boolean;
 }) {
+  const id = useId();
   const blank = value.trim() === "";
   const validNonBlank = isValidCpu(value);
   const ok = validNonBlank || (allowBlank && blank);
@@ -341,8 +381,10 @@ export function CpuField({
         hint ??
         (validNonBlank ? `${formatCpu(milli)} · ${(milli / 1000).toFixed(3)} cores` : "500m or 0.5")
       }
+      htmlFor={id}
     >
       <input
+        id={id}
         className={cn(inputClass, "num", !ok && "border-status-bad")}
         value={value}
         placeholder="500m"
@@ -365,6 +407,7 @@ export function MemoryBytesField({
   problems?: Problem[];
   hint?: string;
 }) {
+  const id = useId();
   const [text, setText] = useState(formatMemory(bytes));
   const [editing, setEditing] = useState(false);
   const shown = editing ? text : formatMemory(bytes);
@@ -374,8 +417,10 @@ export function MemoryBytesField({
       label={label}
       problems={ok ? problems : [UNIT_ERROR("memory"), ...(problems ?? [])]}
       hint={hint ?? (ok ? `${parseMemory(shown).toLocaleString()} B` : "Ki / Mi / Gi / Ti")}
+      htmlFor={id}
     >
       <input
+        id={id}
         className={cn(inputClass, "num", !ok && "border-status-bad")}
         value={shown}
         placeholder="1Gi"
@@ -405,6 +450,7 @@ export function MillicoresField({
   onChange: (value: number) => void;
   problems?: Problem[];
 }) {
+  const id = useId();
   const [text, setText] = useState(formatCpu(value));
   const [editing, setEditing] = useState(false);
   const shown = editing ? text : formatCpu(value);
@@ -414,8 +460,10 @@ export function MillicoresField({
       label={label}
       problems={ok ? problems : [UNIT_ERROR("cpu"), ...(problems ?? [])]}
       hint={ok ? `${(parseCpu(shown) / 1000).toFixed(3)} cores` : "4000m or 4"}
+      htmlFor={id}
     >
       <input
+        id={id}
         className={cn(inputClass, "num", !ok && "border-status-bad")}
         value={shown}
         placeholder="4000m"

@@ -248,4 +248,79 @@ describe("faults the designer used to ship silently", () => {
 
     expect(codesOf(bp)).toContain("FAFNIR_KEYFILE_PER_ROLE");
   });
+
+  it("warns when two Services in the same tenant front the same deployment, mirroring the control plane's own ServiceAdvisories#overlapWarnings", () => {
+    const bp = clone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    const twin = structuredClone(service);
+    twin.id = "s-twin";
+    twin.data = { ...twin.data, name: "twin-service" };
+    bp.nodes.push(twin);
+    bp.edges = [
+      ...bp.edges,
+      ...bp.edges
+        .filter((e) => e.source === service.id)
+        .map((e) => ({ ...e, id: "e-twin", source: twin.id })),
+    ];
+
+    const overlaps = validate(bp).filter((p) => p.code === "SERVICE_OVERLAP");
+    expect(overlaps).toHaveLength(2); // one attributed to each service node
+    expect(overlaps.map((p) => p.nodeId).sort()).toEqual([service.id, twin.id].sort());
+  });
+
+  it("does not warn about two Services in different tenants fronting a same-named deployment", () => {
+    const bp = clone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    const otherTenant = structuredClone(bp.nodes.find((n) => n.kind === "tenant")!);
+    otherTenant.id = "t-second";
+    otherTenant.data = { ...otherTenant.data, id: "second-tenant" };
+    const twin = structuredClone(service);
+    twin.id = "s-twin";
+    twin.data = { ...twin.data, name: "twin-service" };
+    bp.nodes.push(otherTenant, twin);
+    bp.edges = [
+      ...bp.edges,
+      { id: "e-twin-belongs", kind: "belongsTo", source: twin.id, target: otherTenant.id },
+      ...bp.edges
+        .filter((e) => e.source === service.id && e.kind === "fronts")
+        .map((e) => ({ ...e, id: "e-twin-fronts", source: twin.id })),
+    ];
+
+    expect(codesOf(bp)).not.toContain("SERVICE_OVERLAP");
+  });
+
+  it("does not fault a Service's own blank targetPort, which the platform defaults to port", () => {
+    const bp = clone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    service.data = { ...service.data, targetPort: undefined };
+
+    expect(codesOf(bp)).not.toContain("SERVICE_PORT_RANGE");
+  });
+
+  it("refuses a negative autoscale minReplicas, mirroring AutoscalePolicy's own compact constructor", () => {
+    const bp = clone(ordersPlatform!);
+    const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
+    deployment.data = {
+      ...deployment.data,
+      autoscale: { minReplicas: -5, maxReplicas: 3, targetCpuUtilizationPercent: 70 },
+    };
+
+    expect(codesOf(bp)).toContain("AUTOSCALE_RANGE");
+  });
+
+  it("refuses a negative disruption maxUnavailable or maxSurge, mirroring DisruptionBudget's own compact constructor", () => {
+    const bp = clone(ordersPlatform!);
+    const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
+    deployment.data = {
+      ...deployment.data,
+      disruption: { maxUnavailable: -3, maxSurge: 1 },
+    };
+    expect(codesOf(bp)).toContain("DISRUPTION_RANGE");
+
+    deployment.data = {
+      ...deployment.data,
+      disruption: { maxUnavailable: 1, maxSurge: -1 },
+    };
+    expect(codesOf(bp)).toContain("DISRUPTION_RANGE");
+  });
 });

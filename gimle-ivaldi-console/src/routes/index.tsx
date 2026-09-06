@@ -122,7 +122,12 @@ function BlueprintsList() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
+      {
+        // Same fix as the Designer's own header: none of these buttons shrink or wrap, so below a
+        // phone-width viewport they forced the whole page wider than it, not just this row --
+        // overflow-x-auto contains it to this strip instead.
+      }
+      <header className="flex items-center justify-between overflow-x-auto border-b border-border px-4 py-2.5">
         <IvaldiWordmark />
         <div className="flex items-center gap-2">
           <input
@@ -177,8 +182,13 @@ function BlueprintsList() {
 
       <section className="p-4">
         <div className="hud-label mb-2">Blueprints</div>
-        <div className="overflow-hidden rounded-sm border border-border">
-          <table className="w-full border-collapse text-[12px]">
+        {
+          // overflow-hidden clipped whichever columns (Run, Updated, the row-action icons) didn't
+          // fit at phone width, with nothing on screen suggesting there was more to see -- an
+          // x-scrolling wrapper keeps every column reachable instead.
+        }
+        <div className="overflow-x-auto rounded-sm border border-border">
+          <table className="w-full min-w-[640px] border-collapse text-[12px]">
             <thead className="bg-card">
               <tr className="border-b border-border text-left">
                 {[

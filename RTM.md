@@ -955,6 +955,18 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | New | Not Covered | — |
 | GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | New | Not Covered | — |
 | GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | New | Not Covered | — |
+| GIMLE-941 | A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0 | New | Not Covered | — |
+| GIMLE-942 | Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP) | New | Not Covered | — |
+| GIMLE-943 | Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time | New | Not Covered | — |
+| GIMLE-944 | NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code | New | Not Covered | — |
+| GIMLE-945 | DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported | New | Not Covered | — |
+| GIMLE-946 | Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale | New | Not Covered | — |
+| GIMLE-947 | A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator | New | Not Covered | — |
+| GIMLE-948 | Keyboard/screen-reader focus moves to an announced landmark on every client-side route change | New | Not Covered | — |
+| GIMLE-949 | Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport | New | Not Covered | — |
+| GIMLE-950 | The Blueprint list table scrolls horizontally at phone width instead of clipping columns | New | Not Covered | — |
+| GIMLE-951 | Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app | New | Not Covered | — |
+| GIMLE-952 | Every Inspector and Blueprint Settings form field now has a real accessible name | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9810,11 +9822,119 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM.
 - **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`MemoryField`, `CpuField`, `allowBlank`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the LimitRange bound fields)
 
+#### GIMLE-941 — A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(ServiceData.targetPort was a required number; NumberField's onChange always ran Number(e.target.value), so a cleared field became 0, tripping SERVICE_PORT_RANGE even though the real platform's ServiceSpec.targetPort is an OptionalInt that defaults to)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts` (blank targetPort does not fault), `render.test.ts` (omitted when blank, rendered as the declared number when set). Live-verified against a real running console: clearing Target Port shows no SERVICE_PORT_RANGE error and the field's own hint reads "Blank defaults to Port."
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/blueprint.ts` (`ServiceData.targetPort`), `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`NumberField`, `allowBlank`), `gimle-ivaldi-console/src/lib/render.ts` (Service manifest rendering), `gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_PORT_RANGE`)
+
+#### GIMLE-942 — Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP)
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The control plane's own ServiceAdvisories#overlapWarnings fires an advisory whenever two same-tenant Services share a deployment name, but neither of Ivaldi's own validation tiers had an equivalent check -- a design could validate clean and only disc)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts` (two same-tenant Services fronting one deployment both get SERVICE_OVERLAP; two different-tenant Services fronting a same-named deployment get none). Live-verified against a real running console: two Services in tenant "acme" both fronting "web" show the exact overlap message naming each other.
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_OVERLAP`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Service's Deployment names field)
+
+#### GIMLE-943 — Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(AUTOSCALE_RANGE only checked maxReplicas >= minReplicas and targetCpuUtilizationPercent > 0, never minReplicas's own non-negativity; DISRUPTION_BOTH_ZERO only checked the both-zero relationship, never either bound's own sign -- a negative minReplicas)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts` (negative minReplicas flagged; negative maxUnavailable and negative maxSurge each flagged). Live-verified against a real running console: minReplicas -5 and maxUnavailable -3 both show inline errors immediately.
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (`AUTOSCALE_RANGE` minReplicas check, `DISRUPTION_RANGE`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Target %, Max unavailable, Max surge fields)
+
+#### GIMLE-944 — NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(Investigated as a request to make dragging set the tenant scope (matching the generic TenantField hint), but edgeKindFor's own ordering -- networkPolicy-to-tenant resolves to allowsCaller before the generic isTenantScoped fallback -- turned out to be)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: NetworkPolicy's Tenant id hint now reads "...Dragging from this node to a tenant on the canvas adds it below as an allowed caller instead..."; clearing Deployment names shows POLICY_TENANT_WIDE inline, and POLICY_NO_DIRECTION no longer appears anywhere. Not covered by an automated rules.ts test since no validation logic changed, only which code an existing field displays.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (`TenantField.freeTextHint`, NetworkPolicy's Deployment names field)
+
+#### GIMLE-945 — DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(DaemonSetSpec.tolerateAllTaints is a real, documented backend field (opts a DaemonSet's placement out of the tenant-taint filter entirely) with zero UI exposure anywhere in the console. WorkloadData gained an optional tolerateAllTaints field; the Ins)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `render.test.ts` (omitted when false/unset; rendered as true when set, only for a DaemonSet). Live-verified against a real running console: toggling the checkbox on a DaemonSet and reading its own exported manifest shows `tolerateAllTaints: true`.
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/blueprint.ts` (`WorkloadData.tolerateAllTaints`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the DaemonSet checkbox), `gimle-ivaldi-console/src/lib/render.ts` (`tolerateAllTaints` emission)
+
+#### GIMLE-946 — Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(connect() copies the target's own name/id into the source node's plain-text machine/tenantId field at link time, making the Inspector field read-only for as long as the edge exists. Every one of the five places that edge can disappear -- disconnect ()_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintStore.test.ts` (disconnect clears both machine and tenantId copies; removeNodesAndEdges clears a surviving source's copy on cascade and skips a node being deleted itself; removeNode/removeNodes/removeEdges each covered individually). Live-verified against a real running console end to end: drag-linking a Service to a Tenant, then both explicitly unlinking and separately deleting the Tenant node via the canvas and via the Inspector's own delete button, in every case leaves the Service's Tenant id field genuinely blank and editable again.
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`linkedFieldFor`, `clearedFieldsFor`, `disconnect`, `removeNodesAndEdges`, `removeNode`, `removeNodes`, `removeEdges`)
+
+#### GIMLE-947 — A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(React Flow's own base stylesheet explicitly sets `.react-flow__node.selectable:focus-visible { outline: none; }`, and the app's own "selected" ring is a separate, app-state-driven style inside the node's own content -- so a node Tab-focused but not y)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console via a real computed-style check, not just a visual screenshot: Tab-navigated to an unselected node and read `getComputedStyle(document.activeElement)`, confirming a real `outline-style: solid`, `outline-width: 2px` rather than trusting the CSS source alone.
+- **Source location(s)**: `gimle-ivaldi-console/src/styles.css` (`.react-flow__node.selectable:focus-visible`)
+
+#### GIMLE-948 — Keyboard/screen-reader focus moves to an announced landmark on every client-side route change
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(A route change left focus wherever it happened to be on the outgoing screen -- almost always <body>, since that element is simply gone -- with nothing announcing the navigation or giving a keyboard user a real landing point. The root route gained an )_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: navigated via a real client-side link click and read `document.activeElement` directly, confirming focus actually moved off `<body>` to the landmark div (not just that the code exists).
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/__root.tsx` (`RootComponent`'s landmark div and focus effect)
+
+#### GIMLE-949 — Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(None of the Designer header's children (the name/version inputs, the run-status badge, a dozen non-shrinking toolbar buttons) ever shrank or wrapped; below a certain viewport width `justify-between` had no slack left to distribute and the header -- a)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console at a real 1280x800 viewport: `document.documentElement.scrollWidth` reads exactly 1280 (previously wider), the header's own computed `overflow-x` is `auto`, and scrolling the header brings the "Full" button fully within the viewport bounds. Not covered by an automated test in this module's own Vitest suite (layout/overflow behavior, not logic).
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (header), `gimle-ivaldi-console/src/routes/index.tsx` (header), `gimle-ivaldi-console/src/routes/clusters.tsx` (header), `gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (header)
+
+#### GIMLE-950 — The Blueprint list table scrolls horizontally at phone width instead of clipping columns
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The table's wrapper used `overflow-hidden` (needed only to clip the table's square corners to the wrapper's own rounded border), which also clipped whichever columns didn't fit at narrow widths with no on-screen sign there was more to see. Changed to)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console at a real 390px viewport: the page itself no longer overflows (scrollWidth exactly 390, down from 504), the table wrapper's own computed `overflow-x` is `auto`, and the table's own scrollWidth (779px) confirms it keeps its full column set reachable by scrolling rather than clipped or illegibly squeezed.
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/index.tsx` (the Blueprints table wrapper)
+
+#### GIMLE-951 — Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The Designer's existing keydown handler already closed fullscreen on Escape, but the drawer had no equivalent -- only its own header toggle or re-pressing the same toolbar button closed it, inconsistent with the rest of the app's own Escape conventio)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: opened the Problems drawer, pressed Escape, and confirmed its own "close" control (not the toolbar button, which always shows the text "Problems" regardless of drawer state) is gone from the page.
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the keydown effect)
+
+#### GIMLE-952 — Every Inspector and Blueprint Settings form field now has a real accessible name
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(TextField, SuggestField, NumberField, SelectField, ListField, MemoryField, CpuField, MemoryBytesField, and MillicoresField all rendered their own visible label as a plain sibling <div>, never wired via <label for>, aria-label, or aria-labelledby -- a)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console via real ariaSnapshot() calls (not just checking the source for an id attribute): the Blueprint Settings panel's Name/Version/Data root/Classpath fields, and an Inspector's own Name/Tenant id/Port fields, each resolve by their own accessible name via Playwright's real accessible-name computation (getByRole with a name filter), which was impossible before this fix.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`Field.htmlFor`, every field component's own `useId()`)
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**810 of 940 requirements are Not Covered.**
+**822 of 952 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -10049,6 +10169,18 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-938 | gimle-ivaldi-console | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM. |
 | GIMLE-939 | gimle-ivaldi | Deleting a blueprint refuses while a run is still tracked against it | Developer tooling / Internal-Infra | `RunControllerTest.java` (`requiring_no_live_run_for_blueprint_refuses_while_that_blueprint_is_still_deploying`, `requiring_no_live_run_for_blueprint_allows_a_blueprint_with_no_live_run`). Also live-verified end to end against a real running IvaldiServer: started a real run against a blueprint, confirmed `DELETE /api/blueprints/{id}` returns 409 naming the tracked run while the blueprint is still readable via GET, then confirmed the delete succeeds (200) once the run is stopped. |
 | GIMLE-940 | gimle-ivaldi | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Developer tooling / Internal-Infra | Live-verified end to end against a real running cluster: booted a real Store/Fafnir/ControlPlane/Agent process group via a real run, applied two Services fronting the same deployment on the same port, and confirmed the run log carries the control plane's own overlap advisory naming both services. Not covered by a dedicated unit test in this module's own suite. |
+| GIMLE-941 | gimle-ivaldi-console | A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0 | Developer tooling / Internal-Infra | `rules.test.ts` (blank targetPort does not fault), `render.test.ts` (omitted when blank, rendered as the declared number when set). Live-verified against a real running console: clearing Target Port shows no SERVICE_PORT_RANGE error and the field's own hint reads "Blank defaults to Port." |
+| GIMLE-942 | gimle-ivaldi-console | Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP) | Developer tooling / Internal-Infra | `rules.test.ts` (two same-tenant Services fronting one deployment both get SERVICE_OVERLAP; two different-tenant Services fronting a same-named deployment get none). Live-verified against a real running console: two Services in tenant "acme" both fronting "web" show the exact overlap message naming each other. |
+| GIMLE-943 | gimle-ivaldi-console | Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time | Developer tooling / Internal-Infra | `rules.test.ts` (negative minReplicas flagged; negative maxUnavailable and negative maxSurge each flagged). Live-verified against a real running console: minReplicas -5 and maxUnavailable -3 both show inline errors immediately. |
+| GIMLE-944 | gimle-ivaldi-console | NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code | Developer tooling / Internal-Infra | Live-verified against a real running console: NetworkPolicy's Tenant id hint now reads "...Dragging from this node to a tenant on the canvas adds it below as an allowed caller instead..."; clearing Deployment names shows POLICY_TENANT_WIDE inline, and POLICY_NO_DIRECTION no longer appears anywhere. Not covered by an automated rules.ts test since no validation logic changed, only which code an existing field displays. |
+| GIMLE-945 | gimle-ivaldi-console | DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported | Developer tooling / Internal-Infra | `render.test.ts` (omitted when false/unset; rendered as true when set, only for a DaemonSet). Live-verified against a real running console: toggling the checkbox on a DaemonSet and reading its own exported manifest shows `tolerateAllTaints: true`. |
+| GIMLE-946 | gimle-ivaldi-console | Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale | Developer tooling / Internal-Infra | `useBlueprintStore.test.ts` (disconnect clears both machine and tenantId copies; removeNodesAndEdges clears a surviving source's copy on cascade and skips a node being deleted itself; removeNode/removeNodes/removeEdges each covered individually). Live-verified against a real running console end to end: drag-linking a Service to a Tenant, then both explicitly unlinking and separately deleting the Tenant node via the canvas and via the Inspector's own delete button, in every case leaves the Service's Tenant id field genuinely blank and editable again. |
+| GIMLE-947 | gimle-ivaldi-console | A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator | Developer tooling / Internal-Infra | Live-verified against a real running console via a real computed-style check, not just a visual screenshot: Tab-navigated to an unselected node and read `getComputedStyle(document.activeElement)`, confirming a real `outline-style: solid`, `outline-width: 2px` rather than trusting the CSS source alone. |
+| GIMLE-948 | gimle-ivaldi-console | Keyboard/screen-reader focus moves to an announced landmark on every client-side route change | Developer tooling / Internal-Infra | Live-verified against a real running console: navigated via a real client-side link click and read `document.activeElement` directly, confirming focus actually moved off `<body>` to the landmark div (not just that the code exists). |
+| GIMLE-949 | gimle-ivaldi-console | Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport | Developer tooling / Internal-Infra | Live-verified against a real running console at a real 1280x800 viewport: `document.documentElement.scrollWidth` reads exactly 1280 (previously wider), the header's own computed `overflow-x` is `auto`, and scrolling the header brings the "Full" button fully within the viewport bounds. Not covered by an automated test in this module's own Vitest suite (layout/overflow behavior, not logic). |
+| GIMLE-950 | gimle-ivaldi-console | The Blueprint list table scrolls horizontally at phone width instead of clipping columns | Developer tooling / Internal-Infra | Live-verified against a real running console at a real 390px viewport: the page itself no longer overflows (scrollWidth exactly 390, down from 504), the table wrapper's own computed `overflow-x` is `auto`, and the table's own scrollWidth (779px) confirms it keeps its full column set reachable by scrolling rather than clipped or illegibly squeezed. |
+| GIMLE-951 | gimle-ivaldi-console | Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app | Developer tooling / Internal-Infra | Live-verified against a real running console: opened the Problems drawer, pressed Escape, and confirmed its own "close" control (not the toolbar button, which always shows the text "Problems" regardless of drawer state) is gone from the page. |
+| GIMLE-952 | gimle-ivaldi-console | Every Inspector and Blueprint Settings form field now has a real accessible name | Developer tooling / Internal-Infra | Live-verified against a real running console via real ariaSnapshot() calls (not just checking the source for an id attribute): the Blueprint Settings panel's Name/Version/Data root/Classpath fields, and an Inspector's own Name/Tenant id/Port fields, each resolve by their own accessible name via Playwright's real accessible-name computation (getByRole with a name filter), which was impossible before this fix. |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |

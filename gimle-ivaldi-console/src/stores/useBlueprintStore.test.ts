@@ -90,6 +90,127 @@ describe("useBlueprintStore.removeNodesAndEdges", () => {
   });
 });
 
+// connect() copies the target's own name/id into the source's plain-text machine/tenantId field
+// (see useBlueprintStore.ts's own comment on linkedFieldFor) -- these exercise that the copy is
+// cleared, not left stale, wherever the placedOn/belongsTo edge that made it read-only can
+// disappear from under it.
+describe("useBlueprintStore clears a placedOn/belongsTo edge's copied field once the edge is gone", () => {
+  function workload(id: string, tenantId: string): BlueprintNode {
+    return {
+      id,
+      kind: "deployment",
+      position: { x: 0, y: 0 },
+      data: { name: id, tenantId } as never,
+    };
+  }
+  function role(id: string, machine: string): BlueprintNode {
+    return { id, kind: "agent", position: { x: 0, y: 0 }, data: { name: id, machine } as never };
+  }
+  function placedOn(id: string, source: string, target: string): BlueprintEdge {
+    return { id, kind: "placedOn", source, target };
+  }
+  // A bare node("id", "tenant") has no `quota` at all, and validateApplication (run on every
+  // commit here, via revalidate) reads straight through it for any workload naming this tenant --
+  // see this file's own top-of-file comment on why a tenant fixture needs its real shape.
+  function tenant(id: string): BlueprintNode {
+    return {
+      id,
+      kind: "tenant",
+      position: { x: 0, y: 0 },
+      data: {
+        id,
+        quota: { maxMemoryBytes: 1024 * 1024 * 1024, maxCpuMillicores: 4000, maxInstances: 20 },
+      } as never,
+    };
+  }
+
+  it("disconnect clears the source node's own tenantId copy, not just the edge", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    useBlueprintStore.getState().disconnect("e1");
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect(after.edges).toEqual([]);
+    expect((after.nodes.find((n) => n.id === "w1")!.data as { tenantId: string }).tenantId).toBe(
+      "",
+    );
+  });
+
+  it("disconnect clears a placedOn edge's own copied machine field the same way", () => {
+    const bp = blueprintWith(
+      [role("r1", "local"), node("m1", "machine")],
+      [placedOn("e1", "r1", "m1")],
+    );
+    useBlueprintStore.setState({ blueprint: bp });
+
+    useBlueprintStore.getState().disconnect("e1");
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect((after.nodes.find((n) => n.id === "r1")!.data as { machine: string }).machine).toBe("");
+  });
+
+  it("removeNodesAndEdges clears a surviving source's own copy when its link target is the one deleted", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    // Deletes the tenant itself, cascading the edge -- w1 survives and must not show "acme" any more.
+    useBlueprintStore.getState().removeNodesAndEdges(["t1"], ["e1"]);
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect(after.nodes.map((n) => n.id)).toEqual(["w1"]);
+    expect((after.nodes[0].data as { tenantId: string }).tenantId).toBe("");
+  });
+
+  it("does not bother clearing a field on a node that is itself being deleted", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    // Deletes the workload itself; only the tenant survives, untouched.
+    useBlueprintStore.getState().removeNodesAndEdges(["w1"], ["e1"]);
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect(after.nodes.map((n) => n.id)).toEqual(["t1"]);
+  });
+
+  // removeNode is the Inspector's own "Delete node" button -- a separate path from the canvas's
+  // combined removeNodesAndEdges gesture, and easy to leave behind when only one of the two gets
+  // this fix (as happened once already: the canvas path was fixed and live-verified, but the
+  // Inspector button's own delete still left the stale tenantId behind until this test caught it).
+  it("removeNode (the Inspector's own delete button) clears a surviving source's copy too", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    useBlueprintStore.getState().removeNode("t1");
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect(after.nodes.map((n) => n.id)).toEqual(["w1"]);
+    expect((after.nodes[0].data as { tenantId: string }).tenantId).toBe("");
+  });
+
+  it("removeNodes (plural) clears a surviving source's copy the same way", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    useBlueprintStore.getState().removeNodes(["t1"]);
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect((after.nodes[0].data as { tenantId: string }).tenantId).toBe("");
+  });
+
+  it("removeEdges (plural) clears the source's copy the same way disconnect does", () => {
+    const bp = blueprintWith([workload("w1", "acme"), tenant("t1")], [edge("e1", "w1", "t1")]);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    useBlueprintStore.getState().removeEdges(["e1"]);
+
+    const after = useBlueprintStore.getState().blueprint!;
+    expect((after.nodes.find((n) => n.id === "w1")!.data as { tenantId: string }).tenantId).toBe(
+      "",
+    );
+  });
+});
+
 describe("useBlueprintStore drag undo (beginDrag/endDrag)", () => {
   it("checkpoints a drag as one undo step regardless of how many positions moveNode touched", () => {
     const bp = blueprintWith([node("n1"), node("n2")], []);

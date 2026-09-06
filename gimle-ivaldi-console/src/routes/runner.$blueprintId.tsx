@@ -144,7 +144,8 @@ function RunnerPage() {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-3 py-2">
+      {/* Same fix as the Designer's own header -- see its comment for why. */}
+      <header className="flex shrink-0 items-center justify-between gap-4 overflow-x-auto border-b border-border px-3 py-2">
         <div className="flex items-center gap-4">
           <Link to="/">
             <IvaldiWordmark compact />

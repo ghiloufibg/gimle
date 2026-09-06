@@ -1,4 +1,12 @@
-import { Outlet, Link, createRootRoute, useRouter, HeadContent } from "@tanstack/react-router";
+import {
+  Outlet,
+  Link,
+  createRootRoute,
+  useRouter,
+  useLocation,
+  HeadContent,
+} from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { IVALDI_FAVICON } from "@/components/ivaldi/IvaldiEmblem";
@@ -83,9 +91,31 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  // A route change left focus wherever it happened to be -- <body>, almost always, since the
+  // outgoing screen's own focused element is simply gone -- so a keyboard/screen-reader user got
+  // no indication navigation happened at all, and had to Tab from the very top of the new screen
+  // every time. Moving focus to this always-present, otherwise invisible landmark on every
+  // pathname change (never on first mount, so a fresh page load still starts wherever the browser
+  // itself puts focus) gives them a real, announced landing point without singling out one
+  // route's own heading, which would need matching markup on all four screens.
+  const { pathname } = useLocation();
+  const mounted = useRef(false);
+  const landmark = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    landmark.current?.focus();
+  }, [pathname]);
+
   return (
     <>
       <HeadContent />
+      <div ref={landmark} tabIndex={-1} className="sr-only">
+        Navigated to {pathname}
+      </div>
       <Outlet />
       <Toaster position="bottom-right" />
     </>

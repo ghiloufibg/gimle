@@ -950,6 +950,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Complete | No |
 | GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Developer tooling / Internal-Infra | Complete | Partial |
+| GIMLE-941 | A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0 | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-942 | Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP) | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-943 | Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-944 | NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-945 | DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-946 | Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-947 | A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-948 | Keyboard/screen-reader focus moves to an announced landmark on every client-side route change | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-949 | Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-950 | The Blueprint list table scrolls horizontally at phone width instead of clipping columns | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-951 | Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-952 | Every Inspector and Blueprint Settings form field now has a real accessible name | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -14350,4 +14362,161 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a LimitRange node, When I clear its min memory field, Then no "not a valid value" error appears, but typing a non-numeric value into it still does.
+  ```
+
+#### GIMLE-941 — A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user leaving a Service's Target Port blank because it should default to the same value as Port, I want the designer to accept that, not silently coerce it to 0 and reject it as out of range.
+- **Status**: ServiceData.targetPort was a required number; NumberField's onChange always ran Number(e.target.value), so a cleared field became 0, tripping SERVICE_PORT_RANGE even though the real platform's ServiceSpec.targetPort is an OptionalInt that defaults to port when absent. targetPort is now optional in the console's own model; NumberField gained the same allowBlank prop MemoryField/CpuField already established (round 1), used only here; render.ts omits the key entirely when blank rather than writing a literal 0 or null; rules.ts's SERVICE_PORT_RANGE check now skips an absent targetPort instead of validating it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/blueprint.ts` (`ServiceData.targetPort`), `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`NumberField`, `allowBlank`), `gimle-ivaldi-console/src/lib/render.ts` (Service manifest rendering), `gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_PORT_RANGE`)
+- **Test coverage**: `rules.test.ts` (blank targetPort does not fault), `render.test.ts` (omitted when blank, rendered as the declared number when set). Live-verified against a real running console: clearing Target Port shows no SERVICE_PORT_RANGE error and the field's own hint reads "Blank defaults to Port."
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service node, When I clear its Target Port field, Then no port-range error appears and the exported manifest omits the key entirely.
+  ```
+
+#### GIMLE-942 — Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP)
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user who accidentally points two Services at the same deployment names, I want the designer to warn me the way the real control plane's own admission advisory does, not stay silent until a real run.
+- **Status**: The control plane's own ServiceAdvisories#overlapWarnings fires an advisory whenever two same-tenant Services share a deployment name, but neither of Ivaldi's own validation tiers had an equivalent check -- a design could validate clean and only discover the overlap from the run log (see GIMLE-813) or not at all if never run. rules.ts gained a same-tenant pairwise overlap check mirroring the real backend's own matching rule exactly (declared deployment names only, not port), emitting SERVICE_OVERLAP as a warning attributed to both services involved, wired into the Deployment names field's own inline problems.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_OVERLAP`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Service's Deployment names field)
+- **Test coverage**: `rules.test.ts` (two same-tenant Services fronting one deployment both get SERVICE_OVERLAP; two different-tenant Services fronting a same-named deployment get none). Live-verified against a real running console: two Services in tenant "acme" both fronting "web" show the exact overlap message naming each other.
+- **Gherkin scenario**:
+  ```gherkin
+  Given two Services in the same tenant that both front deployment "web", When I validate, Then each shows a SERVICE_OVERLAP warning naming the other.
+  ```
+
+#### GIMLE-943 — Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user who types a negative minReplicas, maxUnavailable, or maxSurge, I want the designer to catch it before export, the same way the real platform's AutoscalePolicy/DisruptionBudget constructors already reject it.
+- **Status**: AUTOSCALE_RANGE only checked maxReplicas >= minReplicas and targetCpuUtilizationPercent > 0, never minReplicas's own non-negativity; DISRUPTION_BOTH_ZERO only checked the both-zero relationship, never either bound's own sign -- a negative minReplicas or maxUnavailable exported cleanly with zero errors. rules.ts gained a standalone minReplicas < 0 check (reusing AUTOSCALE_RANGE) and a new DISRUPTION_RANGE code for a negative maxUnavailable/maxSurge, mirroring AutoscalePolicy's/DisruptionBudget's own real compact-constructor messages; wired into the Target %, Max unavailable, and Max surge fields' own inline problems (the Target % field had no problems wiring at all before this). No upper bound was added for targetCpuUtilizationPercent -- confirmed the real AutoscalePolicy has none either (multi-core CPU targets legitimately exceed 100%), so that finding was not a bug.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/rules.ts` (`AUTOSCALE_RANGE` minReplicas check, `DISRUPTION_RANGE`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Target %, Max unavailable, Max surge fields)
+- **Test coverage**: `rules.test.ts` (negative minReplicas flagged; negative maxUnavailable and negative maxSurge each flagged). Live-verified against a real running console: minReplicas -5 and maxUnavailable -3 both show inline errors immediately.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment with autoscale minReplicas -5, When I validate, Then AUTOSCALE_RANGE names the negative value.
+  Given a Deployment with disruption maxUnavailable -3, When I validate, Then DISRUPTION_RANGE names the negative value.
+  ```
+
+#### GIMLE-944 — NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user dragging a NetworkPolicy to a Tenant on the canvas expecting to set which tenant it belongs to, I want the field's own hint to say what that drag actually does (add an allowed caller), not repeat the generic instruction that is wrong for this one kind.
+- **Status**: Investigated as a request to make dragging set the tenant scope (matching the generic TenantField hint), but edgeKindFor's own ordering -- networkPolicy-to-tenant resolves to allowsCaller before the generic isTenantScoped fallback -- turned out to be intentional and load-bearing: render.ts and rules.ts both fold allowsCaller edges into allowedCallerTenantIds alongside the typed list field, so dragging to add a caller is a real, working feature, not a bug to remove. The actual defect was the misleading hint text (TenantField's generic copy promises the drag sets scope, which never happens for a NetworkPolicy) and a dead code reference (Inspector.tsx's Deployment names field was wired to POLICY_NO_DIRECTION, a code rules.ts never emits; the real code for that exact condition is POLICY_TENANT_WIDE). TenantField gained an optional freeTextHint override, used only for NetworkPolicy's own Tenant id field to state the real behavior; the Deployment names field's problems prop was corrected to POLICY_TENANT_WIDE.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (`TenantField.freeTextHint`, NetworkPolicy's Deployment names field)
+- **Test coverage**: Live-verified against a real running console: NetworkPolicy's Tenant id hint now reads "...Dragging from this node to a tenant on the canvas adds it below as an allowed caller instead..."; clearing Deployment names shows POLICY_TENANT_WIDE inline, and POLICY_NO_DIRECTION no longer appears anywhere. Not covered by an automated rules.ts test since no validation logic changed, only which code an existing field displays.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a NetworkPolicy node, When I read its Tenant id field's hint, Then it states that dragging to a tenant adds an allowed caller, not that it sets the policy's own scope.
+  ```
+
+#### GIMLE-945 — DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user designing a cluster-wide DaemonSet that must cover every node including tenant-reserved ones, I want to set tolerateAllTaints through the designer instead of hand-editing the exported YAML afterward.
+- **Status**: DaemonSetSpec.tolerateAllTaints is a real, documented backend field (opts a DaemonSet's placement out of the tenant-taint filter entirely) with zero UI exposure anywhere in the console. WorkloadData gained an optional tolerateAllTaints field; the Inspector renders a "Tolerate all taints" checkbox where the Anti-affinity checkbox is hidden (kind === "daemonSet"); render.ts emits tolerateAllTaints: true only for a DaemonSet with it set, omitted otherwise.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/blueprint.ts` (`WorkloadData.tolerateAllTaints`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the DaemonSet checkbox), `gimle-ivaldi-console/src/lib/render.ts` (`tolerateAllTaints` emission)
+- **Test coverage**: `render.test.ts` (omitted when false/unset; rendered as true when set, only for a DaemonSet). Live-verified against a real running console: toggling the checkbox on a DaemonSet and reading its own exported manifest shows `tolerateAllTaints: true`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a DaemonSet node, When I check "Tolerate all taints", Then its exported manifest carries `tolerateAllTaints: true`.
+  ```
+
+#### GIMLE-946 — Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user who deletes a Machine or Tenant a role/workload was linked to, or explicitly unlinks it, I want that role/workload's own Machine/Tenant id field to actually go blank, not silently keep showing the old value as plain, uncorrected text.
+- **Status**: connect() copies the target's own name/id into the source node's plain-text machine/tenantId field at link time, making the Inspector field read-only for as long as the edge exists. Every one of the five places that edge can disappear -- disconnect (explicit unlink), removeNodesAndEdges (the canvas's combined delete gesture), and removeNode/removeNodes/removeEdges (the Inspector's own "Delete node" button, and two otherwise-unreachable variants) -- removed the edge but never cleared that copied field, so it survived as a stale value: editable again, but still naming the machine/tenant the link used to point at, silently. All five now clear it via a shared linkedFieldFor/clearedFieldsFor helper. removeNode was the one path a full live pass on the canvas-only removeNodesAndEdges fix missed on the first attempt -- caught only by testing the Inspector's own delete button directly against a real running console, not by the unit tests alone, which is why it's called out here as its own lesson.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`linkedFieldFor`, `clearedFieldsFor`, `disconnect`, `removeNodesAndEdges`, `removeNode`, `removeNodes`, `removeEdges`)
+- **Test coverage**: `useBlueprintStore.test.ts` (disconnect clears both machine and tenantId copies; removeNodesAndEdges clears a surviving source's copy on cascade and skips a node being deleted itself; removeNode/removeNodes/removeEdges each covered individually). Live-verified against a real running console end to end: drag-linking a Service to a Tenant, then both explicitly unlinking and separately deleting the Tenant node via the canvas and via the Inspector's own delete button, in every case leaves the Service's Tenant id field genuinely blank and editable again.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service linked to a Tenant, When I delete that Tenant (via the canvas or the Inspector's own delete button) or explicitly unlink it, Then the Service's own Tenant id field is blank and editable, not stuck showing the old tenant.
+  ```
+
+#### GIMLE-947 — A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a keyboard-only user tabbing through canvas nodes, I want to see which node currently has focus even before I select it, not have to press Enter blind to find out.
+- **Status**: React Flow's own base stylesheet explicitly sets `.react-flow__node.selectable:focus-visible { outline: none; }`, and the app's own "selected" ring is a separate, app-state-driven style inside the node's own content -- so a node Tab-focused but not yet selected showed no visual difference from its resting state at all. A global CSS rule restores a visible outline on that exact selector, using `!important` (not just higher specificity) because React Flow's own stylesheet is imported from a component-level module that loads after this file, so specificity alone would still lose a load-order tie -- the same lesson this session's earlier machine-frame pointer-events fix already established for this exact library.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/styles.css` (`.react-flow__node.selectable:focus-visible`)
+- **Test coverage**: Live-verified against a real running console via a real computed-style check, not just a visual screenshot: Tab-navigated to an unselected node and read `getComputedStyle(document.activeElement)`, confirming a real `outline-style: solid`, `outline-width: 2px` rather than trusting the CSS source alone.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a canvas with more than one node, When I Tab to a node without pressing Enter, Then it shows a visible outline distinct from the unfocused resting state.
+  ```
+
+#### GIMLE-948 — Keyboard/screen-reader focus moves to an announced landmark on every client-side route change
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a keyboard or screen-reader user navigating between screens, I want some indication a navigation happened, not to land on <body> and have to Tab from the very top every time.
+- **Status**: A route change left focus wherever it happened to be on the outgoing screen -- almost always <body>, since that element is simply gone -- with nothing announcing the navigation or giving a keyboard user a real landing point. The root route gained an always-present, visually-hidden (`sr-only`), focusable landmark div; a `useLocation`-driven effect moves focus to it on every pathname change after the first mount (a fresh page load still starts wherever the browser itself puts focus, since that's not an in-app navigation).
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/__root.tsx` (`RootComponent`'s landmark div and focus effect)
+- **Test coverage**: Live-verified against a real running console: navigated via a real client-side link click and read `document.activeElement` directly, confirming focus actually moved off `<body>` to the landmark div (not just that the code exists).
+- **Gherkin scenario**:
+  ```gherkin
+  Given I am on one screen, When I click a link to another screen, Then keyboard focus moves to an announced landmark on the new screen instead of staying on <body>.
+  ```
+
+#### GIMLE-949 — Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user on a laptop-width screen (1280x800), I want every toolbar control (Full, the theme toggle, ...) reachable, not hidden off the right edge with no on-screen sign anything is off-screen.
+- **Status**: None of the Designer header's children (the name/version inputs, the run-status badge, a dozen non-shrinking toolbar buttons) ever shrank or wrapped; below a certain viewport width `justify-between` had no slack left to distribute and the header -- and with it the whole page, since nothing contained it -- was pushed wider than the viewport, hiding real controls off the right edge with no scroll affordance at all. Confirmed via `document.documentElement.scrollWidth` that this genuinely broke at the mainstream 1280x800 breakpoint the original report named, not just at extreme widths. Every one of the four screens' own header (Designer, Blueprint list, Clusters, Runner) shares the identical `flex ... justify-between` shape and gained the same `overflow-x-auto` fix: overflow is now contained to that one strip, scrollable in place, rather than propagating to <body> -- every control stays reachable at any width instead of a wider structural rework of the toolbars themselves. The Runner screen's own two-column body below its header is a separate, pre-existing layout that still doesn't stack at phone width; that remains out of scope (not one of the reported findings, and a materially bigger change than a header fix).
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (header), `gimle-ivaldi-console/src/routes/index.tsx` (header), `gimle-ivaldi-console/src/routes/clusters.tsx` (header), `gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (header)
+- **Test coverage**: Live-verified against a real running console at a real 1280x800 viewport: `document.documentElement.scrollWidth` reads exactly 1280 (previously wider), the header's own computed `overflow-x` is `auto`, and scrolling the header brings the "Full" button fully within the viewport bounds. Not covered by an automated test in this module's own Vitest suite (layout/overflow behavior, not logic).
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Designer open at 1280x800, When I look for the Full and theme-toggle buttons, Then the page itself does not overflow and both buttons are reachable by scrolling the header.
+  ```
+
+#### GIMLE-950 — The Blueprint list table scrolls horizontally at phone width instead of clipping columns
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user viewing the blueprint list on a phone, I want to reach every column (Run, Updated, the row actions), not have them silently clipped off the right edge.
+- **Status**: The table's wrapper used `overflow-hidden` (needed only to clip the table's square corners to the wrapper's own rounded border), which also clipped whichever columns didn't fit at narrow widths with no on-screen sign there was more to see. Changed to `overflow-x-auto` so the table scrolls in place instead, with an explicit `min-w-[640px]` on the table itself so columns keep a readable minimum width rather than being squeezed illegible before scrolling kicks in.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/index.tsx` (the Blueprints table wrapper)
+- **Test coverage**: Live-verified against a real running console at a real 390px viewport: the page itself no longer overflows (scrollWidth exactly 390, down from 504), the table wrapper's own computed `overflow-x` is `auto`, and the table's own scrollWidth (779px) confirms it keeps its full column set reachable by scrolling rather than clipped or illegibly squeezed.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Blueprint list open at 390px width, When I look at the table, Then every column is reachable by scrolling horizontally, not clipped off-screen.
+  ```
+
+#### GIMLE-951 — Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a keyboard user with the Problems or Files drawer open, I want Escape to close it, the same way it already closes the delete-confirmation dialog and exits fullscreen.
+- **Status**: The Designer's existing keydown handler already closed fullscreen on Escape, but the drawer had no equivalent -- only its own header toggle or re-pressing the same toolbar button closed it, inconsistent with the rest of the app's own Escape conventions. The same handler now also closes the drawer on Escape (reading the live store state directly, since the effect's own empty dependency array means a captured `drawer` value would go stale).
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the keydown effect)
+- **Test coverage**: Live-verified against a real running console: opened the Problems drawer, pressed Escape, and confirmed its own "close" control (not the toolbar button, which always shows the text "Problems" regardless of drawer state) is gone from the page.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Problems drawer is open, When I press Escape, Then the drawer closes.
+  ```
+
+#### GIMLE-952 — Every Inspector and Blueprint Settings form field now has a real accessible name
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a screen-reader user tabbing through the Inspector or Settings panel, I want to hear which field I'm in ("Name", "Port", "Min memory"...), not a bare "edit text" for every single one.
+- **Status**: TextField, SuggestField, NumberField, SelectField, ListField, MemoryField, CpuField, MemoryBytesField, and MillicoresField all rendered their own visible label as a plain sibling <div>, never wired via <label for>, aria-label, or aria-labelledby -- and the input had no id at all, so a <label for> association wasn't even possible as built. The shared Field wrapper gained an optional htmlFor prop that turns the label into a real <label htmlFor> when provided; every one of those nine field components now generates a stable id via React's own useId() (not a label-derived string, to guarantee no collision when the same label text -- "Name", "Min memory" -- appears more than once on screen at once) and passes it through. The ListField's own per-chip remove button also gained an aria-label ("Remove {value}"), a related icon-only-button gap noticed while already in this code.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`Field.htmlFor`, every field component's own `useId()`)
+- **Test coverage**: Live-verified against a real running console via real ariaSnapshot() calls (not just checking the source for an id attribute): the Blueprint Settings panel's Name/Version/Data root/Classpath fields, and an Inspector's own Name/Tenant id/Port fields, each resolve by their own accessible name via Playwright's real accessible-name computation (getByRole with a name filter), which was impossible before this fix.
+- **Gherkin scenario**:
+  ```gherkin
+  Given any Inspector or Settings text/number/select field, When a screen reader announces it, Then it announces the field's own visible label, not a bare "edit text".
   ```

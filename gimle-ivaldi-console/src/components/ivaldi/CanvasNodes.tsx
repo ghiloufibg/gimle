@@ -69,7 +69,7 @@ export function keyFact(kind: NodeKind, data: unknown): string {
       return (data as WorkloadData).schedule ?? "";
     case "service": {
       const d = data as ServiceData;
-      return `${d.port} -> ${d.targetPort}`;
+      return `${d.port} -> ${d.targetPort ?? d.port}`;
     }
     case "networkPolicy":
       return "policy";

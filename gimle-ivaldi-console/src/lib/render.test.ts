@@ -282,6 +282,53 @@ describe("a jar-sourced workload", () => {
   });
 });
 
+describe("a Service's targetPort", () => {
+  it("is omitted entirely when blank, so the platform's own OptionalInt default (= port) applies", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    (service.data as { targetPort?: number }).targetPort = undefined;
+    const files = renderFiles(bp);
+    const manifest = files.find((f) => kindOf(f) === "Service")!;
+
+    expect(parse(manifest.content)).not.toHaveProperty("targetPort");
+  });
+
+  it("is rendered as the declared number when set", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    (service.data as { targetPort?: number }).targetPort = 9999;
+    const files = renderFiles(bp);
+    const manifest = files.find((f) => kindOf(f) === "Service")!;
+
+    expect((parse(manifest.content) as { targetPort: number }).targetPort).toBe(9999);
+  });
+});
+
+describe("a DaemonSet's tolerateAllTaints", () => {
+  it("is omitted when false or unset, matching the field's own false default", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
+    deployment.kind = "daemonSet";
+    const files = renderFiles(bp);
+    const manifest = files.find((f) => kindOf(f) === "DaemonSet")!;
+
+    expect(parse(manifest.content)).not.toHaveProperty("tolerateAllTaints");
+  });
+
+  it("is rendered as true when set, and only for a DaemonSet", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
+    deployment.kind = "daemonSet";
+    (deployment.data as { tolerateAllTaints?: boolean }).tolerateAllTaints = true;
+    const files = renderFiles(bp);
+    const manifest = files.find((f) => kindOf(f) === "DaemonSet")!;
+
+    expect((parse(manifest.content) as { tolerateAllTaints: boolean }).tolerateAllTaints).toBe(
+      true,
+    );
+  });
+});
+
 describe("the release a blueprint deploys under", () => {
   it("is named after the blueprint's id, so a rename does not fork its history", () => {
     const bp = structuredClone(ordersPlatform!);

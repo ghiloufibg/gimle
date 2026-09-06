@@ -112,6 +112,10 @@ export interface WorkloadData {
   schedule?: string;
   concurrencyPolicy?: "Allow" | "Forbid" | "Replace";
   suspend?: boolean;
+  /** DaemonSet-only: opts this DaemonSet's placement out of the tenant-taint filter entirely, so
+   * it covers every node including ones reserved for a tenant. Meaningless (and never rendered)
+   * for any other workload kind -- see DaemonSetSpec's own javadoc for why this stays opt-in. */
+  tolerateAllTaints?: boolean;
   resources: Resources;
 }
 
@@ -119,7 +123,9 @@ export interface ServiceData {
   name: string;
   tenantId: string;
   port: number;
-  targetPort: number;
+  /** Blank means "defaults to `port`" -- the platform's own ServiceSpec.targetPort is an
+   * OptionalInt, so this must stay optional rather than silently coercing a cleared field to 0. */
+  targetPort?: number;
   deploymentNames: string[];
 }
 

@@ -82,7 +82,8 @@ function ClustersPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
+      {/* Same fix as the Designer's own header -- see its comment for why. */}
+      <header className="flex items-center justify-between overflow-x-auto border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-4">
           <Link to="/">
             <IvaldiWordmark compact />

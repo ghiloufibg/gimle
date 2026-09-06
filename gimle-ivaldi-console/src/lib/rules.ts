@@ -320,7 +320,11 @@ function validateApplication(bp: Blueprint): Problem[] {
           s.id,
         ),
       );
-    if (d.port < 1 || d.port > 65535 || d.targetPort < 1 || d.targetPort > 65535)
+    if (
+      d.port < 1 ||
+      d.port > 65535 ||
+      (d.targetPort !== undefined && (d.targetPort < 1 || d.targetPort > 65535))
+    )
       p.push(err("SERVICE_PORT_RANGE", "Service ports must be between 1 and 65535.", s.id));
     const serviceTenant = tenantIdOf(bp, s);
     for (const t of targets) {
@@ -333,6 +337,50 @@ function validateApplication(bp: Blueprint): Problem[] {
             s.id,
           ),
         );
+    }
+  }
+
+  // Mirrors the control plane's own ServiceAdvisories#overlapWarnings exactly: two Services in
+  // the same tenant fronting even one of the same deployment names are announced, never blocked
+  // -- a deliberate shared front door (a stable name beside a versioned one) looks identical to a
+  // copy-pasted deploymentNames mistake, and nothing else here tells them apart. Matched on
+  // declared deployment names only, the same way the real ServiceSpec is -- not on port, which the
+  // platform's own check never looks at either.
+  const serviceOverlapInputs = nodesOf(bp, "service").map((s) => {
+    const d = s.data as ServiceData;
+    const edgeNames = bp.edges
+      .filter((e) => e.kind === "fronts" && e.source === s.id)
+      .map((e) => bp.nodes.find((n) => n.id === e.target))
+      .filter((n): n is BlueprintNode => Boolean(n))
+      .map((n) => (n.data as WorkloadData).name);
+    return {
+      node: s,
+      name: d.name,
+      tenantId: tenantIdOf(bp, s),
+      deploymentNames: new Set([...(d.deploymentNames ?? []), ...edgeNames]),
+    };
+  });
+  for (let i = 0; i < serviceOverlapInputs.length; i++) {
+    for (let j = i + 1; j < serviceOverlapInputs.length; j++) {
+      const a = serviceOverlapInputs[i];
+      const b = serviceOverlapInputs[j];
+      if (!a.tenantId || a.tenantId !== b.tenantId) continue;
+      const shared = [...a.deploymentNames].filter((n) => b.deploymentNames.has(n)).sort();
+      if (shared.length === 0) continue;
+      p.push(
+        warn(
+          "SERVICE_OVERLAP",
+          `Service "${b.name}" fronts deployment(s) ${shared.join(", ")} already fronted by service "${a.name}" in the same tenant -- both names route to the same instances.`,
+          b.node.id,
+        ),
+      );
+      p.push(
+        warn(
+          "SERVICE_OVERLAP",
+          `Service "${a.name}" fronts deployment(s) ${shared.join(", ")} already fronted by service "${b.name}" in the same tenant -- both names route to the same instances.`,
+          a.node.id,
+        ),
+      );
     }
   }
 
@@ -389,6 +437,11 @@ function validateApplication(bp: Blueprint): Problem[] {
       );
     if (d.autoscale) {
       const a = d.autoscale;
+      // Mirrors AutoscalePolicy's own compact constructor: minReplicas has no relationship to
+      // check against another field for this one, so it needs its own standalone bound the same
+      // way REPLICAS_NEGATIVE does for the base replica count above.
+      if (a.minReplicas < 0)
+        p.push(err("AUTOSCALE_RANGE", `minReplicas must not be negative: ${a.minReplicas}.`, w.id));
       if (a.maxReplicas < a.minReplicas)
         p.push(
           err(
@@ -404,6 +457,23 @@ function validateApplication(bp: Blueprint): Problem[] {
             `targetCpuUtilizationPercent (${a.targetCpuUtilizationPercent}) must be greater than 0.`,
             w.id,
           ),
+        );
+    }
+    if (d.disruption) {
+      // Mirrors DisruptionBudget's own compact constructor: each bound's own non-negativity is
+      // independent of whether they're both zero (DISRUPTION_BOTH_ZERO, below), so it needs its
+      // own check the same way AUTOSCALE_RANGE's minReplicas check does above.
+      if ((d.disruption.maxUnavailable ?? 0) < 0)
+        p.push(
+          err(
+            "DISRUPTION_RANGE",
+            `maxUnavailable must not be negative: ${d.disruption.maxUnavailable}.`,
+            w.id,
+          ),
+        );
+      if (d.disruption.maxSurge !== undefined && d.disruption.maxSurge < 0)
+        p.push(
+          err("DISRUPTION_RANGE", `maxSurge must not be negative: ${d.disruption.maxSurge}.`, w.id),
         );
     }
     if (

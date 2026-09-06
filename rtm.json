@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 940,
+  "requirementCount": 952,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16214,6 +16214,196 @@
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ApiResponse.java` (`headers`)",
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ControlPlaneApi.java` (`postJson`)",
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`applyService`)"
+      ]
+    },
+    {
+      "id": "GIMLE-941",
+      "module": "gimle-ivaldi-console",
+      "feature": "A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "ServiceData.targetPort was a required number; NumberField's onChange always ran Number(e.target.value), so a cleared field became 0, tripping SERVICE_PORT_RANGE even though the real platform's ServiceSpec.targetPort is an OptionalInt that defaults to",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`rules.test.ts` (blank targetPort does not fault), `render.test.ts` (omitted when blank, rendered as the declared number when set). Live-verified against a real running console: clearing Target Port shows no SERVICE_PORT_RANGE error and the field's own hint reads \"Blank defaults to Port.\"",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/blueprint.ts` (`ServiceData.targetPort`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`NumberField`, `allowBlank`)",
+        "`gimle-ivaldi-console/src/lib/render.ts` (Service manifest rendering)",
+        "`gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_PORT_RANGE`)"
+      ]
+    },
+    {
+      "id": "GIMLE-942",
+      "module": "gimle-ivaldi-console",
+      "feature": "Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP)",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The control plane's own ServiceAdvisories#overlapWarnings fires an advisory whenever two same-tenant Services share a deployment name, but neither of Ivaldi's own validation tiers had an equivalent check -- a design could validate clean and only disc",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`rules.test.ts` (two same-tenant Services fronting one deployment both get SERVICE_OVERLAP; two different-tenant Services fronting a same-named deployment get none). Live-verified against a real running console: two Services in tenant \"acme\" both fronting \"web\" show the exact overlap message naming each other.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/rules.ts` (`SERVICE_OVERLAP`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Service's Deployment names field)"
+      ]
+    },
+    {
+      "id": "GIMLE-943",
+      "module": "gimle-ivaldi-console",
+      "feature": "Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "AUTOSCALE_RANGE only checked maxReplicas >= minReplicas and targetCpuUtilizationPercent > 0, never minReplicas's own non-negativity; DISRUPTION_BOTH_ZERO only checked the both-zero relationship, never either bound's own sign -- a negative minReplicas",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`rules.test.ts` (negative minReplicas flagged; negative maxUnavailable and negative maxSurge each flagged). Live-verified against a real running console: minReplicas -5 and maxUnavailable -3 both show inline errors immediately.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/rules.ts` (`AUTOSCALE_RANGE` minReplicas check, `DISRUPTION_RANGE`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Target %, Max unavailable, Max surge fields)"
+      ]
+    },
+    {
+      "id": "GIMLE-944",
+      "module": "gimle-ivaldi-console",
+      "feature": "NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "Investigated as a request to make dragging set the tenant scope (matching the generic TenantField hint), but edgeKindFor's own ordering -- networkPolicy-to-tenant resolves to allowsCaller before the generic isTenantScoped fallback -- turned out to be",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: NetworkPolicy's Tenant id hint now reads \"...Dragging from this node to a tenant on the canvas adds it below as an allowed caller instead...\"; clearing Deployment names shows POLICY_TENANT_WIDE inline, and POLICY_NO_DIRECTION no longer appears anywhere. Not covered by an automated rules.ts test since no validation logic changed, only which code an existing field displays.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (`TenantField.freeTextHint`, NetworkPolicy's Deployment names field)"
+      ]
+    },
+    {
+      "id": "GIMLE-945",
+      "module": "gimle-ivaldi-console",
+      "feature": "DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "DaemonSetSpec.tolerateAllTaints is a real, documented backend field (opts a DaemonSet's placement out of the tenant-taint filter entirely) with zero UI exposure anywhere in the console. WorkloadData gained an optional tolerateAllTaints field; the Ins",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`render.test.ts` (omitted when false/unset; rendered as true when set, only for a DaemonSet). Live-verified against a real running console: toggling the checkbox on a DaemonSet and reading its own exported manifest shows `tolerateAllTaints: true`.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/blueprint.ts` (`WorkloadData.tolerateAllTaints`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the DaemonSet checkbox)",
+        "`gimle-ivaldi-console/src/lib/render.ts` (`tolerateAllTaints` emission)"
+      ]
+    },
+    {
+      "id": "GIMLE-946",
+      "module": "gimle-ivaldi-console",
+      "feature": "Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "connect() copies the target's own name/id into the source node's plain-text machine/tenantId field at link time, making the Inspector field read-only for as long as the edge exists. Every one of the five places that edge can disappear -- disconnect (",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`useBlueprintStore.test.ts` (disconnect clears both machine and tenantId copies; removeNodesAndEdges clears a surviving source's copy on cascade and skips a node being deleted itself; removeNode/removeNodes/removeEdges each covered individually). Live-verified against a real running console end to end: drag-linking a Service to a Tenant, then both explicitly unlinking and separately deleting the Tenant node via the canvas and via the Inspector's own delete button, in every case leaves the Service's Tenant id field genuinely blank and editable again.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`linkedFieldFor`, `clearedFieldsFor`, `disconnect`, `removeNodesAndEdges`, `removeNode`, `removeNodes`, `removeEdges`)"
+      ]
+    },
+    {
+      "id": "GIMLE-947",
+      "module": "gimle-ivaldi-console",
+      "feature": "A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "React Flow's own base stylesheet explicitly sets `.react-flow__node.selectable:focus-visible { outline: none; }`, and the app's own \"selected\" ring is a separate, app-state-driven style inside the node's own content -- so a node Tab-focused but not y",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console via a real computed-style check, not just a visual screenshot: Tab-navigated to an unselected node and read `getComputedStyle(document.activeElement)`, confirming a real `outline-style: solid`, `outline-width: 2px` rather than trusting the CSS source alone.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/styles.css` (`.react-flow__node.selectable:focus-visible`)"
+      ]
+    },
+    {
+      "id": "GIMLE-948",
+      "module": "gimle-ivaldi-console",
+      "feature": "Keyboard/screen-reader focus moves to an announced landmark on every client-side route change",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "A route change left focus wherever it happened to be on the outgoing screen -- almost always <body>, since that element is simply gone -- with nothing announcing the navigation or giving a keyboard user a real landing point. The root route gained an ",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: navigated via a real client-side link click and read `document.activeElement` directly, confirming focus actually moved off `<body>` to the landmark div (not just that the code exists).",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/__root.tsx` (`RootComponent`'s landmark div and focus effect)"
+      ]
+    },
+    {
+      "id": "GIMLE-949",
+      "module": "gimle-ivaldi-console",
+      "feature": "Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "None of the Designer header's children (the name/version inputs, the run-status badge, a dozen non-shrinking toolbar buttons) ever shrank or wrapped; below a certain viewport width `justify-between` had no slack left to distribute and the header -- a",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console at a real 1280x800 viewport: `document.documentElement.scrollWidth` reads exactly 1280 (previously wider), the header's own computed `overflow-x` is `auto`, and scrolling the header brings the \"Full\" button fully within the viewport bounds. Not covered by an automated test in this module's own Vitest suite (layout/overflow behavior, not logic).",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (header)",
+        "`gimle-ivaldi-console/src/routes/index.tsx` (header)",
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (header)",
+        "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (header)"
+      ]
+    },
+    {
+      "id": "GIMLE-950",
+      "module": "gimle-ivaldi-console",
+      "feature": "The Blueprint list table scrolls horizontally at phone width instead of clipping columns",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The table's wrapper used `overflow-hidden` (needed only to clip the table's square corners to the wrapper's own rounded border), which also clipped whichever columns didn't fit at narrow widths with no on-screen sign there was more to see. Changed to",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console at a real 390px viewport: the page itself no longer overflows (scrollWidth exactly 390, down from 504), the table wrapper's own computed `overflow-x` is `auto`, and the table's own scrollWidth (779px) confirms it keeps its full column set reachable by scrolling rather than clipped or illegibly squeezed.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/index.tsx` (the Blueprints table wrapper)"
+      ]
+    },
+    {
+      "id": "GIMLE-951",
+      "module": "gimle-ivaldi-console",
+      "feature": "Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The Designer's existing keydown handler already closed fullscreen on Escape, but the drawer had no equivalent -- only its own header toggle or re-pressing the same toolbar button closed it, inconsistent with the rest of the app's own Escape conventio",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: opened the Problems drawer, pressed Escape, and confirmed its own \"close\" control (not the toolbar button, which always shows the text \"Problems\" regardless of drawer state) is gone from the page.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the keydown effect)"
+      ]
+    },
+    {
+      "id": "GIMLE-952",
+      "module": "gimle-ivaldi-console",
+      "feature": "Every Inspector and Blueprint Settings form field now has a real accessible name",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "TextField, SuggestField, NumberField, SelectField, ListField, MemoryField, CpuField, MemoryBytesField, and MillicoresField all rendered their own visible label as a plain sibling <div>, never wired via <label for>, aria-label, or aria-labelledby -- a",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console via real ariaSnapshot() calls (not just checking the source for an id attribute): the Blueprint Settings panel's Name/Version/Data root/Classpath fields, and an Inspector's own Name/Tenant id/Port fields, each resolve by their own accessible name via Playwright's real accessible-name computation (getByRole with a name filter), which was impossible before this fix.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`Field.htmlFor`, every field component's own `useId()`)"
       ]
     }
   ]

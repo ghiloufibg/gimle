@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 939,
+    "totalRequirements": 951,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 809,
-    "releaseReadinessPercent": 13.8
+    "notCoveredByAutomatedTest": 821,
+    "releaseReadinessPercent": 13.7
   },
   "items": [
     {
@@ -10331,6 +10331,138 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped",
       "step": "Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-941",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A Service's Target Port can be left blank, defaulting to Port, instead of coercing to an invalid 0",
+      "step": "Given a Service node, When I clear its Target Port field, Then no port-range error appears and the exported manifest omits the key entirely.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-942",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Two Services in the same tenant fronting the same deployment now warn at design time (SERVICE_OVERLAP)",
+      "step": "Given two Services in the same tenant that both front deployment \"web\", When I validate, Then each shows a SERVICE_OVERLAP warning naming the other.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-943",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Negative autoscale minReplicas and negative disruption maxUnavailable/maxSurge are now rejected at design time",
+      "step": "Given a Deployment with autoscale minReplicas -5, When I validate, Then AUTOSCALE_RANGE names the negative value. Given a Deployment with disruption maxUnavailable -3, When I validate, Then DISRUPTION_RANGE names the negative value.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-944",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "NetworkPolicy's Tenant id field states plainly that dragging to a Tenant adds an allowed caller, not the policy's own scope, and its Deployment names field shows the real POLICY_TENANT_WIDE code",
+      "step": "Given a NetworkPolicy node, When I read its Tenant id field's hint, Then it states that dragging to a tenant adds an allowed caller, not that it sets the policy's own scope.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-945",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "DaemonSet's tolerateAllTaints field is now exposed in the Inspector and exported",
+      "step": "Given a DaemonSet node, When I check \"Tolerate all taints\", Then its exported manifest carries `tolerateAllTaints: true`.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-946",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Removing a placedOn/belongsTo link clears the surviving node's own copied machine/tenantId field instead of leaving it stale",
+      "step": "Given a Service linked to a Tenant, When I delete that Tenant (via the canvas or the Inspector's own delete button) or explicitly unlink it, Then the Service's own Tenant id field is blank and editable, not stuck showing the old tenant.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-947",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A keyboard-focused-but-unselected canvas node now shows a real, visible focus indicator",
+      "step": "Given a canvas with more than one node, When I Tab to a node without pressing Enter, Then it shows a visible outline distinct from the unfocused resting state.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-948",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Keyboard/screen-reader focus moves to an announced landmark on every client-side route change",
+      "step": "Given I am on one screen, When I click a link to another screen, Then keyboard focus moves to an announced landmark on the new screen instead of staying on <body>.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-949",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Every screen's header row scrolls in place instead of forcing the whole page wider than the viewport",
+      "step": "Given the Designer open at 1280x800, When I look for the Full and theme-toggle buttons, Then the page itself does not overflow and both buttons are reachable by scrolling the header.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-950",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The Blueprint list table scrolls horizontally at phone width instead of clipping columns",
+      "step": "Given the Blueprint list open at 390px width, When I look at the table, Then every column is reachable by scrolling horizontally, not clipped off-screen.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-951",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app",
+      "step": "Given the Problems drawer is open, When I press Escape, Then the drawer closes.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-952",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Every Inspector and Blueprint Settings form field now has a real accessible name",
+      "step": "Given any Inspector or Settings text/number/select field, When a screen reader announces it, Then it announces the field's own visible label, not a bare \"edit text\".",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
