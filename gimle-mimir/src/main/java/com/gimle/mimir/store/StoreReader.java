@@ -107,6 +107,17 @@ public interface StoreReader {
 
   Optional<WorkloadTokenRecord> getWorkloadToken(String key);
 
+  /**
+   * The recorded answer for an already-completed write that carried this caller-supplied request
+   * id, or empty when none was ever recorded (or it has since aged out of the retention window).
+   */
+  Optional<RequestOutcomeRecord> getRequestOutcome(String requestId);
+
+  /**
+   * How many request-idempotency receipts were recorded strictly before {@code cutoffEpochMilli}.
+   */
+  int countRequestOutcomesBefore(long cutoffEpochMilli);
+
   List<InstanceAssignment> listAssignments();
 
   Optional<JobSpec> getJobSpec(Optional<String> tenantId, String name);

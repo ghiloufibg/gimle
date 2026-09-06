@@ -331,6 +331,29 @@ gimle:flaky-tests` runs it on its own, one module at a time.
   the GOV-8 fix in flight; flagging per this file's own process rather than treating a two-run
   reproduction as confirmed sandbox-only without saying so.
 
+## 2026-09-06 `gimle-controlplane` module test, request-idempotency branch
+
+- **`ApiServerAdmissionControlTest#a_flood_past_the_admission_limit_gets_fast_429s_while_node_heartbeats_keep_succeeding`**
+  — failed both surefire attempts in four consecutive runs (full four-module `test`, the same
+  command at `-T 1`, and the module on its own), always on the final assertion, with the heartbeat
+  status list showing several hundred `200`s followed by mostly `429`s. **Confirmed pre-existing**:
+  reproduced identically on this branch's own merge base, with the change's production sources and
+  all three of its new test classes removed, in a `-pl gimle-controlplane test` run (which also
+  produced eight further flakes of the already-documented store-infrastructure kind). Passes clean
+  every time as its own module's only test target.
+
+  The mechanism is not the admission limiter this test is named for. The flood (400 concurrent
+  `GET /deployments`) and the single-threaded heartbeat hammer both originate from `127.0.0.1` and
+  therefore share one per-address rate-limit bucket — 600 tokens, refilling at ~200/s. Whether the
+  hammer's own requests stay inside that budget is purely a function of how many iterations it
+  completes before the flood drains, i.e. of how fast this box happens to be running; on a loaded
+  one it gets further through the loop and spends the shared budget the flood is also drawing on.
+  Neither route involved is touched by request idempotency (the flood is a `GET`, and `/nodes/*`
+  is not a keyed route at all). Left as-is rather than tagged or retuned: reserving the heartbeat
+  lane from a flood is a real property worth testing, and the fix is to give the hammer its own
+  budget rather than to silence the assertion — a change to that test's own design, out of scope
+  for the change in flight.
+
 ## 2026-08-28 `gimle-controlplane` single-module test, SEC-7 branch
 
 - **`ApiServerDeploymentConcurrencyTest#a_racing_delete_of_a_never_existing_name_never_blocks_a_concurrent_create`**

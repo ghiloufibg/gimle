@@ -37,6 +37,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import com.gimle.mimir.store.WorkloadHealthState;
@@ -406,6 +407,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     StoreRpc.WorkloadTokenResult result =
         (StoreRpc.WorkloadTokenResult) sendRead(new StoreRpc.GetWorkloadToken(key));
     return result.present() ? Optional.of(result.value()) : Optional.empty();
+  }
+
+  @Override
+  public Optional<RequestOutcomeRecord> getRequestOutcome(String requestId) {
+    StoreRpc.RequestOutcomeResult result =
+        (StoreRpc.RequestOutcomeResult) sendRead(new StoreRpc.GetRequestOutcome(requestId));
+    return result.present() ? Optional.of(result.value()) : Optional.empty();
+  }
+
+  @Override
+  public int countRequestOutcomesBefore(long cutoffEpochMilli) {
+    return ((StoreRpc.IntResult)
+            sendRead(new StoreRpc.CountRequestOutcomesBefore(cutoffEpochMilli)))
+        .value();
   }
 
   @Override

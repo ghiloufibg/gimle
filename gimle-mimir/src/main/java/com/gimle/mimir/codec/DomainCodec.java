@@ -62,12 +62,14 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -1205,6 +1207,31 @@ public final class DomainCodec {
     long expiresAtEpochMilli = in.readLong();
     return new WorkloadTokenRecord(
         key, tokenSha256Hex, tenantId, deploymentName, expiresAtEpochMilli);
+  }
+
+  /**
+   * {@code responseBody} goes through {@link #writeBytes} rather than {@code writeUTF}: a recorded
+   * API response is arbitrary JSON, and {@code writeUTF}'s 64KiB ceiling would turn a large one
+   * into a serialization failure at propose time.
+   */
+  public static void writeRequestOutcomeRecord(DataOutputStream out, RequestOutcomeRecord record)
+      throws IOException {
+    out.writeUTF(record.requestId());
+    out.writeUTF(record.principalName());
+    out.writeInt(record.statusCode());
+    writeBytes(out, record.responseBody().getBytes(StandardCharsets.UTF_8));
+    out.writeLong(record.recordedAtEpochMilli());
+  }
+
+  public static RequestOutcomeRecord readRequestOutcomeRecord(DataInputStream in)
+      throws IOException {
+    String requestId = in.readUTF();
+    String principalName = in.readUTF();
+    int statusCode = in.readInt();
+    String responseBody = new String(readBytes(in), StandardCharsets.UTF_8);
+    long recordedAtEpochMilli = in.readLong();
+    return new RequestOutcomeRecord(
+        requestId, principalName, statusCode, responseBody, recordedAtEpochMilli);
   }
 
   public static void writeInstanceObservation(DataOutputStream out, InstanceObservation obs)

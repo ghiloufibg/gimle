@@ -162,7 +162,8 @@ class ConfigMapStoreTest {
     store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
     store.put("acme", "app-config", Map.of("b", "2"), OptionalInt.empty());
 
-    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 1);
+    ConfigMapRollbackOutcome result =
+        store.rollback("acme", "app-config", 1, ConfigMapStore.ReceiptFactory.none());
 
     assertEquals(new ConfigMapRollbackOutcome.Applied(3, Map.of("a", "1"), false), result);
     ConfigMap saved = store.get("acme", "app-config").orElseThrow();
@@ -180,7 +181,8 @@ class ConfigMapStoreTest {
     store.delete("acme", "app-config");
     store.put("acme", "app-config", Map.of("b", "2"), OptionalInt.empty());
 
-    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 2);
+    ConfigMapRollbackOutcome result =
+        store.rollback("acme", "app-config", 2, ConfigMapStore.ReceiptFactory.none());
 
     assertEquals(new ConfigMapRollbackOutcome.Applied(4, Map.of(), true), result);
     assertEquals(Optional.empty(), store.get("acme", "app-config"));
@@ -190,7 +192,8 @@ class ConfigMapStoreTest {
   void rollback_of_an_unknown_version_is_rejected_without_touching_the_live_row() {
     store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
 
-    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 99);
+    ConfigMapRollbackOutcome result =
+        store.rollback("acme", "app-config", 99, ConfigMapStore.ReceiptFactory.none());
 
     assertEquals(new ConfigMapRollbackOutcome.TargetNotFound(), result);
     assertEquals(Map.of("a", "1"), store.get("acme", "app-config").orElseThrow().data());

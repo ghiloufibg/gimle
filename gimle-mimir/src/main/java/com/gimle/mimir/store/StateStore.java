@@ -141,6 +141,11 @@ public final class StateStore implements StoreReader {
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<Byte, Boolean> retiredSecretsKeyIds = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
+  // Receipts for completed writes that carried a caller-supplied request id, keyed by that id.
+  // Bounded by the rate of keyed writes over the retention window rather than by cluster history:
+  // sweepRequestOutcomesBefore drops everything past it. Unlike workloadTokens above, an entry
+  // here carries no self-describing expiry, so the sweep's cutoff travels in its own mutation.
+  private final Map<String, RequestOutcomeRecord> requestOutcomes = new ConcurrentHashMap<>();
   // username -> the epoch-milli watermark set by that user's last console logout. Bounded by the
   // number of distinct usernames that have ever logged out (an operator account list, not
   // per-request churn), so unlike workloadTokens above this needs no expired-entry sweep: once
@@ -1177,6 +1182,43 @@ public final class StateStore implements StoreReader {
     return Optional.ofNullable(workloadTokens.get(key));
   }
 
+  // ---- request-idempotency receipts ----
+
+  /**
+   * Records {@code record} as {@code requestId}'s one and only answer. First write wins rather than
+   * last: two genuinely concurrent duplicates of the same id both execute and both propose, and a
+   * caller that has already read one receipt back must keep reading that same one rather than watch
+   * the recorded answer change underneath it.
+   */
+  public void putRequestOutcome(RequestOutcomeRecord record) {
+    requestOutcomes.putIfAbsent(record.requestId(), record);
+  }
+
+  public Optional<RequestOutcomeRecord> getRequestOutcome(String requestId) {
+    return Optional.ofNullable(requestOutcomes.get(requestId));
+  }
+
+  /**
+   * How many receipts were recorded strictly before {@code cutoffEpochMilli} -- what lets the
+   * retention sweep propose a removal only when there is something to remove, instead of appending
+   * a no-op entry to the replicated log on every tick forever.
+   */
+  public int countRequestOutcomesBefore(long cutoffEpochMilli) {
+    return (int)
+        requestOutcomes.values().stream()
+            .filter(record -> record.recordedAtEpochMilli() < cutoffEpochMilli)
+            .count();
+  }
+
+  /**
+   * Drops every receipt recorded strictly before {@code cutoffEpochMilli}. The cutoff is carried in
+   * the mutation rather than read from the applying replica's own clock, so every replica removes
+   * exactly the same set and a replay of the log reproduces it.
+   */
+  public void sweepRequestOutcomesBefore(long cutoffEpochMilli) {
+    requestOutcomes.values().removeIf(record -> record.recordedAtEpochMilli() < cutoffEpochMilli);
+  }
+
   // ---- tenant-scoped config/secrets ----
 
   public void putConfigEntry(ConfigEntry entry) {
@@ -1749,6 +1791,7 @@ public final class StateStore implements StoreReader {
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
         List.copyOf(workloadTokens.values()),
+        List.copyOf(requestOutcomes.values()),
         nodeTaintsSnapshot(),
         List.copyOf(kindDefinitions.values()),
         List.copyOf(customResources.values()),
@@ -1835,6 +1878,7 @@ public final class StateStore implements StoreReader {
     revokedCertificateSerials.clear();
     retiredSecretsKeyIds.clear();
     workloadTokens.clear();
+    requestOutcomes.clear();
     sessionRevokedBeforeEpochMilli.clear();
     configEntries.clear();
     roles.clear();
@@ -1919,6 +1963,7 @@ public final class StateStore implements StoreReader {
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
     snapshot.retiredSecretsKeyIds().forEach(keyId -> putSecretsKeyRetirement(keyId, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
+    snapshot.requestOutcomes().forEach(this::putRequestOutcome);
     snapshot.sessionRevokedBeforeEpochMilli().forEach(this::putSessionRevocation);
     snapshot.configEntries().forEach(this::putConfigEntry);
     snapshot.roles().forEach(this::putRole);

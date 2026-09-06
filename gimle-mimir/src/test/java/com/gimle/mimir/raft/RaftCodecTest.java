@@ -41,6 +41,7 @@ import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.WorkloadHealthState;
@@ -467,6 +468,8 @@ class RaftCodecTest {
             List.of(
                 new WorkloadTokenRecord(
                     "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)),
+            List.of(
+                new RequestOutcomeRecord("req-abc12345", "alice", 200, "{\"revision\":4}", 8_888L)),
             Map.of("node-1", Set.of("tenant-1", "tenant-2")),
             List.of(
                 new KindDefinitionSpec(
@@ -550,6 +553,7 @@ class RaftCodecTest {
     assertEquals(snapshot.controllerRevisions(), decoded.controllerRevisions());
     assertEquals(snapshot.revokedCertificateSerials(), decoded.revokedCertificateSerials());
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
+    assertEquals(snapshot.requestOutcomes(), decoded.requestOutcomes());
     assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
     assertEquals(snapshot.nodeTaints(), decoded.nodeTaints());
     assertEquals(snapshot.kindDefinitions(), decoded.kindDefinitions());

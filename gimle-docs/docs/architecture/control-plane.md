@@ -135,6 +135,65 @@ worth doing when pointing a load generator such as [`ragnarok stress`](../refere
 at the cluster, since a stress run's whole purpose is to exceed exactly this rate. Console static
 assets are served outside this wrapper and are not charged.
 
+### Retrying a write safely
+
+A write can commit and still fail to answer. A client whose request times out has no way to tell
+whether the proposal reached the store leader, replicated and applied, or never landed at all — the
+timeout carries no information either way. Re-sending it blindly is wrong for two different reasons.
+A write that mints something new — a rollback's fresh revision, a signed certificate — mints a
+second one. And a generation-guarded apply is not a harmless no-op to repeat either: re-running it
+reinstates the content of an attempt the caller had already given up on over whatever landed since,
+while a retry fast enough to race its own still-in-flight original is refused by the generation
+guard as a conflict — reporting failure for a write that succeeded, and inviting an operator to
+"fix" state that is already correct.
+
+The remedy is a caller-supplied `X-Gimle-Request-Id` request header on the write. It is opaque to
+the server, validated only as 8–128 characters of `[A-Za-z0-9._-]`, and it identifies **one logical
+operation** — the same id on a retry, a different id on a genuinely new request. A request that
+carries no such header behaves exactly as it always has: only a caller can know whether two requests
+mean the same thing, so nothing is inferred from the body or the path.
+
+When a keyed write completes, the control plane records a receipt — the status code and response
+body it answered with, and the principal it answered for — **in the same store mutation batch as the
+write itself**. Committing the two together is the whole point: there is no window in which the
+effect landed durably but the record a retry would be recognised by did not. A later request
+presenting the same id is answered from that receipt verbatim, with an `X-Gimle-Replayed: true`
+response header, and the write is not executed again.
+
+The receipt lives in the replicated store rather than one replica's memory, because a retry may well
+be answered by a different replica than the original — a `307` to a new leader, or simply a different
+address in the client's list. The recorded principal is re-checked on every replay and a mismatch
+reads as a miss: a request id is chosen by its own caller, so holding one must never be enough to
+read back what somebody else's request was told. Receipts are swept after 15 minutes on the ordinary
+reconcile tick, so the table is bounded by the recent rate of keyed writes rather than by cluster
+history; a retry arriving after that simply executes again.
+
+Keyed writes are the ones a retry gets wrong:
+
+| Route | Why |
+| ----- | --- |
+| `POST /deployments/{name}/rollback` | mints a new revision — rollback is forward-only, never a rewrite of history |
+| `POST /daemonsets/{name}/rollback` | same |
+| `POST /statefulsets/{name}/rollback` | same |
+| `POST /config/{tenant}/{key}/rollback` | mints a new ledger version, same forward-only semantics |
+| `POST /configmaps/{tenant}/{name}/rollback` | same |
+| `POST /bootstrap/csr/{id}/approve` | signs a certificate |
+| `PUT /deployments/{name}` | generation-guarded; a retry can be answered with a conflict for a write that succeeded |
+| `PUT /kinddefinitions/{kind}` | same |
+| `PUT /resources/{kind}/{name}` | same |
+
+Ordinary `PUT`/`DELETE` routes not listed here are absolute set/delete operations against the store
+and are already idempotent at the state machine, so they are deliberately left unkeyed. Two
+genuinely concurrent duplicates of the same id are also deliberately not serialised: neither finds a
+receipt, so both execute. That window is far narrower than the timeout this exists for, and closing
+it would mean an extra consensus round before every keyed write.
+
+`POST /bootstrap/csr/{id}/approve` is the one keyed route whose receipt is *not* atomic with its
+effect. Approval signs a certificate through the CA and updates a per-replica pending-request record;
+neither is a replicated write, so there is nothing to batch the receipt into and it is proposed on
+its own afterwards. It still buys the thing that matters: a recognised retry returns the certificate
+already issued instead of minting a second, equally valid one.
+
 ## Health
 
 `GET /health` is unauthenticated and reports on the store this process depends on, not merely on

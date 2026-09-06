@@ -17,6 +17,7 @@ import com.gimle.controlplane.reconcile.JobReconciler;
 import com.gimle.controlplane.reconcile.LimitRangeReconciler;
 import com.gimle.controlplane.reconcile.QuotaReconciler;
 import com.gimle.controlplane.reconcile.ReplicaCountReconciler;
+import com.gimle.controlplane.reconcile.RequestOutcomeSweeper;
 import com.gimle.controlplane.reconcile.ServiceReconciler;
 import com.gimle.controlplane.reconcile.StatefulSetReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
@@ -84,6 +85,13 @@ public final class ControlPlaneMain {
   // the lease before its very next renewal attempt.
   private static final Duration RECONCILER_LEASE_TTL = Duration.ofSeconds(10);
   private static final Duration MUNINN_SHIP_INTERVAL = Duration.ofSeconds(5);
+
+  /**
+   * How long a request-idempotency receipt survives -- comfortably longer than the CLI's own
+   * ten-second request timeout plus any human or scripted retry after it, and short enough that the
+   * receipt table stays bounded by the recent keyed-write rate rather than by cluster history.
+   */
+  private static final Duration REQUEST_OUTCOME_RETENTION = Duration.ofMinutes(15);
 
   private ControlPlaneMain() {}
 
@@ -274,6 +282,9 @@ public final class ControlPlaneMain {
     // and drops the notification (see its own javadoc), never fails this reconciler's tick.
     AlertReconciler alertReconciler =
         new AlertReconciler(apiServer.alertRuleRegistry(), storeClient, new WebhookAlertNotifier());
+    RequestOutcomeSweeper requestOutcomeSweeper =
+        new RequestOutcomeSweeper(
+            storeClient, storeClient, REQUEST_OUTCOME_RETENTION, Clock.systemUTC());
 
     // Same --muninn-endpoint value doing double duty: the MuninnClient above reads a gone
     // node/instance's shipped history back, this shipper ships this replica's own request
@@ -352,7 +363,8 @@ public final class ControlPlaneMain {
                 daemonSetReconciler,
                 statefulSetReconciler,
                 serviceReconciler,
-                alertReconciler);
+                alertReconciler,
+                requestOutcomeSweeper);
           }
         };
     // Unconditional -- not lease-gated like the reconcile tick above: this replica's own
@@ -498,7 +510,8 @@ public final class ControlPlaneMain {
       DaemonSetReconciler daemonSetReconciler,
       StatefulSetReconciler statefulSetReconciler,
       ServiceReconciler serviceReconciler,
-      AlertReconciler alertReconciler) {
+      AlertReconciler alertReconciler,
+      RequestOutcomeSweeper requestOutcomeSweeper) {
     runOne("replicaCount", replicaCountReconciler::reconcileOnce);
     runOne("health", healthReconciler::reconcileOnce);
     runOne("autoscale", autoscaleReconciler::reconcileOnce);
@@ -519,6 +532,9 @@ public final class ControlPlaneMain {
     // store snapshot -- ordered last so a rule always evaluates against this tick's fully
     // converged state, not a partially-reconciled one.
     runOne("alert", alertReconciler::reconcileOnce);
+    // Reads and writes only the request-idempotency receipt table, which no reconciler above
+    // touches -- ordered last purely because it is the cheapest and least urgent of the set.
+    runOne("requestOutcomes", requestOutcomeSweeper::reconcileOnce);
   }
 
   // Each reconciler gets its own isolated failure boundary so one reconciler's exception (e.g. a

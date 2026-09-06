@@ -140,6 +140,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import com.gimle.module.artifact.ModuleArtifactReader;
@@ -369,6 +370,10 @@ public final class ApiServer implements AutoCloseable {
   // Version history for plain, unencrypted /config/* entries -- see the class's own javadoc for why
   // it's a separate ledger rather than a change to the live ConfigEntry row's own shape.
   private final ConfigVersionStore configVersionStore;
+  // Recognises a retry of a write whose answer the caller lost -- see the class's own javadoc for
+  // which writes are keyed and why. Backed by the same replicated store rather than this replica's
+  // memory: a retry may well be answered by a different replica than the original.
+  private final RequestIdempotency idempotency;
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -597,6 +602,7 @@ public final class ApiServer implements AutoCloseable {
     this.alertRuleRegistry = new AlertRuleRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.configVersionStore = new ConfigVersionStore(storeClient);
+    this.idempotency = new RequestIdempotency(storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.workloadAdmissionChain =
@@ -1478,6 +1484,14 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return AuditOutcome.REJECTED;
     }
+    // Ahead of every store read below, so a recognised retry never re-runs any of them. An apply
+    // that has already committed cannot be safely repeated: re-running it reinstates this
+    // manifest's content over whatever landed in the meantime, and one racing its own in-flight
+    // original is refused by the generation guard as a conflict for a write that in fact succeeded.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return keyed.answeredAs().orElseThrow();
+    }
     // Read as the very first store interaction this handler makes, before admissionArtifact/
     // deploymentAdmissionChain below -- both of those make their own store round-trips, and a
     // concurrent delete's own handler has nothing comparable in front of its own generation read,
@@ -1524,12 +1538,21 @@ public final class ApiServer implements AutoCloseable {
         yield AuditOutcome.REJECTED;
       }
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
+        List<StateMutation> alsoCommit = new ArrayList<>();
         if (previous.isEmpty() || deploymentContentChanged(previous.get(), allow.spec())) {
-          storeClient.propose(
+          alsoCommit.add(
               new StateMutation.AppendControllerRevision(
                   nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
         }
-        if (!proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
+        keyed
+            .requestId()
+            .ifPresent(
+                id ->
+                    alsoCommit.add(
+                        RequestIdempotency.receipt(
+                            id, recordedPrincipalNameOf(exchange), 200, "ok")));
+        if (!proposePutDeploymentOrConflict(
+            exchange, allow.spec(), expectedGeneration, alsoCommit)) {
           yield AuditOutcome.REJECTED;
         }
         attachWarnings(exchange, warnings, "deployment", name);
@@ -1546,11 +1569,24 @@ public final class ApiServer implements AutoCloseable {
    * {@code expectedGeneration} was read -- writes a {@code 409} explaining that and returns {@code
    * false}, so the caller's own success response never runs for a write that didn't durably take
    * effect exactly as sent.
+   *
+   * <p>{@code alsoCommit} (the new revision this apply mints, and the receipt for a keyed request)
+   * rides the same batch rather than being proposed separately, so a rejected generation guard
+   * leaves no revision behind for a write that never happened, and a committed write always carries
+   * the record a retry of it is recognised by.
    */
   private boolean proposePutDeploymentOrConflict(
-      HttpExchange exchange, DeploymentSpec spec, long expectedGeneration) throws IOException {
+      HttpExchange exchange,
+      DeploymentSpec spec,
+      long expectedGeneration,
+      List<StateMutation> alsoCommit)
+      throws IOException {
+    List<StateMutation> mutations = new ArrayList<>();
+    mutations.add(new StateMutation.PutDeployment(spec, expectedGeneration));
+    mutations.addAll(alsoCommit);
     MutationOutcome outcome =
-        storeClient.propose(new StateMutation.PutDeployment(spec, expectedGeneration));
+        storeClient.propose(
+            mutations.size() == 1 ? mutations.get(0) : new StateMutation.Batch(mutations));
     if (outcome instanceof MutationOutcome.Rejected rejected) {
       respond(
           exchange,
@@ -2102,6 +2138,13 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
+    // Every rollback mints a fresh revision, so a blind retry mints a second one -- which is why
+    // this endpoint accepts a caller-supplied request id and answers a repeat of it with the
+    // revision the first attempt already created.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     // Read before any other store interaction below (revision listing, admissionArtifact,
     // deploymentAdmissionChain) for the same reason handlePutDeployment reads it first thing: a
     // concurrent delete's own handler has nothing comparable in front of its own generation read,
@@ -2147,9 +2190,19 @@ public final class ApiServer implements AutoCloseable {
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
         ControllerRevision newRevision =
             nextRevisionFor("Deployment", allow.spec(), targetRevision);
-        storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-        if (proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
-          respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+        Map<String, Object> body = controllerRevisionToJson(newRevision);
+        List<StateMutation> alsoCommit = new ArrayList<>();
+        alsoCommit.add(new StateMutation.AppendControllerRevision(newRevision));
+        keyed
+            .requestId()
+            .ifPresent(
+                id ->
+                    alsoCommit.add(
+                        RequestIdempotency.receipt(
+                            id, recordedPrincipalNameOf(exchange), 200, Json.write(body))));
+        if (proposePutDeploymentOrConflict(
+            exchange, allow.spec(), expectedGeneration, alsoCommit)) {
+          respondJson(exchange, 200, body);
         }
       }
     }
@@ -3852,6 +3905,12 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
+    // Same reasoning as the Deployment rollback: a rollback is forward-only, so a retry that
+    // cannot be recognised mints a second revision restoring the same content.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     List<ControllerRevision> revisions =
         storeClient.listControllerRevisions("DaemonSet", tenantHint, name);
     if (revisions.isEmpty()) {
@@ -3883,9 +3942,17 @@ public final class ApiServer implements AutoCloseable {
     }
     DaemonSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
     ControllerRevision newRevision = nextRevisionFor("DaemonSet", resolved, targetRevision);
-    storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-    storeClient.propose(new StateMutation.PutDaemonSetSpec(resolved));
-    respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+    Map<String, Object> body = controllerRevisionToJson(newRevision);
+    storeClient.propose(
+        withReceipt(
+            List.of(
+                new StateMutation.AppendControllerRevision(newRevision),
+                new StateMutation.PutDaemonSetSpec(resolved)),
+            keyed,
+            exchange,
+            200,
+            Json.write(body)));
+    respondJson(exchange, 200, body);
   }
 
   private static DaemonSetSpec withArtifactSha256(DaemonSetSpec spec, Optional<String> sha256) {
@@ -4122,6 +4189,12 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
+    // Same reasoning as the Deployment rollback: a rollback is forward-only, so a retry that
+    // cannot be recognised mints a second revision restoring the same content.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     List<ControllerRevision> revisions =
         storeClient.listControllerRevisions("StatefulSet", tenantHint, name);
     if (revisions.isEmpty()) {
@@ -4153,9 +4226,17 @@ public final class ApiServer implements AutoCloseable {
     }
     StatefulSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
     ControllerRevision newRevision = nextRevisionFor("StatefulSet", resolved, targetRevision);
-    storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-    storeClient.propose(new StateMutation.PutStatefulSetSpec(resolved));
-    respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+    Map<String, Object> body = controllerRevisionToJson(newRevision);
+    storeClient.propose(
+        withReceipt(
+            List.of(
+                new StateMutation.AppendControllerRevision(newRevision),
+                new StateMutation.PutStatefulSetSpec(resolved)),
+            keyed,
+            exchange,
+            200,
+            Json.write(body)));
+    respondJson(exchange, 200, body);
   }
 
   private static StatefulSetSpec withArtifactSha256(StatefulSetSpec spec, Optional<String> sha256) {
@@ -6156,6 +6237,12 @@ public final class ApiServer implements AutoCloseable {
   private AuditOutcome applyKindDefinition(
       HttpExchange exchange, KindDefinitionSpec submitted, List<String> warnings)
       throws IOException {
+    // Generation-guarded like the Deployment apply, and unsafe to repeat for the same reason --
+    // see the comment in handlePutDeployment.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return keyed.answeredAs().orElseThrow();
+    }
     Optional<String> collision =
         GaldrKinds.declaredNameCollision(submitted, storeClient.listKindDefinitions());
     if (collision.isPresent()) {
@@ -6218,14 +6305,11 @@ public final class ApiServer implements AutoCloseable {
       }
     }
 
-    StateMutation.PutKindDefinition putDefinition =
-        new StateMutation.PutKindDefinition(submitted, expectedGeneration);
     List<StateMutation> mutations = new ArrayList<>();
-    mutations.add(putDefinition);
+    mutations.add(new StateMutation.PutKindDefinition(submitted, expectedGeneration));
     mutations.addAll(backfills);
     MutationOutcome outcome =
-        storeClient.propose(
-            mutations.size() == 1 ? putDefinition : new StateMutation.Batch(mutations));
+        storeClient.propose(withReceipt(mutations, keyed, exchange, 200, "ok"));
     if (outcome instanceof MutationOutcome.Rejected rejected) {
       respond(
           exchange,
@@ -6427,6 +6511,12 @@ public final class ApiServer implements AutoCloseable {
       KindDefinitionSpec definition,
       CustomResourceManifestParser.ParsedCustomResource parsed)
       throws IOException {
+    // Generation-guarded like every other apply here -- see the comment in handlePutDeployment for
+    // why repeating one is not the harmless no-op it looks like.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return keyed.answeredAs().orElseThrow();
+    }
     byte[] canonical;
     try {
       Map<String, Object> defaulted =
@@ -6448,15 +6538,21 @@ public final class ApiServer implements AutoCloseable {
     long expectedGeneration = existing.map(CustomResource::generation).orElse(0L);
     MutationOutcome outcome =
         storeClient.propose(
-            new StateMutation.PutCustomResource(
-                new CustomResource(
-                    definition.kindName(),
-                    parsed.name(),
-                    parsed.tenantId(),
-                    canonical,
-                    new byte[0],
-                    0L),
-                expectedGeneration));
+            withReceipt(
+                List.of(
+                    new StateMutation.PutCustomResource(
+                        new CustomResource(
+                            definition.kindName(),
+                            parsed.name(),
+                            parsed.tenantId(),
+                            canonical,
+                            new byte[0],
+                            0L),
+                        expectedGeneration)),
+                keyed,
+                exchange,
+                200,
+                "ok"));
     if (outcome instanceof MutationOutcome.Rejected rejected) {
       respond(
           exchange,
@@ -7202,13 +7298,32 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleRollbackConfig(HttpExchange exchange, String tenantId, String key)
       throws IOException {
+    // Forward-only like every other rollback here: it mints a new ledger version rather than
+    // rewriting the target, so an unrecognised retry stamps a second identical one.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     Object raw = body.get("version");
     if (!(raw instanceof Number number)) {
       respond(exchange, 400, "'version' must be an integer");
       return;
     }
-    switch (configVersionStore.rollback(tenantId, key, number.intValue())) {
+    switch (configVersionStore.rollback(
+        tenantId,
+        key,
+        number.intValue(),
+        applied ->
+            keyed
+                .requestId()
+                .map(
+                    id ->
+                        RequestIdempotency.receipt(
+                            id,
+                            recordedPrincipalNameOf(exchange),
+                            200,
+                            Json.write(configRollbackBody(applied)))))) {
       case ConfigRollbackOutcome.TargetNotFound ignored ->
           respond(exchange, 404, "no such version of config key " + key + ": " + number.intValue());
       case ConfigRollbackOutcome.WriteContention contention ->
@@ -7220,14 +7335,21 @@ public final class ApiServer implements AutoCloseable {
                   + " ("
                   + contention.attempts()
                   + " attempts)");
-      case ConfigRollbackOutcome.Applied applied -> {
-        Map<String, Object> responseBody = new LinkedHashMap<>();
-        responseBody.put("version", applied.version());
-        responseBody.put("value", applied.value().orElse(null));
-        responseBody.put("deleted", applied.deleted());
-        respondJson(exchange, 200, responseBody);
-      }
+      case ConfigRollbackOutcome.Applied applied ->
+          respondJson(exchange, 200, configRollbackBody(applied));
     }
+  }
+
+  /**
+   * The one place a config rollback's response body is built, so the receipt recorded inside the
+   * write lease and the bytes actually sent afterwards can never drift apart.
+   */
+  private static Map<String, Object> configRollbackBody(ConfigRollbackOutcome.Applied applied) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("version", applied.version());
+    body.put("value", applied.value().orElse(null));
+    body.put("deleted", applied.deleted());
+    return body;
   }
 
   /**
@@ -7509,13 +7631,31 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleRollbackConfigMap(HttpExchange exchange, String tenantId, String name)
       throws IOException {
+    // Same forward-only ledger semantics as the config-key rollback above.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     Object raw = body.get("version");
     if (!(raw instanceof Number number)) {
       respond(exchange, 400, "'version' must be an integer");
       return;
     }
-    switch (configMapStore.rollback(tenantId, name, number.intValue())) {
+    switch (configMapStore.rollback(
+        tenantId,
+        name,
+        number.intValue(),
+        applied ->
+            keyed
+                .requestId()
+                .map(
+                    id ->
+                        RequestIdempotency.receipt(
+                            id,
+                            recordedPrincipalNameOf(exchange),
+                            200,
+                            Json.write(configMapRollbackBody(applied)))))) {
       case ConfigMapRollbackOutcome.TargetNotFound ignored ->
           respond(exchange, 404, "no such version of configmap " + name + ": " + number.intValue());
       case ConfigMapRollbackOutcome.WriteContention contention ->
@@ -7525,14 +7665,19 @@ public final class ApiServer implements AutoCloseable {
               "too many concurrent writers to this configmap ("
                   + contention.attempts()
                   + " attempts)");
-      case ConfigMapRollbackOutcome.Applied applied -> {
-        Map<String, Object> responseBody = new LinkedHashMap<>();
-        responseBody.put("version", applied.version());
-        responseBody.put("data", applied.data());
-        responseBody.put("deleted", applied.deleted());
-        respondJson(exchange, 200, responseBody);
-      }
+      case ConfigMapRollbackOutcome.Applied applied ->
+          respondJson(exchange, 200, configMapRollbackBody(applied));
     }
+  }
+
+  /** The configmap counterpart to {@link #configRollbackBody} -- same single-source reasoning. */
+  private static Map<String, Object> configMapRollbackBody(
+      ConfigMapRollbackOutcome.Applied applied) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("version", applied.version());
+    body.put("data", applied.data());
+    body.put("deleted", applied.deleted());
+    return body;
   }
 
   private static Map<String, String> stringMap(Object rawData) {
@@ -10435,6 +10580,13 @@ public final class ApiServer implements AutoCloseable {
    * holder" as a matter of policy rather than incidental fact.
    */
   private void handleApprove(HttpExchange exchange, String requestId) throws IOException {
+    // Nothing to do with the CSR's own requestId in the path: this is the caller's own
+    // idempotency key, keyed here because approval signs a certificate, so a retry nobody
+    // recognises mints a second, equally valid one for the same request.
+    KeyedWrite keyed = beginKeyedWrite(exchange);
+    if (keyed.answered()) {
+      return;
+    }
     Optional<PendingCsrStore.Entry> entry = pendingCsrStore.get(requestId);
     if (entry.isEmpty()) {
       respond(exchange, 404, "no such pending request: " + requestId);
@@ -10454,12 +10606,24 @@ public final class ApiServer implements AutoCloseable {
             LEAF_VALIDITY,
             Optional.empty());
     pendingCsrStore.approve(requestId, signed);
-    respondJson(
-        exchange,
-        200,
+    Map<String, Object> body =
         csrResultToJson(
             CsrResult.approved(
-                Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate()))));
+                Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate())));
+    // The one keyed write here with nothing to batch a receipt into: approval mints a certificate
+    // through the CA and records it in this replica's own memory, so there is no replicated write
+    // to commit the receipt alongside. Proposed on its own, after the certificate exists -- which
+    // makes the receipt strictly best-effort rather than atomic. It still buys what matters: a
+    // recognised retry returns the certificate already issued instead of minting a second, equally
+    // valid one for the same request.
+    keyed
+        .requestId()
+        .ifPresent(
+            id ->
+                storeClient.propose(
+                    RequestIdempotency.receipt(
+                        id, recordedPrincipalNameOf(exchange), 200, Json.write(body))));
+    respondJson(exchange, 200, body);
   }
 
   private void handleBootstrapTokens(HttpExchange exchange) {
@@ -11081,6 +11245,104 @@ public final class ApiServer implements AutoCloseable {
             MAX_REQUEST_BODY_BYTES,
             exceeded -> new BodyTooLargeException(MAX_REQUEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  /**
+   * What {@link #beginKeyedWrite} decided. A present {@code answeredAs} means the exchange already
+   * carries its response -- an earlier identical request's outcome replayed, or an unusable request
+   * id refused -- and the handler must return without executing anything, recording that outcome in
+   * the audit trail rather than one for a write it never performed. Otherwise {@code requestId}
+   * names the receipt to commit alongside the write, and is empty when the caller keyed nothing.
+   */
+  private record KeyedWrite(Optional<AuditOutcome> answeredAs, Optional<String> requestId) {
+
+    boolean answered() {
+      return answeredAs.isPresent();
+    }
+
+    static KeyedWrite answered(AuditOutcome outcome) {
+      return new KeyedWrite(Optional.of(outcome), Optional.empty());
+    }
+  }
+
+  /**
+   * Run at the top of every write that can be retried into a wrong answer -- one that mints
+   * something new, or one guarded by a generation the caller's own first attempt would have moved.
+   * Must run after the request's own authorization, so the principal a receipt is checked against
+   * is one this request genuinely presented.
+   */
+  private KeyedWrite beginKeyedWrite(HttpExchange exchange) throws IOException {
+    switch (idempotency.check(exchange, recordedPrincipalNameOf(exchange))) {
+      case RequestIdempotency.Check.Malformed malformed -> {
+        respond(exchange, 400, malformed.reason());
+        return KeyedWrite.answered(AuditOutcome.REJECTED);
+      }
+      case RequestIdempotency.Check.Replay replay -> {
+        replayRecordedOutcome(exchange, replay.record());
+        // The audit trail records what this request was answered with, which for a replay is the
+        // earlier attempt's own outcome -- the caller really did ask again, and really was told the
+        // write stands.
+        return KeyedWrite.answered(
+            replay.record().statusCode() / 100 == 2 ? AuditOutcome.APPLIED : AuditOutcome.REJECTED);
+      }
+      case RequestIdempotency.Check.Proceed proceed -> {
+        return new KeyedWrite(Optional.empty(), proceed.requestId());
+      }
+    }
+  }
+
+  /**
+   * The mutations one keyed write proposes: the write itself, plus the receipt recording the answer
+   * this request is about to be given, when the caller supplied an id. One batch, so the effect and
+   * the record of it commit together -- a receipt written separately could be lost to a crash
+   * between the two proposals, leaving a committed write no retry could be recognised against.
+   */
+  private StateMutation withReceipt(
+      List<StateMutation> writes,
+      KeyedWrite keyed,
+      HttpExchange exchange,
+      int statusCode,
+      String responseBody) {
+    List<StateMutation> all = new ArrayList<>(writes);
+    keyed
+        .requestId()
+        .ifPresent(
+            id ->
+                all.add(
+                    RequestIdempotency.receipt(
+                        id, recordedPrincipalNameOf(exchange), statusCode, responseBody)));
+    return all.size() == 1 ? all.get(0) : new StateMutation.Batch(all);
+  }
+
+  /**
+   * The identity a receipt is filed under and re-checked against on replay: whichever credential
+   * the request presented, or the explicit anonymous principal in a mode that carries none.
+   */
+  private String recordedPrincipalNameOf(HttpExchange exchange) {
+    return callerIdentity(exchange).map(Principal::name).orElseGet(ANONYMOUS_PRINCIPAL::name);
+  }
+
+  /**
+   * Sends a previously recorded answer back byte for byte, flagged so a caller can tell a replay
+   * from a fresh execution. The content type is derived from the recorded body rather than stored
+   * with it: every keyed route answers either a JSON document or a short plain-text line, which the
+   * first non-blank character distinguishes exactly.
+   */
+  private static void replayRecordedOutcome(HttpExchange exchange, RequestOutcomeRecord record)
+      throws IOException {
+    exchange.getResponseHeaders().add(RequestIdempotency.REPLAYED_HEADER, "true");
+    String body = record.responseBody();
+    String leading = body.stripLeading();
+    if (!leading.startsWith("{") && !leading.startsWith("[")) {
+      respond(exchange, record.statusCode(), body);
+      return;
+    }
+    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+    exchange.sendResponseHeaders(record.statusCode(), bytes.length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(bytes);
     }
   }
 

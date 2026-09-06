@@ -152,7 +152,8 @@ public final class ConfigMapStore {
    * never rewrites {@code targetVersion} or anything stamped after it, the same "restore = re-apply
    * as a new revision" semantics {@code SecretMapStore#rollback} documents.
    */
-  public ConfigMapRollbackOutcome rollback(String tenantId, String name, int targetVersion) {
+  public ConfigMapRollbackOutcome rollback(
+      String tenantId, String name, int targetVersion, ReceiptFactory receipt) {
     String leaseName = leaseName(tenantId, name);
     String holderId = UUID.randomUUID().toString();
     for (int attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
@@ -166,23 +167,43 @@ public final class ConfigMapStore {
           return new ConfigMapRollbackOutcome.TargetNotFound();
         }
         int version = nextVersion(tenantId, name);
-        if (target.get().deleted()) {
-          storeClient.propose(
-              new StateMutation.RemoveConfigEntry(tenantId, ConfigMapCodec.keyFor(name)));
-          stampVersion(tenantId, name, version, Map.of(), true);
-          return new ConfigMapRollbackOutcome.Applied(version, Map.of(), true);
-        }
-        Map<String, String> data = target.get().data();
-        storeClient.propose(
-            new StateMutation.PutConfigEntry(
-                ConfigMapCodec.encode(new ConfigMap(tenantId, name, version, data))));
-        stampVersion(tenantId, name, version, data, false);
-        return new ConfigMapRollbackOutcome.Applied(version, data, false);
+        boolean deleted = target.get().deleted();
+        Map<String, String> data = deleted ? Map.of() : target.get().data();
+        ConfigMapRollbackOutcome.Applied applied =
+            new ConfigMapRollbackOutcome.Applied(version, data, deleted);
+        StateMutation live =
+            deleted
+                ? new StateMutation.RemoveConfigEntry(tenantId, ConfigMapCodec.keyFor(name))
+                : new StateMutation.PutConfigEntry(
+                    ConfigMapCodec.encode(new ConfigMap(tenantId, name, version, data)));
+        List<StateMutation> mutations = new ArrayList<>();
+        mutations.add(live);
+        mutations.add(versionStamp(tenantId, name, version, data, deleted));
+        receipt.forOutcome(applied).ifPresent(mutations::add);
+        storeClient.propose(new StateMutation.Batch(mutations));
+        return applied;
       } finally {
         storeClient.releaseLease(leaseName, holderId);
       }
     }
     return new ConfigMapRollbackOutcome.WriteContention(MAX_WRITE_ATTEMPTS);
+  }
+
+  /**
+   * Supplies the request-idempotency receipt to commit alongside a rollback, given the outcome that
+   * rollback is about to report. Empty when the caller supplied no request id. Taken as a callback
+   * rather than a ready-made mutation because the receipt records the response body, which is only
+   * known once the new version number has been minted inside the write lease.
+   */
+  @FunctionalInterface
+  public interface ReceiptFactory {
+
+    Optional<StateMutation> forOutcome(ConfigMapRollbackOutcome.Applied applied);
+
+    /** For a caller that keyed nothing, and for every internal caller. */
+    static ReceiptFactory none() {
+      return applied -> Optional.empty();
+    }
   }
 
   /**
@@ -257,14 +278,16 @@ public final class ConfigMapStore {
 
   private void stampVersion(
       String tenantId, String name, int version, Map<String, String> data, boolean deleted) {
+    storeClient.propose(versionStamp(tenantId, name, version, data, deleted));
+  }
+
+  /** The ledger row {@link #stampVersion} proposes, as a mutation a caller can batch itself. */
+  private StateMutation versionStamp(
+      String tenantId, String name, int version, Map<String, String> data, boolean deleted) {
     ConfigMapVersion snapshot = new ConfigMapVersion(version, data, deleted);
-    storeClient.propose(
-        new StateMutation.PutConfigEntry(
-            new ConfigEntry(
-                metaTenantId(tenantId),
-                versionKey(name, version),
-                encodeVersion(snapshot),
-                false)));
+    return new StateMutation.PutConfigEntry(
+        new ConfigEntry(
+            metaTenantId(tenantId), versionKey(name, version), encodeVersion(snapshot), false));
   }
 
   private static String leaseName(String tenantId, String name) {

@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import javax.net.ssl.SSLContext;
 
 /**
@@ -32,10 +34,21 @@ import javax.net.ssl.SSLContext;
  * plane returns {@code 307} rather than {@code 301}/{@code 302} for this case), so a write sent to
  * any reachable replica transparently reaches the current leader. Only a {@code 307} with no {@code
  * Location} header (leader currently unknown) ever reaches {@link #expectSuccess}.
+ *
+ * <p>Every mutating request carries an {@code X-Gimle-Request-Id} of its own, which is what lets
+ * the control plane recognise a repeat of it. The id is stamped on the {@link HttpRequest} rather
+ * than per connection attempt, so a redirect to a different replica carries the same id the
+ * original request had -- which is precisely the case that needs it, since the redirect target
+ * holds none of the first replica's memory. It matters because a write can commit and still fail to
+ * answer: a request that times out was replicated and applied, or was not, and the timeout itself
+ * says nothing about which. Re-sending it under the same id gets the original answer back rather
+ * than either a duplicate effect or a spurious conflict.
  */
 public final class ControlPlaneClient {
 
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+  // What the control plane keys request idempotency on -- see the class javadoc.
+  private static final String REQUEST_ID_HEADER = "X-Gimle-Request-Id";
   // Jar-scale artifact transfers get their own budget rather than the 10s JSON-exchange one.
   private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
@@ -96,11 +109,8 @@ public final class ControlPlaneClient {
   }
 
   public ApiResponse put(String path, String body) {
-    return send(
-        HttpRequest.newBuilder(resolve(path))
-            .timeout(REQUEST_TIMEOUT)
-            .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-            .build());
+    return sendMutation(
+        mutating(path).PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)));
   }
 
   /**
@@ -108,23 +118,80 @@ public final class ControlPlaneClient {
    * PATCH} convenience the way it does {@code GET}/{@code POST}/{@code PUT}/{@code DELETE}.
    */
   public ApiResponse patch(String path, String body) {
-    return send(
-        HttpRequest.newBuilder(resolve(path))
-            .timeout(REQUEST_TIMEOUT)
-            .method("PATCH", HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-            .build());
+    return sendMutation(
+        mutating(path)
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)));
   }
 
   public ApiResponse post(String path, String body) {
-    return send(
-        HttpRequest.newBuilder(resolve(path))
-            .timeout(REQUEST_TIMEOUT)
-            .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-            .build());
+    return sendMutation(
+        mutating(path).POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)));
   }
 
   public ApiResponse delete(String path) {
-    return send(HttpRequest.newBuilder(resolve(path)).timeout(REQUEST_TIMEOUT).DELETE().build());
+    return sendMutation(mutating(path).DELETE());
+  }
+
+  /**
+   * A request builder for one logical mutating operation, already carrying its own request id. The
+   * id is generated here, once per operation, so that everything that follows from this one builder
+   * -- including a redirect the client follows to another replica -- presents the same one.
+   */
+  private HttpRequest.Builder mutating(String path) {
+    return HttpRequest.newBuilder(resolve(path))
+        .timeout(REQUEST_TIMEOUT)
+        .header(REQUEST_ID_HEADER, newRequestId());
+  }
+
+  /**
+   * Sends a keyed mutating request. A timeout here is reported as an unknown outcome rather than a
+   * failure, naming the request id: the write may well have committed, and re-sending it under that
+   * same id is what settles the question without risking a second effect.
+   */
+  private ApiResponse sendMutation(HttpRequest.Builder builder) {
+    HttpRequest request = builder.build();
+    try {
+      return send(request);
+    } catch (CliException e) {
+      if (e.getCause() instanceof HttpTimeoutException timeout) {
+        throw unknownOutcome(baseUri, request, timeout);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * What an operator is told when a write's response never arrives. Deliberately does not say the
+   * write failed: it may have been replicated and applied already, and the timeout carries no
+   * information either way. Naming the request id gives an operator something to act on: it
+   * correlates this attempt with the server's own record of it, and a retry presenting that id is
+   * answered with the original outcome rather than repeating the write.
+   */
+  static CliException unknownOutcome(URI baseUri, HttpRequest request, HttpTimeoutException cause) {
+    return CliException.unavailable(
+        "no response from control plane at "
+            + baseUri
+            + " within "
+            + REQUEST_TIMEOUT.toSeconds()
+            + "s: the outcome of this "
+            + request.method()
+            + " "
+            + request.uri().getPath()
+            + " is unknown -- it may already have been applied. Check the current state before"
+            + " retrying blindly; a retry presenting "
+            + REQUEST_ID_HEADER
+            + ": "
+            + request.headers().firstValue(REQUEST_ID_HEADER).orElse("(none)")
+            + " is answered with this request's original outcome instead of repeating the write",
+        cause);
+  }
+
+  /**
+   * Opaque to the server, which only requires 8-128 characters of {@code [A-Za-z0-9._-]}. A random
+   * UUID satisfies that and needs no coordination with anything else to stay unique.
+   */
+  private static String newRequestId() {
+    return UUID.randomUUID().toString();
   }
 
   /**

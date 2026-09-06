@@ -26,6 +26,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.RequestOutcomeRecord;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -663,6 +664,51 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeWorkloadToken(key);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * The receipt for one completed API write that carried a caller-supplied request id. Proposed
+   * inside the same {@link Batch} as the write it guards wherever that write is itself replicated:
+   * the effect and the record of what the caller was told then commit together or not at all, so
+   * there is no window in which the write landed durably but a retry of it can no longer be
+   * recognised as a retry. The one endpoint whose effect is not a replicated write at all --
+   * certificate approval, which signs through the CA -- has nothing to batch this into and proposes
+   * it alone, which trades that atomicity for the far more valuable property that a recognised
+   * retry returns the certificate already issued rather than minting a second one.
+   *
+   * <p>{@code recordedAtEpochMilli} is stamped once by the proposing replica and carried in the
+   * entry, the same determinism reasoning {@link PutWorkloadToken#mintedAtEpochMilli} documents:
+   * {@link SweepRequestOutcomes} compares against it, and a wall-clock read at apply time would let
+   * two replicas disagree about which receipts have expired.
+   */
+  record PutRequestOutcome(
+      String requestId,
+      String principalName,
+      int statusCode,
+      String responseBody,
+      long recordedAtEpochMilli)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putRequestOutcome(
+          new RequestOutcomeRecord(
+              requestId, principalName, statusCode, responseBody, recordedAtEpochMilli));
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Drops every request-idempotency receipt older than {@code cutoffEpochMilli} -- the retention
+   * bound that keeps the receipt table sized by recent write rate rather than by cluster history.
+   * The cutoff travels in the entry rather than being recomputed per replica, for the same reason
+   * {@link PutRequestOutcome} carries its own stamp.
+   */
+  record SweepRequestOutcomes(long cutoffEpochMilli) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.sweepRequestOutcomesBefore(cutoffEpochMilli);
       return MutationOutcome.accepted();
     }
   }

@@ -67,6 +67,7 @@ class RaftLogTest {
         Map.of(), // limitRangeViolations
         Set.of(), // revokedCertificateSerials
         List.of(), // workloadTokens
+        List.of(), // requestOutcomes
         Map.of(), // nodeTaints
         List.of(), // kindDefinitions
         List.of(), // customResources
@@ -122,6 +123,7 @@ class RaftLogTest {
         base.limitRangeViolations(),
         base.revokedCertificateSerials(),
         base.workloadTokens(),
+        base.requestOutcomes(),
         base.nodeTaints(),
         base.kindDefinitions(),
         base.customResources(),
