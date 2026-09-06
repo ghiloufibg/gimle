@@ -40,6 +40,16 @@ because both ends are ours; the external path becomes standard precisely because
 
 ## Goals
 
+- **Free and open-source backends are the target.** Grafana's stack (Loki/Mimir/Tempo, reached via
+  Alloy or the OpenTelemetry Collector), Prometheus, VictoriaMetrics, Jaeger, OpenSearch, SigNoz,
+  OpenObserve, Uptrace — self-hostable, no licence, no account. Proprietary SaaS (Datadog, New
+  Relic, Splunk, Dynatrace) is *reachable* as a consequence of choosing an open standard, and is
+  explicitly not what any decision here optimizes for. Where the two pull in different directions,
+  the open-source target wins; §2's encoding decision is exactly such a case.
+- Nothing added to Gimlé is itself non-free: OTLP is an Apache-2.0 CNCF specification, the
+  Prometheus exposition format is open, and v1 implements both directly — no proprietary SDK, no
+  vendor client library, no dependency with a licence more restrictive than the reactor already
+  carries.
 - One configured egress point for the whole cluster — not one exporter configuration per process
   kind per node.
 - One protocol reaching the majority of tools, rather than one adapter per vendor.
@@ -106,12 +116,27 @@ exporter per process instead — documented as an escape hatch in §11, delibera
 
 ## 2. The standard: OTLP over HTTP, JSON encoding
 
-**OpenTelemetry Protocol (OTLP)** is the choice, for the reason the request itself names: it is the
-one protocol accepted by the majority of tools, and the only one covering all three signals. Its
-reach is what matters here — the OpenTelemetry Collector and Grafana Alloy accept it natively (and
-between them fan out to Loki, Mimir, Tempo, Prometheus and Grafana Cloud), the Datadog Agent has an
-OTLP intake pipeline, Elastic, Splunk, New Relic, Honeycomb, Dynatrace, AWS and Azure all publish
-OTLP endpoints, and Prometheus itself has grown an OTLP write receiver.
+**OpenTelemetry Protocol (OTLP)** is the choice: the one protocol accepted by the majority of tools,
+the only one covering all three signals, and — decisively for the open-source goal above — the
+native ingest protocol of essentially every free observability stack currently maintained.
+
+| Open-source target | Reached how | Signals |
+|---|---|---|
+| Grafana Loki / Mimir / Tempo | OTLP → Grafana Alloy or OpenTelemetry Collector, which fans out | logs, metrics, traces |
+| Prometheus | `GET /prometheus` scrape (§6), or OTLP → its own write receiver | metrics |
+| VictoriaMetrics | scrapes the same Prometheus format (§6) | metrics |
+| Jaeger | OTLP natively | traces |
+| SigNoz, OpenObserve, Uptrace | OTLP natively, all three signals in one place | logs, metrics, traces |
+| OpenSearch / Elasticsearch | OTLP → Collector `opensearch`/`elasticsearch` exporter | logs, traces |
+
+A collector — Alloy or the OTel Collector, both Apache-2.0 — is the recommended topology and the
+one every row above except the two scrape-based ones assumes. It is the operator's process, never
+Gimlé's (§"Rejected alternatives"), and it is what turns one OTLP emitter into fan-out, buffering
+and routing that Gjallarhorn deliberately does not reimplement.
+
+Proprietary SaaS falls out of the same choice for free — the Datadog Agent, New Relic, Splunk,
+Honeycomb, Dynatrace, AWS and Azure all publish OTLP endpoints — but no decision below is made for
+their benefit.
 
 Three sub-decisions, each with a real trade-off:
 
@@ -129,21 +154,30 @@ OTLP/JSON is a **spec-defined encoding of the identical schema**, and producing 
 `Map`-to-`Map` transformation ending in the `Json.write` this codebase already owns — zero new
 dependencies, end to end.
 
-The cost, stated honestly: OTLP/JSON is accepted by the Collector and Alloy — which is the intended
-topology — but support at *direct* vendor endpoints is less uniform than protobuf's, and must be
-verified per target at implementation time rather than assumed from this document. A deployment
-whose chosen backend is protobuf-only points Gjallarhorn at a collector instead. Protobuf encoding
-is the natural v2 addition behind the same `OtlpEncoder` seam if that proves too constraining, and
-§3's normalized model exists so adding it never touches the conversion logic.
+The open-source priority is what makes this decision cheap rather than risky. The OTel Collector and
+Grafana Alloy share the same `otlpreceiver` implementation and accept the JSON encoding, and they
+are the front door for Loki, Mimir, Tempo, OpenSearch and every other row in the table above — so
+the intended topology is covered by the encoding that costs zero dependencies. The residual
+uncertainty is concentrated in the two direct-ingest cases (Prometheus' own OTLP write receiver, and
+SigNoz/Jaeger addressed without a collector), which must be verified at implementation time rather
+than assumed from this document; a target that turns out to be protobuf-only is reached through a
+collector, which the operator is running anyway. Had proprietary SaaS endpoints been the priority,
+protobuf would likely have won this decision — that is exactly the divergence the goals section
+resolves in favour of open source.
+
+Protobuf encoding remains the natural v2 addition behind the same `OtlpEncoder` seam, and §3's
+normalized model exists so adding it never touches the conversion logic.
 
 **D3 — Semantic conventions are part of the contract, not decoration.** An OTLP payload whose
 resource attributes are wrong is syntactically valid and practically useless: no backend will group
 it, and no stock dashboard will populate. §4 fixes the mapping explicitly.
 
 Alongside OTLP, a **Prometheus text exposition / OpenMetrics scrape endpoint** (§6) is offered for
-metrics only. It is not a second standard competing with OTLP; it exists because pull-based
-Prometheus remains how a large share of shops actually run, and rendering it from the same
-normalized model costs almost nothing.
+metrics only. It is not a second standard competing with OTLP — it is the open-source metrics idiom.
+Prometheus and VictoriaMetrics both scrape this exact format, and it is the one path in this design
+that needs *no* intermediary process at all: point a Prometheus at Muninn and metrics flow, with no
+collector to run. That makes it the cheapest possible entry point for a small self-hosted
+deployment, which is why it is promoted to v1 (M2) rather than deferred.
 
 ## 3. Internal shape: one normalized model, several encoders
 
@@ -337,7 +371,12 @@ System properties, matching `gimle-muninn`'s existing `-Dgimle.muninn.*` style:
 `-Dgimle.*.muninnEndpoint` for five process kinds, and `gimle-holmgang`'s topology YAML gains a
 `gjallarhorn:` block alongside its existing `muninn:` one.
 
-**Credentials must never be a system property.** An API key passed as `-D` lands in `ps` output, in
+Credentials are **optional**, and for the primary topology usually absent: a self-hosted collector
+on a trusted network typically needs no auth header at all, and Grafana Cloud-style basic auth or a
+bearer token is the exception rather than the norm. An unset `headersFile` must therefore be a
+normal, silent configuration — not a warning, and certainly not a startup failure.
+
+When they are needed: **credentials must never be a system property.** An API key passed as `-D` lands in `ps` output, in
 `/proc`, and in `LaunchPlanner`'s own logged command line. v1 reads them from a file of
 `Header: value` lines with `0600` permissions — the same posture `KeyFileManager` already takes for
 Fafnir's master key. v2 should replace that with a Fafnir secret reference resolved at startup and
@@ -404,11 +443,22 @@ duplicate records the streaming path already delivered, and deduplication is the
 
 ## 11. Rejected alternatives
 
-**Vendor-native protocols** (Datadog `/api/v2/series`, Loki push, Elasticsearch `_bulk`, Splunk
+**Vendor-native protocols** (Loki push, Elasticsearch `_bulk`, Datadog `/api/v2/series`, Splunk
 HEC). Each is one adapter, one auth scheme, one schema and one deprecation treadmill, forever, and
-the set is never complete. OTLP reaches all of them through a collector the operator already runs or
-can run. If a specific vendor's OTLP path proves genuinely deficient for a real deployment, that is
-the moment to reconsider — one adapter, driven by evidence, behind the same `BatchHttpSink` seam.
+the set is never complete. This applies to the open-source ones too, and is worth saying explicitly
+because Loki's push API is genuinely tempting: it looks like a shortcut to the primary target. It
+is not — it would bind Gimlé to Loki's own schema and version cadence, cover exactly one signal,
+and duplicate what a twenty-line Alloy config already does. OTLP reaches Loki, Tempo, Mimir and
+OpenSearch alike through one emitter. If a specific backend's OTLP path proves genuinely deficient
+for a real deployment, that is the moment to reconsider — one adapter, driven by evidence, behind
+the same `BatchHttpSink` seam.
+
+**Prometheus `remote_write`.** A real open standard and a plausible second metrics path, rejected
+for v1 on cost/benefit: it is protobuf + snappy framing (a new dependency and a hand-rolled encoder,
+against §2's zero-dependency result), and it duplicates coverage the scrape endpoint already gives
+for the same backends. Reconsider only if pull-based scraping proves unworkable at a real
+deployment's scale — a push path matters when a scraper cannot reach Muninn, not merely when it
+would be tidier.
 
 **Shipping an OpenTelemetry Collector as a Gimlé process.** The collector is a Go binary. "No
 non-Java runtime dependencies" is a first-order project constraint, and this would break it more
@@ -464,8 +514,16 @@ behaviour does.
   `gjallarhorn:` enabled, covering both the healthy path and a deliberately-unreachable target
   (asserting ingest and Muninn reads stay entirely unaffected — the property this whole design
   exists to guarantee).
-- **Manual**: a documented runbook for pointing a local Alloy or OTel Collector at a dev cluster and
-  seeing lines land in Loki/Tempo/Mimir. Documented, not automated, for the same reason as above.
+- **Manual, and made easy**: `gimle-dist`'s Midgard dev cluster is already a `docker-compose.yaml`,
+  so it should grow an **optional, opt-in compose profile** bringing up Alloy + Loki + Tempo + Mimir
+  + Grafana (all Apache-2.0/AGPL, all self-hosted, nothing to sign up for) with Gjallarhorn
+  pre-pointed at it. That turns "verify the export actually works against a real open-source stack"
+  into one command instead of a runbook nobody follows, and gives the project a place to keep
+  reference Grafana dashboards for Gimlé's own meters. Opt-in only — the default Midgard bring-up
+  must not gain five containers.
+- Deliberately **not** a test dependency: those containers stay out of `mvn verify`, `-Psmoke` and
+  `-Pvalidation`. The stub OTLP receiver above is the automated contract boundary; the compose
+  profile is for humans.
 
 ## 14. Repository bookkeeping this change carries
 
