@@ -372,6 +372,11 @@ public final class AgentMain {
     // Tier 1 density-packed instance's logs live under a different instance's own worker
     // directory (see SupervisedInstance#workerKey), and this is how a log request finds it.
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
+    // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
+    // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
+    // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
+    Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
     // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
     // defaulting alongside it rather than under it, matching the same
     // "own top-level directory, own property" convention gimle.log.root itself established.
@@ -383,7 +388,8 @@ public final class AgentMain {
             logRoot,
             0,
             (tenantId, deploymentName, instanceIndex) ->
-                workerDirectoryKey(supervised, tenantId, deploymentName, instanceIndex),
+                workerDirectoryKey(
+                    supervised, supervisedVessels, tenantId, deploymentName, instanceIndex),
             volumeManager,
             () ->
                 supervised.values().stream()
@@ -447,11 +453,6 @@ public final class AgentMain {
     // reportStartFailure.
     Map<String, String> reportedStartFailures = new ConcurrentHashMap<>();
     HttpClient httpClient = buildHttpClient();
-    // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
-    // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
-    // shapes would leave every module-only field meaningless for a vessel. Both maps are keyed
-    // identically (deploymentName#instanceIndex) and both contribute to the same heartbeat.
-    Map<String, SupervisedVessel> supervisedVessels = new ConcurrentHashMap<>();
     // Keyed the same way supervised is (deploymentName#instanceIndex): a supervised instance's
     // pair of MuninnShippers (its worker's own PLATFORM log, its own APPLICATION log), started
     // the same tick the instance is added to supervised and closed the same tick it's removed.
@@ -4319,15 +4320,43 @@ public final class AgentMain {
    */
   static String workerDirectoryKey(
       Map<String, SupervisedInstance> supervised,
+      Map<String, SupervisedVessel> supervisedVessels,
       Optional<String> tenantId,
       String deploymentName,
       int instanceIndex) {
     SupervisedInstance instance =
         findSupervised(supervised, tenantId, deploymentName, instanceIndex);
-    if (instance == null) {
-      return instanceKey(tenantId, deploymentName, instanceIndex);
+    if (instance != null) {
+      return instance.workerKey != null ? instance.workerKey : instanceKey(instance.assigned);
     }
-    return instance.workerKey != null ? instance.workerKey : instanceKey(instance.assigned);
+    // A vessel is supervised under its own map and runs as its own process rather than inside a
+    // worker JVM, so it has no worker key to inherit -- but it files its logs under the same
+    // instance key, and a caller naming it only by name must reach them the same way one naming a
+    // module instance does.
+    SupervisedVessel vessel =
+        findSupervisedVessel(supervisedVessels, tenantId, deploymentName, instanceIndex);
+    if (vessel != null) {
+      return instanceKey(vessel.assigned);
+    }
+    return instanceKey(tenantId, deploymentName, instanceIndex);
+  }
+
+  /** {@link #findSupervised}'s counterpart for the vessels this node supervises. */
+  private static SupervisedVessel findSupervisedVessel(
+      Map<String, SupervisedVessel> supervisedVessels,
+      Optional<String> tenantId,
+      String deploymentName,
+      int instanceIndex) {
+    if (tenantId.isPresent()) {
+      return supervisedVessels.get(instanceKey(tenantId, deploymentName, instanceIndex));
+    }
+    return supervisedVessels.values().stream()
+        .filter(
+            vessel ->
+                vessel.assigned.deploymentName().equals(deploymentName)
+                    && vessel.assigned.instanceIndex() == instanceIndex)
+        .findFirst()
+        .orElse(null);
   }
 
   /**

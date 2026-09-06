@@ -479,15 +479,19 @@ suspend: false                   # optional -- defaults to false; true pauses th
 | `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
 | `suspend` | no | `true` pauses the schedule: no firing is materialized while it is set. Defaults to `false`. Matches Kubernetes CronJob's own field name and default. |
 
-A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
-`gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
+A cronjob's `lastScheduleTime` and `scheduleEvaluatedThrough` are both read-only, computed state —
+never part of the manifest you submit. `lastScheduleTime` is when the CronJob last actually
+generated a Job, and is absent for one that has never fired; `scheduleEvaluatedThrough` is how far
+the reconciler has evaluated the schedule, which keeps advancing whether or not a firing resulted.
+`gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read them back, alongside
 every Job it has generated (visible on the Jobs screen, by the shared name prefix).
 
 **Pausing a schedule**: `suspend: true` stops a CronJob firing without deleting it — the CronJob
 stays listed, keeps every Job it has already generated (history pruning still runs), and keeps its
-own `lastScheduleTime` advancing past each instant that comes due while it is paused. That last part
-is what makes unsuspending resume at the *next* due instant rather than back-firing every schedule
-missed during the pause. Apply the same manifest with `suspend: false` (or the key removed) to
+own `scheduleEvaluatedThrough` advancing past each instant that comes due while it is paused. That
+last part is what makes unsuspending resume at the *next* due instant rather than back-firing every
+schedule missed during the pause. `lastScheduleTime` does not move while paused, because no Job is
+generated. Apply the same manifest with `suspend: false` (or the key removed) to
 resume. Without this field the only way to stop a misbehaving or temporarily unwanted schedule is to
 delete and recreate the CronJob, which loses that firing history.
 
