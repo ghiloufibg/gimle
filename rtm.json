@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 959,
+  "requirementCount": 960,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16523,6 +16523,22 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java` (`handleRollingUpdate`, `scaleDownOneIndexIfNeeded`)",
         "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Disruption budget section)",
         "`gimle-ivaldi-console/src/lib/render.ts`, `gimle-ivaldi-console/src/lib/rules.ts` (`STATEFULSET_MAX_SURGE`)"
+      ]
+    },
+    {
+      "id": "GIMLE-960",
+      "module": "gimle-ivaldi-console",
+      "feature": "A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The designer's autosave debounces every edit 600ms before calling the real backend's PUT, flushing on unmount or beforeunload -- both graceful-exit paths only. A tab or process kill (browser crash, force-quit, power loss",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`useBlueprintStore.draft.test.ts` (6 tests: persistDraftNow writes the snapshot; load surfaces a newer draft and leaves the server copy showing until chosen; load discards a stale draft; restoreDraft applies the draft and marks it dirty; discardDraft clears storage without touching the loaded blueprint; save clears the draft once accepted). Live-verified against a real running gimle-ivaldi server and a real browser: an edit's localStorage snapshot is confirmed present within the debounce window while the server's own copy is still unchanged; a seeded newer draft surfaces the Restore/Discard dialog, Restore applies it and the dialog does not reappear; Discard clears it and a further reload shows no dialog.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`persistDraft`, `readDraft`, `clearDraft`, `timeOf`, `persistDraftNow`, `restoreDraft`, `discardDraft`, `load`, `save`)",
+        "`gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the debounce effect's `persistDraftNow()` call, the Restore/Discard `AlertDialog`)"
       ]
     }
   ]

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 958
+- **Total requirements**: 959
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 828
+- **Not covered by automated test**: 829
 - **Release-readiness (automated coverage)**: 13.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -44,7 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 18 | 0 | 18 | 0.0% |
-| gimle-ivaldi-console | 29 | 0 | 29 | 0.0% |
+| gimle-ivaldi-console | 30 | 0 | 30 | 0.0% |
 
 ## Checklist
 
@@ -2624,3 +2624,4 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-955 | The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder | Given the add-cluster dialog, When I fill in a client certificate path, Then the Control-plane URL field's placeholder and hint switch to the mTLS-aware ones naming the machine's own hostname. | No |
 | [ ] | GIMLE-956 | Palette items carry a stable automation id distinct from their visible label | Given the palette and a canvas that already has a Deployment node on it, When automation targets 'palette-add-deployment', Then it resolves the palette's own entry, never the canvas card. | No |
 | [ ] | GIMLE-957 | The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector | Given a DaemonSet node whose disruption budget carries a nonzero maxSurge (via import or hand-edited YAML), When the Inspector renders its Disruption budget section, Then the DAEMONSET_MAX_SURGE finding is visible under Max unavailable. | No |
+| [ ] | GIMLE-960 | A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload | Given an edit made to a blueprint, When the tab or process is killed before the 600ms debounced save reaches the server, Then a localStorage draft already reflects that edit. Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one. Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves. Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing. | No |

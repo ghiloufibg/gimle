@@ -969,6 +969,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-957 | The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector | Developer tooling / Internal-Infra | Complete | No |
 | GIMLE-958 | StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment | Autoscaling | Complete | No |
 | GIMLE-959 | StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable | Autoscaling | Complete | No |
+| GIMLE-960 | A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload | Developer tooling / Internal-Infra | Complete | No |
 
 ## Detailed Requirements
 
@@ -14620,4 +14621,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a DaemonSet node whose disruption budget carries a nonzero maxSurge (via import or hand-edited YAML), When the Inspector renders its Disruption budget section, Then the DAEMONSET_MAX_SURGE finding is visible under Max unavailable.
+  ```
+
+#### GIMLE-960 — A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator whose browser tab or Ivaldi process crashes (or is force-killed) a moment after an edit, I want that edit to still be there when I reopen the blueprint, not silently gone because it never reached the 600ms debounced network save.
+- **Status**: The designer's autosave debounces every edit 600ms before calling the real backend's PUT, flushing on unmount or beforeunload -- both graceful-exit paths only. A tab or process kill (browser crash, force-quit, power loss) inside that window, or during the network request itself, had no recovery mechanism at all: the in-memory edit was gone for good, with no durable trace anywhere. useBlueprintStore now writes a synchronous, immediate localStorage snapshot (ivaldi:draft:<id>) on every edit, well before the debounce timer or the network request completes; `save()` clears it once the backend actually accepts the write. `load()` compares a found draft's own updatedAt against the freshly-fetched server blueprint's (a server blueprint fresh off POST /api/blueprints carries no updatedAt at all yet -- treated as epoch 0, not an unparseable-date false negative, so a real draft still wins the comparison) and surfaces a recoverableDraft rather than silently discarding or silently applying it; the designer route shows a blocking Restore/Discard dialog until the operator chooses.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`persistDraft`, `readDraft`, `clearDraft`, `timeOf`, `persistDraftNow`, `restoreDraft`, `discardDraft`, `load`, `save`), `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the debounce effect's `persistDraftNow()` call, the Restore/Discard `AlertDialog`)
+- **Test coverage**: `useBlueprintStore.draft.test.ts` (6 tests: persistDraftNow writes the snapshot; load surfaces a newer draft and leaves the server copy showing until chosen; load discards a stale draft; restoreDraft applies the draft and marks it dirty; discardDraft clears storage without touching the loaded blueprint; save clears the draft once accepted). Live-verified against a real running gimle-ivaldi server and a real browser: an edit's localStorage snapshot is confirmed present within the debounce window while the server's own copy is still unchanged; a seeded newer draft surfaces the Restore/Discard dialog, Restore applies it and the dialog does not reappear; Discard clears it and a further reload shows no dialog.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an edit made to a blueprint, When the tab or process is killed before the 600ms debounced save reaches the server, Then a localStorage draft already reflects that edit.
+  Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one.
+  Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves.
+  Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing.
   ```

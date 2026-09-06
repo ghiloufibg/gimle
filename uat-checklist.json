@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 958,
+    "totalRequirements": 959,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 828,
+    "notCoveredByAutomatedTest": 829,
     "releaseReadinessPercent": 13.6
   },
   "items": [
@@ -10540,6 +10540,17 @@
       "category": "Autoscaling",
       "feature": "StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable",
       "step": "Given a StatefulSet manifest with `disruption: {maxUnavailable: 2}` and a new module version applied, When a rolling update runs, Then up to two indices migrate concurrently rather than exactly one. Given the same manifest with a nonzero `disruption.maxSurge`, When it is admitted, Then it is rejected outright naming why a StatefulSet has no surge concept. Given a control-plane restart mid-rollout, When a fresh StatefulSetReconciler resumes against the same store, Then the in-flight migration set (not just a single index) survives and resumes correctly.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-960",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload",
+      "step": "Given an edit made to a blueprint, When the tab or process is killed before the 600ms debounced save reaches the server, Then a localStorage draft already reflects that edit. Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one. Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves. Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

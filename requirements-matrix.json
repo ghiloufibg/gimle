@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 959,
+  "requirementCount": 960,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19712,6 +19712,28 @@
       ],
       "category": "Autoscaling",
       "confidence": "Medium",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-960",
+      "module": "gimle-ivaldi-console",
+      "feature": "A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload",
+      "userStory": "As an operator whose browser tab or Ivaldi process crashes (or is force-killed) a moment after an edit, I want that edit to still be there when I reopen the blueprint, not silently gone because it never reached the 600ms debounced network save.",
+      "statusDetail": "The designer's autosave debounces every edit 600ms before calling the real backend's PUT, flushing on unmount or beforeunload -- both graceful-exit paths only. A tab or process kill (browser crash, force-quit, power loss) inside that window, or during the network request itself, had no recovery mechanism at all: the in-memory edit was gone for good, with no durable trace anywhere. useBlueprintStore now writes a synchronous, immediate localStorage snapshot (ivaldi:draft:<id>) on every edit, well before the debounce timer or the network request completes; `save()` clears it once the backend actually accepts the write. `load()` compares a found draft's own updatedAt against the freshly-fetched server blueprint's (a server blueprint fresh off POST /api/blueprints carries no updatedAt at all yet -- treated as epoch 0, not an unparseable-date false negative, so a real draft still wins the comparison) and surfaces a recoverableDraft rather than silently discarding or silently applying it; the designer route shows a blocking Restore/Discard dialog until the operator chooses.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`persistDraft`, `readDraft`, `clearDraft`, `timeOf`, `persistDraftNow`, `restoreDraft`, `discardDraft`, `load`, `save`)",
+        "`gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the debounce effect's `persistDraftNow()` call, the Restore/Discard `AlertDialog`)"
+      ],
+      "testCoverageDetail": "`useBlueprintStore.draft.test.ts` (6 tests: persistDraftNow writes the snapshot; load surfaces a newer draft and leaves the server copy showing until chosen; load discards a stale draft; restoreDraft applies the draft and marks it dirty; discardDraft clears storage without touching the loaded blueprint; save clears the draft once accepted). Live-verified against a real running gimle-ivaldi server and a real browser: an edit's localStorage snapshot is confirmed present within the debounce window while the server's own copy is still unchanged; a seeded newer draft surfaces the Restore/Discard dialog, Restore applies it and the dialog does not reappear; Discard clears it and a further reload shows no dialog.",
+      "gherkinSteps": [
+        "Given an edit made to a blueprint, When the tab or process is killed before the 600ms debounced save reaches the server, Then a localStorage draft already reflects that edit.",
+        "Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one.",
+        "Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves.",
+        "Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
       "statusSummary": "Complete",
       "testCoverageLevel": "No"
     }

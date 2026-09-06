@@ -974,6 +974,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-957 | The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector | New | Not Covered | — |
 | GIMLE-958 | StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment | New | Not Covered | — |
 | GIMLE-959 | StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable | New | Not Covered | — |
+| GIMLE-960 | A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -10000,11 +10001,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: importing a blueprint with a DaemonSet carrying `disruption: {maxUnavailable: 1, maxSurge: 1}` surfaces the DAEMONSET_MAX_SURGE finding directly under the Max unavailable field.
 - **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` ("Max unavailable" `NumberField`)
 
+#### GIMLE-960 — A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The designer's autosave debounces every edit 600ms before calling the real backend's PUT, flushing on unmount or beforeunload -- both graceful-exit paths only. A tab or process kill (browser crash, force-quit, power loss)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintStore.draft.test.ts` (6 tests: persistDraftNow writes the snapshot; load surfaces a newer draft and leaves the server copy showing until chosen; load discards a stale draft; restoreDraft applies the draft and marks it dirty; discardDraft clears storage without touching the loaded blueprint; save clears the draft once accepted). Live-verified against a real running gimle-ivaldi server and a real browser: an edit's localStorage snapshot is confirmed present within the debounce window while the server's own copy is still unchanged; a seeded newer draft surfaces the Restore/Discard dialog, Restore applies it and the dialog does not reappear; Discard clears it and a further reload shows no dialog.
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`persistDraft`, `readDraft`, `clearDraft`, `timeOf`, `persistDraftNow`, `restoreDraft`, `discardDraft`, `load`, `save`), `gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the debounce effect's `persistDraftNow()` call, the Restore/Discard `AlertDialog`)
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**829 of 959 requirements are Not Covered.**
+**830 of 960 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -10258,6 +10268,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-955 | gimle-ivaldi-console | The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder | Developer tooling / Internal-Infra | Live-verified against a real running console: typing a client cert path into the add-cluster dialog immediately swaps the Control-plane URL field's placeholder to the mTLS-specific one and reveals the hint text; clearing it reverts both. |
 | GIMLE-956 | gimle-ivaldi-console | Palette items carry a stable automation id distinct from their visible label | Developer tooling / Internal-Infra | Live-verified against a real running console: each palette entry resolves via `getByTestId('palette-add-deployment')` (and the equivalent for every other kind) independent of any canvas node sharing its label text. |
 | GIMLE-957 | gimle-ivaldi-console | The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector | Developer tooling / Internal-Infra | Live-verified against a real running console: importing a blueprint with a DaemonSet carrying `disruption: {maxUnavailable: 1, maxSurge: 1}` surfaces the DAEMONSET_MAX_SURGE finding directly under the Max unavailable field. |
+| GIMLE-960 | gimle-ivaldi-console | A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload | Developer tooling / Internal-Infra | `useBlueprintStore.draft.test.ts` (6 tests: persistDraftNow writes the snapshot; load surfaces a newer draft and leaves the server copy showing until chosen; load discards a stale draft; restoreDraft applies the draft and marks it dirty; discardDraft clears storage without touching the loaded blueprint; save clears the draft once accepted). Live-verified against a real running gimle-ivaldi server and a real browser: an edit's localStorage snapshot is confirmed present within the debounce window while the server's own copy is still unchanged; a seeded newer draft surfaces the Restore/Discard dialog, Restore applies it and the dialog does not reappear; Discard clears it and a further reload shows no dialog. |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |
