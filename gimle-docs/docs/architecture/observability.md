@@ -285,6 +285,40 @@ correctly attributed to that instance's `APPLICATION` output rather than miscate
 noise — a real gap the `greeter-provider`/`greeter-consumer` example surfaced and fixed, not a
 default that was always correct.
 
+### Runtime configuration: the `gimle.log.*` properties
+
+Four JVM system properties configure logging, read directly by `gimle-core` at startup. They are
+plain `-D` flags on the process's own command line — there is no logging section in a manifest or a
+topology file, and no way to change any of them on a running process.
+
+| Property | Default | What it does |
+|---|---|---|
+| `gimle.log.console` | *(unset — text)* | Which encoder the shared `CONSOLE` appender uses. `json` selects the same one-JSON-object-per-line format the platform log file always uses; `text`, `pretty`, and `plain` all select the colored human-readable encoder. Matching is case-insensitive, and **any other value falls back to text** rather than failing — so a typo silently gets you the default. |
+| `gimle.log.root` | `gimle-logs` | The directory a process writes its own platform log and its instances' application logs under, resolved against the process's working directory when relative. |
+| `gimle.log.maxFileSizeBytes` | `10485760` (10 MiB) | The size a log file is rotated at. |
+| `gimle.log.maxFiles` | `5` | How many copies of one log stream are kept: the active file plus `maxFiles - 1` rotated ones (`<file>.1` … `<file>.4` by default). The oldest is discarded on each rollover. |
+
+Console format is a **presentation** choice only, never a data one. Every process writes a
+complete, unconditional JSON trail to its own `<gimle.log.root>/<role>-platform.log` through a
+separate appender that this property does not touch, and that file — not stdout — is what the Logs
+screen, `gimle logs`, and Muninn all read. So `gimle.log.console=text` loses nothing that is read
+back later, and the default is text for every process on that basis.
+
+The one exception is a **worker JVM**, which its node agent always spawns with an explicit
+`-Dgimle.log.console=json`. The agent reads a worker's raw piped stdout live and tells structured
+lines apart from unstructured ones (a JVM banner printed before Logback initializes, a stray
+`System.out.println`) by trying to parse each as JSON; a structured line is already captured by the
+worker's own file appender, so re-logging it from the pipe would duplicate it under the wrong
+category. That is a deliberate, visible flag on the worker's command line rather than a guess made
+from the pipe's shape.
+
+The two rotation properties apply to every rotated log surface alike — a process's platform log,
+each instance's application log, and a node agent's raw per-worker stdout/stderr capture — and the
+readers behind `gimle logs` and the console's Logs screen read `gimle.log.maxFiles` too, so a
+rotated copy stays visible through the API instead of only the active file. Set them consistently
+across a cluster: a reader configured for fewer files than the writer produced simply stops looking
+before the oldest copies.
+
 ### Reading logs back: cursor, level, and text
 
 Every log read — the console's Logs screen, `gimle logs`, and the control plane's own platform log
