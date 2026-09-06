@@ -5244,8 +5244,9 @@ public final class ApiServer implements AutoCloseable {
    * InstanceAssignment} (Deployment-kind bookkeeping alone) here left every StatefulSet/DaemonSet
    * instance's own relayed events permanently misfiled under the untenanted namespace regardless of
    * their real tenant, indistinguishable from "genuinely untenanted" to any later {@code ?tenant=}
-   * read. Untenanted (rather than rejected) if no matching assignment is found in any of the four,
-   * e.g. a final lifecycle event arriving just after the assignment itself was already torn down.
+   * read. When no assignment matches -- the ordinary case for a closing event arriving just after
+   * its own placement was torn down -- the owning workload spec's tenant stands in; an event naming
+   * no workload at all is discarded rather than filed anywhere.
    */
   private void handleAppendInstanceEvent(HttpExchange exchange) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -5309,9 +5310,10 @@ public final class ApiServer implements AutoCloseable {
    * kinds in turn -- Deployment ({@link InstanceAssignment}), StatefulSet, DaemonSet (index always
    * {@code 0}, keyed by node instead), then Job (matched by attempt number) -- exactly the same
    * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
-   * since the whole point here is discovering which tenant owns the name in the first place. {@link
-   * Optional#empty()} (the untenanted namespace) if none of the four currently has a matching
-   * assignment.
+   * since the whole point here is discovering which tenant owns the name in the first place. With
+   * no matching assignment left, {@code owners} -- the workload specs currently carrying this name
+   * -- answers instead, and only a name genuinely claimed by no tenant, or by more than one, falls
+   * through to {@link Optional#empty()} (the untenanted namespace).
    */
   private Optional<String> resolveInstanceEventTenant(
       String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
