@@ -317,6 +317,12 @@ rollout could transiently reach), not `replicas` alone — a deployment that fit
 steady state but would exceed it while surging is rejected at submission time, before any surge
 instance is ever placed.
 
+A [DaemonSet manifest](#daemonset-manifest) accepts the identical `disruption.maxUnavailable` but
+rejects a nonzero `maxSurge` outright (one instance per node already leaves no room for an "extra"
+one), and a [StatefulSet manifest](#statefulset-manifest) does the same for the identical reason —
+each index owns a sticky, exclusive identity a surge replacement could never duplicate ahead of
+removing the original.
+
 ## Deployment manifest: `configMapRefs`
 
 `configMapRefs` names the ConfigMaps (see `gimle configmap` in the
@@ -601,6 +607,12 @@ replicas: 3
 placement:                     # optional, same shape as a Deployment manifest's own placement:
   antiAffinity: true
   requiredLabels: [ssd]
+autoscale:                      # optional, identical shape to a Deployment manifest's own autoscale:
+  minReplicas: 2
+  maxReplicas: 6
+  targetCpuUtilizationPercent: 70
+disruption:                     # optional -- absent means {maxUnavailable: 1}, today's default
+  maxUnavailable: 2             # how many indices may roll forward concurrently
 tenantId: acme                 # optional -- omit to resolve to the "default" tenant
 ```
 
@@ -611,8 +623,10 @@ tenantId: acme                 # optional -- omit to resolve to the "default" te
 | `name` | yes | The statefulset's identifier — also what `gimle get statefulsets <name>`/the console's StatefulSets screen key on. |
 | `module.name` / `module.version` | yes | The module to run. |
 | `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
-| `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
+| `replicas` | yes | The index space is `0..replicas-1` -- the user-submitted floor, never overwritten by the autoscaler even when `autoscale:` is present. |
 | `placement.antiAffinity` / `placement.requiredLabels` / `placement.priority` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
+| `autoscale` | no | Identical shape and semantics to a [Deployment manifest's own `autoscale:` block](#deployment-manifest-autoscale) -- when present, the effective replica count `AutoscaleReconciler` computes is what the `OrderedReady` scan places up to, in place of the raw `replicas` above. |
+| `disruption.maxUnavailable` | no | How many indices `StatefulSetReconciler` may roll forward concurrently during a version update. Absent means `1` (every StatefulSet's behavior before this field existed). Unlike a Deployment, `disruption.maxSurge` is never accepted here -- rejected outright, the same permanent posture a DaemonSet manifest takes, since a StatefulSet index owns a sticky, exclusive identity (and, when the module declares one, a local-disk volume) that a surge replacement could never duplicate ahead of removing the original. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit it and this statefulset resolves to the reserved `default` tenant, not a distinct untenanted state; see [Multi-tenancy and quotas](../architecture/multi-tenancy.md). |
 
 Deliberately does **not** carry its own `volume:` field — persistent storage is declared once, on

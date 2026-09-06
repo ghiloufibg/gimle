@@ -549,12 +549,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public Optional<Integer> getRollingStatefulSetIndex(
+  public Set<Integer> getRollingStatefulSetIndices(
       Optional<String> tenantId, String statefulSetName) {
-    StoreRpc.IntResult r =
-        (StoreRpc.IntResult)
-            sendRead(new StoreRpc.GetRollingStatefulSetIndex(tenantId, statefulSetName));
-    return r.present() ? Optional.of(r.value()) : Optional.empty();
+    return Set.copyOf(
+        ((StoreRpc.IntSetResult)
+                sendRead(new StoreRpc.ListRollingStatefulSetIndices(tenantId, statefulSetName)))
+            .values());
   }
 
   public Optional<String> getStatefulSetIndexNode(

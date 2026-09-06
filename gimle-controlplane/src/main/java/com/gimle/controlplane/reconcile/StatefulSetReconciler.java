@@ -52,9 +52,10 @@ import org.slf4j.LoggerFactory;
  * causes an index's data to relocate; it either lands back on the same node or stays unplaced.
  *
  * <p>Rolling updates reuse the same {@code remove-mismatched-then-let-ordinary-placement-repick}
- * shape {@link DeploymentReconciler#handleRollingUpdate} established, persisted via {@link
- * StateStore#putRollingStatefulSetIndex}/{@code getRollingStatefulSetIndex}/{@code
- * clearRollingStatefulSetIndex} -- a separate marker from {@link DeploymentReconciler}'s own
+ * shape {@link DeploymentReconciler#handleRollingUpdate} established, bounded by the statefulset's
+ * own effective {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} and persisted via
+ * {@link StateStore#addRollingStatefulSetIndex}/{@code getRollingStatefulSetIndices}/{@code
+ * removeRollingStatefulSetIndex} -- a separate marker from {@link DeploymentReconciler}'s own
  * in-flight index set, since the two resource kinds never share a namespace. Deliberately reuses no
  * persisted state beyond that: the ordered scan itself (not a second "am I mid-rollout" check) is
  * what keeps a rolling-update removal and an ordinary scale-up from ever racing past each other,
@@ -370,8 +371,8 @@ public final class StatefulSetReconciler {
 
   /**
    * Removes the highest index at or beyond {@code spec.replicas()}, if any, along with its
-   * permanent sticky binding and (if it happened to be the one mid-rollout) the now-meaningless
-   * rolling marker. Returns {@code true} if it did so -- the caller stops for this tick either way.
+   * permanent sticky binding and (if it happened to be one mid-rollout) its now-meaningless rolling
+   * marker. Returns {@code true} if it did so -- the caller stops for this tick either way.
    */
   private boolean scaleDownOneIndexIfNeeded(StatefulSetSpec spec) {
     Optional<StatefulSetAssignment> toRemove =
@@ -390,9 +391,11 @@ public final class StatefulSetReconciler {
         new StateMutation.RemoveStatefulSetIndexNode(
             spec.tenantId(), spec.name(), assignment.instanceIndex()));
     if (store
-        .getRollingStatefulSetIndex(spec.tenantId(), spec.name())
-        .equals(Optional.of(assignment.instanceIndex()))) {
-      removal.add(new StateMutation.ClearRollingStatefulSetIndex(spec.tenantId(), spec.name()));
+        .getRollingStatefulSetIndices(spec.tenantId(), spec.name())
+        .contains(assignment.instanceIndex())) {
+      removal.add(
+          new StateMutation.RemoveRollingStatefulSetIndex(
+              spec.tenantId(), spec.name(), assignment.instanceIndex()));
     }
     mutations.proposeAll(removal);
     return true;
@@ -444,44 +447,72 @@ public final class StatefulSetReconciler {
   }
 
   /**
-   * Direct structural counterpart to {@link DeploymentReconciler#handleRollingUpdate}: if a rollout
-   * is already in flight, checks whether the replacement at that index has landed and reported
-   * ready, clearing {@code rollingStatefulSetIndex} once it has; otherwise looks for a new version
-   * mismatch to start, picking the lowest such index and removing its stale assignment (its sticky
-   * node binding survives this removal untouched) so {@link #reconcileStatefulSet}'s own
-   * OrderedReady scan re-places it with the current spec's {@code moduleId} on that same node.
+   * Direct structural counterpart to {@link DeploymentReconciler#handleRollingUpdate}, generalized
+   * the identical way from a single in-flight index to a budget of them: tops up the set of
+   * in-flight migrations to the statefulset's own effective {@link
+   * com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} every tick -- first checks every
+   * already-in-flight index for readiness, clearing it once its replacement has landed and reported
+   * ready; then, if budget remains, starts new migrations for the lowest-indexed mismatches not
+   * already in flight, removing each one's stale assignment (its sticky node binding survives this
+   * removal untouched) so {@link #reconcileStatefulSet}'s own {@code OrderedReady} scan re-places
+   * it with the current spec's {@code moduleId} on that same node. Unlike {@code
+   * DeploymentReconciler}, there is no {@code maxSurge}/permanently-failed/scale-down-race handling
+   * to mirror here: {@link StatefulSetManifestParser} rejects a nonzero surge outright (see {@link
+   * StatefulSetSpec}'s own javadoc), a permanently-failed index is never skipped past by the
+   * ordered scan itself (see this class's own "Crash-loop backoff" note) rather than needing its
+   * rolling marker force-cleared here, and {@link #scaleDownOneIndexIfNeeded} already clears an
+   * in-flight index's marker itself when scale-down removes it, before this method ever runs that
+   * same tick.
    */
   private void handleRollingUpdate(StatefulSetSpec spec, Instant now, Instant observingSince) {
-    Optional<Integer> rollingIndex = store.getRollingStatefulSetIndex(spec.tenantId(), spec.name());
-    if (rollingIndex.isPresent()) {
-      int index = rollingIndex.get();
+    int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
+    Set<Integer> inFlight =
+        new HashSet<>(store.getRollingStatefulSetIndices(spec.tenantId(), spec.name()));
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name());
+    // Accumulated for one flush at method end -- mirrors DeploymentReconciler#handleRollingUpdate's
+    // identical batching reasoning.
+    List<StateMutation> changes = new ArrayList<>();
+
+    for (int index : Set.copyOf(inFlight)) {
       Optional<StatefulSetAssignment> current =
-          store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
-              .filter(a -> a.instanceIndex() == index)
-              .findFirst();
+          assignments.stream().filter(a -> a.instanceIndex() == index).findFirst();
       if (current.isPresent() && isReady(current.get(), now, observingSince)) {
-        mutations.propose(
-            new StateMutation.ClearRollingStatefulSetIndex(spec.tenantId(), spec.name()));
+        changes.add(
+            new StateMutation.RemoveRollingStatefulSetIndex(spec.tenantId(), spec.name(), index));
+        inFlight.remove(index);
       }
+      // Otherwise: still waiting for the replacement to land, or already removed and awaiting
+      // re-placement by the ordered scan below -- either way, this index keeps consuming budget
+      // until it clears. A permanently-failed index is deliberately left consuming its slot
+      // forever rather than force-cleared -- see this method's own javadoc.
+    }
+
+    if (inFlight.size() >= maxUnavailable) {
+      mutations.proposeAll(changes);
       return;
     }
 
-    store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
-        .filter(assignment -> isStale(assignment, spec))
-        .min(Comparator.comparingInt(StatefulSetAssignment::instanceIndex))
-        .ifPresent(
+    assignments.stream()
+        .filter(
+            assignment ->
+                isStale(assignment, spec) && !inFlight.contains(assignment.instanceIndex()))
+        .sorted(Comparator.comparingInt(StatefulSetAssignment::instanceIndex))
+        .limit(maxUnavailable - inFlight.size())
+        .forEach(
             mismatched -> {
-              mutations.proposeAll(
-                  List.of(
-                      new StateMutation.RemoveStatefulSetAssignment(
-                          spec.tenantId(), spec.name(), mismatched.instanceIndex()),
-                      new StateMutation.PutRollingStatefulSetIndex(
-                          spec.tenantId(), spec.name(), mismatched.instanceIndex())));
+              changes.add(
+                  new StateMutation.RemoveStatefulSetAssignment(
+                      spec.tenantId(), spec.name(), mismatched.instanceIndex()));
+              changes.add(
+                  new StateMutation.AddRollingStatefulSetIndex(
+                      spec.tenantId(), spec.name(), mismatched.instanceIndex()));
               log.info(
                   "statefulset {} index {} is on an old module version; rolling it forward",
                   spec.name(),
                   mismatched.instanceIndex());
             });
+    mutations.proposeAll(changes);
   }
 
   /**

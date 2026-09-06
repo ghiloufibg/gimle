@@ -3,15 +3,19 @@ package com.gimle.controlplane.autoscale;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -120,7 +125,16 @@ public final class AutoscaleReconciler {
           .ifPresent(
               policy -> {
                 try {
-                  reconcileDeployment(spec, policy);
+                  reconcileWorkload(
+                      spec.tenantId(),
+                      spec.name(),
+                      "deployment",
+                      spec.artifactPath(),
+                      spec.moduleId(),
+                      spec.vessel(),
+                      policy,
+                      spec.replicas(),
+                      () -> readyInstanceObservations(spec));
                 } catch (RuntimeException e) {
                   // One deployment's failure (e.g. a GimleRaftException from mutations.propose
                   // during a store leader-election gap) must never abort the rest of this tick's
@@ -133,38 +147,81 @@ public final class AutoscaleReconciler {
                 }
               });
     }
+    // A StatefulSet's own OrderedReady placement/scale-down still reads replicas() (or, once an
+    // autoscale policy is present, this same effectiveReplicas store entry) exactly the way
+    // DeploymentReconciler already does -- this reconciler never touches assignments itself.
+    for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
+      spec.autoscale()
+          .ifPresent(
+              policy -> {
+                try {
+                  reconcileWorkload(
+                      spec.tenantId(),
+                      spec.name(),
+                      "statefulset",
+                      spec.artifactPath(),
+                      spec.moduleId(),
+                      spec.vessel(),
+                      policy,
+                      spec.replicas(),
+                      () -> readyStatefulSetInstanceObservations(spec));
+                } catch (RuntimeException e) {
+                  log.warn(
+                      "autoscale reconcile of statefulset {} failed: {}",
+                      spec.name(),
+                      e.getMessage(),
+                      e);
+                }
+              });
+    }
   }
 
-  private void reconcileDeployment(DeploymentSpec spec, AutoscalePolicy policy) {
-    int currentEffective =
-        store.getEffectiveReplicas(spec.tenantId(), spec.name()).orElse(spec.replicas());
+  /**
+   * The signal-collection-and-decision core shared by both a {@link DeploymentSpec} and a {@link
+   * StatefulSetSpec}: every field either kind's own {@code reconcileOnce} branch needs is passed in
+   * by value rather than the spec itself, since the two kinds share no common supertype beyond
+   * {@code name()}/{@code tenantId()} -- see {@link com.gimle.mimir.manifest.WorkloadSpec}'s own
+   * javadoc for why. {@code readyObservationsSupplier} is lazy: it's never invoked at all once an
+   * unreadable artifact or a zero CPU request has already decided the outcome, sparing a
+   * StatefulSet (which has its own assignment listing) an unnecessary heartbeat scan on every such
+   * tick.
+   */
+  private void reconcileWorkload(
+      Optional<String> tenantId,
+      String name,
+      String workloadKindLabel,
+      String artifactPath,
+      ModuleId moduleId,
+      Optional<VesselSpec> vessel,
+      AutoscalePolicy policy,
+      int replicas,
+      Supplier<List<InstanceObservation>> readyObservationsSupplier) {
+    int currentEffective = store.getEffectiveReplicas(tenantId, name).orElse(replicas);
 
     ModuleDescriptor descriptor;
     try {
-      descriptor =
-          artifactResolver
-              .resolve(spec.artifactPath(), spec.moduleId(), spec.vessel())
-              .descriptor();
+      descriptor = artifactResolver.resolve(artifactPath, moduleId, vessel).descriptor();
     } catch (RuntimeException e) {
       log.warn(
-          "deployment {} references an unreadable artifact {}; leaving its effective replica"
-              + " count unchanged: {}",
-          spec.name(),
-          spec.artifactPath(),
+          "{} {} references an unreadable artifact {}; leaving its effective replica count"
+              + " unchanged: {}",
+          workloadKindLabel,
+          name,
+          artifactPath,
           e.getMessage());
-      putEffectiveReplicas(spec, clamp(currentEffective, policy));
+      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
       return;
     }
     long cpuRequestMillicores = descriptor.resourceRequest().cpuMillicores();
     if (cpuRequestMillicores <= 0) {
-      putEffectiveReplicas(spec, clamp(currentEffective, policy));
+      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
       return;
     }
 
-    List<InstanceObservation> readyObservations = readyInstanceObservations(spec);
+    List<InstanceObservation> readyObservations = readyObservationsSupplier.get();
     if (readyObservations.isEmpty()) {
       // No signal yet (nothing ready/reporting): hold the current count rather than guessing.
-      putEffectiveReplicas(spec, clamp(currentEffective, policy));
+      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
       return;
     }
 
@@ -245,15 +302,17 @@ public final class AutoscaleReconciler {
       nextEffective = clamp(bounded - 1, policy);
     }
 
-    if (nextEffective != bounded && withinCooldown(spec, policy, nextEffective > bounded)) {
-      putEffectiveReplicas(spec, bounded);
+    if (nextEffective != bounded
+        && withinCooldown(tenantId, name, policy, nextEffective > bounded)) {
+      putEffectiveReplicas(tenantId, name, bounded);
       return;
     }
     if (nextEffective != currentEffective) {
       log.info(
-          "deployment {}: ideal replicas by signal (cpu={}, requestRate={}, errorRate={},"
-              + " queueDepth={}); adjusting effective replicas {} -> {}",
-          spec.name(),
+          "{} {}: ideal replicas by signal (cpu={}, requestRate={}, errorRate={}, queueDepth={});"
+              + " adjusting effective replicas {} -> {}",
+          workloadKindLabel,
+          name,
           idealFromCpu,
           idealFromRequestRate,
           idealFromErrorRate,
@@ -265,26 +324,26 @@ public final class AutoscaleReconciler {
       // measure the stabilization window against something that never happened.
       mutations.proposeAll(
           List.of(
-              new StateMutation.PutEffectiveReplicas(spec.tenantId(), spec.name(), nextEffective),
-              new StateMutation.PutDeploymentLastScale(
-                  spec.tenantId(), spec.name(), clock.instant())));
+              new StateMutation.PutEffectiveReplicas(tenantId, name, nextEffective),
+              new StateMutation.PutDeploymentLastScale(tenantId, name, clock.instant())));
       return;
     }
-    putEffectiveReplicas(spec, nextEffective);
+    putEffectiveReplicas(tenantId, name, nextEffective);
   }
 
   /**
-   * Whether this deployment's own stabilization window for {@code scalingUp}'s direction has yet to
-   * elapse since its last recorded scale event. A deployment that has never scaled has no window to
+   * Whether this workload's own stabilization window for {@code scalingUp}'s direction has yet to
+   * elapse since its last recorded scale event. A workload that has never scaled has no window to
    * wait out, and a zero-length window never suppresses anything -- including when a replica's
    * clock reads slightly behind whichever one stamped the last event.
    */
-  private boolean withinCooldown(DeploymentSpec spec, AutoscalePolicy policy, boolean scalingUp) {
+  private boolean withinCooldown(
+      Optional<String> tenantId, String name, AutoscalePolicy policy, boolean scalingUp) {
     Duration window = scalingUp ? policy.scaleUpCooldown() : policy.scaleDownCooldown();
     if (window.isZero()) {
       return false;
     }
-    Optional<Instant> lastScale = store.getDeploymentLastScale(spec.tenantId(), spec.name());
+    Optional<Instant> lastScale = store.getDeploymentLastScale(tenantId, name);
     if (lastScale.isEmpty()) {
       return false;
     }
@@ -292,8 +351,8 @@ public final class AutoscaleReconciler {
     boolean suppressed = sinceLastScale.compareTo(window) < 0;
     if (suppressed) {
       log.debug(
-          "deployment {}: {} suppressed, {} of the {} stabilization window elapsed since {}",
-          spec.name(),
+          "{}: {} suppressed, {} of the {} stabilization window elapsed since {}",
+          name,
           scalingUp ? "scale-up" : "scale-down",
           sinceLastScale,
           window,
@@ -368,24 +427,23 @@ public final class AutoscaleReconciler {
   }
 
   /**
-   * Single choke point for every {@code reconcileDeployment} exit path (the main path and all three
+   * Single choke point for every {@code reconcileWorkload} exit path (the main path and all three
    * early-return branches above), so every one of them gets the same guard: a replica count that
    * already matches what's stored costs nothing, even though this method is still called
    * unconditionally on every tick -- the level-triggered recompute-from-scratch behavior is
    * unchanged, only the redundant re-proposal of an already-correct value is skipped. An absent
-   * stored value (a deployment's very first tick) always proposes, seeding it exactly once.
+   * stored value (a workload's very first tick) always proposes, seeding it exactly once.
    */
-  private void putEffectiveReplicas(DeploymentSpec spec, int replicas) {
+  private void putEffectiveReplicas(Optional<String> tenantId, String name, int replicas) {
     boolean alreadyCorrect =
         store
-            .getEffectiveReplicas(spec.tenantId(), spec.name())
+            .getEffectiveReplicas(tenantId, name)
             .map(current -> current == replicas)
             .orElse(false);
     if (alreadyCorrect) {
       return;
     }
-    mutations.propose(
-        new StateMutation.PutEffectiveReplicas(spec.tenantId(), spec.name(), replicas));
+    mutations.propose(new StateMutation.PutEffectiveReplicas(tenantId, name, replicas));
   }
 
   private static int clamp(int value, AutoscalePolicy policy) {
@@ -397,6 +455,33 @@ public final class AutoscaleReconciler {
     Instant observingSince = store.nodeObservationWindowStart();
     List<InstanceObservation> result = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
+      store
+          .getNodeHeartbeat(assignment.nodeId())
+          .filter(
+              observed -> !freshness.hasGoneDark(true, Optional.of(observed), observingSince, now))
+          .map(ObservedHeartbeat::heartbeat)
+          .map(NodeHeartbeat::instances)
+          .orElse(List.of())
+          .stream()
+          .filter(
+              obs ->
+                  obs.deploymentName().equals(spec.name())
+                      && obs.instanceIndex() == assignment.instanceIndex()
+                      && obs.tenantId().equals(spec.tenantId())
+                      && obs.ready())
+          .findFirst()
+          .ifPresent(result::add);
+    }
+    return result;
+  }
+
+  /** {@link #readyInstanceObservations}'s exact counterpart for a {@link StatefulSetSpec}. */
+  private List<InstanceObservation> readyStatefulSetInstanceObservations(StatefulSetSpec spec) {
+    Instant now = clock.instant();
+    Instant observingSince = store.nodeObservationWindowStart();
+    List<InstanceObservation> result = new ArrayList<>();
+    for (StatefulSetAssignment assignment :
+        store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name())) {
       store
           .getNodeHeartbeat(assignment.nodeId())
           .filter(

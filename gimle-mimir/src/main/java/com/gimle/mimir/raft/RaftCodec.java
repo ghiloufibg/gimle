@@ -130,8 +130,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_STATEFULSET_SPEC = 39;
   private static final byte MUT_PUT_STATEFULSET_ASSIGNMENT = 40;
   private static final byte MUT_REMOVE_STATEFULSET_ASSIGNMENT = 41;
-  private static final byte MUT_PUT_ROLLING_STATEFULSET_INDEX = 42;
-  private static final byte MUT_CLEAR_ROLLING_STATEFULSET_INDEX = 43;
+  private static final byte MUT_ADD_ROLLING_STATEFULSET_INDEX = 42;
+  private static final byte MUT_REMOVE_ROLLING_STATEFULSET_INDEX = 43;
   private static final byte MUT_PUT_STATEFULSET_INDEX_NODE = 44;
   private static final byte MUT_REMOVE_STATEFULSET_INDEX_NODE = 45;
   private static final byte MUT_ADD_SURGE_INDEX = 46;
@@ -750,16 +750,17 @@ public final class RaftCodec {
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
-      case StateMutation.PutRollingStatefulSetIndex m -> {
-        out.writeByte(MUT_PUT_ROLLING_STATEFULSET_INDEX);
+      case StateMutation.AddRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_ADD_ROLLING_STATEFULSET_INDEX);
         DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
-      case StateMutation.ClearRollingStatefulSetIndex m -> {
-        out.writeByte(MUT_CLEAR_ROLLING_STATEFULSET_INDEX);
+      case StateMutation.RemoveRollingStatefulSetIndex m -> {
+        out.writeByte(MUT_REMOVE_ROLLING_STATEFULSET_INDEX);
         DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
+        out.writeInt(m.instanceIndex());
       }
       case StateMutation.PutStatefulSetIndexNode m -> {
         out.writeByte(MUT_PUT_STATEFULSET_INDEX_NODE);
@@ -1040,14 +1041,16 @@ public final class RaftCodec {
         yield new StateMutation.RemoveStatefulSetAssignment(
             tenantId, statefulSetName, in.readInt());
       }
-      case MUT_PUT_ROLLING_STATEFULSET_INDEX -> {
+      case MUT_ADD_ROLLING_STATEFULSET_INDEX -> {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
         String statefulSetName = in.readUTF();
-        yield new StateMutation.PutRollingStatefulSetIndex(tenantId, statefulSetName, in.readInt());
+        yield new StateMutation.AddRollingStatefulSetIndex(tenantId, statefulSetName, in.readInt());
       }
-      case MUT_CLEAR_ROLLING_STATEFULSET_INDEX -> {
+      case MUT_REMOVE_ROLLING_STATEFULSET_INDEX -> {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
-        yield new StateMutation.ClearRollingStatefulSetIndex(tenantId, in.readUTF());
+        String statefulSetName = in.readUTF();
+        yield new StateMutation.RemoveRollingStatefulSetIndex(
+            tenantId, statefulSetName, in.readInt());
       }
       case MUT_PUT_STATEFULSET_INDEX_NODE -> {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
@@ -1169,9 +1172,12 @@ public final class RaftCodec {
         DomainCodec.writeStatefulSetAssignment(out, assignment);
       }
       out.writeInt(snapshot.rollingStatefulSetIndices().size());
-      for (Map.Entry<String, Integer> e : snapshot.rollingStatefulSetIndices().entrySet()) {
+      for (Map.Entry<String, Set<Integer>> e : snapshot.rollingStatefulSetIndices().entrySet()) {
         out.writeUTF(e.getKey());
-        out.writeInt(e.getValue());
+        out.writeInt(e.getValue().size());
+        for (int index : e.getValue()) {
+          out.writeInt(index);
+        }
       }
       out.writeInt(snapshot.statefulSetIndexNodes().size());
       for (Map.Entry<String, String> e : snapshot.statefulSetIndexNodes().entrySet()) {
@@ -1422,10 +1428,16 @@ public final class RaftCodec {
       for (int i = 0; i < statefulSetAssignmentCount; i++) {
         statefulSetAssignments.add(DomainCodec.readStatefulSetAssignment(in));
       }
-      Map<String, Integer> rollingStatefulSetIndices = new LinkedHashMap<>();
-      int rollingStatefulSetIndexCount = in.readInt();
-      for (int i = 0; i < rollingStatefulSetIndexCount; i++) {
-        rollingStatefulSetIndices.put(in.readUTF(), in.readInt());
+      Map<String, Set<Integer>> rollingStatefulSetIndices = new LinkedHashMap<>();
+      int rollingStatefulSetNameCount = in.readInt();
+      for (int i = 0; i < rollingStatefulSetNameCount; i++) {
+        String statefulSetName = in.readUTF();
+        Set<Integer> indices = new LinkedHashSet<>();
+        int indexCount = in.readInt();
+        for (int j = 0; j < indexCount; j++) {
+          indices.add(in.readInt());
+        }
+        rollingStatefulSetIndices.put(statefulSetName, indices);
       }
       Map<String, String> statefulSetIndexNodes = new LinkedHashMap<>();
       int statefulSetIndexNodeCount = in.readInt();

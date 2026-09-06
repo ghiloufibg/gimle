@@ -416,28 +416,28 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
-   * The single "index currently in flight" marker governing StatefulSet forward progress -- reused
-   * for both {@code OrderedReady} scale-up admission and rolling-update admission, the same
-   * one-index-at-a-time gate {@code DeploymentReconciler}'s own {@code rollingIndex} enforces for
-   * rolling updates alone. A separate map from {@code rollingIndex} (keyed by {@code
-   * statefulSetName}, not {@code deploymentName}) -- the two resource kinds never share a
-   * namespace.
+   * {@link AddRollingIndex}'s exact counterpart for a StatefulSet's own rolling update -- the
+   * indices currently in flight, bounded by its own effective {@code DisruptionBudget
+   * #maxUnavailable}. A separate map from {@code rollingIndices} (keyed by {@code statefulSetName},
+   * not {@code deploymentName}) -- the two resource kinds never share a namespace, since a
+   * StatefulSet can share a name with a Deployment.
    */
-  record PutRollingStatefulSetIndex(
+  record AddRollingStatefulSetIndex(
       Optional<String> tenantId, String statefulSetName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putRollingStatefulSetIndex(tenantId, statefulSetName, instanceIndex);
+      store.addRollingStatefulSetIndex(tenantId, statefulSetName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record ClearRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName)
+  record RemoveRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.clearRollingStatefulSetIndex(tenantId, statefulSetName);
+      store.removeRollingStatefulSetIndex(tenantId, statefulSetName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }

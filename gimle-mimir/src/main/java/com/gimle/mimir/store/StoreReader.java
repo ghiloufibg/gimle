@@ -159,7 +159,7 @@ public interface StoreReader {
   List<StatefulSetAssignment> listStatefulSetAssignmentsFor(
       Optional<String> tenantId, String statefulSetName);
 
-  Optional<Integer> getRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName);
+  Set<Integer> getRollingStatefulSetIndices(Optional<String> tenantId, String statefulSetName);
 
   Optional<String> getStatefulSetIndexNode(
       Optional<String> tenantId, String statefulSetName, int instanceIndex);

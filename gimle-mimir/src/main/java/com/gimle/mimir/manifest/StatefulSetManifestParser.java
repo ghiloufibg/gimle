@@ -33,8 +33,10 @@ public final class StatefulSetManifestParser {
           "artifactPath",
           "replicas",
           "placement",
+          "autoscale",
           "tenantId",
           "artifactSha256",
+          "disruption",
           "vessel");
 
   private StatefulSetManifestParser() {}
@@ -68,17 +70,51 @@ public final class StatefulSetManifestParser {
     String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);
     int replicas = parseReplicas(root);
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
+    Optional<AutoscalePolicy> autoscale = ManifestFields.parseAutoscale(root);
     Optional<String> tenantId = ManifestFields.parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
+    Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
     Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
 
     try {
       return new StatefulSetSpec(
-          name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256, vessel);
+          name,
+          moduleId,
+          artifactPath,
+          replicas,
+          placement,
+          autoscale,
+          tenantId,
+          artifactSha256,
+          disruption,
+          vessel);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid statefulset manifest for " + name + ": " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * {@code maxSurge} is rejected outright, the same permanent posture {@link
+   * DaemonSetManifestParser} already takes for the identical reason: a StatefulSet index owns a
+   * sticky, exclusive per-index identity (and, when the module declares one, a local-disk volume
+   * that cannot be duplicated), so there is no "extra" instance a rollout could ever provision
+   * ahead of removing the original.
+   */
+  private static Optional<DisruptionBudget> parseDisruptionBudget(Map<?, ?> root) {
+    return ManifestFields.parseDisruptionBudget(
+        root,
+        (disruption, maxUnavailable) -> {
+          if (disruption.containsKey("maxSurge")
+              && ManifestFields.optionalIntField(disruption, "maxSurge", "disruption.").orElse(0)
+                  != 0) {
+            throw new GimleManifestException(
+                "'disruption.maxSurge' is not meaningful on a StatefulSet -- each index owns a"
+                    + " sticky, exclusive identity that a surge replacement could never duplicate"
+                    + " ahead of removing the original; remove the field");
+          }
+          return new DisruptionBudget(maxUnavailable);
+        });
   }
 
   private static int parseReplicas(Map<?, ?> root) {

@@ -488,6 +488,8 @@ function validateApplication(bp: Blueprint): Problem[] {
       if (d.disruption?.maxSurge !== undefined)
         p.push(err("DAEMONSET_MAX_SURGE", "DaemonSets do not support maxSurge.", w.id));
     }
+    if (w.kind === "statefulSet" && d.disruption?.maxSurge !== undefined)
+      p.push(err("STATEFULSET_MAX_SURGE", "StatefulSets do not support maxSurge.", w.id));
     if (w.kind === "cronJob") {
       const fields = (d.schedule ?? "").trim().split(/\s+/).filter(Boolean);
       if (fields.length !== 5)

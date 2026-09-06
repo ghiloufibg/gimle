@@ -112,7 +112,7 @@ public sealed interface StoreRpc {
           ListStatefulSetSpecs,
           ListStatefulSetAssignments,
           ListStatefulSetAssignmentsFor,
-          GetRollingStatefulSetIndex,
+          ListRollingStatefulSetIndices,
           GetStatefulSetIndexNode,
           ListNodeRegistrations,
           ListTenants,
@@ -405,7 +405,7 @@ public sealed interface StoreRpc {
   record ListStatefulSetAssignmentsFor(Optional<String> tenantId, String statefulSetName)
       implements Request {}
 
-  record GetRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName)
+  record ListRollingStatefulSetIndices(Optional<String> tenantId, String statefulSetName)
       implements Request {}
 
   record GetStatefulSetIndexNode(

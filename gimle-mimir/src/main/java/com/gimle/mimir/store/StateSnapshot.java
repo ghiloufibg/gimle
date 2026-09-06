@@ -47,7 +47,7 @@ public record StateSnapshot(
     Map<String, Set<String>> rollingDaemonSetNodes,
     List<StatefulSetSpec> statefulSetSpecs,
     List<StatefulSetAssignment> statefulSetAssignments,
-    Map<String, Integer> rollingStatefulSetIndices,
+    Map<String, Set<Integer>> rollingStatefulSetIndices,
     Map<String, String> statefulSetIndexNodes,
     List<NodeRegistration> nodeRegistrations,
     Map<String, Set<Integer>> rollingIndices,
@@ -117,7 +117,12 @@ public record StateSnapshot(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
     statefulSetSpecs = List.copyOf(statefulSetSpecs);
     statefulSetAssignments = List.copyOf(statefulSetAssignments);
-    rollingStatefulSetIndices = Map.copyOf(rollingStatefulSetIndices);
+    // Map.copyOf alone only makes the outer map immutable, not each entry's own Set value -- same
+    // deep-copy reasoning as rollingDaemonSetNodes/rollingIndices above.
+    rollingStatefulSetIndices =
+        rollingStatefulSetIndices.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
     statefulSetIndexNodes = Map.copyOf(statefulSetIndexNodes);
     nodeRegistrations = List.copyOf(nodeRegistrations);
     rollingIndices =

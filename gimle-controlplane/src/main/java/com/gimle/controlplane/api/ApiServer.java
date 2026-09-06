@@ -4165,8 +4165,10 @@ public final class ApiServer implements AutoCloseable {
         spec.artifactPath(),
         spec.replicas(),
         spec.placement(),
+        spec.autoscale(),
         spec.tenantId(),
         sha256,
+        spec.disruption(),
         spec.vessel());
   }
 
@@ -4226,6 +4228,8 @@ public final class ApiServer implements AutoCloseable {
     specMap.put("moduleId", moduleIdToJson(spec.moduleId()));
     specMap.put("artifactPath", spec.artifactPath());
     specMap.put("replicas", spec.replicas());
+    spec.autoscale().ifPresent(policy -> specMap.put("autoscale", autoscaleToJson(policy)));
+    spec.disruption().ifPresent(budget -> specMap.put("disruption", disruptionToJson(budget)));
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
@@ -4259,6 +4263,11 @@ public final class ApiServer implements AutoCloseable {
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
     putNotRunningRollup(status, notRunningReasons);
+    // Present only once the autoscaler has actually moved this statefulset -- mirrors
+    // deploymentStatus's identical field exactly.
+    storeClient
+        .getDeploymentLastScale(spec.tenantId(), spec.name())
+        .ifPresent(t -> status.put("lastScaleTime", t.toString()));
     return status;
   }
 

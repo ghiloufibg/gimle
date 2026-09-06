@@ -560,8 +560,10 @@ public final class DomainCodec {
     out.writeUTF(spec.artifactPath());
     out.writeInt(spec.replicas());
     writePlacementConstraints(out, spec.placement());
+    writeOptionalAutoscalePolicy(out, spec.autoscale());
     writeOptionalString(out, spec.tenantId());
     writeOptionalString(out, spec.artifactSha256());
+    writeOptionalDisruptionBudget(out, spec.disruption());
     writeOptionalVesselSpec(out, spec.vessel());
   }
 
@@ -571,11 +573,22 @@ public final class DomainCodec {
     String artifactPath = in.readUTF();
     int replicas = in.readInt();
     PlacementConstraints placement = readPlacementConstraints(in);
+    Optional<AutoscalePolicy> autoscale = readOptionalAutoscalePolicy(in);
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> artifactSha256 = readOptionalString(in);
+    Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
     Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
     return new StatefulSetSpec(
-        name, moduleId, artifactPath, replicas, placement, tenantId, artifactSha256, vessel);
+        name,
+        moduleId,
+        artifactPath,
+        replicas,
+        placement,
+        autoscale,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel);
   }
 
   public static void writeStatefulSetAssignment(

@@ -453,7 +453,13 @@ converges even after missing every event in between (source:
 Every distinct `kind:` a manifest can declare gets its own reconciler this way, following the same
 desired-vs-observed convergence loop shape described above.
 
-`AutoscaleReconciler` folds up to four independently-optional signals into one scaling decision:
+`AutoscaleReconciler` drives both a Deployment's and a StatefulSet's own `autoscale:` policy
+identically — the two share no common supertype beyond `name()`/`tenantId()`, so its
+per-workload-kind fields are passed by value into one shared decision core rather than the
+reconciler being generic over the spec type itself. `StatefulSetReconciler`'s own `OrderedReady`
+scan reads the resulting effective replica count in place of the manifest's raw `replicas` the
+identical way `DeploymentReconciler` already does. It folds up to four independently-optional
+signals into one scaling decision:
 CPU utilization (always evaluated), plus request rate, error rate, and queue depth, each evaluated
 only when its own `AutoscalePolicy` target is configured — an existing CPU-only policy scales
 exactly as it always has. `AutoscalePolicy.CombinationMode` picks how those signals combine, from

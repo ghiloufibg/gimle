@@ -94,12 +94,12 @@ public final class StateStore implements StoreReader {
   // exactly like an ordinary deployment replica's own instanceIndex.
   private final Map<String, StatefulSetAssignment> statefulSetAssignments =
       new ConcurrentHashMap<>();
-  // The single index currently in flight for a StatefulSet, if any -- reused for both
-  // OrderedReady scale-up admission and rolling-update admission (see StateMutation
-  // .PutRollingStatefulSetIndex's own javadoc), same "only persist while in flight" shape as
-  // rollingIndices/rollingDaemonSetNodes above. A separate map from rollingIndices: the two
-  // resource kinds never share a namespace.
-  private final Map<String, Integer> rollingStatefulSetIndices = new ConcurrentHashMap<>();
+  // The indices currently in flight for a StatefulSet's rolling update, bounded by its own
+  // effective DisruptionBudget#maxUnavailable -- same shape and same reason as rollingIndices
+  // above, persisted so a reconciler restart mid-rollout resumes rather than starting a second
+  // one. A separate map from rollingIndices: the two resource kinds never share a namespace, since
+  // a StatefulSet can share a name with a Deployment (see WorkloadHealthState's own javadoc).
+  private final Map<String, Set<Integer>> rollingStatefulSetIndices = new ConcurrentHashMap<>();
   // The sticky node binding for one StatefulSet index, keyed by statefulSetAssignmentKey --
   // survives an ordinary assignment removal (mid-rollout, or a dark node), cleared only on
   // genuinely permanent removal (scale-down below the index, or the whole spec deleted). See
@@ -657,7 +657,7 @@ public final class StateStore implements StoreReader {
   }
 
   /**
-   * Also clears any in-flight {@link #rollingStatefulSetIndices} entry for {@code name} -- a
+   * Also clears every in-flight {@link #rollingStatefulSetIndices} entry for {@code name} -- a
    * removed StatefulSet has no rollout left to track. Deliberately does <em>not</em> clear any
    * {@link #statefulSetIndexNodes} sticky bindings here -- those are cleared per-index by {@link
    * #removeStatefulSetIndexNode} only when the reconciler actually tears an index down for good
@@ -670,7 +670,7 @@ public final class StateStore implements StoreReader {
    */
   public void removeStatefulSetSpec(Optional<String> tenantId, String name) {
     statefulSetSpecs.remove(scopedKey(tenantId, name));
-    clearRollingStatefulSetIndex(tenantId, name);
+    clearAllRollingStatefulSetIndices(tenantId, name);
     controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", tenantId, name));
     clearInstanceEventsFor(tenantId, name);
   }
@@ -704,22 +704,38 @@ public final class StateStore implements StoreReader {
   // ---- statefulset rolling-update / OrderedReady bookkeeping ----
 
   /**
-   * The single index currently in flight for a StatefulSet, if any -- see {@link
-   * StateMutation.PutRollingStatefulSetIndex}'s own javadoc for why this one marker governs both
-   * ordinary {@code OrderedReady} scale-up admission and rolling-update admission.
+   * Marks {@code instanceIndex} as one of the (possibly several, bounded by the statefulset's own
+   * effective {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable}) indices currently
+   * being replaced by a rolling update -- mirrors {@link #addRollingIndex} exactly, in a separate
+   * map so a StatefulSet sharing a name with a Deployment never collides with it.
    */
-  public void putRollingStatefulSetIndex(
+  public void addRollingStatefulSetIndex(
       Optional<String> tenantId, String statefulSetName, int instanceIndex) {
-    rollingStatefulSetIndices.put(scopedKey(tenantId, statefulSetName), instanceIndex);
+    rollingStatefulSetIndices
+        .computeIfAbsent(scopedKey(tenantId, statefulSetName), key -> ConcurrentHashMap.newKeySet())
+        .add(instanceIndex);
   }
 
-  public void clearRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName) {
-    rollingStatefulSetIndices.remove(scopedKey(tenantId, statefulSetName));
+  public void removeRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    Set<Integer> indices = rollingStatefulSetIndices.get(scopedKey(tenantId, statefulSetName));
+    if (indices != null) {
+      indices.remove(instanceIndex);
+    }
   }
 
-  public Optional<Integer> getRollingStatefulSetIndex(
+  /** Every instance index currently in flight for this statefulset's rollout; empty means none. */
+  public Set<Integer> getRollingStatefulSetIndices(
       Optional<String> tenantId, String statefulSetName) {
-    return Optional.ofNullable(rollingStatefulSetIndices.get(scopedKey(tenantId, statefulSetName)));
+    return Set.copyOf(
+        rollingStatefulSetIndices.getOrDefault(scopedKey(tenantId, statefulSetName), Set.of()));
+  }
+
+  private void clearAllRollingStatefulSetIndices(
+      Optional<String> tenantId, String statefulSetName) {
+    Set.copyOf(
+            rollingStatefulSetIndices.getOrDefault(scopedKey(tenantId, statefulSetName), Set.of()))
+        .forEach(index -> removeRollingStatefulSetIndex(tenantId, statefulSetName, index));
   }
 
   // ---- statefulset sticky node-binding bookkeeping ----
@@ -1702,7 +1718,7 @@ public final class StateStore implements StoreReader {
         rollingDaemonSetNodesSnapshot(),
         List.copyOf(statefulSetSpecs.values()),
         List.copyOf(statefulSetAssignments.values()),
-        Map.copyOf(rollingStatefulSetIndices),
+        rollingStatefulSetIndicesSnapshot(),
         Map.copyOf(statefulSetIndexNodes),
         List.copyOf(nodeRegistrations.values()),
         rollingIndicesSnapshot(),
@@ -1768,6 +1784,12 @@ public final class StateStore implements StoreReader {
   /** The deep-copied {@code rollingIndices} shape {@link #snapshot()} embeds. */
   private Map<String, Set<Integer>> rollingIndicesSnapshot() {
     return rollingIndices.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+  }
+
+  /** The deep-copied {@code rollingStatefulSetIndices} shape {@link #snapshot()} embeds. */
+  private Map<String, Set<Integer>> rollingStatefulSetIndicesSnapshot() {
+    return rollingStatefulSetIndices.entrySet().stream()
         .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 
@@ -1861,7 +1883,12 @@ public final class StateStore implements StoreReader {
     snapshot.statefulSetAssignments().forEach(this::putStatefulSetAssignment);
     snapshot
         .rollingStatefulSetIndices()
-        .forEach((key, index) -> rollingStatefulSetIndices.put(key, index));
+        .forEach(
+            (key, indices) -> {
+              Set<Integer> set = ConcurrentHashMap.newKeySet();
+              set.addAll(indices);
+              rollingStatefulSetIndices.put(key, set);
+            });
     snapshot
         .statefulSetIndexNodes()
         .forEach((key, nodeId) -> statefulSetIndexNodes.put(key, nodeId));

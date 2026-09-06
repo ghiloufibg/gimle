@@ -13,6 +13,7 @@ import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
 import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -270,6 +271,103 @@ final class ManifestFields {
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid disruption budget: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * The {@code autoscale: {...}} block shared identically by every workload kind that accepts one
+   * -- unlike {@link #parseDisruptionBudget}, no per-kind knob differs, so this needs no
+   * factory-lambda escape hatch.
+   */
+  static Optional<AutoscalePolicy> parseAutoscale(Map<?, ?> root) {
+    Object autoscaleObj = root.get("autoscale");
+    if (autoscaleObj == null) {
+      return Optional.empty();
+    }
+    if (!(autoscaleObj instanceof Map<?, ?> autoscale)) {
+      throw new GimleManifestException("'autoscale' must be a mapping");
+    }
+    int minReplicas = requiredIntField(autoscale, "minReplicas", "autoscale.");
+    int maxReplicas = requiredIntField(autoscale, "maxReplicas", "autoscale.");
+    int targetCpuUtilizationPercent =
+        requiredIntField(autoscale, "targetCpuUtilizationPercent", "autoscale.");
+    OptionalDouble targetRequestRatePerSecond =
+        optionalDoubleField(autoscale, "targetRequestRatePerSecond", "autoscale.");
+    OptionalDouble targetErrorRatePercent =
+        optionalDoubleField(autoscale, "targetErrorRatePercent", "autoscale.");
+    OptionalInt targetQueueDepth = optionalIntField(autoscale, "targetQueueDepth", "autoscale.");
+    AutoscalePolicy.CombinationMode combinationMode = parseCombinationMode(autoscale);
+    OptionalDouble cpuWeight = optionalDoubleField(autoscale, "cpuWeight", "autoscale.");
+    OptionalDouble requestRateWeight =
+        optionalDoubleField(autoscale, "requestRateWeight", "autoscale.");
+    OptionalDouble errorRateWeight =
+        optionalDoubleField(autoscale, "errorRateWeight", "autoscale.");
+    OptionalDouble queueDepthWeight =
+        optionalDoubleField(autoscale, "queueDepthWeight", "autoscale.");
+    Duration scaleUpCooldown =
+        parseCooldown(
+            autoscale, "scaleUpCooldownSeconds", AutoscalePolicy.DEFAULT_SCALE_UP_COOLDOWN);
+    Duration scaleDownCooldown =
+        parseCooldown(
+            autoscale, "scaleDownCooldownSeconds", AutoscalePolicy.DEFAULT_SCALE_DOWN_COOLDOWN);
+    try {
+      return Optional.of(
+          new AutoscalePolicy(
+              minReplicas,
+              maxReplicas,
+              targetCpuUtilizationPercent,
+              targetRequestRatePerSecond,
+              targetErrorRatePercent,
+              targetQueueDepth,
+              combinationMode,
+              cpuWeight,
+              requestRateWeight,
+              errorRateWeight,
+              queueDepthWeight,
+              scaleUpCooldown,
+              scaleDownCooldown));
+    } catch (IllegalArgumentException e) {
+      throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * A stabilization window, in whole seconds. Absent means {@code defaultValue} (see {@link
+   * AutoscalePolicy}'s own javadoc for why the two directions default differently); {@code 0} is a
+   * meaningful value operators do write -- it disables that direction's window outright -- so
+   * unlike {@code startingDeadlineSeconds} this accepts zero and rejects only a negative.
+   */
+  private static Duration parseCooldown(Map<?, ?> autoscale, String field, Duration defaultValue) {
+    Object value = autoscale.get(field);
+    if (value == null) {
+      return defaultValue;
+    }
+    if (!(value instanceof Number number) || number.longValue() < 0) {
+      throw new GimleManifestException(
+          "'autoscale." + field + "' must be a non-negative number of seconds if present");
+    }
+    return Duration.ofSeconds(number.longValue());
+  }
+
+  /**
+   * {@code autoscale.mode} is optional and defaults to {@code worst-signal} -- an absent value
+   * reproduces {@link AutoscalePolicy.CombinationMode#WORST_SIGNAL} exactly, matching every
+   * manifest written before {@code weighted} mode existed.
+   */
+  private static AutoscalePolicy.CombinationMode parseCombinationMode(Map<?, ?> autoscale) {
+    Object value = autoscale.get("mode");
+    if (value == null) {
+      return AutoscalePolicy.CombinationMode.WORST_SIGNAL;
+    }
+    if (!(value instanceof String s)) {
+      throw new GimleManifestException("'autoscale.mode' must be a string if present");
+    }
+    return switch (s) {
+      case "worst-signal" -> AutoscalePolicy.CombinationMode.WORST_SIGNAL;
+      case "weighted" -> AutoscalePolicy.CombinationMode.WEIGHTED;
+      default ->
+          throw new GimleManifestException(
+              "'autoscale.mode' must be 'worst-signal' or 'weighted', got: " + s);
+    };
   }
 
   /**

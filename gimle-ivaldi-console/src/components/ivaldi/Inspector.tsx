@@ -335,7 +335,7 @@ function WorkloadForm({
         }
         problems={pick(problems, ["REQUIRED_LABEL_UNMATCHED", "DAEMONSET_ANTI_AFFINITY"])}
       />
-      {kind === "deployment" && (
+      {(kind === "deployment" || kind === "statefulSet") && (
         <>
           <CheckboxField
             label="Autoscale"
@@ -379,7 +379,7 @@ function WorkloadForm({
           )}
         </>
       )}
-      {(kind === "deployment" || kind === "daemonSet") && (
+      {(kind === "deployment" || kind === "daemonSet" || kind === "statefulSet") && (
         <>
           <CheckboxField
             label="Disruption budget"
@@ -400,7 +400,12 @@ function WorkloadForm({
                 onChange={(maxUnavailable) =>
                   update({ disruption: { ...d.disruption!, maxUnavailable } } as Partial<NodeData>)
                 }
-                problems={pick(problems, ["DISRUPTION_BOTH_ZERO", "DISRUPTION_RANGE"])}
+                problems={pick(problems, [
+                  "DISRUPTION_BOTH_ZERO",
+                  "DISRUPTION_RANGE",
+                  "DAEMONSET_MAX_SURGE",
+                  "STATEFULSET_MAX_SURGE",
+                ])}
               />
               {kind === "deployment" && (
                 <NumberField

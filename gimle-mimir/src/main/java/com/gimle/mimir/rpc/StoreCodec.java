@@ -119,7 +119,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_STATEFULSET_SPECS = 79;
   private static final byte TAG_LIST_STATEFULSET_ASSIGNMENTS = 80;
   private static final byte TAG_LIST_STATEFULSET_ASSIGNMENTS_FOR = 81;
-  private static final byte TAG_GET_ROLLING_STATEFULSET_INDEX = 82;
+  private static final byte TAG_LIST_ROLLING_STATEFULSET_INDICES = 82;
   private static final byte TAG_GET_STATEFULSET_INDEX_NODE = 83;
   private static final byte TAG_GET_JOB_RUN_SUMMARY = 116;
 
@@ -452,8 +452,8 @@ public final class StoreCodec {
           DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.statefulSetName());
         }
-        case StoreRpc.GetRollingStatefulSetIndex v -> {
-          out.writeByte(TAG_GET_ROLLING_STATEFULSET_INDEX);
+        case StoreRpc.ListRollingStatefulSetIndices v -> {
+          out.writeByte(TAG_LIST_ROLLING_STATEFULSET_INDICES);
           DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.statefulSetName());
         }
@@ -1131,8 +1131,8 @@ public final class StoreCodec {
         case TAG_LIST_STATEFULSET_ASSIGNMENTS_FOR ->
             new StoreRpc.ListStatefulSetAssignmentsFor(
                 DomainCodec.readOptionalString(in), in.readUTF());
-        case TAG_GET_ROLLING_STATEFULSET_INDEX ->
-            new StoreRpc.GetRollingStatefulSetIndex(
+        case TAG_LIST_ROLLING_STATEFULSET_INDICES ->
+            new StoreRpc.ListRollingStatefulSetIndices(
                 DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_STATEFULSET_INDEX_NODE ->
             new StoreRpc.GetStatefulSetIndexNode(

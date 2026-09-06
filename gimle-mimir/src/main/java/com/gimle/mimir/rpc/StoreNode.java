@@ -189,8 +189,9 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListStatefulSetAssignmentsFor r ->
           new StoreRpc.StatefulSetAssignmentListResult(
               store.listStatefulSetAssignmentsFor(r.tenantId(), r.statefulSetName()));
-      case StoreRpc.GetRollingStatefulSetIndex r ->
-          intResult(store.getRollingStatefulSetIndex(r.tenantId(), r.statefulSetName()));
+      case StoreRpc.ListRollingStatefulSetIndices r ->
+          new StoreRpc.IntSetResult(
+              List.copyOf(store.getRollingStatefulSetIndices(r.tenantId(), r.statefulSetName())));
       case StoreRpc.GetStatefulSetIndexNode r ->
           stringResult(
               store.getStatefulSetIndexNode(r.tenantId(), r.statefulSetName(), r.instanceIndex()));

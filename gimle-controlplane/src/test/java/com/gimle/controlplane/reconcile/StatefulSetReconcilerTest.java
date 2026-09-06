@@ -977,7 +977,7 @@ class StatefulSetReconcilerTest {
     StatefulSetSpec v2 = statefulSet("orders", jarV2, 2);
     store.putStatefulSetSpec(v2);
     reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
-    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    assertEquals(Set.of(0), store.getRollingStatefulSetIndices(Optional.empty(), "orders"));
     StatefulSetAssignment rolledIndex0 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
 
@@ -992,8 +992,8 @@ class StatefulSetReconcilerTest {
     }
 
     assertEquals(
-        Optional.of(0),
-        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        Set.of(0),
+        store.getRollingStatefulSetIndices(Optional.empty(), "orders"),
         "the rolling marker must never clear because of a flapping-but-never-stabilized"
             + " replacement");
     StatefulSetAssignment index1AfterFlapping =
@@ -1037,25 +1037,28 @@ class StatefulSetReconcilerTest {
     StatefulSetSpec v2 = statefulSet("orders", jarV2, 2);
     store.putStatefulSetSpec(v2);
     reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
-    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    assertEquals(Set.of(0), store.getRollingStatefulSetIndices(Optional.empty(), "orders"));
     StatefulSetAssignment rolledIndex0 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
 
     reportReady(store, rolledIndex0);
     reconciler.reconcileOnce(); // first observation: records the stabilization timer
     assertEquals(
-        Optional.of(0),
-        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        Set.of(0),
+        store.getRollingStatefulSetIndices(Optional.empty(), "orders"),
         "a single ready heartbeat is not yet proof of stability");
 
     clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
-    reconciler.reconcileOnce(); // stabilized: clears the rolling marker
-    assertEquals(Optional.empty(), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
-
-    // A further tick picks up index 1's own mismatch now that index 0's migration is done --
-    // proving the freed slot genuinely hands off rather than staying wedged.
+    // Stabilized: clears index 0's rolling marker and, in that very same tick, tops the freed
+    // budget back up with index 1's own mismatch -- mirrors
+    // DeploymentReconciler#handleRollingUpdate's
+    // identical "a freed slot is topped up in the very same tick it frees" behavior exactly.
     reconciler.reconcileOnce();
-    assertEquals(Optional.of(1), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    assertEquals(
+        Set.of(1),
+        store.getRollingStatefulSetIndices(Optional.empty(), "orders"),
+        "the freed budget must hand off to index 1's own mismatch immediately, not wedge until a"
+            + " further tick");
   }
 
   /**
@@ -1085,7 +1088,7 @@ class StatefulSetReconcilerTest {
     StatefulSetSpec v2 = statefulSet("orders", jarV2, 1);
     store.putStatefulSetSpec(v2);
     reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
-    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    assertEquals(Set.of(0), store.getRollingStatefulSetIndices(Optional.empty(), "orders"));
     StatefulSetAssignment rolledIndex0 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
 
@@ -1099,16 +1102,16 @@ class StatefulSetReconcilerTest {
 
     resumed.reconcileOnce();
     assertEquals(
-        Optional.of(0),
-        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        Set.of(0),
+        store.getRollingStatefulSetIndices(Optional.empty(), "orders"),
         "the resumed reconciler has no in-memory history of its own, but must not treat that as a"
             + " fresh start for a timer that already exists in the store");
 
     clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
     resumed.reconcileOnce();
     assertEquals(
-        Optional.empty(),
-        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        Set.of(),
+        store.getRollingStatefulSetIndices(Optional.empty(), "orders"),
         "the resumed reconciler must complete the rolling update once the persisted timer's window"
             + " elapses, proving the timer -- not just the ready flag -- survived the restart");
   }

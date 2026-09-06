@@ -203,7 +203,8 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
     if (node.kind === "cronJob") (doc.jobTemplate as Record<string, unknown>).placement = pl;
     else doc.placement = pl;
   }
-  if (d.autoscale && node.kind === "deployment") doc.autoscale = { ...d.autoscale };
+  if (d.autoscale && (node.kind === "deployment" || node.kind === "statefulSet"))
+    doc.autoscale = { ...d.autoscale };
   // Deliberately no `resources` here. A module's request/limit lives in its own gimle-module.yaml
   // inside the jar, and the platform's manifest parser answers a resources key on a workload with
   // "not a recognized field for this manifest kind and was ignored" -- emitting it would put a
@@ -211,7 +212,7 @@ function workloadDoc(bp: Blueprint, node: BlueprintNode): Record<string, unknown
   // node exist for tier-1 quota and limit-range arithmetic, which has to run before any jar does.
   if (d.disruption) {
     const dis: Record<string, unknown> = { maxUnavailable: d.disruption.maxUnavailable };
-    if (node.kind !== "daemonSet" && d.disruption.maxSurge !== undefined)
+    if (node.kind === "deployment" && d.disruption.maxSurge !== undefined)
       dis.maxSurge = d.disruption.maxSurge;
     doc.disruption = dis;
   }
