@@ -6,6 +6,7 @@ import type { BlueprintsRepository } from "@/repositories/contracts";
 const listMock = vi.fn();
 const getMock = vi.fn();
 const createMock = vi.fn();
+const deleteMock = vi.fn();
 
 vi.mock("@/repositories", () => ({
   blueprintsRepository: {
@@ -14,7 +15,7 @@ vi.mock("@/repositories", () => ({
     get: (...args: unknown[]) => getMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     save: vi.fn(),
-    delete: vi.fn(),
+    delete: (...args: unknown[]) => deleteMock(...args),
   } satisfies BlueprintsRepository,
 }));
 
@@ -36,11 +37,18 @@ beforeEach(() => {
   listMock.mockReset();
   getMock.mockReset();
   createMock.mockReset();
+  deleteMock.mockReset();
   listMock.mockResolvedValue([]);
   createMock.mockImplementation((bp: Blueprint) =>
     Promise.resolve({ id: bp.id, name: bp.name, version: bp.version, updatedAt: bp.updatedAt }),
   );
-  useBlueprintsListStore.setState({ blueprints: [], details: {}, loading: false, error: null });
+  useBlueprintsListStore.setState({
+    blueprints: [],
+    details: {},
+    loading: false,
+    error: null,
+    errorTitle: null,
+  });
 });
 
 describe("useBlueprintsListStore.refresh", () => {
@@ -76,6 +84,37 @@ describe("useBlueprintsListStore.refresh", () => {
     listMock.mockResolvedValueOnce([]);
     await useBlueprintsListStore.getState().refresh();
     expect(useBlueprintsListStore.getState().error).toBeNull();
+  });
+});
+
+describe("useBlueprintsListStore.remove", () => {
+  it("clears the deleted blueprint from details on success", async () => {
+    deleteMock.mockResolvedValue(undefined);
+    listMock.mockResolvedValue([]);
+    useBlueprintsListStore.setState({ details: { "bp-1": minimalBlueprint } });
+
+    await useBlueprintsListStore.getState().remove("bp-1");
+
+    expect(useBlueprintsListStore.getState().details["bp-1"]).toBeUndefined();
+    expect(useBlueprintsListStore.getState().errorTitle).toBeNull();
+  });
+
+  // The backend refuses (409) a delete while a run is still tracked against this blueprint --
+  // discovered live: the route's own client-side pre-check only catches a run *this* browser
+  // session started, so a run tracked by another tab reached here as an unhandled rejection with
+  // nothing shown to the operator at all, the blueprint silently staying undeletable.
+  it("surfaces a refused delete with its own title, naming what the backend said, rather than throwing unhandled", async () => {
+    deleteMock.mockRejectedValue(
+      new Error("blueprint bp-1 has 1 run(s) this process is tracking (run-1) -- stop them first"),
+    );
+    useBlueprintsListStore.setState({ details: { "bp-1": minimalBlueprint } });
+
+    await expect(useBlueprintsListStore.getState().remove("bp-1")).resolves.toBeUndefined();
+
+    expect(useBlueprintsListStore.getState().errorTitle).toBe("Couldn't delete blueprint");
+    expect(useBlueprintsListStore.getState().error).toContain("run-1");
+    // The blueprint was never actually removed -- still readable, exactly as the refusal says.
+    expect(useBlueprintsListStore.getState().details["bp-1"]).toBe(minimalBlueprint);
   });
 });
 

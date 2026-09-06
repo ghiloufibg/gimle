@@ -73,6 +73,7 @@ function BlueprintsList() {
     blueprints,
     details,
     error,
+    errorTitle,
     refresh,
     create,
     remove,
@@ -97,8 +98,8 @@ function BlueprintsList() {
 
   // A list that silently stayed empty when the backend was unreachable read as "no blueprints".
   useEffect(() => {
-    if (error) toast.error("Couldn't load blueprints", { description: error });
-  }, [error]);
+    if (error) toast.error(errorTitle ?? "Couldn't load blueprints", { description: error });
+  }, [error, errorTitle]);
 
   // Which blueprints own a live cluster. Polled rather than read once: a run this list started
   // reaches ACTIVE, and later dies, entirely outside this screen.

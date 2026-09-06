@@ -10,6 +10,8 @@ interface ListState {
   details: Record<string, Blueprint>;
   loading: boolean;
   error: string | null;
+  /** Set alongside `error` so a caller can tell a delete refusal from a plain load failure. */
+  errorTitle: string | null;
   refresh: () => Promise<void>;
   loadDetails: () => Promise<void>;
   create: (name: string, options?: { empty?: boolean }) => Promise<BlueprintSummary>;
@@ -39,15 +41,20 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   details: {},
   loading: false,
   error: null,
+  errorTitle: null,
 
   refresh: async () => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, errorTitle: null });
     try {
       const blueprints = await blueprintsRepository.list();
       set({ blueprints, loading: false });
       void get().loadDetails();
     } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+      set({
+        loading: false,
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't load blueprints",
+      });
     }
   },
 
@@ -73,11 +80,23 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   },
 
   remove: async (id) => {
-    await blueprintsRepository.delete(id);
+    try {
+      await blueprintsRepository.delete(id);
+    } catch (e) {
+      // A run tracked against this blueprint refuses the delete (409) -- the route's own
+      // client-side pre-check only knows about a run *this* session started, so a run tracked by
+      // another tab or process still has to surface here rather than as an unhandled rejection
+      // with nothing shown to the operator at all.
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't delete blueprint",
+      });
+      return;
+    }
     set((s) => {
       const details = { ...s.details };
       delete details[id];
-      return { details };
+      return { details, error: null, errorTitle: null };
     });
     await get().refresh();
   },
