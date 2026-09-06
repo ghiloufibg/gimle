@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePath, toYaml } from "./custom-resources";
+import { kindListEmptyReason, resolvePath, toYaml } from "./custom-resources";
 import type { CustomResourceItem } from "@/types";
 
 // Pure path-resolution/rendering logic only -- this project's vitest config is deliberately
@@ -60,5 +60,43 @@ describe("toYaml", () => {
   it("renders empty containers explicitly rather than as blank lines", () => {
     expect(toYaml({})).toBe("{}");
     expect(toYaml({ empty: [] })).toBe("empty:\n  []");
+  });
+});
+
+describe("kindListEmptyReason", () => {
+  it("only reports the cluster as having no custom kinds once a read came back empty", () => {
+    expect(kindListEmptyReason({ loading: false, catalogLoaded: true, error: null })).toBe(
+      "none-defined",
+    );
+  });
+
+  it("says nothing about the cluster while the catalog read is still in flight", () => {
+    expect(kindListEmptyReason({ loading: true, catalogLoaded: false, error: null })).toBe(
+      "loading",
+    );
+  });
+
+  it("says nothing about the cluster before any read has been attempted", () => {
+    expect(kindListEmptyReason({ loading: false, catalogLoaded: false, error: null })).toBe(
+      "loading",
+    );
+  });
+
+  it("reports a refused read as unreadable, never as an empty cluster", () => {
+    // The finding this guards: a throttled /kinddefinitions rendered as "No custom kinds defined"
+    // while the KindDefinition it could not read was there all along.
+    expect(
+      kindListEmptyReason({
+        loading: false,
+        catalogLoaded: false,
+        error: "control plane responded 429: control plane at capacity",
+      }),
+    ).toBe("unreadable");
+  });
+
+  it("keeps reporting a failed re-read as unreadable even after an earlier read succeeded", () => {
+    expect(kindListEmptyReason({ loading: false, catalogLoaded: true, error: "forbidden" })).toBe(
+      "unreadable",
+    );
   });
 });

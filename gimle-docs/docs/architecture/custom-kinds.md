@@ -136,7 +136,9 @@ by dotted path into spec/status; `-o json` emits both verbatim. See the
 The [web console](./web-console.md)'s **Custom Resources** screen is the same read path: a kind
 picker fed by `/kinddefinitions`, an instance table honoring `printColumns`, and a detail pane
 showing spec and status side by side with the generation/observedGeneration pair made visible.
-Deliberately read-only — authoring stays in the CLI, where apply semantics live.
+Deliberately read-only — authoring stays in the CLI, where apply semantics live. The screen
+re-reads on the console's own auto-refresh interval, since an operator's own status writes move
+under it, and it never reports a catalog it could not read as a cluster with no custom kinds.
 
 ## What deliberately does not change
 

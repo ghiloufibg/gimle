@@ -5,6 +5,7 @@ vi.mock("@/repositories", () => ({
 }));
 
 import { authRepo } from "@/repositories";
+import { ApiError } from "@/repositories/http/apiClient";
 import { useAuthStore } from "./useAuthStore";
 
 describe("useAuthStore", () => {
@@ -52,6 +53,59 @@ describe("useAuthStore", () => {
     await useAuthStore.getState().init();
 
     expect(useAuthStore.getState().status).toBe("unauthenticated");
+  });
+
+  it("a session probe the control plane refused is not read as a signed-out operator", async () => {
+    // 429 is "ask again shortly". Landing it as "unauthenticated" bounces the router to /login --
+    // in plaintext mode, a sign-in screen for a credential the operator does not have.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(authRepo.session).mockRejectedValueOnce(
+        new ApiError(429, "control plane at capacity; retry shortly"),
+      );
+
+      await useAuthStore.getState().init();
+
+      const state = useAuthStore.getState();
+      expect(state.status).toBe("unknown");
+      expect(state.status).not.toBe("unauthenticated");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-probes after a refused probe and settles on the principal the retry returns", async () => {
+    vi.useFakeTimers();
+    try {
+      const anonymous = { username: "anonymous", groups: [], anonymous: true };
+      vi.mocked(authRepo.session)
+        .mockRejectedValueOnce(new ApiError(429, "at capacity"))
+        .mockResolvedValueOnce(anonymous);
+
+      await useAuthStore.getState().init();
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const state = useAuthStore.getState();
+      expect(state.principal).toEqual(anonymous);
+      expect(state.status).toBe("authenticated");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops re-probing rather than asking forever", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(authRepo.session).mockRejectedValue(new ApiError(429, "at capacity"));
+
+      await useAuthStore.getState().init();
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(authRepo.session).toHaveBeenCalledTimes(3);
+      expect(useAuthStore.getState().status).toBe("unknown");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("init() only calls session() once even if invoked twice", async () => {
