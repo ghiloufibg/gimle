@@ -38,6 +38,7 @@ describe("useCustomResourcesStore", () => {
   beforeEach(() => {
     useCustomResourcesStore.setState({
       kinds: [],
+      catalogLoaded: false,
       selectedKindName: null,
       resources: [],
       selectedResourceKey: null,
@@ -171,6 +172,59 @@ describe("useCustomResourcesStore", () => {
     await useCustomResourcesStore.getState().refreshResources();
 
     expect(customResourcesRepo.fetchResources).not.toHaveBeenCalled();
+  });
+
+  it("poll re-reads the catalog, so a first read the control plane refused stops standing as the answer", async () => {
+    // The empty kind list a refused catalog read leaves behind is not an answer about the cluster,
+    // and nothing else on this screen would ever go back and ask again.
+    vi.mocked(customResourcesRepo.fetchKinds).mockRejectedValueOnce(
+      new Error("control plane responded 429: control plane at capacity"),
+    );
+    await useCustomResourcesStore.getState().loadKinds();
+    expect(useCustomResourcesStore.getState().kinds).toEqual([]);
+
+    vi.mocked(customResourcesRepo.fetchKinds).mockResolvedValueOnce([
+      definition("custom.Greeting"),
+    ]);
+    await useCustomResourcesStore.getState().poll();
+
+    const state = useCustomResourcesStore.getState();
+    expect(state.kinds.map((k) => k.kindName)).toEqual(["custom.Greeting"]);
+    expect(state.catalogLoaded).toBe(true);
+    expect(state.error).toBeNull();
+  });
+
+  it("poll never raises the loading flag, so the table it re-reads is not blanked mid-glance", async () => {
+    vi.mocked(customResourcesRepo.fetchKinds).mockImplementationOnce(async () => {
+      expect(useCustomResourcesStore.getState().loading).toBe(false);
+      return [definition("custom.Greeting")];
+    });
+
+    await useCustomResourcesStore.getState().poll();
+
+    expect(useCustomResourcesStore.getState().loading).toBe(false);
+  });
+
+  it("poll re-reads the selected kind's rows too, keeping a selection that survived", async () => {
+    const hello = resource("hello", "team-a");
+    useCustomResourcesStore.setState({
+      selectedKindName: "custom.Greeting",
+      resources: [hello],
+      selectedResourceKey: resourceKey(hello),
+    });
+    vi.mocked(customResourcesRepo.fetchKinds).mockResolvedValueOnce([
+      definition("custom.Greeting"),
+    ]);
+    vi.mocked(customResourcesRepo.fetchResources).mockResolvedValueOnce([
+      resource("hello", "team-a"),
+      resource("welcome", "team-a"),
+    ]);
+
+    await useCustomResourcesStore.getState().poll();
+
+    const state = useCustomResourcesStore.getState();
+    expect(state.resources.map((r) => r.name)).toEqual(["hello", "welcome"]);
+    expect(state.selectedResourceKey).toBe(resourceKey(hello));
   });
 
   it("two same-named resources in different tenants get distinct keys", () => {

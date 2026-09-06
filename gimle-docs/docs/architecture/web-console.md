@@ -144,9 +144,11 @@ polling" means exactly that on every screen.
 
 The screens that poll are the ones showing cluster state that changes on its own: Overview,
 Topology, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances, Nodes, Tenants,
-Volumes, Networking, Applications, Gateway, and Skald DNS. Configuration and key-management screens (Config, ConfigMaps, Secrets,
-SecretMaps, Seal Keys, LimitRanges, Access Control, Custom Resources, Artifacts) deliberately do
-not: their contents change only when a person changes them, they are edit surfaces where a re-read
+Volumes, Networking, Applications, Gateway, Skald DNS, and Custom Resources — that last one because
+a custom resource's status is written by whatever operator reconciles it, so the generation it has
+caught up to moves with nobody at the browser touching anything. Configuration and key-management
+screens (Config, ConfigMaps, Secrets, SecretMaps, Seal Keys, LimitRanges, Access Control,
+Artifacts) deliberately do not: their contents change only when a person changes them, they are edit surfaces where a re-read
 under a half-finished form is a hazard rather than a service, and Seal Keys in particular is a
 destructive-operation surface that should do nothing an operator did not ask for.
 
@@ -364,6 +366,22 @@ poor UX) — a `/login` route, a root-level redirect guard, and a "log out" cont
 footer. A 401 from any endpoint clears local session state and redirects to `/login`; a 403 surfaces
 in place as "you don't have permission" instead, since the user is legitimately logged in and just
 lacks that specific permission.
+
+A **429 is neither**. The control plane refuses a caller it is currently throttling — its
+per-address request rate limiter, which a single page-load's burst of reads can trip, or admission
+control finding no permit free — with a 429 and a `Retry-After` header, before the request's own
+handler runs at all. That answer means "ask again shortly", and the console treats it that way
+everywhere: the shared request layer waits out `Retry-After` (or its own short backoff) and
+re-sends, a few times, for reads and writes alike, since a throttled request never reached its
+handler and so cannot have half-happened. A refusal asking for a long wait — a login lockout, whose
+whole point is that the caller be told — is surfaced instead of slept through. Read as an answer, a
+429 would say things the control plane never said: a throttled `/auth/session` reads as "nobody is
+signed in", which in plaintext mode sends an operator with no credentials at all to a sign-in
+screen, and a throttled `/kinddefinitions` reads as "this cluster has no custom kinds". So the
+session probe treats a failure to answer as unknown rather than signed-out — the router guard
+bounces only on a definite "unauthenticated" — and asks again on a short backoff, and every
+list screen's empty state distinguishes "the read came back empty" from "the read did not come
+back".
 
 An expired session gets exactly one explanation, on the screen the operator is sent to. The 401
 never surfaces as an error of its own — no toast, and no `control plane responded 401` anywhere;
