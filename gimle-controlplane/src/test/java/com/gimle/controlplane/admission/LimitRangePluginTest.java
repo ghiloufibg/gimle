@@ -10,6 +10,7 @@ import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
@@ -160,6 +161,39 @@ class LimitRangePluginTest {
             Optional.of(new ResourceSpec("512Mi", "400m")));
 
     assertAllowed("withinevery", range);
+  }
+
+  /**
+   * A LimitRange exists only because an operator created one, so its bounds bind every workload in
+   * the tenant it names -- including the {@code default} tenant every manifest without an explicit
+   * {@code tenantId} lands in, where a floor written by hand was previously accepted and then
+   * ignored by every submission it was meant to govern.
+   */
+  @Test
+  void a_min_request_bound_set_on_the_default_tenant_is_enforced() {
+    StateStore store = store();
+    // The fixture requests 128Mi/100m; this floor is above it on both dimensions.
+    store.putLimitRange(
+        new LimitRangeSpec(
+            Tenant.DEFAULT_TENANT_ID,
+            Optional.of(new ResourceSpec("256Mi", "200m")),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.limitrangedefault");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    DeploymentSpec spec = deployment("under-floor", jar, Optional.of(Tenant.DEFAULT_TENANT_ID));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertTrue(
+        assertInstanceOf(AdmissionDecision.Reject.class, decision)
+            .reason()
+            .contains("request memory 128Mi below minimum 256Mi"),
+        String.valueOf(decision));
   }
 
   private void assertRejected(String uniqueName, LimitRangeSpec range) {

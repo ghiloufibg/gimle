@@ -253,6 +253,54 @@ class TenantQuotaPluginTest {
     assertInstanceOf(AdmissionDecision.Allow.class, decision);
   }
 
+  /**
+   * The tenant every manifest without an explicit {@code tenantId} lands in is a real tenant with a
+   * real, operator-editable quota row -- once an operator narrows that row, the number they wrote
+   * has to be the number enforced. Exempting it by name meant a quota could be set, reported back
+   * by {@code gimle get tenants}, and never applied to a single submission.
+   */
+  @Test
+  void a_quota_an_operator_set_on_the_default_tenant_is_enforced() {
+    StateStore store = store();
+    // The fixture requests 16Mi/10m per instance; a one-instance ceiling below that cannot fit.
+    store.putTenant(new Tenant(Tenant.DEFAULT_TENANT_ID, new ResourceQuota(1, 1, 1)));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.defaulttenant");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    DeploymentSpec spec = deployment("over-quota", jar, Optional.of(Tenant.DEFAULT_TENANT_ID));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertTrue(
+        assertInstanceOf(AdmissionDecision.Reject.class, decision)
+            .reason()
+            .startsWith("workload over-quota would push tenant default past its resource quota:"),
+        String.valueOf(decision));
+  }
+
+  /** The instance dimension specifically, the one the quota screenshot in the field reported. */
+  @Test
+  void a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected() {
+    StateStore store = store();
+    ResourceQuota oneInstanceOnly = new ResourceQuota(64L * 1024 * 1024 * 1024, 64_000, 1);
+    store.putTenant(new Tenant(Tenant.DEFAULT_TENANT_ID, oneInstanceOnly));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.defaultinstances");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    store.putDeployment(deployment("already-running", jar, Optional.of(Tenant.DEFAULT_TENANT_ID)));
+    DeploymentSpec second = deployment("second", jar, Optional.of(Tenant.DEFAULT_TENANT_ID));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, second, store, Optional.of(artifact)));
+
+    assertTrue(
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason().contains("instances"),
+        String.valueOf(decision));
+  }
+
   /** No jar is ever built or read for this fixture -- {@code artifactPath} is a dangling path. */
   private DeploymentSpec deployment(String name, Optional<String> tenantId) {
     return new DeploymentSpec(

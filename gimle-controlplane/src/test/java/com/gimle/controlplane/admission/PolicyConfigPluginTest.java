@@ -9,6 +9,7 @@ import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.StateStore;
@@ -136,6 +137,28 @@ class PolicyConfigPluginTest {
     assertEquals(
         "policy rule 'policy.maxReplicasPerDeployment' for tenant acme must not be an encrypted"
             + " config entry",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  /**
+   * Writing the policy key against the {@code default} tenant is as deliberate an act as writing it
+   * against a named one -- the ceiling was previously stored, echoed back by {@code gimle get
+   * config}, and then never consulted by a single submission.
+   */
+  @Test
+  void a_ceiling_configured_on_the_default_tenant_is_enforced() {
+    StateStore store = store();
+    setPolicy(store, Tenant.DEFAULT_TENANT_ID, 3);
+    DeploymentSpec spec = deployment("over-ceiling", 4, Optional.of(Tenant.DEFAULT_TENANT_ID));
+
+    AdmissionDecision<DeploymentSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
+
+    assertEquals(
+        "deployment over-ceiling requests 4 replicas, exceeding tenant default's policy ceiling of"
+            + " 3 (policy.maxReplicasPerDeployment)",
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 

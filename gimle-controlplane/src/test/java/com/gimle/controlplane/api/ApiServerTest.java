@@ -2341,6 +2341,160 @@ class ApiServerTest {
         store.getDeployment(Optional.of("policy-acme-2"), "within-policy-ceiling").isPresent());
   }
 
+  // ---- the default tenant is a real, enforced tenant ----
+
+  /**
+   * Every constraint an operator writes against the tenant a manifest lands in when it names none
+   * has to bind the workloads there. These four cover the three constraint kinds plus the CronJob
+   * firing path, which materializes its Job outside any HTTP request and so needs its own proof
+   * that admission is consulted at all.
+   */
+  private String defaultTenantDeploymentYaml(
+      String name, int replicas, String artifactPath, String moduleName) {
+    return """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: %d
+        """
+        .formatted(name, moduleName, artifactPath, replicas);
+  }
+
+  private HttpResponse<String> putDefaultTenantQuota(long memory, long cpu, int instances)
+      throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/default"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(memory, cpu, instances)))
+            .build());
+  }
+
+  @Test
+  void a_submission_past_the_default_tenants_quota_is_rejected() throws Exception {
+    assertEquals(200, putDefaultTenantQuota(1, 1, 1).statusCode());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultquota.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-over-quota"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-over-quota",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultquota.over")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("quota"), put.body());
+    assertTrue(
+        store.getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-over-quota").isEmpty());
+  }
+
+  @Test
+  void a_cronjob_firing_past_the_default_tenants_quota_materializes_no_job() throws Exception {
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultquota.cronjob");
+    String cronJob =
+        """
+        kind: CronJob
+        name: nightly-over-quota
+        schedule: "0 2 * * *"
+        jobTemplate:
+          module:
+            name: com.gimle.fixture.defaultquota.cronjob
+            version: 1.0.0
+          artifactPath: %s
+          backoffLimit: 1
+        """
+            .formatted(jar.toAbsolutePath().toString());
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-over-quota"))
+                .PUT(HttpRequest.BodyPublishers.ofString(cronJob))
+                .build())
+            .statusCode());
+    // No instance at all fits, so the firing's own one-instance Job is refused outright.
+    assertEquals(200, putDefaultTenantQuota(1_000_000_000L, 4000, 0).statusCode());
+
+    HttpResponse<String> trigger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-over-quota/trigger"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+
+    assertEquals(409, trigger.statusCode(), trigger.body());
+    HttpResponse<String> jobs =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs")).GET().build());
+    assertTrue(
+        Json.asObjectList(Json.parse(jobs.body())).isEmpty(),
+        "a refused firing must materialize no Job: " + jobs.body());
+  }
+
+  @Test
+  void a_replica_ceiling_configured_on_the_default_tenant_is_enforced() throws Exception {
+    send(
+        HttpRequest.newBuilder(
+                URI.create(baseUrl + "/config/default/policy.maxReplicasPerDeployment"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"3\",\"encrypted\":false}"))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultpolicy.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-over-policy"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-over-policy",
+                            4,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultpolicy.over")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("policy.maxReplicasPerDeployment"), put.body());
+    assertTrue(
+        store
+            .getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-over-policy")
+            .isEmpty());
+  }
+
+  @Test
+  void a_limit_range_min_request_on_the_default_tenant_is_enforced() throws Exception {
+    // The fixture requests 16Mi/10m; this floor is above it on both dimensions.
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/default"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"minRequest\": {\"memory\": \"24Mi\", \"cpu\": \"15m\"}}"))
+                .build())
+            .statusCode());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultrange.under");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-under-floor"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-under-floor",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultrange.under")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("below minimum"), put.body());
+    assertTrue(
+        store
+            .getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-under-floor")
+            .isEmpty());
+  }
+
   // ---- config/secrets distribution ----
 
   @Test

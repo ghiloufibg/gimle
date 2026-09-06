@@ -30,12 +30,21 @@ to configure it — `/config/default/...`, `/secrets/default/...`, etc. all work
 `default`-tenant deployment exactly as they would for any operator-named tenant. Like
 `gimle-system`, `default` is auto-seeded at control-plane startup, but it carries none of
 `gimle-system`'s write/delete guard — an operator may freely adjust its quota through the ordinary
-`/tenants/*` API. Unlike `gimle-system`, `default` is also **not** subject to quota/LimitRange/
-policy enforcement (`Tenant#isEnforceable` treats it the same as no tenant at all) — matching real
-Kubernetes, where the `default` namespace carries no `ResourceQuota` object unless an admin
-explicitly creates one, so nothing is enforced against it by default either. Scheduler node taints
-and the config-addressability path both treat `default` as a real, ordinary tenant, since those are
-exactly the capabilities this defaulting exists to unlock.
+`/tenants/*` API. It is a real, ordinary tenant in every other respect too: the quota it is seeded
+with (deliberately generous, so that defaulting into it is never itself a surprise rejection), a
+`LimitRange` written against it, and a `policy.maxReplicasPerDeployment` config entry set on it are
+all enforced at admission exactly as they are for an operator-named tenant. A constraint an operator
+took the trouble to write is enforced because it exists, never because of which tenant it names —
+setting one and having it silently ignored is the failure mode this rule exists to prevent.
+Scheduler node taints and the config-addressability path treat `default` as an ordinary tenant for
+the same reason.
+
+One narrower distinction does survive: a rejection admission could not actually *compute* — an
+unreadable module jar, or a tenant row that isn't there — refuses the submission only for a tenant
+the manifest named on purpose. A workload that named no tenant at all reaches `default` by
+defaulting, and refusing it because this control plane cannot read a jar that only ever has to exist
+on the node running it would break the ordinary local-`artifactPath` deployment path. A measured
+overage is a different kind of answer and is enforced for every tenant, `default` included.
 
 The quota constraint for a tenant that *is* enforced: the sum of `resourceRequest × replicas` across
 every deployment sharing that `tenantId` must not exceed the tenant's quota. Admission specifically

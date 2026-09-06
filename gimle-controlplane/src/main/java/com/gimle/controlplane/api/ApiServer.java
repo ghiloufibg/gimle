@@ -3563,9 +3563,11 @@ public final class ApiServer implements AutoCloseable {
    * The {@code gimle cronjob trigger <name>} verb's server-side implementation -- fires
    * immediately, bypassing the schedule entirely (still subject to {@code concurrencyPolicy}), via
    * the same {@link CronJobReconciler#triggerNow} the scheduled tick path shares. 404 if the
-   * CronJob doesn't exist; 409 if {@code concurrencyPolicy: FORBID} blocked it against a
-   * still-running previous firing -- distinguishable from "doesn't exist" so a caller isn't left
-   * guessing which happened.
+   * CronJob doesn't exist; 409 if the firing was refused -- either {@code concurrencyPolicy:
+   * FORBID} against a still-running previous firing, or an admission check (tenant quota, limit
+   * range) that the generated Job failed. Distinguishable from "doesn't exist" so a caller isn't
+   * left guessing which happened; which of the two refusals it was is in the control plane's own
+   * log, since the firing decision is a single yes/no here.
    */
   private void handleCronJobTrigger(HttpExchange exchange, Optional<String> tenantHint, String name)
       throws IOException {
@@ -3579,7 +3581,12 @@ public final class ApiServer implements AutoCloseable {
     }
     Optional<String> generatedJobName = cronJobReconciler.triggerNow(tenantHint, name);
     if (generatedJobName.isEmpty()) {
-      respond(exchange, 409, "cronjob " + name + " not triggered: concurrencyPolicy forbids it");
+      respond(
+          exchange,
+          409,
+          "cronjob "
+              + name
+              + " not triggered: its concurrencyPolicy or an admission check refused the firing");
       return;
     }
     respondJson(exchange, 200, Map.of("jobName", generatedJobName.get()));
