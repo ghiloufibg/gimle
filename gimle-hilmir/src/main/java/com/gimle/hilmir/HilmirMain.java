@@ -26,6 +26,7 @@ import com.gimle.hilmir.remote.SshCliFlags;
 import com.gimle.hilmir.store.StoreAddCommand;
 import com.gimle.hilmir.store.StoreRemoveCommand;
 import com.gimle.hilmir.sync.SyncCommand;
+import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.upgrade.UpgradeClusterCommand;
@@ -51,6 +52,11 @@ import java.util.Optional;
  *   hilmir up -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--ssh-user &lt;user&gt;]
  *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir stop --machine &lt;name&gt; (--role &lt;ROLE&gt; | --id &lt;process-id&gt;)
+ *       [--data-root &lt;path&gt;]
+ *   hilmir stop -f &lt;topology.yaml&gt; --remote --machine &lt;name&gt;
+ *       (--role &lt;ROLE&gt; | --id &lt;process-id&gt;) [--data-root &lt;path&gt;] [--ssh-user &lt;user&gt;]
+ *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
  *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
@@ -86,7 +92,12 @@ import java.util.Optional;
  * exception: {@code down}/{@code status --remote} do require {@code -f}, since resolving each
  * target machine's host and SSH settings needs the topology document.
  *
- * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code
+ * <p>{@code stop} is {@code down} narrowed to a single process: it kills the one role (or, where a
+ * machine hosts two of the same role, the one process id) it is given and drops that entry alone
+ * from the run ledger, leaving every other process the machine hosts running and recorded. It takes
+ * {@code --data-root} rather than {@code -f} for the same reason {@code down}/{@code status} do.
+ *
+ * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code stop}/{@code
  * status}/{@code upgrade-cluster} verb over SSH on every machine the topology declares (or just the
  * one {@code --machine} names, when given) instead of running locally -- see {@code
  * com.gimle.hilmir.remote.RemoteDispatch}: shells out to the operator's own already-configured
@@ -145,6 +156,9 @@ public final class HilmirMain {
       """
       usage: hilmir disable gateway --server <host:port> [-o json]""";
 
+  private static final String STOPPABLE_ROLES =
+      "STORE, CONTROL_PLANE, FAFNIR, MUNINN, ANDVARI, AGENT";
+
   private HilmirMain() {}
 
   public static void main(final String[] args) {
@@ -183,6 +197,7 @@ public final class HilmirMain {
       case "plan" -> runPlan(rest, out);
       case "up" -> runUp(rest, out);
       case "down" -> runDown(rest, out);
+      case "stop" -> runStop(rest, out);
       case "status" -> runStatus(rest, out);
       case "pki" -> handlePki(rest, out);
       case "store" -> handleStore(rest, out);
@@ -259,6 +274,46 @@ public final class HilmirMain {
     requireMachineFlag(args);
     MachineLauncher.down(dataRootFlag(args), out);
     return 0;
+  }
+
+  private static int runStop(final List<String> args, final PrintStream out) {
+    final Optional<String> role = optionalFlag(args, "--role");
+    final Optional<String> id = optionalFlag(args, "--id");
+    if (role.isPresent() == id.isPresent()) {
+      throw new HilmirException(
+          "stop needs exactly one of --role <ROLE> or --id <process-id> to say which of the"
+              + " machine's processes to stop (use 'down' to stop all of them)");
+    }
+    final String machine = requireMachineFlag(args);
+    if (remoteFlag(args)) {
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
+      return RemoteDispatch.stop(
+          topology,
+          Optional.of(machine),
+          role,
+          id,
+          dataRootFlagOptional(args),
+          sshCliFlags(args),
+          out);
+    }
+    MachineLauncher.stop(dataRootFlag(args), role.map(HilmirMain::parseStoppableRole), id, out);
+    return 0;
+  }
+
+  private static ProcessRole parseStoppableRole(final String token) {
+    final ProcessRole role;
+    try {
+      role = ProcessRole.valueOf(token);
+    } catch (final IllegalArgumentException e) {
+      throw new HilmirException(
+          "invalid --role '" + token + "' (expected one of " + STOPPABLE_ROLES + ")");
+    }
+    if (role == ProcessRole.WORKER) {
+      throw new HilmirException(
+          "--role WORKER is not a hilmir-launched process: a worker is spawned and supervised by"
+              + " its own node agent, which restarts it as soon as it dies");
+    }
+    return role;
   }
 
   private static int runStatus(final List<String> args, final PrintStream out) {
@@ -544,6 +599,10 @@ public final class HilmirMain {
           up -f <topology.yaml> --remote [--machine <name>] [--ssh-user <user>]
               [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           down --machine <name> [--data-root <path>]
+          stop --machine <name> (--role <ROLE> | --id <process-id>) [--data-root <path>]
+          stop -f <topology.yaml> --remote --machine <name>
+              (--role <ROLE> | --id <process-id>) [--data-root <path>]
+              [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           down -f <topology.yaml> --remote [--machine <name>] [--data-root <path>]
               [--ssh-user <user>] [--ssh-key <path>] [--ssh-port <port>] [--install-dir <path>]
           status --machine <name> [--data-root <path>]

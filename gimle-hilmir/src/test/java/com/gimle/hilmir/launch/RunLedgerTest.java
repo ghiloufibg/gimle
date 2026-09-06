@@ -75,6 +75,35 @@ class RunLedgerTest {
   }
 
   @Test
+  void removing_one_entry_leaves_every_other_record_untouched() {
+    RunLedger.write(tempDir, List.of(STORE, AGENT));
+
+    RunLedger.remove(tempDir, "store-0");
+
+    assertEquals(List.of(AGENT), RunLedger.read(tempDir));
+  }
+
+  @Test
+  void removing_the_last_entry_leaves_an_empty_ledger_rather_than_no_ledger_at_all() {
+    RunLedger.write(tempDir, List.of(STORE));
+
+    RunLedger.remove(tempDir, "store-0");
+
+    assertEquals(List.of(), RunLedger.read(tempDir));
+  }
+
+  @Test
+  void removing_an_unknown_id_reports_it_rather_than_silently_rewriting_the_ledger() {
+    RunLedger.write(tempDir, List.of(STORE));
+
+    final HilmirException e =
+        assertThrows(HilmirException.class, () -> RunLedger.remove(tempDir, "store-9"));
+
+    assertTrue(e.getMessage().contains("store-9"));
+    assertEquals(List.of(STORE), RunLedger.read(tempDir));
+  }
+
+  @Test
   void deleting_an_absent_ledger_is_a_clean_no_op() {
     RunLedger.delete(tempDir);
   }

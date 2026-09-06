@@ -270,6 +270,60 @@ class HilmirMainTest {
   }
 
   @Test
+  void stop_requires_the_machine_flag() {
+    final Result result = run("stop", "--role", "STORE");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("--machine"));
+  }
+
+  @Test
+  void stop_requires_exactly_one_of_role_or_id() {
+    final Result neither = run("stop", "--machine", "m1");
+    assertEquals(1, neither.exitCode());
+    assertTrue(neither.err().contains("--role"));
+    assertTrue(neither.err().contains("--id"));
+
+    final Result both = run("stop", "--machine", "m1", "--role", "STORE", "--id", "store-0");
+    assertEquals(1, both.exitCode());
+    assertTrue(both.err().contains("exactly one"));
+  }
+
+  @Test
+  void stop_rejects_a_role_that_is_not_a_process_role() {
+    final Result result = run("stop", "--machine", "m1", "--role", "FROBNICATOR");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("invalid --role 'FROBNICATOR'"));
+  }
+
+  @Test
+  void stop_rejects_the_worker_role_as_never_hilmir_launched() {
+    final Result result = run("stop", "--machine", "m1", "--role", "WORKER");
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("node agent"));
+  }
+
+  @Test
+  void stop_reports_a_clean_error_when_no_run_is_recorded_at_the_data_root() {
+    final Result result =
+        run(
+            "stop",
+            "--machine",
+            "m1",
+            "--role",
+            "STORE",
+            "--data-root",
+            tempDir.resolve("empty").toString());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains("no run recorded"));
+  }
+
+  @Test
+  void usage_lists_the_stop_verb() {
+    final Result result = run("frobnicate");
+    assertTrue(result.err().contains("stop --machine <name>"));
+  }
+
+  @Test
   void status_requires_the_machine_flag() {
     final Result result = run("status");
     assertEquals(1, result.exitCode());

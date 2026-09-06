@@ -212,6 +212,41 @@ class RemoteDispatchTest {
   }
 
   @Test
+  void stop_carries_the_role_or_id_selector_through_to_the_remote_verb() {
+    final Topology topology = topologyOf(List.of(bareMachine("m1", "h1")));
+    final FakeRemoteExec byRole = new FakeRemoteExec();
+    final FakeRemoteExec byId = new FakeRemoteExec();
+
+    RemoteDispatch.stop(
+        topology,
+        Optional.of("m1"),
+        Optional.of("STORE"),
+        Optional.empty(),
+        Optional.empty(),
+        SshCliFlags.NONE,
+        byRole,
+        discardingOut());
+    RemoteDispatch.stop(
+        topology,
+        Optional.of("m1"),
+        Optional.empty(),
+        Optional.of("store-1"),
+        Optional.empty(),
+        SshCliFlags.NONE,
+        byId,
+        discardingOut());
+
+    final List<String> roleCommand = byRole.execCalls().get(0).command();
+    assertTrue(roleCommand.contains("stop"));
+    assertEquals("STORE", roleCommand.get(roleCommand.indexOf("--role") + 1));
+    assertFalse(roleCommand.contains("--id"));
+
+    final List<String> idCommand = byId.execCalls().get(0).command();
+    assertEquals("store-1", idCommand.get(idCommand.indexOf("--id") + 1));
+    assertFalse(idCommand.contains("--role"));
+  }
+
+  @Test
   void a_data_root_override_is_passed_through_to_every_verb() {
     final Topology topology = topologyOf(List.of(bareMachine("m1", "h1")));
     final FakeRemoteExec exec = new FakeRemoteExec();

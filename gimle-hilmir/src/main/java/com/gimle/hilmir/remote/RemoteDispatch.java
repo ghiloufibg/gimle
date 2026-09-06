@@ -135,6 +135,48 @@ public final class RemoteDispatch {
         (target, transport) -> machineVerbCommand(target, "down", dataRootOverride));
   }
 
+  public static int stop(
+      final Topology topology,
+      final Optional<String> machineFilter,
+      final Optional<String> role,
+      final Optional<String> id,
+      final Optional<Path> dataRootOverride,
+      final SshCliFlags cliFlags,
+      final PrintStream out) {
+    return stop(
+        topology,
+        machineFilter,
+        role,
+        id,
+        dataRootOverride,
+        cliFlags,
+        new SshProcessExec(knownHostsFile(topology)),
+        out);
+  }
+
+  static int stop(
+      final Topology topology,
+      final Optional<String> machineFilter,
+      final Optional<String> role,
+      final Optional<String> id,
+      final Optional<Path> dataRootOverride,
+      final SshCliFlags cliFlags,
+      final RemoteExec exec,
+      final PrintStream out) {
+    return dispatch(
+        topology,
+        machineFilter,
+        cliFlags,
+        exec,
+        out,
+        (target, transport) -> {
+          final List<String> command = machineVerbCommand(target, "stop", dataRootOverride);
+          role.ifPresent(r -> command.addAll(List.of("--role", r)));
+          id.ifPresent(i -> command.addAll(List.of("--id", i)));
+          return command;
+        });
+  }
+
   public static int status(
       final Topology topology,
       final Optional<String> machineFilter,
