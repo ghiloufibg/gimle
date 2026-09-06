@@ -477,12 +477,20 @@ class ApiServerServicesTest {
             .POST(
                 HttpRequest.BodyPublishers.ofString(serviceJson("orders", "orders-service", 8080)))
             .build());
+    // Tenanted to the default tenant, as every workload a real PUT creates is -- see
+    // recordReadyInstance's own comment.
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    "orders-service", 0, "node-1", moduleId, "/artifacts/orders.jar")));
+                    "orders-service",
+                    0,
+                    "node-1",
+                    moduleId,
+                    "/artifacts/orders.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
     inProcessStore
         .client()
         .propose(
@@ -497,6 +505,7 @@ class ApiServerServicesTest {
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
                     InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
+                        .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
                         .build())));
 
     HttpResponse<String> response =
