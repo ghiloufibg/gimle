@@ -104,7 +104,8 @@ class ConfigVersionStoreTest {
     store.put("acme", "log-level", "info");
     store.put("acme", "log-level", "debug");
 
-    ConfigRollbackOutcome result = store.rollback("acme", "log-level", 1);
+    ConfigRollbackOutcome result =
+        store.rollback("acme", "log-level", 1, ConfigVersionStore.ReceiptFactory.none());
 
     assertEquals(new ConfigRollbackOutcome.Applied(3, Optional.of("info"), false), result);
     assertEquals(
@@ -122,7 +123,8 @@ class ConfigVersionStoreTest {
     store.delete("acme", "log-level");
     store.put("acme", "log-level", "debug");
 
-    ConfigRollbackOutcome result = store.rollback("acme", "log-level", 2);
+    ConfigRollbackOutcome result =
+        store.rollback("acme", "log-level", 2, ConfigVersionStore.ReceiptFactory.none());
 
     assertEquals(new ConfigRollbackOutcome.Applied(4, Optional.empty(), true), result);
     assertEquals(Optional.empty(), inProcessStore.store().getConfigEntry("acme", "log-level"));
@@ -132,7 +134,8 @@ class ConfigVersionStoreTest {
   void rollback_of_an_unknown_version_is_rejected_without_touching_the_live_row() {
     store.put("acme", "log-level", "info");
 
-    ConfigRollbackOutcome result = store.rollback("acme", "log-level", 99);
+    ConfigRollbackOutcome result =
+        store.rollback("acme", "log-level", 99, ConfigVersionStore.ReceiptFactory.none());
 
     assertEquals(new ConfigRollbackOutcome.TargetNotFound(), result);
     assertEquals(
