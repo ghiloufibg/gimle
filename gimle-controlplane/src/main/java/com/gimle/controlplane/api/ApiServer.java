@@ -3426,8 +3426,16 @@ public final class ApiServer implements AutoCloseable {
       Map<String, Object> runMap = new LinkedHashMap<>();
       runMap.put("attempt", run.attempt());
       runMap.put("nodeId", run.nodeId());
-      findObservationForJobRun(run)
-          .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservationForJobRun(run);
+      observation.ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        // A run whose node never got it started has no observation to report a state from, and the
+        // phase above still reads RUNNING because nothing has moved this job to a terminal one.
+        // Reported in the same "reason" a finished run carries, so the run that never started and
+        // the run that ended both say what happened rather than showing an empty state.
+        notRunningReason(spec.tenantId(), spec.name(), run.attempt())
+            .ifPresent(reason -> runMap.put("reason", reason));
+      }
       status.put("currentRun", runMap);
     } else {
       // A terminal job's own JobRun is removed at the same transition that makes it terminal (see
@@ -3864,18 +3872,31 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (DaemonSetAssignment assignment :
         storeClient.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("nodeId", assignment.nodeId());
-      findObservationForDaemonSetAssignment(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservationForDaemonSetAssignment(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        // A DaemonSet places at most one instance per node, so every one of its own timeline
+        // events is recorded against index 0 -- the same index its assignments are handed to an
+        // agent under.
+        notRunningReason(spec.tenantId(), spec.name(), 0)
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
+    putNotRunningRollup(status, notRunningReasons);
     // Absent until DaemonSetReconciler's first tick for this daemonset -- see
     // StoreReader#getDaemonSetDesiredCount's own javadoc. Present alongside instances.size() (the
     // placed count) is what lets a shortfall be read back at all, the same "desired" vs "placed"
@@ -4122,13 +4143,23 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (StatefulSetAssignment assignment :
         storeClient.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
-      findObservationForStatefulSetAssignment(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation =
+          findObservationForStatefulSetAssignment(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        notRunningReason(spec.tenantId(), spec.name(), assignment.instanceIndex())
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
@@ -4140,6 +4171,7 @@ public final class ApiServer implements AutoCloseable {
     status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
+    putNotRunningRollup(status, notRunningReasons);
     return status;
   }
 
@@ -4185,6 +4217,43 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
+  /**
+   * Why an instance that <em>is</em> placed is nevertheless not running: its owning node's own
+   * agent recorded a durable {@code TRANSITION_FAILED} against this index and no node currently
+   * reports an observation for it. A workload whose replicas were all placed but none of which ever
+   * started otherwise reads back as fully healthy -- every index accounted for, nothing unplaced,
+   * and simply no observation where a live one would be -- which is precisely the state an operator
+   * most needs told.
+   *
+   * <p>Conditioned on a recorded failure rather than on the missing observation alone: an instance
+   * placed moments ago has legitimately not reported anything yet, and calling that "not running"
+   * would flag every fresh deployment for its first few seconds.
+   */
+  private Optional<String> notRunningReason(
+      Optional<String> tenantId, String name, int instanceIndex) {
+    List<InstanceEvent> events = storeClient.listInstanceEvents(tenantId, name, instanceIndex);
+    if (events.isEmpty() || events.get(0).kind() != InstanceEventKind.TRANSITION_FAILED) {
+      return Optional.empty();
+    }
+    InstanceEvent event = events.get(0);
+    return Optional.of(
+        event.causeSummary().map(cause -> event.message() + ": " + cause).orElse(event.message()));
+  }
+
+  /**
+   * Folds the per-instance {@code notRunning} reasons collected while building a workload's {@code
+   * instances[]} into the workload-level rollup an operator's own tooling reads: a count that is
+   * always present (so "how many of my replicas are actually running" is a subtraction, not an
+   * inference from an absent key) and the first of the reasons as the one line to show, with each
+   * instance keeping its own alongside it.
+   */
+  private static void putNotRunningRollup(Map<String, Object> status, List<String> reasons) {
+    status.put("notRunningCount", reasons.size());
+    if (!reasons.isEmpty()) {
+      status.put("notRunningReason", reasons.get(0));
+    }
+  }
+
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
     Map<String, Object> specMap = new LinkedHashMap<>();
     specMap.put("name", spec.name());
@@ -4197,13 +4266,22 @@ public final class ApiServer implements AutoCloseable {
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 
     List<Map<String, Object>> instances = new ArrayList<>();
+    List<String> notRunningReasons = new ArrayList<>();
     for (InstanceAssignment assignment :
         storeClient.listAssignmentsFor(spec.tenantId(), spec.name())) {
       Map<String, Object> instance = new LinkedHashMap<>();
       instance.put("instanceIndex", assignment.instanceIndex());
       instance.put("nodeId", assignment.nodeId());
-      findObservation(assignment)
-          .ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      Optional<InstanceObservation> observation = findObservation(assignment);
+      observation.ifPresent(obs -> instance.put("observation", observationToJson(obs)));
+      if (observation.isEmpty()) {
+        notRunningReason(spec.tenantId(), spec.name(), assignment.instanceIndex())
+            .ifPresent(
+                reason -> {
+                  instance.put("notRunningReason", reason);
+                  notRunningReasons.add(reason);
+                });
+      }
       instances.add(instance);
     }
 
@@ -4215,6 +4293,7 @@ public final class ApiServer implements AutoCloseable {
     status.put("unplacedCount", Math.max(0, spec.replicas() - instances.size()));
     unplacedReason(spec.tenantId(), spec.name(), spec.replicas(), instances)
         .ifPresent(reason -> status.put("unplacedReason", reason));
+    putNotRunningRollup(status, notRunningReasons);
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.tenantId(), spec.name()));
     // Present only once the autoscaler has actually moved this deployment -- what its own
     // stabilization windows are measured against, so an operator can see why a scale decision is
