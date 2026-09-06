@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useSecretsStore } from "@/stores/useSecretsStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
+import { scopedTenantId, tenantScopeSearch } from "@/lib/tenant-scope";
 import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,7 @@ function lastWritten(versions: SecretVersion[] | undefined, latestVersion: numbe
 }
 
 export const Route = createFileRoute("/secrets")({
+  validateSearch: tenantScopeSearch,
   head: () => ({
     meta: [
       { title: "Secrets — Gimlé Console" },
@@ -60,6 +62,8 @@ export const Route = createFileRoute("/secrets")({
 });
 
 function SecretsPage() {
+  const { tenant } = Route.useSearch();
+  const navigate = useNavigate();
   const tenants = useTenantsStore((s) => s.items);
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
   const {
@@ -102,9 +106,15 @@ function SecretsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
+  // The URL owns which tenant is on screen, so a link to one tenant's view opens on that tenant
+  // for whoever follows it rather than on whichever one they last picked here themselves.
+  const scopedTenant = scopedTenantId(
+    tenant,
+    tenants.map((t) => t.id),
+  );
   useEffect(() => {
-    if (!tenantId && tenants.length > 0) setTenant(tenants[0].id);
-  }, [tenantId, tenants, setTenant]);
+    if (scopedTenant !== null && scopedTenant !== tenantId) setTenant(scopedTenant);
+  }, [scopedTenant, tenantId, setTenant]);
 
   async function toggleReveal(key: string) {
     if (revealed[key]) {
@@ -198,7 +208,10 @@ function SecretsPage() {
         subtitle="Versioned, per-tenant secrets served by Fafnir. Values are masked until revealed."
         actions={
           <div className="flex items-center gap-2">
-            <Select value={tenantId ?? ""} onValueChange={(v) => setTenant(v)}>
+            <Select
+              value={tenantId ?? ""}
+              onValueChange={(v) => void navigate({ to: "/secrets", search: { tenant: v } })}
+            >
               <SelectTrigger className="h-8 w-52 text-xs">
                 <SelectValue placeholder="Pick tenant" />
               </SelectTrigger>

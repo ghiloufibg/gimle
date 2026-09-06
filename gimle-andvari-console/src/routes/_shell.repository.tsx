@@ -33,14 +33,14 @@ function RepositoryPage() {
 
       <HudPanel
         label="repository base url"
-        actions={<CopyButton value={baseUrl} label="URL copied" />}
+        actions={<CopyButton value={baseUrl} subject="repository URL" />}
       >
         <code className="font-mono text-sm break-all">{baseUrl}</code>
       </HudPanel>
 
       <HudPanel
         label="pom.xml / settings.xml snippet"
-        actions={<CopyButton value={snippet} label="Snippet copied" />}
+        actions={<CopyButton value={snippet} subject="snippet" />}
       >
         <pre className="overflow-x-auto font-mono text-xs leading-relaxed">{snippet}</pre>
       </HudPanel>

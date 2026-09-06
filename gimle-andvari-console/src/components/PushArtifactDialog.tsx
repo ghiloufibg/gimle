@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/lib/format";
 import { readModuleCoordinate } from "@/lib/moduleDescriptor";
+import { coordinateForPickedFile } from "@/lib/pushCoordinate";
 import { cn } from "@/lib/utils";
 import { useArtifactsStore } from "@/stores/artifactsStore";
 
@@ -53,6 +54,9 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
 
   const pickFile = (picked: File) => {
     setFile(picked);
+    const carried = coordinateForPickedFile({ moduleId, version, derivedFrom }, defaultModuleId);
+    setModuleId(carried.moduleId);
+    setVersion(carried.version);
     setDerivedFrom(null);
     setDerivingCoordinate(true);
     void readModuleCoordinate(picked).then((coordinate) => {

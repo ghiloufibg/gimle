@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { joinWorkerProcessId } from "@/components/process-picker";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FileText } from "lucide-react";
@@ -184,7 +185,22 @@ export function InstancesTable({
                     {r.nodeId}
                   </Link>
                 </td>
-                <td className="px-2 py-1.5 font-mono text-muted-foreground">{r.workerId ?? "—"}</td>
+                <td className="px-2 py-1.5 font-mono">
+                  {r.workerId ? (
+                    <Link
+                      to="/metrics"
+                      search={{
+                        processKind: "WORKER" as const,
+                        processId: joinWorkerProcessId(r.nodeId, r.workerId),
+                      }}
+                      className="text-primary hover:underline"
+                    >
+                      {r.workerId}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="px-2 py-1.5">
                   <LifecycleBadge state={r.lifecycleState} />
                 </td>
