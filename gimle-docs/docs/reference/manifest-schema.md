@@ -631,7 +631,11 @@ whether the store still attaches it — `attached: false` marks a retained orpha
 `Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId> [--tenant <id>]`
 reclaims one explicitly; both the control plane (store attachment) and the owning agent (a live
 supervised instance) independently refuse to destroy a volume that is still in use, and a
-coordinate with nothing on disk is a `404` rather than a reported success. `--tenant` is part of
+coordinate with nothing on disk is a `404` rather than a reported success — which the CLI carries
+out to [exit code `3`](./cli-reference.md#exit-codes), so a reclaim that removed nothing (a mistyped
+node, an already-destroyed volume, an untenanted coordinate whose only volumes are tenant-scoped) is
+distinguishable from a real one by the exit status alone, not just by the sentence it prints.
+`--tenant` is part of
 the volume's address, not a filter: omit it and the request names the untenanted volume at that
 set and index, never a tenanted one — the two are separate directories on the node, and each is
 only ever reachable by naming its own tenant. The console's
