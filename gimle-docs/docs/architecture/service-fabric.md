@@ -235,12 +235,15 @@ the same reasoning `NETWORK_POLICY` already establishes: deciding what the outsi
 is a more consequential grant than declaring an in-cluster Service), and written through the same
 lease-guarded compare-and-set path `NetworkPolicy` uses, so a stale `expectedVersion` is a `409`
 rather than a lost update. Each route is validated at submission, so a malformed declaration is a
-`400` naming the field.
+`400` naming the field — an unknown `kind`, a `FABRIC` route declaring a `prefix`, a missing
+kind-required field, and a `paramType` outside `NONE`/`STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN` are
+all refused there rather than stored and then found unusable by whichever gateway next loads them.
 
 ```yaml
 kind: Ingress
 name: public
 tenantId: acme
+version: 3          # optional: the version this edit was made against
 routes:
   - {kind: SERVICE, path: /api/*, prefix: true, serviceName: orders}
   - {kind: SERVICE, host: shop.example, path: /shop, serviceName: storefront}
@@ -248,6 +251,14 @@ routes:
   - {kind: FABRIC,  path: /greet, interfaceName: com.acme.Greeter, majorVersion: 1,
      methodName: greet, paramType: STRING}
 ```
+
+Every `gimle apply -f` of an Ingress carries that compare-and-set guard, whether or not the manifest
+declares one. A manifest carrying the `version` a `gimle get ingress` printed guards against exactly
+the revision its author edited, so an apply built on a revision someone else has since replaced is
+refused with a `409` naming both versions instead of silently discarding the other operator's
+change; a manifest declaring no `version` is guarded against whatever is stored at the moment the
+CLI reads it, so the version counter never advances past a revision no client ever saw. Neither form
+needs a version typed by hand.
 
 A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
 declared routes into its own table on the same level-triggered reload tick it already uses for
