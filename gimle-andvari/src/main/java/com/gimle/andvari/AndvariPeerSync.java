@@ -69,11 +69,20 @@ final class AndvariPeerSync implements AutoCloseable {
         this::syncQuietly, 0, syncInterval.toMillis(), TimeUnit.MILLISECONDS);
   }
 
+  /**
+   * The scheduler's own entry point, and the barrier that keeps this replica syncing. {@link
+   * java.util.concurrent.ScheduledExecutorService#scheduleAtFixedRate} cancels a repeating task
+   * permanently the moment one execution throws, so anything escaping {@link #sync()} would end
+   * peer replication for the rest of this process's life over a failure that is almost always
+   * transient -- a peer restarting, a name that does not resolve for a few seconds. {@link Error}
+   * is deliberately not caught: an {@code OutOfMemoryError} is not something the next tick can
+   * recover from by retrying.
+   */
   private void syncQuietly() {
     try {
       sync();
     } catch (RuntimeException e) {
-      log.warn("peer sync failed: {}", e.getMessage());
+      log.warn("peer sync failed: {}", Failures.describe(e), e);
     }
   }
 
@@ -88,9 +97,18 @@ final class AndvariPeerSync implements AutoCloseable {
         pulled += syncFrom(peer);
       } catch (IOException | InterruptedException | RuntimeException e) {
         if (e instanceof InterruptedException) {
+          // Restore the flag and stop this pass entirely rather than walking the remaining peers:
+          // every further send on an interrupted thread fails instantly, which would turn one
+          // shutdown signal into a burst of identical, meaningless failure lines.
           Thread.currentThread().interrupt();
+          log.warn("peer sync from {} interrupted; abandoning this pass", peer);
+          return pulled;
         }
-        log.warn("peer sync from {} failed: {}", peer, e.getMessage());
+        // Failures.describe, not getMessage(): the JDK HTTP client reports an unresolvable peer
+        // host as a ConnectException carrying no message at all, which a bare getMessage() renders
+        // as the literal text "null" -- the exact opposite of what this line exists to tell an
+        // operator.
+        log.warn("peer sync from {} failed: {}", peer, Failures.describe(e), e);
       }
     }
     if (pulled > 0) {
@@ -175,6 +193,10 @@ final class AndvariPeerSync implements AutoCloseable {
             HttpRequest.newBuilder(uri).timeout(TRANSFER_TIMEOUT).GET().build(),
             HttpResponse.BodyHandlers.ofInputStream());
     if (response.statusCode() != 200) {
+      // Closed explicitly rather than left for the garbage collector: an unconsumed streaming
+      // body holds its connection until it is collected, and this line runs on every tick against
+      // a peer that keeps refusing downloads.
+      response.body().close();
       throw new IOException("peer " + peer + " answered " + response.statusCode() + " for " + uri);
     }
     PutResult result;

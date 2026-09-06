@@ -1,7 +1,9 @@
 package com.gimle.controlplane.andvari;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -73,6 +75,30 @@ class AndvariClientTest {
           client.head(new ModuleId("com.example.app", Version.parse("1.0.0")));
 
       assertInstanceOf(AndvariClient.HeadOutcome.Unreachable.class, outcome);
+    }
+  }
+
+  @Test
+  @Timeout(30)
+  void an_unresolvable_registry_host_is_reported_with_its_real_cause() throws Exception {
+    // The .invalid TLD is reserved as never-resolvable, so this fails at name resolution rather
+    // than at connect -- the failure the JDK HTTP client reports as a ConnectException carrying no
+    // message of its own, which a bare getMessage() renders as the literal text "null".
+    try (AndvariClient client =
+        new AndvariClient(List.of("andvari-registry.invalid:9"), Optional.empty())) {
+      AndvariClient.HeadOutcome.Unreachable unreachable =
+          assertInstanceOf(
+              AndvariClient.HeadOutcome.Unreachable.class,
+              client.head(new ModuleId("com.example.app", Version.parse("1.0.0"))));
+
+      assertFalse(
+          unreachable.reason().endsWith("null"),
+          "an unreachable registry must not report its cause as the literal text null: "
+              + unreachable.reason());
+      assertTrue(
+          unreachable.reason().contains("Exception"),
+          "the reason should name the failure that made the registry unreachable: "
+              + unreachable.reason());
     }
   }
 

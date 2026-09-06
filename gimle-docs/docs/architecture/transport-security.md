@@ -172,6 +172,17 @@ and a durable `AuditEvent` at the start and escalation point of a streak and on 
 rotation. See [Observability](./observability.md#certificate-rotation-health) for the meter names
 and how to alert on them.
 
+The retry itself has to survive the failure, which is a separate property from reporting it. Each
+process's rotation ticker is a `scheduleAtFixedRate` task, and that contract cancels a repeating
+task permanently the first time one execution throws — so a single transient failure would silently
+end renewal for the rest of the process's life, with the certificate expiring on schedule some days
+later. Every process kind that renews its own certificate (`gimle-controlplane`, `gimle-mimir`,
+`gimle-fafnir`, `gimle-muninn`, `gimle-andvari`, `gimle-agent`) therefore runs each check behind its
+own exception barrier: reading the TLS settings, contacting the CSR endpoint, and rebuilding the
+listener afterwards all fail into a `WARN` line and the next tick, never out of the task. A
+misconfiguration no retry can fix — a missing required flag, an unusable data directory — still
+fails fast at startup instead, before the ticker is scheduled.
+
 ## CLI surface
 
 See the [CLI reference](../reference/cli-reference.md)'s `cert` verbs: `token create`, `request`,
