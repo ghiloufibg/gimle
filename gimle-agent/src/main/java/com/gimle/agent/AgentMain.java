@@ -3841,10 +3841,7 @@ public final class AgentMain {
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {
           postInstanceEvent(httpClient, baseUrl, nodeId, occurred.event());
         } else if (message instanceof ControlMessage.Hello hello) {
-          instance.fabricWorkerId = hello.workerId();
-          instance.fabricUdsPath = hello.fabricUdsPath();
-          instance.fabricTcpAddress =
-              new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+          applyWorkerHandshake(instance, supervised, connection, hello);
           // Sync this worker's fresh FabricServiceRegistry cache with everything this agent
           // already knows: the gossip-driven onDelta relay only fires for a delta applied *after*
           // its listener was registered, so anything learned before this worker connected would
@@ -4164,7 +4161,37 @@ public final class AgentMain {
     }
   }
 
-  /** Every {@code SupervisedInstance} sharing {@code connection} whose module is {@code id}. */
+  /**
+   * A worker's handshake describes the worker JVM, not any one instance it hosts, so it is applied
+   * to every instance currently sharing {@code connection} rather than only to the instance whose
+   * read loop received it. Under Tier 1 density several instances share one worker JVM and one
+   * connection, but exactly one {@code Hello} ever arrives on it: an instance packed onto a worker
+   * that had connected but not yet handshaked would otherwise report no worker identity at all for
+   * the rest of its life, and a respawn -- which clears the identity on every hosted instance and
+   * is followed by a single fresh handshake -- would strip it from all but one of them.
+   */
+  static void applyWorkerHandshake(
+      SupervisedInstance owner,
+      Map<String, SupervisedInstance> supervised,
+      WorkerConnection connection,
+      ControlMessage.Hello hello) {
+    InetSocketAddress tcpAddress =
+        new InetSocketAddress(hello.fabricTcpHost(), hello.fabricTcpPort());
+    applyWorkerHandshakeTo(owner, hello, tcpAddress);
+    for (SupervisedInstance hosted : supervised.values()) {
+      if (hosted != owner && hosted.connection == connection) {
+        applyWorkerHandshakeTo(hosted, hello, tcpAddress);
+      }
+    }
+  }
+
+  private static void applyWorkerHandshakeTo(
+      SupervisedInstance instance, ControlMessage.Hello hello, InetSocketAddress tcpAddress) {
+    instance.fabricWorkerId = hello.workerId();
+    instance.fabricUdsPath = hello.fabricUdsPath();
+    instance.fabricTcpAddress = tcpAddress;
+  }
+
   /**
    * Which supervised instance a worker's report is about. Matched on the full instance identity,
    * not just the module coordinate: two replicas of one deployment sharing a worker report the same
