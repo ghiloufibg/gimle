@@ -2816,9 +2816,26 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * {@code Enum.valueOf}'s own failure names the fully-qualified enum class, which means nothing to
+   * whoever wrote the manifest -- this names the kinds a route may actually declare instead.
+   */
+  private static IngressRule.Kind ingressRouteKind(String declared) {
+    try {
+      return IngressRule.Kind.valueOf(declared.toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "unknown route kind '"
+              + declared
+              + "'; expected one of "
+              + Arrays.stream(IngressRule.Kind.values())
+                  .map(Enum::name)
+                  .collect(Collectors.joining(", ")));
+    }
+  }
+
   private static IngressRule ingressRuleFromJson(Map<String, Object> route) {
-    IngressRule.Kind kind =
-        IngressRule.Kind.valueOf(String.valueOf(route.get("kind")).toUpperCase(Locale.ROOT));
+    IngressRule.Kind kind = ingressRouteKind(String.valueOf(route.get("kind")));
     return new IngressRule(
         Optional.ofNullable((String) route.get("host")),
         (String) route.get("path"),

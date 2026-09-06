@@ -95,6 +95,28 @@ class ApiServerIngressesTest {
         .formatted(name, guard);
   }
 
+  /**
+   * The message an operator reads must name what they may write, not the internal type that failed
+   * to parse it -- a fully-qualified enum class name says nothing about the manifest they wrote.
+   */
+  @Test
+  void a_route_naming_an_unknown_kind_is_refused_without_leaking_an_internal_class_name()
+      throws Exception {
+    HttpResponse<String> response =
+        post(
+            """
+            {"name":"edge","tenantId":"default","routes":[
+              {"kind":"NOPE","path":"/x"}]}
+            """);
+
+    assertEquals(400, response.statusCode(), response.body());
+    assertFalse(
+        response.body().contains("com.gimle.core.ingress"),
+        "the refusal must not name an internal class: " + response.body());
+    assertTrue(response.body().contains("NOPE"), response.body());
+    assertTrue(response.body().contains("FABRIC"), response.body());
+  }
+
   @Test
   @Timeout(10)
   void a_fabric_route_naming_an_unknown_param_type_is_refused_at_admission() throws Exception {
