@@ -343,6 +343,10 @@
         The <fail> after each copy is what keeps this honest: a rewrite that silently stopped
         matching (a reworded module description, a formatting change in the generator) would leave
         the wrong name in a shipped artifact, so it breaks the build instead of shipping quietly.
+        It checks for the literal un-rewritten "name" : "gimle-dist" field rather than a bare
+        "gimle-dist" substring, since some other component's own description can legitimately
+        mention gimle-dist in prose (e.g. a module documenting which distribution archive it ships
+        in) without that meaning the root-component rewrite failed.
 
         Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
         producing archives an operator unpacks on their own machine, which includes Windows, where a
@@ -390,7 +394,7 @@
                 </copy>
                 <fail message="gimle-platform's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
                   <condition>
-                    <resourcecontains resource="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                    <resourcecontains resource="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json" substring="&quot;name&quot; : &quot;gimle-dist&quot;"/>
                   </condition>
                 </fail>
                 <copy file="${project.build.directory}/bom-midgard.json"
@@ -408,7 +412,7 @@
                 </copy>
                 <fail message="gimle-midgard's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
                   <condition>
-                    <resourcecontains resource="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                    <resourcecontains resource="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json" substring="&quot;name&quot; : &quot;gimle-dist&quot;"/>
                   </condition>
                 </fail>
                 <copy file="${project.basedir}/../gimle-cli/target/bom.json"
