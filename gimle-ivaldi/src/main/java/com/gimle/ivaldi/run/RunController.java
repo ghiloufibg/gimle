@@ -530,7 +530,10 @@ public final class RunController {
       Map<String, Object> cluster =
           Json.asObject(Json.parse(clusters.get(run.clusterId).orElseThrow()));
       String serverAddress = serverAddressOf(cluster, run.clusterId);
-      requireAddressUsableForTransport(serverAddress, topology, run.clusterId);
+      String clusterDisplayName =
+          cluster.get("name") instanceof String s && !s.isBlank() ? s : run.clusterId;
+      requireAddressUsableForTransport(serverAddress, topology, clusterDisplayName);
+      requireClusterAddressMatchesTopology(serverAddress, topology, clusterDisplayName);
 
       Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
       boolean reboot =
@@ -1226,7 +1229,7 @@ public final class RunController {
    * wrong address.
    */
   private static void requireAddressUsableForTransport(
-      String serverAddress, Topology topology, String clusterId) {
+      String serverAddress, Topology topology, String clusterDisplayName) {
     if (topology.transport() != Transport.MTLS) {
       return;
     }
@@ -1234,7 +1237,7 @@ public final class RunController {
     if (host.matches("\\d{1,3}(\\.\\d{1,3}){3}") || host.equals("[::1]")) {
       throw new RunFailedException(
           "cluster '"
-              + clusterId
+              + clusterDisplayName
               + "' names the control plane by IP address ("
               + host
               + "), which no certificate in an mTLS cluster can match -- use the machine's"
@@ -1244,12 +1247,47 @@ public final class RunController {
     if (!hostnames.contains(host)) {
       throw new RunFailedException(
           "cluster '"
-              + clusterId
+              + clusterDisplayName
               + "' names the control plane at host '"
               + host
               + "', which this topology never declares -- no certificate was minted for it."
               + " Declared host(s): "
               + String.join(", ", hostnames));
+    }
+  }
+
+  /**
+   * A cluster connection whose own {@code controlPlaneUrl} doesn't match the topology's own
+   * declared control-plane address used to boot the whole process tree first, then fail deploying
+   * to it with a bare {@code ConnectException} -- a real boot the user never sees as one, and a
+   * leaked process tree the next Run against the correctly-addressed cluster then collides with
+   * ("port(s) already in use"). Checked here instead, before a single process is spawned, so the
+   * mismatch is refused up front and nothing ever boots to leak.
+   */
+  private static void requireClusterAddressMatchesTopology(
+      String serverAddress, Topology topology, String clusterDisplayName) {
+    List<com.gimle.hilmir.topology.ServiceReplica> replicas = topology.controlPlane().replicas();
+    if (replicas.isEmpty()) {
+      return; // NO_CONTROL_PLANE is FileSetValidator's own concern, already checked by then.
+    }
+    com.gimle.hilmir.topology.ServiceReplica replica = replicas.get(0);
+    String machineHost =
+        topology.machines().stream()
+            .filter(m -> m.name().equals(replica.machine()))
+            .map(com.gimle.hilmir.topology.Machine::host)
+            .findFirst()
+            .orElse(replica.machine());
+    String expectedAddress = machineHost + ":" + replica.port();
+    if (!serverAddress.equals(expectedAddress)) {
+      throw new RunFailedException(
+          "cluster '"
+              + clusterDisplayName
+              + "' is configured for control plane address "
+              + serverAddress
+              + ", but this topology's own control plane listens at "
+              + expectedAddress
+              + " -- update the cluster connection's URL, or the topology's machine/port, before"
+              + " running");
     }
   }
 

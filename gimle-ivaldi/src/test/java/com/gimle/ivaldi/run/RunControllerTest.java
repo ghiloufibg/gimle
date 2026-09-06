@@ -118,6 +118,19 @@ class RunControllerTest {
   }
 
   @Test
+  void the_ip_literal_refusal_names_the_cluster_by_its_display_name_not_its_internal_id() {
+    clusters.save(
+        "c-internal-id", "{\"name\":\"prod-like\",\"controlPlaneUrl\":\"https://127.0.0.1:8080\"}");
+
+    controller.start("c-internal-id", Optional.empty(), mtlsFiles(), Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    String error = String.valueOf(snapshot.get("error"));
+    assertTrue(error.contains("'prod-like'"), error);
+    assertTrue(!error.contains("c-internal-id"), error);
+  }
+
+  @Test
   void an_mtls_cluster_addressed_at_a_host_the_topology_never_declares_is_refused() {
     clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"https://elsewhere:8080\"}");
 
@@ -126,6 +139,26 @@ class RunControllerTest {
 
     assertEquals("failed", snapshot.get("status"));
     assertTrue(String.valueOf(snapshot.get("error")).contains("never declares"), snapshot + "");
+  }
+
+  /**
+   * A cluster addressed at a port the topology's own control plane never listens on used to boot
+   * the whole process tree first, then fail deploying to it with a bare {@code ConnectException} --
+   * and leave a process tree the next, correctly-addressed run then collided with. Caught here
+   * before a single process is spawned.
+   */
+  @Test
+  void a_cluster_addressed_at_the_wrong_port_is_refused_before_anything_boots() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:9999\"}");
+
+    controller.start("c1", Optional.empty(), plaintextFiles(), Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    assertEquals("failed", snapshot.get("status"));
+    String error = String.valueOf(snapshot.get("error"));
+    assertTrue(error.contains("127.0.0.1:9999"), error);
+    assertTrue(error.contains("127.0.0.1:8080"), error);
+    assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
   }
 
   /**
@@ -204,6 +237,13 @@ class RunControllerTest {
   private List<RenderedFile> mtlsFiles() {
     return List.of(
         new RenderedFile("topology.yaml", MTLS_TOPOLOGY),
+        new RenderedFile(
+            "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+  }
+
+  private List<RenderedFile> plaintextFiles() {
+    return List.of(
+        new RenderedFile("topology.yaml", TOPOLOGY),
         new RenderedFile(
             "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
   }
