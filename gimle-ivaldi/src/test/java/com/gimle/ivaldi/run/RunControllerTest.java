@@ -296,10 +296,10 @@ class RunControllerTest {
   }
 
   /**
-   * GIMLE-901: a two-machine topology is no longer refused outright before it is ever considered
-   * -- the port preflight now runs against every declared machine, not only the first, so a
-   * conflict on the *second* machine is caught here exactly the same way a conflict on the first
-   * already was.
+   * GIMLE-901: a two-machine topology is no longer refused outright before it is ever considered --
+   * the port preflight now runs against every declared machine, not only the first, so a conflict
+   * on the *second* machine is caught here exactly the same way a conflict on the first already
+   * was.
    */
   @Test
   void a_port_conflict_on_the_second_machine_of_a_multi_machine_topology_is_caught_before_boot()
