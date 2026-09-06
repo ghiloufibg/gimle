@@ -531,6 +531,13 @@ fallback baked in at every step — if the rename source isn't found supervised 
 agent restarted and lost in-memory state), `AgentMain` falls straight through to the ordinary
 start/stop path, exactly as if promotion had torn the target down and re-scheduled it fresh.
 
+Because a promotion deliberately drives no lifecycle transition, the worker mints the two timeline
+entries a transition would otherwise have produced: the surge index is closed off, and the target
+index records the state the instance now holding it is actually in. Without them each index's
+`gimle events` timeline would stop at its previous occupant's last transition — the target index
+frozen at the `UNINSTALLED` teardown of the replica it replaced, contradicting the running instance
+now serving under it, and the surge index still claiming a live instance it no longer has.
+
 :::note[Level-triggered, not edge-triggered]
 
 Every reconciler here must converge from **any** starting state, including after missing every
