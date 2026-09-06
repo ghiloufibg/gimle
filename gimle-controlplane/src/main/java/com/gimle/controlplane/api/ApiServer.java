@@ -4898,7 +4898,14 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       if (slash < 0) {
-        respond(exchange, 400, "expected /nodes/{nodeId}/register|heartbeat|assignments");
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        if (requireAuthorized(
+            exchange, ResourceKind.NODE, Verb.READ, Optional.empty(), Optional.of(nodeId))) {
+          handleNodeRead(exchange, nodeId);
+        }
         return;
       }
       String action = tail.substring(slash + 1);
@@ -5516,39 +5523,66 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      List<Map<String, Object>> nodes = new ArrayList<>();
       Instant now = Instant.now();
       Instant observingSince = storeClient.nodeObservationWindowStart();
-      for (NodeRegistration registration : storeClient.listNodeRegistrations()) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("nodeId", registration.nodeId());
-        Map<String, Object> capabilities = new LinkedHashMap<>();
-        capabilities.put(
-            "supportedTiers",
-            registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
-        capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
-        capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
-        capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
-        node.put("capabilities", capabilities);
-        node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
-        node.put(
-            "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
-        Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
-        node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
-        observed.ifPresent(
-            heartbeat -> {
-              node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
-              node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
-            });
-        nodes.add(node);
-      }
-      respondJson(exchange, 200, nodes);
+      respondJson(
+          exchange,
+          200,
+          storeClient.listNodeRegistrations().stream()
+              .map(registration -> nodeJson(registration, observingSince, now))
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("nodes list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * One registered node's full read shape -- shared by the whole-cluster listing and the
+   * single-node read, so the two can never drift into describing the same node differently.
+   */
+  private Map<String, Object> nodeJson(
+      NodeRegistration registration, Instant observingSince, Instant now) {
+    Map<String, Object> node = new LinkedHashMap<>();
+    node.put("nodeId", registration.nodeId());
+    Map<String, Object> capabilities = new LinkedHashMap<>();
+    capabilities.put(
+        "supportedTiers",
+        registration.capabilities().supportedTiers().stream().map(Enum::name).toList());
+    capabilities.put("labels", List.copyOf(registration.effectiveLabels()));
+    capabilities.put("reportedLabels", List.copyOf(registration.capabilities().labels()));
+    capabilities.put("operatorLabels", List.copyOf(registration.operatorLabels()));
+    node.put("capabilities", capabilities);
+    node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
+    node.put("taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
+    Optional<ObservedHeartbeat> observed = storeClient.getNodeHeartbeat(registration.nodeId());
+    node.put("status", nodeFreshness.statusOf(true, observed, observingSince, now).name());
+    observed.ifPresent(
+        heartbeat -> {
+          node.put("lastHeartbeatAt", heartbeat.receivedAt().toString());
+          node.put("capacity", capacityToJson(heartbeat.heartbeat().capacity()));
+        });
+    return node;
+  }
+
+  /**
+   * {@code GET /nodes/{nodeId}} -- the single-node read, in the identical shape {@code GET /nodes}
+   * lists. Without it, addressing one node by name reached the sub-resource dispatcher below and
+   * came back as a usage error, so a caller wanting one node's current labels or taints had no way
+   * to ask for them but to list the whole cluster and filter client-side.
+   */
+  private void handleNodeRead(HttpExchange exchange, String nodeId) throws IOException {
+    Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
+    if (registration.isEmpty()) {
+      respond(exchange, 404, "unknown node: " + nodeId);
+      return;
+    }
+    respondJson(
+        exchange,
+        200,
+        nodeJson(registration.get(), storeClient.nodeObservationWindowStart(), Instant.now()));
   }
 
   // ---- (de)serialization ----
