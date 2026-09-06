@@ -40,6 +40,55 @@ export class SessionExpiredError extends ApiError {
   }
 }
 
+/** The status the control plane answers a caller it is currently refusing with. */
+export const THROTTLED_STATUS = 429;
+
+/** True for the control plane's own "ask again shortly" refusal, whatever else it is wrapped in. */
+export function isThrottled(error: unknown): boolean {
+  return error instanceof ApiError && error.status === THROTTLED_STATUS;
+}
+
+// A throttled request is refused before its handler runs at all -- both of the control plane's own
+// 429 paths (the per-address request rate limiter, and admission control finding no permit free)
+// answer without touching the delegate -- so nothing the request would have done has happened, and
+// re-sending it is safe for writes as well as reads.
+const MAX_THROTTLE_RETRIES = 3;
+const THROTTLE_BACKOFF_BASE_MS = 250;
+// A refusal asking to be left alone for longer than this is not a burst to ride out under a
+// spinner -- a login lockout, say, whose whole point is to make the caller wait and be told so.
+const MAX_THROTTLE_WAIT_MS = 3_000;
+
+/**
+ * How long to wait before re-sending a throttled request, or `null` for "don't: hand this refusal
+ * to the caller". The control plane attaches `Retry-After` (delta-seconds) to every 429 it sends,
+ * so that value wins when present; an HTTP-date is honoured too, since the header is allowed to
+ * carry one. An unreadable or too-short header falls back to this attempt's own exponential
+ * backoff, and a wait longer than {@link MAX_THROTTLE_WAIT_MS} is refused rather than slept
+ * through, so no screen hangs waiting out a refusal the operator should simply be shown.
+ */
+export function throttleDelayMs(retryAfter: string | null, attempt: number): number | null {
+  const backoff = THROTTLE_BACKOFF_BASE_MS * 2 ** attempt;
+  const asked = retryAfterMs(retryAfter);
+  const wait = asked === null ? backoff : Math.max(asked, backoff);
+  return wait > MAX_THROTTLE_WAIT_MS ? null : wait;
+}
+
+function retryAfterMs(retryAfter: string | null): number | null {
+  if (retryAfter === null) return null;
+  const trimmed = retryAfter.trim();
+  if (trimmed === "") return null;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds)) return seconds * 1000;
+  const at = Date.parse(trimmed);
+  return Number.isNaN(at) ? null : at - Date.now();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 interface NotLeaderBody {
   error?: string;
   leaderRaftId?: string | null;
@@ -47,7 +96,18 @@ interface NotLeaderBody {
 }
 
 async function send(init: RequestInit & { method: string }, path: string): Promise<Response> {
-  const res = await fetch(path, init);
+  let res = await fetch(path, init);
+  // "Too many requests" means ask again shortly -- it is never an answer about who the caller is
+  // or what the cluster holds, so it must not reach a call site that would read it as one (a
+  // throttled /auth/session read as "nobody is signed in" is exactly that mistake). Retried here,
+  // for every request in the app, rather than once per repository.
+  for (let attempt = 0; res.status === THROTTLED_STATUS && attempt < MAX_THROTTLE_RETRIES; ) {
+    const delay = throttleDelayMs(res.headers.get("Retry-After"), attempt);
+    if (delay === null) break;
+    await sleep(delay);
+    res = await fetch(path, init);
+    attempt++;
+  }
   if (res.status === 401) {
     // Centralized here so every existing repository call site gets this for free with zero
     // changes of its own: a session expiring mid-use (or never having existed) clears local auth
