@@ -1,4 +1,4 @@
-import type { HistoryEnvelope, MetricsHistoryLine, ProcessTarget } from "@/types";
+import type { HistoryEnvelope, MetricsHistoryLine, ProcessKind, ProcessTarget } from "@/types";
 
 export interface HistoryPageArgs {
   target: ProcessTarget;
@@ -14,6 +14,11 @@ export interface HistorySinceArgs {
 }
 
 export interface MetricsHistoryRepository {
+  /**
+   * The process kinds whose metrics genuinely reach Muninn, as the control plane itself reports
+   * them -- the platform's own answer rather than a list this console maintains in parallel.
+   */
+  fetchProcessKinds(): Promise<ProcessKind[]>;
   /** Backward page: `cursor` + `limit`. Never combined with `since`. */
   fetchPage(args: HistoryPageArgs): Promise<HistoryEnvelope<MetricsHistoryLine>>;
   /** Forward poll: `since` only. Never combined with `cursor`/`limit`. */

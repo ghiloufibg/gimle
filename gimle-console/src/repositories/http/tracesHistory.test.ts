@@ -122,3 +122,15 @@ describe("HttpTracesHistoryRepository.openPoll", () => {
     }
   });
 });
+
+describe("HttpTracesHistoryRepository.fetchProcessKinds", () => {
+  it("reads the span-shipping kinds from GET /traces-history", async () => {
+    const fetchMock = stubFetchSequence([
+      () => jsonResponse({ processKinds: ["CONTROLPLANE", "WORKER"] }),
+    ]);
+    const repo = new HttpTracesHistoryRepository();
+
+    expect(await repo.fetchProcessKinds()).toEqual(["CONTROLPLANE", "WORKER"]);
+    expect(fetchMock.mock.calls[0][0]).toBe("/traces-history");
+  });
+});

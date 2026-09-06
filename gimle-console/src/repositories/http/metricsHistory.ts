@@ -1,4 +1,4 @@
-import type { HistoryEnvelope, MetricsHistoryLine, ProcessTarget } from "@/types";
+import type { HistoryEnvelope, MetricsHistoryLine, ProcessKind, ProcessTarget } from "@/types";
 import type {
   HistoryPageArgs,
   HistorySinceArgs,
@@ -6,6 +6,7 @@ import type {
 } from "../metricsHistory";
 import { createPoller } from "@/lib/polling";
 import { fetchHistoryEnvelope } from "./historyAvailability";
+import { requestJson } from "./apiClient";
 
 function pathFor(target: ProcessTarget): string {
   return `/metrics-history/${encodeURIComponent(target.processKind)}/${encodeURIComponent(target.processId)}`;
@@ -20,6 +21,14 @@ function pathFor(target: ProcessTarget): string {
  * HttpLogsRepository.openFollow documents for /logs/*, which this class otherwise mirrors closely.
  */
 export class HttpMetricsHistoryRepository implements MetricsHistoryRepository {
+  async fetchProcessKinds(): Promise<ProcessKind[]> {
+    // Not routed through fetchHistoryEnvelope: this route answers from the control plane's own
+    // knowledge of what ships what and never 404s for a cluster with no Muninn configured, so a
+    // remembered per-process 404 must not short-circuit it.
+    const body = await requestJson<{ processKinds: ProcessKind[] }>("GET", "/metrics-history");
+    return body.processKinds ?? [];
+  }
+
   async fetchPage({
     target,
     cursor,

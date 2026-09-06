@@ -1,7 +1,8 @@
-import type { HistoryEnvelope, ProcessTarget, TraceSpanLine } from "@/types";
+import type { HistoryEnvelope, ProcessKind, ProcessTarget, TraceSpanLine } from "@/types";
 import type { TracesHistoryRepository, TracesPageArgs, TracesSinceArgs } from "../tracesHistory";
 import { createPoller } from "@/lib/polling";
 import { fetchHistoryEnvelope } from "./historyAvailability";
+import { requestJson } from "./apiClient";
 
 function pathFor(target: ProcessTarget): string {
   return `/traces-history/${encodeURIComponent(target.processKind)}/${encodeURIComponent(target.processId)}`;
@@ -14,6 +15,13 @@ function pathFor(target: ProcessTarget): string {
  * -- see historyAvailability.ts.
  */
 export class HttpTracesHistoryRepository implements TracesHistoryRepository {
+  async fetchProcessKinds(): Promise<ProcessKind[]> {
+    // See HttpMetricsHistoryRepository.fetchProcessKinds for why this bypasses
+    // fetchHistoryEnvelope's remembered-404 short circuit.
+    const body = await requestJson<{ processKinds: ProcessKind[] }>("GET", "/traces-history");
+    return body.processKinds ?? [];
+  }
+
   async fetchPage({
     target,
     cursor,

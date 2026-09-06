@@ -190,9 +190,13 @@ its own — that gap is closed. Three additions, all backed by real API surfaces
 before the UI did:
 
 - **Metrics history** (`GET /metrics-history/{processKind}/{processId}`, proxying to
-  [Muninn](./node-topology.md#muninn)): a process picker
-  (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`/`WORKER`/`SKALD`) plus one time-series chart per meter name
-  present in the fetched window, on the Metrics screen. There is no discovery API for which
+  [Muninn](./node-topology.md#muninn)): a process picker plus one time-series chart per meter name
+  present in the fetched window, on the Metrics screen. The picker's kinds are not a list the
+  console maintains: it reads them from `GET /metrics-history` (no path segments), which answers
+  with every kind whose metrics genuinely reach Muninn
+  (`AGENT`/`ANDVARI`/`CONTROLPLANE`/`FAFNIR`/`SKALD`/`STORE`/`WORKER`), so the row cannot drift from
+  what the platform ships — the Traces screen asks `GET /traces-history` the same way and gets a
+  deliberately shorter row. There is no discovery API for which
   `processId` (a self-reported `host:port` string, e.g. a `ControlPlaneMain` replica's own
   `selfApiAddress`) exists — `CONTROLPLANE` defaults to `window.location.host` (accurate whenever
   the console is served by that same replica, same origin), `AGENT` picks from the already-loaded

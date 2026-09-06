@@ -1,4 +1,4 @@
-import type { HistoryEnvelope, ProcessTarget, TraceSpanLine } from "@/types";
+import type { HistoryEnvelope, ProcessKind, ProcessTarget, TraceSpanLine } from "@/types";
 
 export interface TracesPageArgs {
   target: ProcessTarget;
@@ -12,6 +12,8 @@ export interface TracesSinceArgs {
 }
 
 export interface TracesHistoryRepository {
+  /** See MetricsHistoryRepository.fetchProcessKinds -- the same question asked of spans instead. */
+  fetchProcessKinds(): Promise<ProcessKind[]>;
   fetchPage(args: TracesPageArgs): Promise<HistoryEnvelope<TraceSpanLine>>;
   fetchSince(args: TracesSinceArgs): Promise<HistoryEnvelope<TraceSpanLine>>;
   /** GET /traces-history/* rejects follow=true -- this polls fetchSince on an interval. */

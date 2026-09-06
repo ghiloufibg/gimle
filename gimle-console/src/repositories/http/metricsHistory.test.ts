@@ -131,3 +131,30 @@ describe("HttpMetricsHistoryRepository.openPoll", () => {
     }
   });
 });
+
+describe("HttpMetricsHistoryRepository.fetchProcessKinds", () => {
+  it("reads the shipping kinds from GET /metrics-history", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse({ processKinds: ["AGENT", "STORE"] })]);
+    const repo = new HttpMetricsHistoryRepository();
+
+    expect(await repo.fetchProcessKinds()).toEqual(["AGENT", "STORE"]);
+    expect(fetchMock.mock.calls[0][0]).toBe("/metrics-history");
+  });
+
+  it("still answers after a per-process 404 has been remembered", async () => {
+    const fetchMock = stubFetchSequence([
+      () => textResponse("muninn not configured", 404),
+      () => jsonResponse({ processKinds: ["CONTROLPLANE"] }),
+    ]);
+    const repo = new HttpMetricsHistoryRepository();
+
+    await expect(
+      repo.fetchPage({ target: TARGET, cursor: null, limit: 10 }),
+    ).rejects.toBeInstanceOf(ApiError);
+
+    // The kinds route describes what the platform ships, not what this cluster stores, so the
+    // remembered 404 must not short-circuit it into never being asked.
+    expect(await repo.fetchProcessKinds()).toEqual(["CONTROLPLANE"]);
+    expect(fetchMock.mock.calls).toHaveLength(2);
+  });
+});

@@ -24,7 +24,7 @@ import {
 // process' trace history (e.g. an instance's own "view worker traces" link), falling back to the
 // default target for a bare /traces navigation with no query string.
 export const processTargetSearchSchema = z.object({
-  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD"]),
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD", "ANDVARI"]),
   processId: z.string(),
 });
 export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>
@@ -416,7 +416,7 @@ function Traces() {
         title="Trace History"
         eyebrow="Gimlé // Traces"
         subtitle="Span records per process. Select a trace id to follow it across every worker this console can name."
-        actions={<ProcessPicker value={target} onChange={updateTarget} />}
+        actions={<ProcessPicker value={target} onChange={updateTarget} signal="traces" />}
       />
       {followedTraceId && (
         <TraceFollowPanel

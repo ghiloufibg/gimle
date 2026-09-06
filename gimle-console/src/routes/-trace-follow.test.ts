@@ -53,6 +53,9 @@ function fakeRepo(
   pagesByProcessId: Record<string, TraceSpanLine[][] | Error>,
 ): TracesHistoryRepository {
   return {
+    async fetchProcessKinds() {
+      throw new Error("not used");
+    },
     async fetchPage({ target, cursor }: TracesPageArgs): Promise<HistoryEnvelope<TraceSpanLine>> {
       const scripted = pagesByProcessId[target.processId];
       if (scripted instanceof Error) throw scripted;
