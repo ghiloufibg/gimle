@@ -191,6 +191,7 @@ final class RunLedger {
     final Map<String, Object> map = new LinkedHashMap<>();
     map.put("id", record.id());
     map.put("role", record.role());
+    map.put("machine", record.machine());
     map.put("pid", record.pid());
     map.put("command", record.command());
     map.put("logFile", record.logFile());
@@ -207,6 +208,7 @@ final class RunLedger {
     return new RunRecord(
         (String) map.get("id"),
         (String) map.get("role"),
+        (String) map.get("machine"),
         ((Number) map.get("pid")).longValue(),
         command,
         (String) map.get("logFile"),

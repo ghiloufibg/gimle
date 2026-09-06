@@ -495,6 +495,7 @@ public final class MachineLauncher {
         new RunRecord(
             command.id(),
             command.role().name(),
+            command.machine(),
             process.pid(),
             command.command(),
             command.logFileName(),
@@ -804,6 +805,8 @@ public final class MachineLauncher {
           record.role()
               + " "
               + record.id()
+              + " machine="
+              + record.machine()
               + " pid="
               + record.pid()
               + " alive="

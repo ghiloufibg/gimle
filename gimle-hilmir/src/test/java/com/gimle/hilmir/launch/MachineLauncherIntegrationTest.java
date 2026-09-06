@@ -195,7 +195,7 @@ class MachineLauncherIntegrationTest {
   void down_is_a_clean_no_op_for_an_already_dead_recorded_pid() {
     final RunRecord deadRecord =
         new RunRecord(
-            "store-0", "STORE", 999_999_999L, List.of("java", "-version"), "store-0.log", "");
+            "store-0", "STORE", "m1", 999_999_999L, List.of("java", "-version"), "store-0.log", "");
     RunLedger.write(tempDir, "m1", List.of(deadRecord));
 
     final ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -211,6 +211,7 @@ class MachineLauncherIntegrationTest {
         new RunRecord(
             "store-0",
             "STORE",
+            "m1",
             999_999_999L,
             List.of("java", "-version"),
             "store-0.log",

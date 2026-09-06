@@ -15,6 +15,7 @@ import java.util.List;
 public record RunRecord(
     String id,
     String role,
+    String machine,
     long pid,
     List<String> command,
     String logFile,
@@ -26,6 +27,9 @@ public record RunRecord(
     }
     if (role == null || role.isBlank()) {
       throw new GimleManifestException("a run record must declare a non-blank role");
+    }
+    if (machine == null || machine.isBlank()) {
+      throw new GimleManifestException("a run record must declare a non-blank machine");
     }
     command = List.copyOf(command);
     if (logFile == null || logFile.isBlank()) {

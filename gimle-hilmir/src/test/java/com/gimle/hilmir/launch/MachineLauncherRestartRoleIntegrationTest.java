@@ -199,7 +199,7 @@ class MachineLauncherRestartRoleIntegrationTest {
         "m1",
         List.of(
             new RunRecord(
-                "store-0", "STORE", 123L, List.of("java", "-version"), "store-0.log", "")));
+                "store-0", "STORE", "m1", 123L, List.of("java", "-version"), "store-0.log", "")));
 
     final HilmirException e =
         assertThrows(

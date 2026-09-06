@@ -19,6 +19,7 @@ class RunLedgerTest {
       new RunRecord(
           "store-0",
           "STORE",
+          "m1",
           12345L,
           List.of("java", "-cp", "cp", "com.gimle.mimir.StoreMain"),
           "store-0.log",
@@ -27,6 +28,7 @@ class RunLedgerTest {
       new RunRecord(
           "agent-a",
           "AGENT",
+          "m2",
           67890L,
           List.of("java", "-cp", "cp", "com.gimle.agent.AgentMain"),
           "agent-a.log",
@@ -122,6 +124,7 @@ class RunLedgerTest {
         new RunRecord(
             "controlplane-0",
             "CONTROL_PLANE",
+            "m1",
             11111L,
             List.of("java", "-cp", "cp", "com.gimle.controlplane.ControlPlaneMain"),
             "controlplane-0.log",
@@ -132,6 +135,7 @@ class RunLedgerTest {
         new RunRecord(
             "store-0",
             "STORE",
+            "m1",
             99999L,
             List.of("java", "-cp", "cp2", "com.gimle.mimir.StoreMain"),
             "store-0.log",

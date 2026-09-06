@@ -140,7 +140,13 @@ class UpgradeClusterCommandTest {
             throw new HilmirException("simulated failure restarting fafnir");
           }
           return new RunRecord(
-              role.name().toLowerCase() + "-0", role.name(), 111L, List.of("java"), "x.log", "");
+              role.name().toLowerCase() + "-0",
+              role.name(),
+              "m1",
+              111L,
+              List.of("java"),
+              "x.log",
+              "");
         };
     final List<String> args =
         List.of(
@@ -163,7 +169,13 @@ class UpgradeClusterCommandTest {
         (topology, machine, role, runtime, out) -> {
           attempted.add(role);
           return new RunRecord(
-              role.name().toLowerCase() + "-0", role.name(), 111L, List.of("java"), "x.log", "");
+              role.name().toLowerCase() + "-0",
+              role.name(),
+              "m1",
+              111L,
+              List.of("java"),
+              "x.log",
+              "");
         };
     final List<String> args =
         List.of(

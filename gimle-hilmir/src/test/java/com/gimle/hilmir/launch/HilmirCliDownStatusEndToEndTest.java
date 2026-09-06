@@ -51,6 +51,7 @@ class HilmirCliDownStatusEndToEndTest {
               new RunRecord(
                   "store-0",
                   "STORE",
+                  "m1",
                   fixture.pid(),
                   List.of(LaunchTestSupport.javaExecutable(), "-version"),
                   "store-0.log",

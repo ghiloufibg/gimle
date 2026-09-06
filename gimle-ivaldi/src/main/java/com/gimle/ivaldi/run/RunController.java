@@ -521,7 +521,6 @@ public final class RunController {
       RenderedFile topologyFile = requireFile(files, "topology.yaml");
       RenderedFile bundleFile = requireFile(files, "bundle.yaml");
       Topology topology = TopologyParser.parse(streamOf(topologyFile));
-      String machine = requireSingleMachine(topology);
       ResolvedRuntime runtime = resolveRuntime(topology);
 
       // Resolved before the boot below, not after it: a cluster connection with no usable control
@@ -571,7 +570,10 @@ public final class RunController {
           // wrongly think a deploy-only apply is safe against a cluster that isn't actually up.
           clusters.clearAppliedTopology(run.clusterId);
         }
-        List<String> conflicts = PortPreflight.conflictsOn(topology, machine);
+        List<String> conflicts =
+            topology.machines().stream()
+                .flatMap(m -> PortPreflight.conflictsOn(topology, m.name()).stream())
+                .toList();
         if (!conflicts.isEmpty()) {
           throw new RunFailedException("port(s) already in use: " + String.join(", ", conflicts));
         }
@@ -580,7 +582,7 @@ public final class RunController {
         }
         List<RunRecord> records;
         try {
-          records = MachineLauncher.up(topology, machine, runtime, printStreamTo(run));
+          records = upAllMachines(topology, runtime, run);
         } catch (RuntimeException upFailed) {
           // A partial boot can still hold ports and pids under this dataRoot; best-effort clean
           // it up so the *next* attempt's own up() doesn't fail on a conflict this one left
@@ -596,7 +598,15 @@ public final class RunController {
         }
         run.processes = processInfos(records, topology);
         run.rebooted = true;
-        run.log.append("booted " + records.size() + " process(es) on machine " + machine);
+        run.log.append(
+            "booted "
+                + records.size()
+                + " process(es) across "
+                + topology.machines().size()
+                + " machine(s): "
+                + topology.machines().stream()
+                    .map(m -> m.name())
+                    .collect(Collectors.joining(", ")));
         clusters.recordAppliedTopology(run.clusterId, topologyFile.content());
         // clearAppliedTopology above (when this reboot replaced a previous one) wiped the whole
         // deployments set along with it -- correctly, since the reboot just took every previous
@@ -1292,23 +1302,79 @@ public final class RunController {
   }
 
   /**
-   * A run boots one machine, on this host. A multi-machine topology is a design to download and
-   * hand to {@code hilmir up} once per machine, not something this process can bring up: booting
-   * only the first left every workload on the others unplaced while the run reported success, and a
-   * second machine's processes would in any case overwrite the first's run ledger, which is keyed
-   * by data root alone.
+   * Boots every machine the topology declares, concurrently -- one virtual thread per machine, each
+   * an ordinary {@link MachineLauncher#up} call against the shared {@code runtime}. Real,
+   * physically separate machines each run their own {@code hilmir up} independently and in
+   * parallel, polling for a cross-machine prerequisite's own readiness rather than being handed a
+   * guaranteed boot order (see {@link MachineLauncher}'s own javadoc); running them one after
+   * another here instead would deadlock the moment two machines depend on each other's roles, since
+   * the second machine's own process would never get a chance to start while this thread sat
+   * blocked waiting for it inside the first. {@code gimle-hilmir}'s own run ledger already gives
+   * every machine its own ledger file under the shared data root, so nothing here needs to scope
+   * each machine to a data root of its own.
    */
-  private static String requireSingleMachine(Topology topology) {
-    if (topology.machines().size() > 1) {
+  private List<RunRecord> upAllMachines(Topology topology, ResolvedRuntime runtime, ActiveRun run) {
+    record Outcome(List<RunRecord> records, RuntimeException failure) {}
+    List<Outcome> outcomes = new java.util.concurrent.CopyOnWriteArrayList<>();
+    List<Thread> threads =
+        topology.machines().stream()
+            .map(
+                m ->
+                    Thread.ofVirtual()
+                        .start(
+                            () -> {
+                              try {
+                                outcomes.add(
+                                    new Outcome(
+                                        MachineLauncher.up(
+                                            topology, m.name(), runtime, printStreamTo(run)),
+                                        null));
+                              } catch (RuntimeException e) {
+                                outcomes.add(new Outcome(List.of(), e));
+                              }
+                            }))
+            .toList();
+    joinCascadingCancellation(threads);
+    List<RuntimeException> failures =
+        outcomes.stream().map(Outcome::failure).filter(java.util.Objects::nonNull).toList();
+    if (!failures.isEmpty()) {
       throw new RunFailedException(
-          "this blueprint declares "
-              + topology.machines().size()
-              + " machines ("
-              + topology.machines().stream().map(m -> m.name()).collect(Collectors.joining(", "))
-              + ") and a run boots one. Download the zip and run 'hilmir up' once per machine,"
-              + " or design a single-machine cluster to run from here.");
+          (topology.machines().size() == 1
+                  ? ""
+                  : failures.size()
+                      + " of "
+                      + topology.machines().size()
+                      + " machine(s) failed to boot: ")
+              + failures.stream().map(Throwable::getMessage).collect(Collectors.joining("; ")));
     }
-    return topology.machines().get(0).name();
+    return outcomes.stream().flatMap(o -> o.records().stream()).toList();
+  }
+
+  /**
+   * Joins every thread in {@code threads}, cascading this run's own cancellation to every one of
+   * them the instant the calling ({@code run.worker}) thread is itself interrupted -- a stop
+   * mid-boot must reach every machine currently spawning processes, not just whichever happened to
+   * be first in the list. {@code join} clears the calling thread's interrupt status the moment it
+   * throws (the same reason {@link #cancelled} explicitly clears it too), so retrying it after the
+   * cascade is safe and simply waits out however much longer that one thread's own unwind takes.
+   */
+  static void joinCascadingCancellation(List<Thread> threads) {
+    boolean interrupted = false;
+    for (Thread t : threads) {
+      boolean joined = false;
+      while (!joined) {
+        try {
+          t.join();
+          joined = true;
+        } catch (InterruptedException e) {
+          interrupted = true;
+          threads.forEach(Thread::interrupt);
+        }
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   /**
@@ -1402,7 +1468,12 @@ public final class RunController {
       }
       infos.add(
           new RunSnapshot.ProcessInfo(
-              record.role(), address, record.pid(), record.readinessAddress(), true));
+              record.role(),
+              record.machine(),
+              address,
+              record.pid(),
+              record.readinessAddress(),
+              true));
     }
     return List.copyOf(infos);
   }

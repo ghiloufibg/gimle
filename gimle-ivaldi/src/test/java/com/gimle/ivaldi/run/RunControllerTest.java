@@ -12,9 +12,14 @@ import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.validate.RenderedFile;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -246,6 +251,120 @@ class RunControllerTest {
         new RenderedFile("topology.yaml", TOPOLOGY),
         new RenderedFile(
             "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+  }
+
+  /**
+   * A two-machine topology: {@code m1} hosts store/control-plane/fafnir, {@code m2} hosts andvari
+   * alone -- the shape a multi-machine Run boots concurrently (see {@link
+   * RunController#upAllMachines}). {@code andvariPort} is a real, currently-bound port on {@code
+   * m2}'s own loopback alias, letting a test prove the port preflight now checks every declared
+   * machine rather than only the first without ever spawning a single real process.
+   */
+  private static String multiMachineTopology(int andvariPort) {
+    return """
+        name: t
+        machines:
+          - name: m1
+            host: 127.0.0.1
+          - name: m2
+            host: 127.0.0.2
+        runtime:
+          dataRoot: /tmp/gimle-ivaldi-test-never-booted
+        store:
+          replicas:
+            - machine: m1
+        controlPlane:
+          replicas:
+            - machine: m1
+        fafnir:
+          keyFile: /tmp/gimle-ivaldi-test-never-booted/fafnir.key
+          replicas:
+            - machine: m1
+        andvari:
+          replicas:
+            - machine: m2
+              port: %d
+        """
+        .formatted(andvariPort);
+  }
+
+  private List<RenderedFile> multiMachineFiles(int andvariPort) {
+    return List.of(
+        new RenderedFile("topology.yaml", multiMachineTopology(andvariPort)),
+        new RenderedFile(
+            "bundle.yaml", BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+  }
+
+  /**
+   * GIMLE-1 (the multi-machine Run backlog item): a two-machine topology is no longer refused
+   * outright before it is ever considered -- the port preflight now runs against every declared
+   * machine, not only the first, so a conflict on the *second* machine is caught here exactly the
+   * same way a conflict on the first already was.
+   */
+  @Test
+  void a_port_conflict_on_the_second_machine_of_a_multi_machine_topology_is_caught_before_boot()
+      throws IOException {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    try (ServerSocket bound = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.2"))) {
+      controller.start("c1", Optional.empty(), multiMachineFiles(bound.getLocalPort()), Map.of());
+      Map<String, Object> snapshot = awaitSettled();
+
+      assertEquals("failed", snapshot.get("status"));
+      String error = String.valueOf(snapshot.get("error"));
+      assertTrue(error.contains("port(s) already in use"), error);
+      assertTrue(error.contains("127.0.0.2:" + bound.getLocalPort()), error);
+      assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
+    }
+  }
+
+  /**
+   * The concurrency primitive {@link RunController#upAllMachines} relies on: a stop mid-boot
+   * interrupts {@code run.worker}, which is blocked inside {@link
+   * RunController#joinCascadingCancellation} joining every machine's own boot thread -- this must
+   * reach every one of them, not just whichever happened to be first in the list, or a stop would
+   * leave every machine after the first still booting.
+   */
+  @Test
+  void join_cascading_cancellation_interrupts_every_child_the_moment_this_thread_is_interrupted()
+      throws InterruptedException {
+    Thread self = Thread.currentThread();
+    List<Thread> children = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      children.add(
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    try {
+                      Thread.sleep(Duration.ofSeconds(10));
+                    } catch (InterruptedException ignored) {
+                      // A real machine boot thread would unwind its own MachineLauncher.up call
+                      // here -- this fixture only needs to exit promptly once interrupted.
+                    }
+                  }));
+    }
+    Thread canceller =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  try {
+                    Thread.sleep(Duration.ofMillis(100));
+                  } catch (InterruptedException ignored) {
+                    // never interrupted itself
+                  }
+                  self.interrupt();
+                });
+
+    long startNanos = System.nanoTime();
+    RunController.joinCascadingCancellation(children);
+    long elapsedMillis = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+
+    assertTrue(
+        elapsedMillis < 5000,
+        "expected the cascade to finish well under the 10s sleep every child started with, took "
+            + elapsedMillis
+            + "ms");
+    assertTrue(Thread.interrupted(), "the calling thread's own interrupt status must be restored");
+    canceller.join();
   }
 
   /**
