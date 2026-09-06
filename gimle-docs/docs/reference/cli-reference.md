@@ -114,6 +114,7 @@ gimle metrics-history <AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER> <pr
                        [--since <cursor>] [--limit N]
 gimle traces-history <CONTROLPLANE|WORKER> <processId>
                       [--since <cursor>] [--limit N]
+gimle trace <traceId> [--limit N]
 gimle context list
 gimle context show [name]
 gimle context use <name>
@@ -417,10 +418,16 @@ could only ever come back empty. A
 kind that ships nothing for the signal being read is rejected locally, listing the kinds that do —
 the same set the control plane itself serves from `GET /metrics-history` and `GET /traces-history`
 and rejects a read against. `--since <cursor>` (a line timestamp)
-reads forward from that point and is the one filter the proxy forwards; `--limit N` is therefore
-applied client-side, keeping the most recent N of an oldest-first response, the same treatment
-`events` gives its own `--limit`. Under the table format the last line's own timestamp is printed as
-the cursor to resume from. A cluster with no Muninn configured answers `not found: no muninn
+reads forward from that point; `--limit N` bounds what the store reads rather than trimming what
+came back. Under the table format the last line's own timestamp is printed as
+the cursor to resume from.
+
+`trace <traceId>` answers a different question: every span of one trace, wherever it ran. The
+per-process verbs above structurally cannot — a caller would have to already know which processes
+took part, and a worker replaced since the call no longer appears in any listing to be named. The
+search runs in Muninn across every process that has ever shipped there, and every configured
+replica is asked and their answers merged, since shipping is best-effort per replica and one
+replica's silence about a span is not evidence it was never recorded. A cluster with no Muninn configured answers `not found: no muninn
 endpoint configured` — history is the only place a process's metrics or traces ever live, so there
 is no live-process fallback the way `logs` has one.
 

@@ -710,6 +710,7 @@ public final class ApiServer implements AutoCloseable {
         "/traces-history/", instrument("traces-history", this::handleTracesHistory));
     target.createContext(
         "/traces-history", instrument("traces-history", this::handleTracesHistoryKinds));
+    target.createContext("/trace/", instrument("trace", this::handleTraceSearch));
     target.createContext("/roles/", instrument("roles", this::handleRole));
     target.createContext("/roles", instrument("roles", this::handleRolesList));
     target.createContext("/rolebindings/", instrument("rolebindings", this::handleRoleBinding));
@@ -9371,9 +9372,10 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       Map<String, String> query = parseQuery(exchange);
-      String since = query.get("since");
-      String muninnPath =
-          muninnPathPrefix + parts[0] + "/" + parts[1] + (since != null ? "?since=" + since : "");
+      // Forwarding every filter the caller sent, not just `since`: dropping `cursor` re-serves the
+      // newest page for each request of a backward walk, so a caller paging back reads the same
+      // page repeatedly and can never reach anything older, however many pages it asks for.
+      String muninnPath = muninnPathPrefix + parts[0] + "/" + parts[1] + historyQuery(query);
       proxyToMuninn(exchange, muninnPath);
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -9383,6 +9385,101 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * {@code GET /trace/{traceId}} -- every span of one trace, wherever it ran, proxied to Muninn's
+   * own trace search. The per-process history routes cannot answer this: a caller would have to
+   * already know which processes took part, and a worker that has since been replaced no longer
+   * appears in any live instance listing to be named at all.
+   *
+   * <p>Every replica is asked and their answers merged, rather than the first that responds:
+   * shipping is best-effort per replica, so one replica's silence about a span is not evidence the
+   * span was never recorded.
+   */
+  private void handleTraceSearch(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      String traceId = exchange.getRequestURI().getPath().substring("/trace/".length());
+      if (traceId.isBlank()) {
+        respond(exchange, 400, "expected /trace/{traceId}");
+        return;
+      }
+      if (muninnClient == null) {
+        respond(exchange, 404, "no muninn endpoint configured");
+        return;
+      }
+      String limit = parseQuery(exchange).get("limit");
+      String path =
+          "/traces-by-id/"
+              + URLEncoder.encode(traceId, StandardCharsets.UTF_8)
+              + (limit == null ? "" : "?limit=" + URLEncoder.encode(limit, StandardCharsets.UTF_8));
+      respondJson(
+          exchange, 200, mergeTraceSearchAnswers(traceId, muninnClient.getFromEveryReplica(path)));
+    } catch (IOException | RuntimeException e) {
+      log.warn("trace search request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * One trace assembled from every replica that answered. A span found on more than one replica is
+   * kept once, identified by where it was found plus its own span id, so a replica that holds a
+   * batch another missed adds to the trace instead of duplicating it.
+   */
+  private static Map<String, Object> mergeTraceSearchAnswers(
+      String traceId, List<MuninnClient.RawResponse> answers) {
+    Map<String, Map<String, Object>> spansByIdentity = new LinkedHashMap<>();
+    boolean truncated = false;
+    for (MuninnClient.RawResponse answer : answers) {
+      if (answer.statusCode() != 200) {
+        continue;
+      }
+      Map<String, Object> body =
+          Json.asObject(Json.parse(new String(answer.body(), StandardCharsets.UTF_8)));
+      truncated |= Boolean.TRUE.equals(body.get("truncated"));
+      for (Map<String, Object> entry : Json.asObjectList(body.get("spans"))) {
+        Map<String, Object> span = Json.asObject(entry.get("span"));
+        spansByIdentity.putIfAbsent(
+            entry.get("processKind") + "/" + entry.get("processId") + "/" + span.get("spanId"),
+            entry);
+      }
+    }
+    Map<String, Object> merged = new LinkedHashMap<>();
+    merged.put("traceId", traceId);
+    merged.put("spans", List.copyOf(spansByIdentity.values()));
+    merged.put("truncated", truncated);
+    return merged;
+  }
+
+  /**
+   * The read filters a history request forwards to Muninn: {@code since} for a forward poll, {@code
+   * cursor} plus {@code limit} for a backward page. {@code since} and {@code cursor} are mutually
+   * exclusive by the read API's own contract, so a request naming both keeps {@code since} and the
+   * poll it describes.
+   */
+  private static String historyQuery(Map<String, String> query) {
+    List<String> params = new ArrayList<>();
+    String since = query.get("since");
+    String cursor = query.get("cursor");
+    if (since != null) {
+      params.add("since=" + URLEncoder.encode(since, StandardCharsets.UTF_8));
+    } else if (cursor != null) {
+      params.add("cursor=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+    }
+    String limit = query.get("limit");
+    if (limit != null) {
+      params.add("limit=" + URLEncoder.encode(limit, StandardCharsets.UTF_8));
+    }
+    return params.isEmpty() ? "" : "?" + String.join("&", params);
   }
 
   /** Served directly from this process's own platform log -- it's the process answering. */

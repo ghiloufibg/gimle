@@ -65,10 +65,10 @@ import java.util.function.Supplier;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
  *   gimle metrics
- *   gimle metrics-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
+ *   gimle metrics-history &lt;AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER&gt; &lt;processId&gt;
  *                          [--since &lt;cursor&gt;] [--limit N]
- *   gimle traces-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
- *                         [--since &lt;cursor&gt;] [--limit N]
+ *   gimle traces-history &lt;CONTROLPLANE|WORKER&gt; &lt;processId&gt; [--since &lt;cursor&gt;] [--limit N]
+ *   gimle trace &lt;traceId&gt; [--limit N]
  *   gimle context list
  *   gimle context show [name]
  *   gimle context use &lt;name&gt;
@@ -302,6 +302,7 @@ public final class GimleCli {
           new HistoryCommand(client, output, out).run(HistoryCommand.Surface.METRICS, rest);
       case "traces-history" ->
           new HistoryCommand(client, output, out).run(HistoryCommand.Surface.TRACES, rest);
+      case "trace" -> new HistoryCommand(client, output, out).runTraceSearch(rest);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
@@ -821,6 +822,7 @@ public final class GimleCli {
       case "metrics" -> MetricsCommand.usage();
       case "metrics-history" -> HistoryCommand.usage(HistoryCommand.Surface.METRICS);
       case "traces-history" -> HistoryCommand.usage(HistoryCommand.Surface.TRACES);
+      case "trace" -> HistoryCommand.traceUsage();
       case "context", "contexts" -> ContextCommand.usage();
       case "label" -> "usage: gimle label node <nodeId> <label>[ <label>-]...";
       case "cordon" -> "usage: gimle cordon <nodeId>";
@@ -1262,8 +1264,9 @@ public final class GimleCli {
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
           metrics
-          metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
-          traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
+          metrics-history <AGENT|ANDVARI|CONTROLPLANE|FAFNIR|SKALD|STORE|WORKER> <processId> [--since <cursor>] [--limit N]
+          traces-history <CONTROLPLANE|WORKER> <processId> [--since <cursor>] [--limit N]
+          trace <traceId> [--limit N]
           context list
           context show [name]
           context use <name>

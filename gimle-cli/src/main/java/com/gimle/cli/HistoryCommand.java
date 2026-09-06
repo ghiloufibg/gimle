@@ -28,10 +28,8 @@ import java.util.Set;
  * ever come back empty. The control plane serves the same two sets from {@code GET
  * /metrics-history} and {@code GET /traces-history}.
  *
- * <p>{@code --since <cursor>} is the one filter the control-plane proxy forwards. {@code --limit N}
- * is therefore applied here, to the tail of an oldest-first response, rather than as a query
- * parameter the proxy would drop on the floor -- the same client-side treatment {@link
- * EventsCommand} gives its own {@code --limit} for the same reason.
+ * <p>{@code --since <cursor>} and {@code --limit N} both travel to the store as query parameters,
+ * so a limit bounds what is read rather than trimming what came back.
  */
 public final class HistoryCommand {
 
@@ -86,15 +84,15 @@ public final class HistoryCommand {
       path.append("?since=").append(URLEncoder.encode(since, StandardCharsets.UTF_8));
     }
 
-    Map<String, Object> envelope = client.getObject(path.toString());
-    List<Map<String, Object>> lines = Json.asObjectList(envelope.get("lines"));
     String limitValue = flags.getOrDefault("--limit", null);
     if (limitValue != null) {
-      int limit = parseLimit(limitValue);
-      if (lines.size() > limit) {
-        lines = lines.subList(lines.size() - limit, lines.size());
-      }
+      path.append(path.indexOf("?") < 0 ? "?" : "&")
+          .append("limit=")
+          .append(parseLimit(limitValue));
     }
+
+    Map<String, Object> envelope = client.getObject(path.toString());
+    List<Map<String, Object>> lines = Json.asObjectList(envelope.get("lines"));
     OutputFormat.printList(output, lines, out);
     printResumeHint(lines);
   }
@@ -158,6 +156,34 @@ public final class HistoryCommand {
       throw new CliException("--limit must not be negative: " + value);
     }
     return limit;
+  }
+
+  /**
+   * {@code gimle trace <traceId>} -- every span of one trace, wherever it ran. The per-process
+   * reads above cannot answer this: a caller would have to already know which processes took part,
+   * and a worker replaced since the call no longer appears in any live listing to be named.
+   */
+  void runTraceSearch(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException(traceUsage());
+    }
+    String traceId = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), traceUsage());
+    StringBuilder path =
+        new StringBuilder("/trace/").append(URLEncoder.encode(traceId, StandardCharsets.UTF_8));
+    String limitValue = flags.getOrDefault("--limit", null);
+    if (limitValue != null) {
+      path.append("?limit=").append(parseLimit(limitValue));
+    }
+    Map<String, Object> found = client.getObject(path.toString());
+    OutputFormat.printList(output, Json.asObjectList(found.get("spans")), out);
+    if (Boolean.TRUE.equals(found.get("truncated"))) {
+      out.println("(truncated at the limit; raise --limit to read the rest)");
+    }
+  }
+
+  static String traceUsage() {
+    return "usage: gimle trace <traceId> [--limit N]";
   }
 
   static String usage(Surface surface) {

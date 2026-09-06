@@ -128,6 +128,100 @@ class ApiServerMetricsHistoryTest {
     return stub;
   }
 
+  /**
+   * A shipper fans each batch out best-effort, so a replica that was briefly unreachable is
+   * permanently missing that batch and its silence about a span is not evidence the span was never
+   * recorded. Asking only the first replica that answers therefore reports an incomplete trace as a
+   * complete one; every replica is asked and the answers merged.
+   */
+  @Test
+  @Timeout(10)
+  void a_trace_search_merges_what_every_replica_holds() throws Exception {
+    HttpServer replicaA = startTraceSearchStub("span-client", "CONTROLPLANE", "cp:8080");
+    HttpServer replicaB = startTraceSearchStub("span-server", "WORKER", "node-a:worker-1");
+    try {
+      startPlaintextServer(
+          new MuninnClient(
+              List.of(
+                  "127.0.0.1:" + replicaA.getAddress().getPort(),
+                  "127.0.0.1:" + replicaB.getAddress().getPort())));
+
+      HttpResponse<String> response =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/trace/" + "a".repeat(32)))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+      assertEquals(200, response.statusCode());
+      List<Map<String, Object>> spans =
+          Json.asObjectList(Json.asObject(Json.parse(response.body())).get("spans"));
+      assertEquals(
+          List.of("span-client", "span-server"),
+          spans.stream().map(entry -> Json.asObject(entry.get("span")).get("spanId")).toList());
+    } finally {
+      replicaA.stop(0);
+      replicaB.stop(0);
+    }
+  }
+
+  /** One Muninn replica holding exactly one span of the searched trace. */
+  private HttpServer startTraceSearchStub(String spanId, String processKind, String processId)
+      throws IOException {
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/traces-by-id",
+        exchange -> {
+          Map<String, Object> span = new LinkedHashMap<>();
+          span.put("spanId", spanId);
+          Map<String, Object> entry = new LinkedHashMap<>();
+          entry.put("processKind", processKind);
+          entry.put("processId", processId);
+          entry.put("span", span);
+          Map<String, Object> body = new LinkedHashMap<>();
+          body.put("traceId", "a".repeat(32));
+          body.put("spans", List.of(entry));
+          body.put("truncated", false);
+          byte[] bytes = Json.write(body).getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, bytes.length);
+          try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+          }
+        });
+    stub.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    stub.start();
+    return stub;
+  }
+
+  /**
+   * A backward page is `cursor` plus `limit`. Forwarding only `since` left Muninn serving its own
+   * newest page for every request of a walk, so a caller paging back read the same page over and
+   * over and could never reach anything older than that first window.
+   */
+  @Test
+  @Timeout(10)
+  void proxies_to_muninn_forwarding_the_backward_paging_parameters() throws Exception {
+    List<String> receivedPaths = new CopyOnWriteArrayList<>();
+    muninnStub = startMuninnStub(receivedPaths);
+    startPlaintextServer(new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort()));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        baseUrl
+                            + "/metrics-history/CONTROLPLANE/127.0.0.1:8080?cursor=page-2"
+                            + "&limit=50"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    assertEquals(
+        "/metrics/CONTROLPLANE/127.0.0.1:8080?cursor=page-2&limit=50", receivedPaths.get(0));
+  }
+
   @Test
   @Timeout(10)
   void proxies_to_muninn_forwarding_the_since_query_parameter() throws Exception {

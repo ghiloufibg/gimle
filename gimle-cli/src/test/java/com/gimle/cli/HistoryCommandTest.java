@@ -161,6 +161,34 @@ class HistoryCommandTest {
     assertEquals("api.requests", lines.get(0).get("name"));
   }
 
+  /**
+   * The question the per-process reads cannot answer: a caller would have to already know which
+   * processes a trace crossed, and a worker replaced since the call no longer appears in any
+   * listing to be named. One trace id finds both hops.
+   */
+  @Test
+  void a_trace_search_finds_every_process_the_trace_crossed() throws Exception {
+    String traceId = "b".repeat(32);
+    ship(
+        "traces",
+        "CONTROLPLANE",
+        CONTROL_PLANE_PROCESS_ID,
+        List.of(spanLine("2026-08-30T10:00:00Z", traceId, "GET /deployments")));
+    ship(
+        "traces",
+        "WORKER",
+        "node-a:worker-1",
+        List.of(spanLine("2026-08-30T10:00:01Z", traceId, "Greeter#greet")));
+
+    assertEquals(0, run("-o", "json", "trace", traceId), stderr());
+
+    List<Map<String, Object>> spans = Json.asObjectList(Json.parse(stdout()));
+    assertEquals(2, spans.size(), stdout());
+    assertEquals(
+        List.of("CONTROLPLANE", "WORKER"),
+        spans.stream().map(entry -> entry.get("processKind")).toList());
+  }
+
   @Test
   void traces_history_reads_back_what_a_shipper_wrote() throws Exception {
     ship(
@@ -217,7 +245,7 @@ class HistoryCommandTest {
     assertEquals("newer", lines.get(0).get("name"));
   }
 
-  /** The proxy forwards only {@code since}, so {@code --limit} keeps the newest N here instead. */
+  /** {@code --limit} travels to the store, which answers with the newest N of the window. */
   @Test
   void limit_keeps_the_most_recent_lines() throws Exception {
     ship(
