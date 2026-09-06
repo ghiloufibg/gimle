@@ -82,28 +82,29 @@ public final class VolumesCommand {
             : "?tenant=" + URLEncoder.encode(tenant, StandardCharsets.UTF_8);
     ApiResponse response =
         client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index + tenantQuery);
-    String body = client.expectSuccess(response);
-    // The node answers this idempotently, like every other delete here, so a 200 alone doesn't
-    // mean anything was there to destroy -- the body says which of the two happened, and an
-    // operator who addressed the wrong node or tenant needs to be told, not congratulated.
-    boolean destroyed = !body.contains("\"destroyed\":false");
-    Map<String, Object> resultBody = new LinkedHashMap<>();
-    resultBody.put("result", destroyed ? "destroyed" : "nothing to destroy");
-    resultBody.put("kind", "volume");
-    resultBody.put("id", statefulSet + "/" + index);
-    resultBody.put("nodeId", nodeId);
-    resultBody.put("tenantId", tenant == null || tenant.isBlank() ? null : tenant);
-    OutputFormat.printResult(
-        output,
-        resultBody,
-        (destroyed ? "destroyed volume " : "no volume to destroy: ")
-            + statefulSet
+    String coordinate =
+        statefulSet
             + "["
             + index
             + "] on node "
             + nodeId
-            + (tenant == null || tenant.isBlank() ? "" : " for tenant " + tenant),
-        out);
+            + (tenant == null || tenant.isBlank() ? "" : " for tenant " + tenant);
+    // A reclaim that found nothing must not exit the same way a real one does: an operator who
+    // mistyped the node, the index, or the tenant would otherwise read success into a volume they
+    // never touched, with only the printed sentence -- which a script never reads -- to say
+    // otherwise. The node reports it as a 404, and this carries that all the way out to the
+    // process's own exit status.
+    if (response.statusCode() == 404) {
+      throw CliException.notFound("no volume to destroy: " + coordinate);
+    }
+    client.expectSuccess(response);
+    Map<String, Object> resultBody = new LinkedHashMap<>();
+    resultBody.put("result", "destroyed");
+    resultBody.put("kind", "volume");
+    resultBody.put("id", statefulSet + "/" + index);
+    resultBody.put("nodeId", nodeId);
+    resultBody.put("tenantId", tenant == null || tenant.isBlank() ? null : tenant);
+    OutputFormat.printResult(output, resultBody, "destroyed volume " + coordinate, out);
   }
 
   static String usage() {

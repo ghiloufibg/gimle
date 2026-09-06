@@ -442,6 +442,10 @@ public final class AgentMain {
     // worker JVM is spawned (startInstance), never for an instance packed into an already-running
     // shared worker (installIntoExistingWorker), since packing costs no additional real memory.
     CapacityTracker committedWorkerCapacity = CapacityTracker.ofThisMachine();
+    // Which start failure each assigned instance has already been reported for, so a
+    // level-triggered retry of an unfixable start doesn't re-post the same event every tick. See
+    // reportStartFailure.
+    Map<String, String> reportedStartFailures = new ConcurrentHashMap<>();
     HttpClient httpClient = buildHttpClient();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
     // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
@@ -612,7 +616,8 @@ public final class AgentMain {
             catalog,
             logRoot,
             maxTier1Density,
-            tier1Budget);
+            tier1Budget,
+            reportedStartFailures);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -620,6 +625,7 @@ public final class AgentMain {
             supervised,
             supervisedVessels,
             capacityTracker,
+            committedWorkerCapacity,
             volumeManager);
         RotationOutcome rotationOutcome =
             rotateCertificateIfDue(httpClient, baseUrl, rotationMonitor);
@@ -1113,21 +1119,35 @@ public final class AgentMain {
     }
   }
 
-  private static void sendHeartbeat(
+  /**
+   * Reports whichever of this node's two budgets is actually binding, not just the declared-request
+   * one: {@code capacityTracker} sums each instance's own small declared request, while {@code
+   * committedWorkerCapacity} sums the real ceiling every spawned worker JVM is started with -- and
+   * it is the latter that {@link #startInstance} refuses a spawn against. Reporting the request sum
+   * alone let a node whose agent was already refusing to spawn anything keep advertising room the
+   * machine does not have, so the scheduler kept sending it work it could never run.
+   */
+  static void sendHeartbeat(
       HttpClient httpClient,
       URI baseUrl,
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, SupervisedVessel> supervisedVessels,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       VolumeManager volumeManager)
       throws IOException, InterruptedException {
     CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
+    CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
     Map<String, Object> capacity = new LinkedHashMap<>();
     capacity.put("totalMemoryBytes", snapshot.totalMemoryBytes());
-    capacity.put("assignedMemoryBytes", snapshot.assignedMemoryBytes());
+    capacity.put(
+        "assignedMemoryBytes",
+        Math.max(snapshot.assignedMemoryBytes(), committed.assignedMemoryBytes()));
     capacity.put("totalCpuMillicores", snapshot.totalCpuMillicores());
-    capacity.put("assignedCpuMillicores", snapshot.assignedCpuMillicores());
+    capacity.put(
+        "assignedCpuMillicores",
+        Math.max(snapshot.assignedCpuMillicores(), committed.assignedCpuMillicores()));
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {
@@ -1383,6 +1403,45 @@ public final class AgentMain {
             InstanceEventKind.TRANSITION_FAILED,
             "assignment spec rejected by this node",
             Optional.of(String.valueOf(e.getMessage())),
+            System.currentTimeMillis()));
+  }
+
+  /**
+   * Names a refused or failed local start in the instance's own durable timeline, not only in this
+   * node's log. A start this node cannot perform -- a worker ceiling that would overcommit the
+   * machine's real memory, an unreadable artifact, an isolation tier this node cannot provide --
+   * otherwise leaves an operator with a workload that reports desired state and nothing anywhere
+   * saying why nothing is running: the only account of it lives in a node log they have no reason
+   * to suspect is the place to look.
+   *
+   * <p>Reported once per distinct cause per instance, keyed through {@code reportedStartFailures}:
+   * reconciliation is level-triggered, so an unfixable start is retried on every tick, and posting
+   * each retry would push every other event out of that instance's own bounded timeline within
+   * minutes. A cause that changes is reported again, since it is genuinely new information.
+   */
+  private static void reportStartFailure(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      AssignedInstance assigned,
+      String key,
+      Throwable failure,
+      Map<String, String> reportedStartFailures) {
+    String cause = String.valueOf(failure.getMessage());
+    if (cause.equals(reportedStartFailures.put(key, cause))) {
+      return;
+    }
+    postInstanceEvent(
+        httpClient,
+        baseUrl,
+        nodeId,
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            assigned.deploymentName(),
+            assigned.instanceIndex(),
+            InstanceEventKind.TRANSITION_FAILED,
+            "instance start refused by this node",
+            Optional.of(cause),
             System.currentTimeMillis()));
   }
 
@@ -1664,7 +1723,7 @@ public final class AgentMain {
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
-  private static void reconcileAssignments(
+  static void reconcileAssignments(
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
@@ -1687,7 +1746,8 @@ public final class AgentMain {
       ServiceCatalog catalog,
       Path logRoot,
       int maxTier1Density,
-      Tier1WorkerBudget tier1Budget)
+      Tier1WorkerBudget tier1Budget,
+      Map<String, String> reportedStartFailures)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1832,12 +1892,19 @@ public final class AgentMain {
                   logRoot,
                   volumeManager);
             }
+            reportedStartFailures.remove(key);
           } catch (IOException | RuntimeException e) {
             log.error("failed to start instance {}: {}", key, e.getMessage(), e);
+            reportStartFailure(
+                httpClient, baseUrl, nodeId, assigned, key, e, reportedStartFailures);
           }
         }
       }
     }
+    // Keeps the report ledger scoped to what this node is still assigned: an index that goes away
+    // and later comes back must be free to report its own fresh failure rather than being
+    // suppressed by the one its predecessor already reported.
+    reportedStartFailures.keySet().retainAll(currentKeys);
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
         // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the

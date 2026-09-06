@@ -582,6 +582,22 @@ capped at 50 events per instance with oldest-first pruning applied deterministic
 [web console](./web-console.md#instance-lifecycle-events)'s instance detail page all read it back
 newest-first.
 
+A node agent writes to the same timeline for the failures that happen before any worker exists to
+report them: an assignment it cannot parse, an artifact coordinate it cannot resolve, and a start it
+refuses outright — most importantly a worker whose real `-Xmx` ceiling would overcommit the
+machine's memory. Those are level-triggered retries, so the agent records one event per distinct
+cause per instance rather than one per tick, which would push the rest of that instance's own capped
+timeline out within minutes.
+
+A workload's status folds those refusals back in. An instance that is placed but has no observation,
+and whose latest timeline entry is a `TRANSITION_FAILED`, is reported as not running: the workload
+carries `notRunningCount` and `notRunningReason`, and the instance entry its own `notRunningReason`
+(for a `Job`, the current run's `reason`). Without it, a workload whose replicas were all placed and
+none of which ever started read back as entirely healthy — nothing unplaced, no quota violation, and
+simply no observation where a live one would be. The condition is a *recorded failure* rather than
+the missing observation alone, so an instance placed seconds ago, which has genuinely not reported
+anything yet, is never flagged.
+
 This is deliberately distinct from general [audit logging](./authn-authz.md#audit-logging) (who
 changed what, cluster-wide) — both are real, both live in `gimle-mimir`, but as two different
 mechanisms: this one is per-instance timeline data scoped and capped per instance, `AuditEvent` is a
