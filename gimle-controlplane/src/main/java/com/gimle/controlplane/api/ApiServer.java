@@ -4662,6 +4662,8 @@ public final class ApiServer implements AutoCloseable {
   private void handleInstanceFabricEndpoint(HttpExchange exchange) {
     try {
       handleInstanceFabricEndpointRequest(exchange);
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("fabric-endpoint request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -4691,7 +4693,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
 
-    Optional<String> tenantId = workloadTenantHint(exchange);
+    Optional<String> tenantId = instanceTenantHint(exchange, deploymentName);
     Optional<InstancePlacement> placement =
         resolveInstancePlacement(tenantId, deploymentName, instanceIndex);
     if (placement.isEmpty()) {
@@ -4890,16 +4892,16 @@ public final class ApiServer implements AutoCloseable {
       String path = exchange.getRequestURI().getPath();
       String tail = path.substring("/nodes/".length());
       int slash = tail.indexOf('/');
-      if (slash < 0) {
-        respond(exchange, 400, "expected /nodes/{nodeId}/register|heartbeat|assignments");
-        return;
-      }
-      String nodeId = tail.substring(0, slash);
-      String action = tail.substring(slash + 1);
+      String nodeId = slash < 0 ? tail : tail.substring(0, slash);
       if (nodeId.isBlank()) {
         respond(exchange, 400, "missing nodeId");
         return;
       }
+      if (slash < 0) {
+        respond(exchange, 400, "expected /nodes/{nodeId}/register|heartbeat|assignments");
+        return;
+      }
+      String action = tail.substring(slash + 1);
       // targetId=nodeId is what lets a gimle:nodes principal reach exactly its own subresources
       // (Authorizer's node self-service short-circuit) with no RoleBinding needing to exist for
       // it -- and nothing else. Labelling is deliberately excluded from that: a node that could
@@ -9059,10 +9061,11 @@ public final class ApiServer implements AutoCloseable {
       // whose owning tenant wasn't literally "default" 404'd on this live path forever -- workable
       // only through Muninn's own fallback store -- even though {@code resolveInstanceNodeId}
       // itself has always been able to resolve it correctly once given the right tenant.
-      Optional<String> tenantId =
+      InstanceLogsTenant instanceTenant =
           tail.startsWith("instances/")
               ? resolveInstanceLogsTenant(exchange, tail)
-              : Optional.empty();
+              : InstanceLogsTenant.NONE;
+      Optional<String> tenantId = instanceTenant.tenantId();
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
@@ -9071,7 +9074,7 @@ public final class ApiServer implements AutoCloseable {
       } else if (tail.startsWith("nodes/")) {
         handleNodeLogsProxy(exchange, tail.substring("nodes/".length()));
       } else if (tail.startsWith("instances/")) {
-        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), tenantId);
+        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), instanceTenant);
       } else {
         respond(exchange, 404, "unknown logs endpoint: " + tail);
       }
@@ -9100,15 +9103,36 @@ public final class ApiServer implements AutoCloseable {
    * the full post-{@code /logs/} path (still carrying its {@code instances/} prefix), matching what
    * {@link #handleLogs} already has in hand.
    */
-  private Optional<String> resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
+  private InstanceLogsTenant resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
     Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
     if (declared.isPresent()) {
-      return declared;
+      return new InstanceLogsTenant(declared, Optional.empty());
     }
     String instanceTail = tail.substring("instances/".length());
     String deploymentName = instanceTail.split("/", 2)[0];
     Optional<String> resolved = resolveTenantForWorkloadName(deploymentName);
-    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
+    return new InstanceLogsTenant(
+        resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID), resolved);
+  }
+
+  /**
+   * How an instance-log request's owning tenant was arrived at. {@code tenantId} is what the
+   * request is authorized and placement-resolved against; {@code agentHint} is the same value only
+   * when it should additionally be spelled out to the node agent on the proxy hop.
+   *
+   * <p>Spelling it out matters because an agent handed a bare name and index has to answer from
+   * whatever it happens to supervise, and that name search does not cover every hosting mode: a
+   * workload running as its own process is filed under a tenant-scoped key with no bare name to
+   * match, so its logs read back empty while an identically-addressed module-hosted instance reads
+   * back fine. The hint is deliberately absent in the two cases where adding it could only do harm
+   * -- the caller already put a {@code tenant=} on the query itself (it is forwarded verbatim), and
+   * the tenant is only {@link #resolveInstanceLogsTenant}'s own default-namespace fallback for a
+   * name no workload spec claims anywhere, where an invented value would turn the agent's working
+   * name search into an exact key miss.
+   */
+  private record InstanceLogsTenant(Optional<String> tenantId, Optional<String> agentHint) {
+    static final InstanceLogsTenant NONE =
+        new InstanceLogsTenant(Optional.empty(), Optional.empty());
   }
 
   /**
@@ -9272,7 +9296,8 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void handleInstanceLogsProxy(
-      HttpExchange exchange, String tail, Optional<String> tenantId) throws IOException {
+      HttpExchange exchange, String tail, InstanceLogsTenant tenant) throws IOException {
+    Optional<String> tenantId = tenant.tenantId();
     // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. AgentLogServer's
     // "crashdumps" or "crashdumps/<name>") -- a plain 2-way split on the first slash used to
     // swallow anything past the instanceIndex into a failed Integer.parseInt, breaking any
@@ -9314,7 +9339,8 @@ public final class ApiServer implements AutoCloseable {
     }
     // Forward the original tail verbatim (not reconstructed from just name/index) so any sub-path
     // -- crashdumps, crashdumps/<name> -- survives the proxy hop unchanged.
-    proxyToAgent(exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath);
+    proxyToAgent(
+        exchange, nodeId, "/logs/instances/" + tail, muninnFallbackPath, tenant.agentHint());
   }
 
   /**
@@ -9414,6 +9440,19 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * {@code rawQuery} with a {@code tenant=} appended when {@code addedTenant} is present, leaving
+   * every other parameter byte-for-byte as the caller sent it. The value is percent-encoded, since
+   * a tenant id reaches this class as arbitrary text from a manifest or a path segment.
+   */
+  private static String withAddedTenant(String rawQuery, Optional<String> addedTenant) {
+    if (addedTenant.isEmpty()) {
+      return rawQuery;
+    }
+    String parameter = "tenant=" + URLEncoder.encode(addedTenant.get(), StandardCharsets.UTF_8);
+    return rawQuery == null || rawQuery.isBlank() ? parameter : rawQuery + "&" + parameter;
+  }
+
+  /**
    * Values are re-encoded on the way out: {@link #parseQuery} hands back already-decoded text, and
    * a content filter's own search text is arbitrary operator input -- a space or {@code &} in it
    * would otherwise splice into, or outright invalidate, the URI built for the downstream hop.
@@ -9503,6 +9542,21 @@ public final class ApiServer implements AutoCloseable {
   private void proxyToAgent(
       HttpExchange exchange, String nodeId, String path, String muninnFallbackPath)
       throws IOException {
+    proxyToAgent(exchange, nodeId, path, muninnFallbackPath, Optional.empty());
+  }
+
+  /**
+   * As above, additionally spelling out {@code addedTenant} as a {@code tenant=} on the forwarded
+   * query -- for a route whose own resolution already established which tenant owns the target and
+   * whose agent-side counterpart would otherwise have to re-derive it from the bare name.
+   */
+  private void proxyToAgent(
+      HttpExchange exchange,
+      String nodeId,
+      String path,
+      String muninnFallbackPath,
+      Optional<String> addedTenant)
+      throws IOException {
     Optional<NodeRegistration> registration = storeClient.getNodeRegistration(nodeId);
     if (registration.isEmpty()) {
       if (muninnFallbackPath != null) {
@@ -9524,7 +9578,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 502, "node " + nodeId + " has no known log-server address");
       return;
     }
-    String query = exchange.getRequestURI().getRawQuery();
+    String query = withAddedTenant(exchange.getRequestURI().getRawQuery(), addedTenant);
     URI target =
         URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
 
@@ -9723,6 +9777,24 @@ public final class ApiServer implements AutoCloseable {
 
   private static Optional<String> workloadTenantHint(HttpExchange exchange) {
     return Optional.of(parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID));
+  }
+
+  /**
+   * {@link #workloadTenantHint} for a route addressing one instance by bare {@code (name, index)}:
+   * an explicit {@code ?tenant=} still wins, but an omitted one resolves the owning tenant from
+   * whichever workload spec actually carries {@code name} -- the same search {@code
+   * /endpoints/{name}} and the instance-log routes already use -- before falling back to the
+   * default namespace. Defaulting straight to {@code default} instead answered "no placement found"
+   * for a perfectly healthy instance whose workload simply belongs to another tenant, even though
+   * the caller had named it unambiguously.
+   */
+  private Optional<String> instanceTenantHint(HttpExchange exchange, String name) {
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    if (declared.isPresent()) {
+      return declared;
+    }
+    Optional<String> resolved = resolveTenantForWorkloadName(name);
+    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
   }
 
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
