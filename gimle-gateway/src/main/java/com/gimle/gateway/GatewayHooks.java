@@ -281,13 +281,22 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * the control plane could not be reached. An unreachable control plane must never tear down a
    * route table that is currently serving traffic, so a failed fetch is indistinguishable from "no
    * Ingresses declared" only in the sense that both leave the previous table in place.
+   *
+   * <p>Which tenant's Ingresses to follow defaults to the one this instance itself runs in, not to
+   * the cluster's default tenant: a gateway deployed into a tenant serves that tenant's declared
+   * routes, and defaulting elsewhere makes it silently serve nothing while looking perfectly
+   * healthy. {@code gateway.tenantId} still overrides it, for a gateway deliberately fronting a
+   * tenant other than its own.
    */
   private Optional<List<GatewayRoute>> fetchIngressRoutes(ModuleContext ctx) {
     Optional<String> endpoint = ctx.config("gateway.controlPlaneEndpoint");
     if (endpoint.isEmpty()) {
       return Optional.empty();
     }
-    String tenantId = ctx.config("gateway.tenantId").orElse(Tenant.DEFAULT_TENANT_ID);
+    String tenantId =
+        ctx.config("gateway.tenantId")
+            .or(() -> ctx.instanceInfo().flatMap(ModuleContext.InstanceInfo::tenantId))
+            .orElse(Tenant.DEFAULT_TENANT_ID);
     try {
       HttpIngressSource source =
           new HttpIngressSource(

@@ -251,7 +251,11 @@ routes:
 
 A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
 declared routes into its own table on the same level-triggered reload tick it already uses for
-config changes — each fetch returns the full current set, so a missed poll self-heals and an
+config changes. Which tenant's Ingresses it follows defaults to the tenant the gateway instance
+itself runs in — a gateway deployed into a tenant serves that tenant's routes, and defaulting to the
+cluster's `default` tenant instead would leave it filtering every Ingress away and serving nothing
+while listening happily and reporting itself healthy. Set `gateway.tenantId` to override it, for a
+gateway deliberately fronting a tenant other than its own — each fetch returns the full current set, so a missed poll self-heals and an
 unreachable control plane leaves the working table untouched rather than tearing it down. Two
 Ingresses declaring the same `(host, path, prefix)` are resolved by the gateway's own dispatch
 precedence rather than refused at submission: neither is wrong on its own, and rejecting the second
