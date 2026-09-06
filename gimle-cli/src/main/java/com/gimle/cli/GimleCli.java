@@ -1098,13 +1098,13 @@ public final class GimleCli {
       usage: gimle apply -f <file.yaml>|- [--dry-run]
 
       kind: read from the manifest file's own 'kind:' field --
-            %s
+            ${kinds}
 
       --dry-run  preview the submission without applying it: authorization, manifest validation,
                  artifact resolution, quota/limit-range admission and a placement forecast.
                  Exits with the status the real apply would have exited with. Supported for
                  Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only."""
-          .formatted(applyKindLines(70, "      "));
+          .replace("${kinds}", applyKindLines(70, "      "));
 
   private static final String KINDS_USAGE =
       "usage: gimle kinds   (lists every KindDefinition: name, scope, declared names, instance"
@@ -1232,7 +1232,7 @@ public final class GimleCli {
           get statefulsets [name]
           apply -f <file.yaml> [--dry-run]
             kind, read from the file itself:
-            %s
+            ${kinds}
           kinds
           get <custom-kind|plural|shortName> [name] [--tenant <id>]
           delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -1352,6 +1352,6 @@ public final class GimleCli {
           cert revoke <serialHex>
           cert unrevoke <serialHex>
           cert revocations"""
-        .formatted(applyKindLines(66, "    "));
+        .replace("${kinds}", applyKindLines(66, "    "));
   }
 }
