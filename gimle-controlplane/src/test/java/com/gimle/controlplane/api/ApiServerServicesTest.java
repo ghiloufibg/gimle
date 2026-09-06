@@ -496,8 +496,7 @@ class ApiServerServicesTest {
                 "node-1",
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
-                    InstanceObservation.builder(
-                            "orders-service", 0, moduleId, "ACTIVE", true, true)
+                    InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
                         .build())));
 
     HttpResponse<String> response =
