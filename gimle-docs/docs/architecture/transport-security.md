@@ -100,6 +100,31 @@ one endpoint in the system reachable without a client certificate, for exactly t
 bootstrap token is single-use and short-lived, tracked in-memory on the control-plane node that
 issued it (not Raft-replicated — the same reasoning heartbeats aren't).
 
+### Where a node's own identity is written
+
+The material a node bootstraps for itself lands in that node's own identity directory —
+`gimle.agent.identityDir`, defaulting to a `tls` directory under the node's own `gimle.data.root` —
+as `node-<nodeId>.crt`/`node-<nodeId>.key`, with each spawned worker's own certificate beside it
+under `workers/`. Deliberately **not** the directory holding the shared cluster CA material
+`gimle.tls.caFile` points into: that directory is identical on every node, holds only material a
+node reads, and is correctly mounted read-only in a least-privilege deployment — which a node must
+not have to give up to obtain an identity of its own. Once written, the agent re-points its own
+`gimle.tls.certFile`/`keyFile` at what it actually wrote, so rotation and every mTLS client it
+builds resolve the same files. An agent launched already pointing at a certificate and key that
+both exist keeps them untouched and bootstraps nothing — that is an operator-provisioned identity.
+If the identity directory cannot be written, startup fails naming the directory and the two
+properties that move it, rather than surfacing a bare filesystem error.
+
+### What a node's leaf certificate is named
+
+A node's CSR requests, as Subject Alternative Names, the DNS name the machine calls itself, the
+host half of its own gossip address (its topology hostname), `localhost`, and — last — its current
+IP address. A node is reached by name, so a leaf carrying only the address the interface happened
+to hold at bootstrap time matches nothing after the node restarts onto a new one; the address is
+still requested so a peer dialing the node by bare IP literal keeps verifying, since only an
+`iPAddress` SAN entry ever matches an IP-dialed handshake and only a `dNSName` entry a name-dialed
+one. A wildcard bind address (`0.0.0.0`, `::`) names no reachable peer and is never requested.
+
 Being the one unauthenticated route, and the most expensive one per request (a PKCS#10 parse and
 signature verify, then an RSA signing for an auto-approved join), it is also the one route with a
 real request-rate limit rather than only the failure-backoff throttling `/auth/login` gets. Two
