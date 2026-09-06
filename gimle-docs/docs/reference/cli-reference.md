@@ -52,7 +52,7 @@ parsing the stderr message:
 | `3`  | not found | the addressed resource does not exist (HTTP `404`) |
 | `4`  | forbidden | the caller is unauthenticated or lacks the permission (HTTP `401`/`403`) |
 | `5`  | conflict | the request conflicts with the resource's current state (HTTP `409`) |
-| `6`  | unreachable or retryable | the server could not be reached, or answered "not leader, leader unknown" (HTTP `307` with no `Location`) |
+| `6`  | unreachable or retryable | the server could not be reached, answered "not leader, leader unknown" (HTTP `307` with no `Location`), or did not answer a write within the request timeout — see [When a write times out](#when-a-write-times-out) |
 
 `401` and `403` share code `4` deliberately: both mean the caller may not do this, and there is no
 remedy that depends on telling them apart. Client-side usage errors stay on `1` — the CLI reports
@@ -66,6 +66,36 @@ the same code the real submission would have — see that section for why, and f
 gimle get deployment never-created --server 127.0.0.1:8080
 echo $?   # 3
 ```
+
+## When a write times out
+
+Every mutating call the CLI makes carries an `X-Gimle-Request-Id` header identifying that one
+logical operation, which is what lets the control plane recognise a repeat of it (see
+[Retrying a write safely](../architecture/control-plane.md#retrying-a-write-safely)). The header
+rides the `HttpRequest` itself, so a `307` redirect to a different control-plane replica presents
+the same id — precisely the case that needs it, since the redirect target holds none of the first
+replica's memory.
+
+If the server does not answer within the 10-second request timeout, the CLI exits `6` and says the
+outcome is **unknown**, naming that id:
+
+```
+no response from control plane at https://127.0.0.1:8443 within 10s: the outcome of this
+PUT /deployments/orders is unknown -- it may already have been applied. Check the current state
+before retrying blindly; a retry presenting X-Gimle-Request-Id: 5f2c... is answered with this
+request's original outcome instead of repeating the write
+```
+
+This is not the CLI hedging. A request that times out client-side may already have been replicated
+and applied server-side, and nothing in the timeout distinguishes the two. Re-running the same
+command is safe for a `delete` (an absolute delete lands identically the second time), but not for a
+rollback or a certificate approval, which mint something new each time they run, nor for an `apply`
+whose manifest has since been superseded by someone else's. A request presenting the id from the message is what settles it: a write that
+committed is answered with its original outcome and an `X-Gimle-Replayed: true` header, and one that
+never landed runs for the first time. The CLI mints a fresh id on each invocation and has no flag to
+pin one, so replaying a specific id means sending the request yourself (`curl` with the header) —
+re-running the command instead simply issues a new, unrecognised request. Receipts are kept for 15
+minutes; after that any retry executes.
 
 ## Verbs
 
