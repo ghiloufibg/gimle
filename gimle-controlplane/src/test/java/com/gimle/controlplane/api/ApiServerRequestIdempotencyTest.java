@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * A real {@link ApiServer} over loopback, driving the keyed writes end to end: a repeat of a
@@ -28,6 +29,9 @@ import org.junit.jupiter.api.io.TempDir;
  * second time, a request carrying no id behaves exactly as it always did, and an unusable id is
  * refused before anything is written.
  */
+// Real ApiServer + real java.net.http.HttpClient on a loopback ephemeral port: excludes this class
+// from running concurrently with any other class doing the same (see ApiServerTest's own javadoc).
+@ResourceLock("gimle-controlplane-api-server-http")
 class ApiServerRequestIdempotencyTest {
 
   private static final String REQUEST_ID_HEADER = "X-Gimle-Request-Id";
