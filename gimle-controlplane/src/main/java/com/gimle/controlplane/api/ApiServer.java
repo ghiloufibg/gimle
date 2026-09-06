@@ -227,6 +227,16 @@ public final class ApiServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(ApiServer.class);
 
   private static final String SESSION_COOKIE_NAME = "gimle_session";
+
+  /**
+   * The identity of a caller that presented no credential at all -- the only identity available
+   * under plaintext transport, where nothing authenticates anybody. Deliberately a real principal
+   * belonging to no group whatsoever rather than the absence of one: a membership check ({@link
+   * BuiltinRoles#GROUP_OPERATORS}, say) needs a subject it can answer "no" for, and every audit row
+   * written in this mode needs a name to attribute the write to.
+   */
+  private static final Principal ANONYMOUS_PRINCIPAL = new Principal("anonymous", Set.of());
+
   private static final Duration SESSION_TTL = Duration.ofHours(12);
   // Generous on purpose: gimle-system hosts the platform's own self-hosted extensions, not a
   // workload a human sizes deployment-by-deployment, so these ceilings just need enough headroom
@@ -6307,13 +6317,7 @@ public final class ApiServer implements AutoCloseable {
     if (!(exchange instanceof HttpsExchange)) {
       if (verb == Verb.WRITE || verb == Verb.DELETE) {
         recordCustomResourceAudit(
-            new Principal("anonymous", Set.of()),
-            kindName,
-            verb,
-            tenant,
-            targetId,
-            true,
-            AuditOutcome.APPLIED);
+            ANONYMOUS_PRINCIPAL, kindName, verb, tenant, targetId, true, AuditOutcome.APPLIED);
       }
       return true;
     }
@@ -6355,7 +6359,7 @@ public final class ApiServer implements AutoCloseable {
   private Optional<Principal> requireCustomResourceWrite(
       HttpExchange exchange, String kindName, Optional<String> tenant, boolean statusSubresource) {
     if (!(exchange instanceof HttpsExchange)) {
-      return Optional.of(new Principal("anonymous", Set.of()));
+      return Optional.of(ANONYMOUS_PRINCIPAL);
     }
     Optional<Principal> principal = resolvePrincipal(exchange);
     if (principal.isEmpty()) {
@@ -8234,7 +8238,7 @@ public final class ApiServer implements AutoCloseable {
         // the console doesn't force a login screen that, with no bootstrap account seeded in
         // plaintext mode, may not be satisfiable by any credential at all. A genuine login (see
         // the branch above) still takes priority whenever a valid cookie is actually presented.
-        respondJson(exchange, 200, principalToJson(new Principal("anonymous", Set.of()), true));
+        respondJson(exchange, 200, principalToJson(ANONYMOUS_PRINCIPAL, true));
         return;
       }
       respondQuietly(exchange, 401, "not authenticated");
@@ -8289,7 +8293,7 @@ public final class ApiServer implements AutoCloseable {
       Principal principal;
       boolean allowed;
       if (!(exchange instanceof HttpsExchange)) {
-        principal = new Principal("anonymous", Set.of());
+        principal = ANONYMOUS_PRINCIPAL;
         allowed = true;
       } else {
         Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -9636,7 +9640,7 @@ public final class ApiServer implements AutoCloseable {
       throws IOException {
     String requestId = pendingCsrStore.submit(Pem.encodeCsr(csr));
     recordAuditEvent(
-        new Principal("anonymous", Set.of()),
+        ANONYMOUS_PRINCIPAL,
         ResourceKind.CERTIFICATE_REQUEST,
         Verb.WRITE,
         Optional.empty(),
@@ -10010,8 +10014,7 @@ public final class ApiServer implements AutoCloseable {
           || verb == Verb.DELETE
           || verb == Verb.APPROVE
           || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
-        recordAuditEvent(
-            new Principal("anonymous", Set.of()), resource, verb, tenant, targetId, true);
+        recordAuditEvent(ANONYMOUS_PRINCIPAL, resource, verb, tenant, targetId, true);
       }
       return true;
     }
@@ -10167,7 +10170,7 @@ public final class ApiServer implements AutoCloseable {
   private Optional<Principal> requireAuthorizedForWrite(
       HttpExchange exchange, ResourceKind resource, Optional<String> tenant) {
     if (!(exchange instanceof HttpsExchange)) {
-      return Optional.of(new Principal("anonymous", Set.of()));
+      return Optional.of(ANONYMOUS_PRINCIPAL);
     }
     Optional<Principal> principal = resolvePrincipal(exchange);
     if (principal.isEmpty()) {
@@ -10204,12 +10207,7 @@ public final class ApiServer implements AutoCloseable {
     if (!(exchange instanceof HttpsExchange)) {
       if (auditReadResourceKinds.contains(resource)) {
         recordAuditEvent(
-            new Principal("anonymous", Set.of()),
-            resource,
-            Verb.READ,
-            Optional.empty(),
-            Optional.empty(),
-            true);
+            ANONYMOUS_PRINCIPAL, resource, Verb.READ, Optional.empty(), Optional.empty(), true);
       }
       return Optional.of(itemTenant -> true);
     }
@@ -10307,18 +10305,32 @@ public final class ApiServer implements AutoCloseable {
   /**
    * True for a caller carrying the bootstrap-level {@code gimle:operators} group -- reusing the
    * exact signal {@link Authorizer#authorize} already special-cases as its implicit cluster-admin
-   * bypass, rather than inventing a second notion of "trusted enough." Plaintext mode resolves no
-   * principal at all (see {@link #requireAuthorized}'s identical carve-out just above) and is
-   * treated as trusted here too, matching every other authorization decision this class makes for a
-   * plaintext deployment.
+   * bypass, rather than inventing a second notion of "trusted enough."
+   *
+   * <p>A plaintext caller is {@link #ANONYMOUS_PRINCIPAL}, which carries no groups, so it is never
+   * an operator. That is the whole point of the reserved tenant's veto: it exists precisely because
+   * a broad grant must not be enough, and "the transport authenticated nobody" is weaker than any
+   * grant, not stronger than all of them. Treating the credential-less mode as the one credential
+   * that can never be granted would leave the reserved tenant wide open exactly where nothing
+   * verifies who is calling.
    */
   private boolean isOperatorCaller(HttpExchange exchange) {
-    if (!(exchange instanceof HttpsExchange)) {
-      return true;
-    }
-    return resolvePrincipal(exchange)
+    return callerIdentity(exchange)
         .map(principal -> principal.groups().contains(BuiltinRoles.GROUP_OPERATORS))
         .orElse(false);
+  }
+
+  /**
+   * The request's effective identity for a group-membership question: the resolved principal under
+   * mTLS, or the explicit anonymous one when no transport-level credential is possible at all.
+   * Distinct from {@link #resolvePrincipal}, which answers only "which credential did this request
+   * present" and stays empty when there is none.
+   */
+  private Optional<Principal> callerIdentity(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return Optional.of(ANONYMOUS_PRINCIPAL);
+    }
+    return resolvePrincipal(exchange);
   }
 
   /**

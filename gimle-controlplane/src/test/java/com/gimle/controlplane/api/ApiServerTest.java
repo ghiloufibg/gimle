@@ -2016,12 +2016,10 @@ class ApiServerTest {
    */
   @Test
   void a_restart_equivalent_reseed_does_not_clobber_an_already_adjusted_quota() throws Exception {
-    HttpResponse<String> adjust =
-        send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
-                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(123, 456, 7)))
-                .build());
-    assertEquals(200, adjust.statusCode());
+    // Written straight to the store rather than through PUT /tenants/gimle-system: the reserved
+    // tenant admits an operator credential only, and this plaintext client carries none. What is
+    // under test here is the reseed, not how the adjusted row got there.
+    store.putTenant(new Tenant("gimle-system", new ResourceQuota(123, 456, 7)));
 
     try (ApiServer restarted =
         new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
@@ -2039,6 +2037,84 @@ class ApiServerTest {
       assertEquals(456L, quota.get("maxCpuMillicores"));
       assertEquals(7L, quota.get("maxInstances"));
     }
+  }
+
+  /**
+   * The reserved tenant's veto is the one thing an ordinary grant cannot buy its way past, so the
+   * complete absence of a credential must not buy it either. A plaintext caller is the anonymous
+   * principal, a member of no group at all, and {@code gimle:operators} is a group -- so every one
+   * of these is refused, and the seeded quota is still the seeded quota afterwards.
+   */
+  @Test
+  void a_plaintext_caller_cannot_write_or_delete_the_reserved_system_tenant() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 5)))
+                .build());
+    assertEquals(403, put.statusCode(), put.body());
+
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system")).DELETE().build());
+    assertEquals(403, delete.statusCode(), delete.body());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> quota = Json.asObject(Json.asObject(Json.parse(get.body())).get("quota"));
+    assertTrue(
+        ((Number) quota.get("maxInstances")).intValue() > 5,
+        "the refused PUT must not have narrowed the seeded quota: " + get.body());
+  }
+
+  @Test
+  void a_plaintext_caller_cannot_deploy_into_the_reserved_system_tenant() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        reservedTenantDeploymentYaml("sys-workload")))
+                .build());
+    assertEquals(403, put.statusCode(), put.body());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload"))
+                .GET()
+                .build());
+    assertEquals(404, get.statusCode(), "a refused submission must not have been stored");
+  }
+
+  /** The preview must report the same verdict the real submission would, not a rosier one. */
+  @Test
+  void a_plaintext_dry_run_into_the_reserved_system_tenant_reports_the_refusal() throws Exception {
+    HttpResponse<String> preview =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload?dryRun=true"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        reservedTenantDeploymentYaml("sys-workload")))
+                .build());
+    assertEquals(200, preview.statusCode(), preview.body());
+    Map<String, Object> body = Json.asObject(Json.parse(preview.body()));
+    assertEquals(false, body.get("admitted"), preview.body());
+    assertEquals(403L, ((Number) body.get("wouldRespondStatus")).longValue(), preview.body());
+  }
+
+  private static String reservedTenantDeploymentYaml(String name) {
+    return """
+        kind: Deployment
+        name: %s
+        tenantId: gimle-system
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 1
+        """
+        .formatted(name);
   }
 
   /**
