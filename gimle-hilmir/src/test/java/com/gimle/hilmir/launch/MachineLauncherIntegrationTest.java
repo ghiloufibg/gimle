@@ -253,6 +253,7 @@ class MachineLauncherIntegrationTest {
           new RunRecord(
               "store-0",
               "STORE",
+              "m1",
               fixture.pid(),
               List.of("java", "-version"),
               "store-0.log",

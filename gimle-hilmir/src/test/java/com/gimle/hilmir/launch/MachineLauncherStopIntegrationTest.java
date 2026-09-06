@@ -183,6 +183,7 @@ class MachineLauncherStopIntegrationTest {
             new RunRecord(
                 "store-0",
                 "STORE",
+                "m1",
                 999_999_999L,
                 List.of("java", "-version"),
                 "store-0.log",

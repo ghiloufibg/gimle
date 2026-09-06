@@ -49,9 +49,9 @@ public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isol
    * {@link #RESERVED_SYSTEM_TENANT_ID} and {@link #DEFAULT_TENANT_ID} on every replica's own
    * startup, and {@link #HILMIR_BOOKKEEPING_TENANT_ID} by the first {@code hilmir deploy} against
    * the cluster. Counting any of them as an operator's tenant makes a policy that caps how many
-   * tenants may exist fire against the platform's own bookkeeping instead of against the operator --
-   * see {@code ApiServer}'s plaintext single-tenant guard, whose whole subject is "how many tenants
-   * has the operator asked for".
+   * tenants may exist fire against the platform's own bookkeeping instead of against the operator
+   * -- see {@code ApiServer}'s plaintext single-tenant guard, whose whole subject is "how many
+   * tenants has the operator asked for".
    */
   public static boolean isPlatformSeeded(String tenantId) {
     return RESERVED_SYSTEM_TENANT_ID.equals(tenantId)
