@@ -68,10 +68,14 @@ public final class LogFileReader {
   private static Map<String, Object> parseLine(String line) {
     try {
       Map<String, Object> parsed = Json.asObject(Json.parse(line));
-      // Confirm it's really a structured line (has the fields JsonLogEncoder always writes), not
-      // just any JSON value -- a false positive here would silently mislabel a raw line as
-      // structured.
-      if (parsed.containsKey("timestamp") && parsed.containsKey("level")) {
+      // Confirm it's really a line the platform wrote, not just any JSON value -- a false positive
+      // here would silently mislabel a raw line as structured. Two shapes qualify: a structured
+      // line carrying the fields JsonLogEncoder always writes, and a captured-stdout record, which
+      // is written in the raw shape below and so has a category instead of a level. Recognising
+      // the second matters because re-wrapping it produces a record nested inside its own raw
+      // string, with the read time stamped in front of the capture time.
+      if (parsed.containsKey("timestamp")
+          && (parsed.containsKey("level") || "SYSTEM".equals(parsed.get("category")))) {
         return parsed;
       }
     } catch (RuntimeException ignored) {
