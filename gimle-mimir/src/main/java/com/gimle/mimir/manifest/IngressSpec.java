@@ -26,6 +26,16 @@ import java.util.Optional;
  */
 public record IngressSpec(String name, String tenantId, List<IngressRule> routes, int version) {
 
+  /**
+   * The argument shapes a {@code FABRIC} route's target method may take. Named here rather than
+   * taken from the gateway enum a route eventually becomes -- nothing on this side of the wire may
+   * depend on the gateway -- because a {@code paramType} first checked there would be stored as a
+   * perfectly valid route and only surface as a broken route table on whichever gateway next loaded
+   * it, which is precisely the deferred, misdirected failure a declared resource exists to end.
+   */
+  private static final List<String> PARAM_TYPES =
+      List.of("NONE", "STRING", "INT", "LONG", "DOUBLE", "BOOLEAN");
+
   public IngressSpec {
     if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("ingress name must not be blank");
@@ -42,7 +52,27 @@ public record IngressSpec(String name, String tenantId, List<IngressRule> routes
     if (version < 0) {
       throw new IllegalArgumentException("version must not be negative: " + version);
     }
+    for (IngressRule route : routes) {
+      requireKnownParamType(route);
+    }
     routes = List.copyOf(routes);
+  }
+
+  /**
+   * A route kind that takes no argument declares no {@code paramType} at all, so only a declared
+   * one is checked -- {@link IngressRule} already refuses a {@code FABRIC} route that omits it.
+   */
+  private static void requireKnownParamType(IngressRule route) {
+    Optional<String> declared = route.paramType();
+    if (declared.isPresent() && !PARAM_TYPES.contains(declared.get())) {
+      throw new IllegalArgumentException(
+          "unknown paramType '"
+              + declared.get()
+              + "' on route "
+              + route.path()
+              + "; expected one of "
+              + String.join(", ", PARAM_TYPES));
+    }
   }
 
   /** A newly-submitted ingress, before any compare-and-set update has bumped its version. */

@@ -235,7 +235,9 @@ the same reasoning `NETWORK_POLICY` already establishes: deciding what the outsi
 is a more consequential grant than declaring an in-cluster Service), and written through the same
 lease-guarded compare-and-set path `NetworkPolicy` uses, so a stale `expectedVersion` is a `409`
 rather than a lost update. Each route is validated at submission, so a malformed declaration is a
-`400` naming the field.
+`400` naming the field — an unknown `kind`, a `FABRIC` route declaring a `prefix`, a missing
+kind-required field, and a `paramType` outside `NONE`/`STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN` are
+all refused there rather than stored and then found unusable by whichever gateway next loads them.
 
 ```yaml
 kind: Ingress
