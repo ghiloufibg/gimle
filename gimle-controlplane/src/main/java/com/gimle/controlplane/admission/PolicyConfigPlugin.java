@@ -1,7 +1,6 @@
 package com.gimle.controlplane.admission;
 
 import com.gimle.core.config.ConfigEntry;
-import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -16,6 +15,11 @@ import java.util.Optional;
  * rule, not a billing one. Absent the config entry (the common case: no policy configured for that
  * tenant), every submission is allowed -- policy is opt-in per tenant, per key, not a default
  * restriction every tenant starts under.
+ *
+ * <p>The presence of that config entry is the only thing that decides here; the tenant's name is
+ * never consulted. Writing the key against the {@code default} tenant is as deliberate an act as
+ * writing it against a named one, and a rule an operator took the trouble to store has to bind the
+ * workloads it names.
  */
 public final class PolicyConfigPlugin implements AdmissionPlugin<DeploymentSpec> {
 
@@ -24,7 +28,7 @@ public final class PolicyConfigPlugin implements AdmissionPlugin<DeploymentSpec>
   @Override
   public AdmissionDecision<DeploymentSpec> review(AdmissionRequest<DeploymentSpec> request) {
     DeploymentSpec spec = request.spec();
-    if (!Tenant.isEnforceable(spec.tenantId())) {
+    if (spec.tenantId().isEmpty()) {
       return AdmissionDecision.allow(spec);
     }
     String tenantId = spec.tenantId().get();

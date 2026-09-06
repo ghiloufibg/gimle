@@ -2016,12 +2016,10 @@ class ApiServerTest {
    */
   @Test
   void a_restart_equivalent_reseed_does_not_clobber_an_already_adjusted_quota() throws Exception {
-    HttpResponse<String> adjust =
-        send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
-                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(123, 456, 7)))
-                .build());
-    assertEquals(200, adjust.statusCode());
+    // Written straight to the store rather than through PUT /tenants/gimle-system: the reserved
+    // tenant admits an operator credential only, and this plaintext client carries none. What is
+    // under test here is the reseed, not how the adjusted row got there.
+    store.putTenant(new Tenant("gimle-system", new ResourceQuota(123, 456, 7)));
 
     try (ApiServer restarted =
         new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
@@ -2039,6 +2037,84 @@ class ApiServerTest {
       assertEquals(456L, quota.get("maxCpuMillicores"));
       assertEquals(7L, quota.get("maxInstances"));
     }
+  }
+
+  /**
+   * The reserved tenant's veto is the one thing an ordinary grant cannot buy its way past, so the
+   * complete absence of a credential must not buy it either. A plaintext caller is the anonymous
+   * principal, a member of no group at all, and {@code gimle:operators} is a group -- so every one
+   * of these is refused, and the seeded quota is still the seeded quota afterwards.
+   */
+  @Test
+  void a_plaintext_caller_cannot_write_or_delete_the_reserved_system_tenant() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 5)))
+                .build());
+    assertEquals(403, put.statusCode(), put.body());
+
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system")).DELETE().build());
+    assertEquals(403, delete.statusCode(), delete.body());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-system")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> quota = Json.asObject(Json.asObject(Json.parse(get.body())).get("quota"));
+    assertTrue(
+        ((Number) quota.get("maxInstances")).intValue() > 5,
+        "the refused PUT must not have narrowed the seeded quota: " + get.body());
+  }
+
+  @Test
+  void a_plaintext_caller_cannot_deploy_into_the_reserved_system_tenant() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        reservedTenantDeploymentYaml("sys-workload")))
+                .build());
+    assertEquals(403, put.statusCode(), put.body());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload"))
+                .GET()
+                .build());
+    assertEquals(404, get.statusCode(), "a refused submission must not have been stored");
+  }
+
+  /** The preview must report the same verdict the real submission would, not a rosier one. */
+  @Test
+  void a_plaintext_dry_run_into_the_reserved_system_tenant_reports_the_refusal() throws Exception {
+    HttpResponse<String> preview =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/sys-workload?dryRun=true"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        reservedTenantDeploymentYaml("sys-workload")))
+                .build());
+    assertEquals(200, preview.statusCode(), preview.body());
+    Map<String, Object> body = Json.asObject(Json.parse(preview.body()));
+    assertEquals(false, body.get("admitted"), preview.body());
+    assertEquals(403L, ((Number) body.get("wouldRespondStatus")).longValue(), preview.body());
+  }
+
+  private static String reservedTenantDeploymentYaml(String name) {
+    return """
+        kind: Deployment
+        name: %s
+        tenantId: gimle-system
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 1
+        """
+        .formatted(name);
   }
 
   /**
@@ -2263,6 +2339,160 @@ class ApiServerTest {
     assertEquals(200, put.statusCode());
     assertTrue(
         store.getDeployment(Optional.of("policy-acme-2"), "within-policy-ceiling").isPresent());
+  }
+
+  // ---- the default tenant is a real, enforced tenant ----
+
+  /**
+   * Every constraint an operator writes against the tenant a manifest lands in when it names none
+   * has to bind the workloads there. These four cover the three constraint kinds plus the CronJob
+   * firing path, which materializes its Job outside any HTTP request and so needs its own proof
+   * that admission is consulted at all.
+   */
+  private String defaultTenantDeploymentYaml(
+      String name, int replicas, String artifactPath, String moduleName) {
+    return """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: %d
+        """
+        .formatted(name, moduleName, artifactPath, replicas);
+  }
+
+  private HttpResponse<String> putDefaultTenantQuota(long memory, long cpu, int instances)
+      throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/default"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(memory, cpu, instances)))
+            .build());
+  }
+
+  @Test
+  void a_submission_past_the_default_tenants_quota_is_rejected() throws Exception {
+    assertEquals(200, putDefaultTenantQuota(1, 1, 1).statusCode());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultquota.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-over-quota"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-over-quota",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultquota.over")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("quota"), put.body());
+    assertTrue(
+        store.getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-over-quota").isEmpty());
+  }
+
+  @Test
+  void a_cronjob_firing_past_the_default_tenants_quota_materializes_no_job() throws Exception {
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultquota.cronjob");
+    String cronJob =
+        """
+        kind: CronJob
+        name: nightly-over-quota
+        schedule: "0 2 * * *"
+        jobTemplate:
+          module:
+            name: com.gimle.fixture.defaultquota.cronjob
+            version: 1.0.0
+          artifactPath: %s
+          backoffLimit: 1
+        """
+            .formatted(jar.toAbsolutePath().toString());
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-over-quota"))
+                .PUT(HttpRequest.BodyPublishers.ofString(cronJob))
+                .build())
+            .statusCode());
+    // No instance at all fits, so the firing's own one-instance Job is refused outright.
+    assertEquals(200, putDefaultTenantQuota(1_000_000_000L, 4000, 0).statusCode());
+
+    HttpResponse<String> trigger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-over-quota/trigger"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+
+    assertEquals(409, trigger.statusCode(), trigger.body());
+    HttpResponse<String> jobs =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs")).GET().build());
+    assertTrue(
+        Json.asObjectList(Json.parse(jobs.body())).isEmpty(),
+        "a refused firing must materialize no Job: " + jobs.body());
+  }
+
+  @Test
+  void a_replica_ceiling_configured_on_the_default_tenant_is_enforced() throws Exception {
+    send(
+        HttpRequest.newBuilder(
+                URI.create(baseUrl + "/config/default/policy.maxReplicasPerDeployment"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"3\",\"encrypted\":false}"))
+            .build());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultpolicy.over");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-over-policy"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-over-policy",
+                            4,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultpolicy.over")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("policy.maxReplicasPerDeployment"), put.body());
+    assertTrue(
+        store
+            .getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-over-policy")
+            .isEmpty());
+  }
+
+  @Test
+  void a_limit_range_min_request_on_the_default_tenant_is_enforced() throws Exception {
+    // The fixture requests 16Mi/10m; this floor is above it on both dimensions.
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/default"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"minRequest\": {\"memory\": \"24Mi\", \"cpu\": \"15m\"}}"))
+                .build())
+            .statusCode());
+
+    Path jar = buildFixtureJar("com.gimle.fixture.defaultrange.under");
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/default-under-floor"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "default-under-floor",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.defaultrange.under")))
+                .build());
+
+    assertEquals(409, put.statusCode(), put.body());
+    assertTrue(put.body().contains("below minimum"), put.body());
+    assertTrue(
+        store
+            .getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "default-under-floor")
+            .isEmpty());
   }
 
   // ---- config/secrets distribution ----

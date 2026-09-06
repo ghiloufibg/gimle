@@ -209,6 +209,77 @@ class ApiServerLimitRangesTest {
     assertEquals(400, response.statusCode());
   }
 
+  /**
+   * The flat spelling mirrors {@code gimle set limitrange}'s own flag names, which is exactly why
+   * an operator writes it into a manifest by mistake. Silently storing a boundless range under a
+   * success response is the one outcome that must never happen: the operator is told their floor is
+   * in force while nothing bounds the tenant at all.
+   */
+  @Test
+  @Timeout(10)
+  void a_body_using_flat_flag_shaped_field_names_is_rejected_rather_than_silently_dropped()
+      throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"minRequestMemory": "24Mi", "minRequestCpu": "15m"}
+                        """))
+                .build());
+    assertEquals(400, put.statusCode(), put.body());
+    assertTrue(put.body().contains("minRequestCpu"), put.body());
+    assertTrue(put.body().contains("minRequestMemory"), put.body());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme")).GET().build());
+    assertEquals(404, get.statusCode(), "a rejected PUT must store nothing at all");
+  }
+
+  @Test
+  @Timeout(10)
+  void a_body_declaring_no_bound_at_all_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString("{}"))
+                .build());
+    assertEquals(400, put.statusCode(), put.body());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  /** A GET response handed straight back as a PUT body must round-trip, tenantId echo and all. */
+  @Test
+  @Timeout(10)
+  void a_body_echoing_the_path_tenant_id_is_accepted_but_a_disagreeing_one_is_not()
+      throws Exception {
+    HttpResponse<String> echoed =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"tenantId": "acme", "minRequest": {"memory": "64Mi", "cpu": "50m"}}
+                        """))
+                .build());
+    assertEquals(200, echoed.statusCode(), echoed.body());
+
+    HttpResponse<String> mismatched =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/limitranges/acme"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"tenantId": "globex", "minRequest": {"memory": "64Mi", "cpu": "50m"}}
+                        """))
+                .build());
+    assertEquals(400, mismatched.statusCode(), mismatched.body());
+  }
+
   @Test
   @Timeout(10)
   void putting_the_same_tenant_again_replaces_the_prior_spec() throws Exception {
