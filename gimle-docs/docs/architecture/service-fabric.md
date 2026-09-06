@@ -100,6 +100,23 @@ twice, and a duplicate arriving while the original is still in flight waits for 
 it. The window is finite by design, which is why `@Idempotent` stays an author's declaration rather
 than something inferred: a retry arriving after it expires genuinely does execute again.
 
+## When the target throws
+
+An application exception is an answer, not a transport failure, and the caller is never left unable
+to tell the two apart. `FabricFrame.InvokeError` carries three things: the thrown `Throwable`
+serialized, plus its own binary type name and message as plain text. `FabricServiceRegistry`
+rethrows the deserialized exception itself whenever the calling module can load that type, so a
+caller sharing the contract keeps catching it by type; otherwise it raises
+`RemoteInvocationException` (`com.gimle.fabric.transport`), whose `remoteTypeName()`/
+`remoteMessage()` name exactly what the target threw and what it said.
+
+The two plain-text fields exist because the object frequently cannot cross. A hosted module defines
+its service contract's exception types inside its own `ModuleLayer`, so the calling module has no
+copy of them to deserialize against; and an exception holding a live, unserializable handle cannot
+be written at all — which previously produced no frame whatsoever, dropping the connection and
+leaving the caller reporting an `IOException` for a call the target had answered clearly. Neither
+case can now be mistaken for a broken wire.
+
 ## The Service abstraction: a stable name in front of a Deployment
 
 Everything above is about a *fabric-published service* — an interface one module exports and
