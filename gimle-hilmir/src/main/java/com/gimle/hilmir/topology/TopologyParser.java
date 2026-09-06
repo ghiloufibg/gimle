@@ -225,11 +225,12 @@ public final class TopologyParser {
         throw new GimleManifestException("each 'store.replicas' entry must be a mapping");
       }
       requireNoUnknownKeys(
-          replica, Set.of("machine", "raftPort", "clientPort"), "store.replicas[]");
+          replica, Set.of("machine", "raftPort", "clientPort", "healthPort"), "store.replicas[]");
       final String machine = requireString(replica, "machine");
       final int raftPort = optionalInt(replica, "raftPort").orElse(DEFAULT_STORE_RAFT_PORT);
       final int clientPort = optionalInt(replica, "clientPort").orElse(DEFAULT_STORE_CLIENT_PORT);
-      replicas.add(new StoreReplica(machine, raftPort, clientPort));
+      replicas.add(
+          new StoreReplica(machine, raftPort, clientPort, optionalInt(replica, "healthPort")));
     }
     return replicas;
   }

@@ -52,6 +52,39 @@ class LaunchPlannerTest {
   }
 
   @Test
+  void plans_the_store_health_port_flag_only_when_the_topology_configures_one() {
+    final Topology withHealthPort =
+        parse(
+            """
+            name: health
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+            """);
+    final List<String> command =
+        only(LaunchPlanner.plan(withHealthPort, RUNTIME), "m1", "store-0").command();
+    assertTrue(command.contains("--health-port"));
+    assertEquals("9095", command.get(command.indexOf("--health-port") + 1));
+
+    final Topology withoutHealthPort =
+        parse(
+            """
+            name: no-health
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1, raftPort: 9080, clientPort: 9091}
+            """);
+    assertFalse(
+        only(LaunchPlanner.plan(withoutHealthPort, RUNTIME), "m1", "store-0")
+            .command()
+            .contains("--health-port"));
+  }
+
+  @Test
   void plans_a_minimal_single_machine_plaintext_topology() {
     final Topology topology =
         parse(

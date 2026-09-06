@@ -112,6 +112,9 @@ public final class LaunchPlanner {
       if (!peers.isEmpty()) {
         command.addAll(List.of("--peers", peers));
       }
+      replica
+          .healthPort()
+          .ifPresent(port -> command.addAll(List.of("--health-port", String.valueOf(port))));
       out.add(
           new ProcessCommand(
               ProcessRole.STORE,

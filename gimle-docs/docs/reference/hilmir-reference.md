@@ -140,6 +140,33 @@ its own bundled JRE from the *current* `GIMLE_HOME`, which takes precedence over
 either point `GIMLE_HOME` at the newly-unpacked archive before running `upgrade-cluster`, or set
 `runtime.useBundledJre: false` in the topology and rely on `--new-java-executable` instead.
 
+### Topology `store:` block
+
+Each entry under `store.replicas` places one store replica and names its ports. Only `machine` is
+required.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `machine` | *(required)* | The `machines[]` entry this replica runs on. |
+| `raftPort` | `9080` | Raft peer-to-peer transport port. |
+| `clientPort` | `9091` | Client-facing `StoreRpc` port — what the control plane, Fafnir, Muninn, and Andvari connect to. |
+| `healthPort` | *(unset — no health listener)* | Port for the store's read-only, unauthenticated `GET /health` endpoint, passed through to the store process as `--health-port`. |
+
+```yaml
+store:
+  replicas:
+    - {machine: m1, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+    - {machine: m2, raftPort: 9080, clientPort: 9091, healthPort: 9095}
+```
+
+Unlike every other role a topology places, a store replica serves no HTTP surface at all unless
+`healthPort` names one — a load balancer or liveness probe otherwise has nothing but a raw
+`clientPort` TCP connect to check. The endpoint is plaintext and unauthenticated even under an
+`mtls` topology (it exposes only that replica's own Raft role, nothing sensitive), so put it on a
+port your fleet's own network policy is willing to expose. `validate` counts it as one more port
+claim on its machine, so a `healthPort` colliding with any other process on the same machine is
+reported as `PORT_CONFLICT` exactly like any other collision.
+
 ## Remote (SSH) fleet bootstrap
 
 `--remote` on `up`/`down`/`status`/`upgrade-cluster` dispatches that exact same local verb over SSH
