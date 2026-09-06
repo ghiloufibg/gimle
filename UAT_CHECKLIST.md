@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 951
+- **Total requirements**: 958
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 821
-- **Release-readiness (automated coverage)**: 13.7%
+- **Not covered by automated test**: 828
+- **Release-readiness (automated coverage)**: 13.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 14 | 6 | 8 | 42.9% |
 | gimle-worker | 26 | 2 | 24 | 7.7% |
 | gimle-agent | 70 | 6 | 64 | 8.6% |
-| gimle-mimir | 73 | 36 | 37 | 49.3% |
+| gimle-mimir | 75 | 36 | 39 | 48.0% |
 | gimle-fabric | 44 | 1 | 43 | 2.3% |
 | gimle-controlplane | 144 | 17 | 127 | 11.8% |
 | gimle-fafnir | 35 | 11 | 24 | 31.4% |
@@ -43,8 +43,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 16 | 0 | 16 | 0.0% |
-| gimle-ivaldi-console | 26 | 0 | 26 | 0.0% |
+| gimle-ivaldi | 18 | 0 | 18 | 0.0% |
+| gimle-ivaldi-console | 29 | 0 | 29 | 0.0% |
 
 ## Checklist
 
@@ -791,6 +791,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-723 | Autoscale policies carry scale-up and scale-down stabilization windows backed by durable last-scale state | Given a deployment with a scale-down stabilization window When its signal crosses the target and immediately falls back Then the replica count is not reversed until the window elapses And the window still applies after the control plane replica restarts | No |
+| [ ] | GIMLE-958 | StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment | Given a StatefulSet manifest carrying an `autoscale:` block, When it is admitted, Then AutoscaleReconciler computes and stores an effective replica count for it exactly as it already does for a Deployment. Given a StatefulSet node in the Ivaldi designer, When I toggle Autoscale on, Then the same Min/Max/Target % fields a Deployment shows are available, and the value round-trips through the rendered topology YAML. | No |
+| [ ] | GIMLE-959 | StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable | Given a StatefulSet manifest with `disruption: {maxUnavailable: 2}` and a new module version applied, When a rolling update runs, Then up to two indices migrate concurrently rather than exactly one. Given the same manifest with a nonzero `disruption.maxSurge`, When it is admitted, Then it is rejected outright naming why a StatefulSet has no surge concept. Given a control-plane restart mid-rollout, When a fresh StatefulSetReconciler resumes against the same store, Then the in-flight migration set (not just a single index) survives and resumes correctly. | No |
 
 #### Config
 
@@ -2584,6 +2586,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-933 | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster. | No |
 | [ ] | GIMLE-939 | Deleting a blueprint refuses while a run is still tracked against it | Given a blueprint with a run this process still tracks as non-idle, When I delete that blueprint, Then the delete is refused with a 409 naming the run, and the blueprint remains readable until the run is stopped. | No |
 | [ ] | GIMLE-940 | A Service-overlap advisory from the control plane now reaches the run log instead of being silently dropped | Given a blueprint declaring two Services that front the same deployment on an overlapping port, When I run it against a real cluster, Then the run log carries the control plane's own overlap advisory naming both services. | No |
+| [ ] | GIMLE-953 | The mTLS IP-literal refusal names a cluster connection by its own display name, not its internal id | Given a cluster connection saved under internal id 'c-internal-id' with display name 'prod-like', When a run against an mTLS topology is refused for naming the control plane by IP address, Then the refusal message names the cluster 'prod-like', never 'c-internal-id'. | No |
+| [ ] | GIMLE-954 | A cluster connection addressed at a port the topology's own control plane never listens on is refused before anything boots | Given a cluster connection configured for control-plane address 127.0.0.1:9999, When a Run is started against a topology whose own control plane listens at 127.0.0.1:8080, Then the run fails immediately naming both addresses, and no process is ever booted. | No |
 
 ### gimle-ivaldi-console
 
@@ -2617,3 +2621,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-950 | The Blueprint list table scrolls horizontally at phone width instead of clipping columns | Given the Blueprint list open at 390px width, When I look at the table, Then every column is reachable by scrolling horizontally, not clipped off-screen. | No |
 | [ ] | GIMLE-951 | Escape closes the Problems/Files/Run drawer, matching every other dismissible surface in the app | Given the Problems drawer is open, When I press Escape, Then the drawer closes. | No |
 | [ ] | GIMLE-952 | Every Inspector and Blueprint Settings form field now has a real accessible name | Given any Inspector or Settings text/number/select field, When a screen reader announces it, Then it announces the field's own visible label, not a bare "edit text". | No |
+| [ ] | GIMLE-955 | The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder | Given the add-cluster dialog, When I fill in a client certificate path, Then the Control-plane URL field's placeholder and hint switch to the mTLS-aware ones naming the machine's own hostname. | No |
+| [ ] | GIMLE-956 | Palette items carry a stable automation id distinct from their visible label | Given the palette and a canvas that already has a Deployment node on it, When automation targets 'palette-add-deployment', Then it resolves the palette's own entry, never the canvas card. | No |
+| [ ] | GIMLE-957 | The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector | Given a DaemonSet node whose disruption budget carries a nonzero maxSurge (via import or hand-edited YAML), When the Inspector renders its Disruption budget section, Then the DAEMONSET_MAX_SURGE finding is visible under Max unavailable. | No |

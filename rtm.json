@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 952,
+  "requirementCount": 959,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16404,6 +16404,125 @@
       "otherTestCoverage": "Live-verified against a real running console via real ariaSnapshot() calls (not just checking the source for an id attribute): the Blueprint Settings panel's Name/Version/Data root/Classpath fields, and an Inspector's own Name/Tenant id/Port fields, each resolve by their own accessible name via Playwright's real accessible-name computation (getByRole with a name filter), which was impossible before this fix.",
       "sourceLocations": [
         "`gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`Field.htmlFor`, every field component's own `useId()`)"
+      ]
+    },
+    {
+      "id": "GIMLE-953",
+      "module": "gimle-ivaldi",
+      "feature": "The mTLS IP-literal refusal names a cluster connection by its own display name, not its internal id",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "requireAddressUsableForTransport took the raw run.clusterId (Ivaldi's own internal ClusterStore key) as the name to report in every refusal message it raises, even though the cluster record itself carries an operator-cho",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest#the_ip_literal_refusal_names_the_cluster_by_its_display_name_not_its_internal_id` saves a cluster under an internal id distinct from its display name, asserting the refusal message contains the display name and never the internal id.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, `requireAddressUsableForTransport`)"
+      ]
+    },
+    {
+      "id": "GIMLE-954",
+      "module": "gimle-ivaldi",
+      "feature": "A cluster connection addressed at a port the topology's own control plane never listens on is refused before anything boots",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "serverAddressOf only validated the cluster's configured controlPlaneUrl for shape (blank, unparseable) -- it never cross-checked the resulting host:port against the topology file actually being run, whose own controlPlan",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`RunControllerTest#a_cluster_addressed_at_the_wrong_port_is_refused_before_anything_boots` runs a plaintext topology (default control-plane port 8080) against a cluster configured for port 9999, asserting the run fails with a message naming both 127.0.0.1:9999 and 127.0.0.1:8080, and that no topology is ever recorded as applied.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, `requireClusterAddressMatchesTopology`)"
+      ]
+    },
+    {
+      "id": "GIMLE-955",
+      "module": "gimle-ivaldi-console",
+      "feature": "The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The field carried a single static placeholder (127.0.0.1:8080) regardless of whether the cluster's own clientCertPath/clientKeyPath named real mTLS material -- exactly the configuration RunController's own requireAddress",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: typing a client cert path into the add-cluster dialog immediately swaps the Control-plane URL field's placeholder to the mTLS-specific one and reveals the hint text; clearing it reverts both.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (`Field.hint`, both \"Control plane URL\" fields)"
+      ]
+    },
+    {
+      "id": "GIMLE-956",
+      "module": "gimle-ivaldi-console",
+      "feature": "Palette items carry a stable automation id distinct from their visible label",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "A palette item and every canvas card of the same kind rendered identical visible label text with no other distinguishing accessible attribute, so a test (or a screen reader user relying on accessible name alone) had no r",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: each palette entry resolves via `getByTestId('palette-add-deployment')` (and the equivalent for every other kind) independent of any canvas node sharing its label text.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/Palette.tsx` (`PaletteItem`)"
+      ]
+    },
+    {
+      "id": "GIMLE-957",
+      "module": "gimle-ivaldi-console",
+      "feature": "The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "rules.ts already raised DAEMONSET_MAX_SURGE for a DaemonSet node carrying a nonzero maxSurge (reachable only via an imported or hand-edited blueprint, since the Inspector's own Disruption budget UI never renders a Max su",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: importing a blueprint with a DaemonSet carrying `disruption: {maxUnavailable: 1, maxSurge: 1}` surfaces the DAEMONSET_MAX_SURGE finding directly under the Max unavailable field.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (\"Max unavailable\" `NumberField`)"
+      ]
+    },
+    {
+      "id": "GIMLE-958",
+      "module": "gimle-mimir",
+      "feature": "StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment",
+      "category": "Autoscaling",
+      "status": "New",
+      "statusNote": "StatefulSetSpec carried no `autoscale` field at all -- the Ivaldi Inspector's own Autoscale toggle rendered only for kind === \"deployment\", and even a hand-written manifest's `autoscale:` block had nowhere to land, since",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "gimle-mimir and gimle-controlplane full module suites re-verified after the change (0 failures). Frontend: tsc/eslint/vitest/vite build all clean.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetSpec.java` (`autoscale` field)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`parseAutoscale`, `parseCooldown`, `parseCombinationMode`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java` (`reconcileWorkload`, `readyStatefulSetInstanceObservations`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`statefulSetStatus`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Autoscale section)",
+        "`gimle-ivaldi-console/src/lib/render.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-959",
+      "module": "gimle-mimir",
+      "feature": "StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable",
+      "category": "Autoscaling",
+      "status": "New",
+      "statusNote": "StatefulSetSpec carried no `disruption` field, and StatefulSetReconciler's own rolling-update mechanism was hardwired to a single Optional<Integer> in-flight index -- there was no way for a manifest to express, or the In",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`StatefulSetReconcilerTest` (21 tests, including the pre-existing GIMLE-682 flap-immunity pair, updated for the new same-tick budget-refill behavior) plus gimle-mimir's own StateStore/RaftCodec/DomainCodec round-trip tests -- full gimle-mimir and gimle-controlplane module suites re-verified (0 failures). Frontend: tsc/eslint/vitest/vite build all clean.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetSpec.java` (`disruption` field, `effectiveDisruptionBudget`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetManifestParser.java` (`parseDisruptionBudget`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`addRollingStatefulSetIndex`, `removeRollingStatefulSetIndex`, `getRollingStatefulSetIndices`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AddRollingStatefulSetIndex`, `RemoveRollingStatefulSetIndex`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`ListRollingStatefulSetIndices`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java` (`handleRollingUpdate`, `scaleDownOneIndexIfNeeded`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Disruption budget section)",
+        "`gimle-ivaldi-console/src/lib/render.ts`, `gimle-ivaldi-console/src/lib/rules.ts` (`STATEFULSET_MAX_SURGE`)"
       ]
     }
   ]

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 952,
+  "requirementCount": 959,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19571,6 +19571,149 @@
       "confidence": "High",
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-953",
+      "module": "gimle-ivaldi",
+      "feature": "The mTLS IP-literal refusal names a cluster connection by its own display name, not its internal id",
+      "userStory": "As an operator running a topology against a cluster connection whose control-plane URL is an IP literal, I want the refusal message to name the cluster the way I named it, not by an opaque internal id I never see anywhere else in the UI.",
+      "statusDetail": "requireAddressUsableForTransport took the raw run.clusterId (Ivaldi's own internal ClusterStore key) as the name to report in every refusal message it raises, even though the cluster record itself carries an operator-chosen \"name\" field the rest of the UI (the Clusters list, the Runner header) always shows instead. RunController.execute now resolves a clusterDisplayName (the cluster's own \"name\" field, falling back to the raw id only if blank) once, threading it through both requireAddressUsableForTransport and the new requireClusterAddressMatchesTopology (GIMLE-827) in place of the internal id.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, `requireAddressUsableForTransport`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest#the_ip_literal_refusal_names_the_cluster_by_its_display_name_not_its_internal_id` saves a cluster under an internal id distinct from its display name, asserting the refusal message contains the display name and never the internal id.",
+      "gherkinSteps": [
+        "Given a cluster connection saved under internal id 'c-internal-id' with display name 'prod-like', When a run against an mTLS topology is refused for naming the control plane by IP address, Then the refusal message names the cluster 'prod-like', never 'c-internal-id'."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-954",
+      "module": "gimle-ivaldi",
+      "feature": "A cluster connection addressed at a port the topology's own control plane never listens on is refused before anything boots",
+      "userStory": "As an operator who Runs a topology against a cluster connection whose configured control-plane URL doesn't actually match that topology's own declared address, I want to be told exactly that up front, not see a real cluster boot successfully and then fail to deploy with a bare connection error -- and I never want the leaked, still-running process tree that boot leaves behind to collide with my next, correctly-addressed Run.",
+      "statusDetail": "serverAddressOf only validated the cluster's configured controlPlaneUrl for shape (blank, unparseable) -- it never cross-checked the resulting host:port against the topology file actually being run, whose own controlPlane.replicas()[0] names the real address the boot will use. A mismatch meant the whole process tree (store, control plane, fafnir, andvari) booted successfully at the topology's own address, then the deploy step failed reaching the different address the cluster record named, surfacing only as a bare ConnectException deep in the deploy phase -- and left a live process tree that the next Run (this time addressed correctly) collided with on \"port(s) already in use\". The new requireClusterAddressMatchesTopology resolves the topology's own control-plane machine host and port (defaulting to TopologyParser's own default port when the topology doesn't declare one) and compares it against the cluster's configured address before a single process is spawned, refusing with a message naming both addresses if they disagree.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`execute`, `requireClusterAddressMatchesTopology`)"
+      ],
+      "testCoverageDetail": "`RunControllerTest#a_cluster_addressed_at_the_wrong_port_is_refused_before_anything_boots` runs a plaintext topology (default control-plane port 8080) against a cluster configured for port 9999, asserting the run fails with a message naming both 127.0.0.1:9999 and 127.0.0.1:8080, and that no topology is ever recorded as applied.",
+      "gherkinSteps": [
+        "Given a cluster connection configured for control-plane address 127.0.0.1:9999, When a Run is started against a topology whose own control plane listens at 127.0.0.1:8080, Then the run fails immediately naming both addresses, and no process is ever booted."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-955",
+      "module": "gimle-ivaldi-console",
+      "feature": "The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder",
+      "userStory": "As an operator adding or editing a cluster connection that has client certificate material configured, I want the Control-plane URL field to tell me it needs the machine's own hostname (not an IP address or localhost) before I submit and hit the IP-literal refusal, not after.",
+      "statusDetail": "The field carried a single static placeholder (127.0.0.1:8080) regardless of whether the cluster's own clientCertPath/clientKeyPath named real mTLS material -- exactly the configuration RunController's own requireAddressUsableForTransport (GIMLE-826) refuses an IP-literal or unlisted-hostname address for. The shared Field component gained an optional hint prop rendered as small print beneath the control; both the add-cluster dialog's draft-based Control-plane URL field and the per-row edit field for an existing cluster now switch their placeholder and hint whenever either client cert/key path is non-blank.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (`Field.hint`, both \"Control plane URL\" fields)"
+      ],
+      "testCoverageDetail": "Live-verified against a real running console: typing a client cert path into the add-cluster dialog immediately swaps the Control-plane URL field's placeholder to the mTLS-specific one and reveals the hint text; clearing it reverts both.",
+      "gherkinSteps": [
+        "Given the add-cluster dialog, When I fill in a client certificate path, Then the Control-plane URL field's placeholder and hint switch to the mTLS-aware ones naming the machine's own hostname."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-956",
+      "module": "gimle-ivaldi-console",
+      "feature": "Palette items carry a stable automation id distinct from their visible label",
+      "userStory": "As an automated test driving the Ivaldi designer, I want to target a specific palette entry (e.g. \"add a Deployment\") by a stable identifier, not by matching visible label text that's also duplicated on every canvas card of that kind.",
+      "statusDetail": "A palette item and every canvas card of the same kind rendered identical visible label text with no other distinguishing accessible attribute, so a test (or a screen reader user relying on accessible name alone) had no reliable way to address \"the palette's Deployment entry\" specifically rather than any Deployment node already on the canvas. Each PaletteItem now carries a `data-testid=\"palette-add-{kind}\"`.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/Palette.tsx` (`PaletteItem`)"
+      ],
+      "testCoverageDetail": "Live-verified against a real running console: each palette entry resolves via `getByTestId('palette-add-deployment')` (and the equivalent for every other kind) independent of any canvas node sharing its label text.",
+      "gherkinSteps": [
+        "Given the palette and a canvas that already has a Deployment node on it, When automation targets 'palette-add-deployment', Then it resolves the palette's own entry, never the canvas card."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "Medium",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-957",
+      "module": "gimle-ivaldi-console",
+      "feature": "The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector",
+      "userStory": "As an operator who imports or hand-edits a DaemonSet blueprint carrying a nonzero disruption.maxSurge, I want the Inspector to actually show me the DAEMONSET_MAX_SURGE finding rules.ts already computes, not have it silently exist only in the validation state with no UI surface.",
+      "statusDetail": "rules.ts already raised DAEMONSET_MAX_SURGE for a DaemonSet node carrying a nonzero maxSurge (reachable only via an imported or hand-edited blueprint, since the Inspector's own Disruption budget UI never renders a Max surge input for kind === \"daemonSet\" in the first place), but no field's `pick(problems, [...])` list named that finding id, so it rendered nowhere -- a real validation result with no way for an operator to ever see it. Added to the \"Max unavailable\" NumberField's own pick() list, the one disruption-related field that renders unconditionally for both Deployment and DaemonSet.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (\"Max unavailable\" `NumberField`)"
+      ],
+      "testCoverageDetail": "Live-verified against a real running console: importing a blueprint with a DaemonSet carrying `disruption: {maxUnavailable: 1, maxSurge: 1}` surfaces the DAEMONSET_MAX_SURGE finding directly under the Max unavailable field.",
+      "gherkinSteps": [
+        "Given a DaemonSet node whose disruption budget carries a nonzero maxSurge (via import or hand-edited YAML), When the Inspector renders its Disruption budget section, Then the DAEMONSET_MAX_SURGE finding is visible under Max unavailable."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-958",
+      "module": "gimle-mimir",
+      "feature": "StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment",
+      "userStory": "As a platform operator running a StatefulSet-shaped workload whose load genuinely varies, I want the same horizontal-autoscaling capability a Deployment already has, computing an effective replica count from CPU/request-rate/error-rate/queue-depth signals rather than being stuck submitting a fixed replicas count by hand.",
+      "statusDetail": "StatefulSetSpec carried no `autoscale` field at all -- the Ivaldi Inspector's own Autoscale toggle rendered only for kind === \"deployment\", and even a hand-written manifest's `autoscale:` block had nowhere to land, since neither StatefulSetManifestParser nor StatefulSetSpec recognized the key. StatefulSetSpec gained an `Optional<AutoscalePolicy> autoscale` field (mirroring DeploymentSpec's own field exactly, same position in the canonical constructor); the previously Deployment-only `parseAutoscale`/`parseCooldown`/`parseCombinationMode` manifest-parsing logic was extracted from DeploymentManifestParser into the already-shared ManifestFields (no per-kind knob differs, unlike disruption's maxSurge), so StatefulSetManifestParser now parses the identical `autoscale:` block. AutoscaleReconciler's own reconcileDeployment was generalized into a shared reconcileWorkload core (every Deployment-specific field passed in by value, since Deployment and StatefulSet share no common supertype beyond name()/tenantId()) that now also drives every StatefulSetSpec carrying a policy, reading/writing the same generic (tenantId, name)-keyed effectiveReplicas/deploymentLastScale store entries; StatefulSetReconciler's own OrderedReady scan already read `store.getEffectiveReplicas(...).orElse(spec.replicas())` in place of raw `replicas()` requires no further change since the field is generic.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetSpec.java` (`autoscale` field)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`parseAutoscale`, `parseCooldown`, `parseCombinationMode`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java` (`reconcileWorkload`, `readyStatefulSetInstanceObservations`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`statefulSetStatus`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Autoscale section)",
+        "`gimle-ivaldi-console/src/lib/render.ts`"
+      ],
+      "testCoverageDetail": "gimle-mimir and gimle-controlplane full module suites re-verified after the change (0 failures). Frontend: tsc/eslint/vitest/vite build all clean.",
+      "gherkinSteps": [
+        "Given a StatefulSet manifest carrying an `autoscale:` block, When it is admitted, Then AutoscaleReconciler computes and stores an effective replica count for it exactly as it already does for a Deployment.",
+        "Given a StatefulSet node in the Ivaldi designer, When I toggle Autoscale on, Then the same Min/Max/Target % fields a Deployment shows are available, and the value round-trips through the rendered topology YAML."
+      ],
+      "category": "Autoscaling",
+      "confidence": "Medium",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-959",
+      "module": "gimle-mimir",
+      "feature": "StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable",
+      "userStory": "As a platform operator rolling out a new module version to a multi-index StatefulSet, I want to bound (or widen) how many indices may be mid-migration at once via the same disruption.maxUnavailable knob a Deployment already exposes, rather than being permanently stuck at exactly one index in flight with no way to express that as an explicit, self-documenting choice.",
+      "statusDetail": "StatefulSetSpec carried no `disruption` field, and StatefulSetReconciler's own rolling-update mechanism was hardwired to a single Optional<Integer> in-flight index -- there was no way for a manifest to express, or the Inspector to configure, a StatefulSet's own migration concurrency at all. StatefulSetSpec gained an `Optional<DisruptionBudget> disruption` field and its own `effectiveDisruptionBudget()`, defaulting to `DisruptionBudget.DEFAULT` (one index at a time) exactly matching every StatefulSet's behavior before this field existed; StatefulSetManifestParser accepts `disruption: {maxUnavailable}` but permanently rejects a nonzero maxSurge, the identical posture DaemonSetManifestParser already takes, since a StatefulSet index owns a sticky, exclusive per-index identity (and, when the module declares one, a local-disk volume) that a surge replacement could never duplicate ahead of removing the original. The single in-flight-index marker (StateStore's own rollingStatefulSetIndices, the Raft mutation pair PutRollingStatefulSetIndex/ClearRollingStatefulSetIndex, and the equivalent RPC) was generalized to a bounded Set<Integer> (addRollingStatefulSetIndex/removeRollingStatefulSetIndex/getRollingStatefulSetIndices, AddRollingStatefulSetIndex/RemoveRollingStatefulSetIndex, ListRollingStatefulSetIndices), mirroring DeploymentReconciler's own AddRollingIndex/RemoveRollingIndex/getRollingIndices shape exactly, in a separate map/RPC/wire-format opcode so a StatefulSet sharing a name with a Deployment never collides with it. StatefulSetReconciler#handleRollingUpdate now tops up in-flight migrations to the statefulset's own effective maxUnavailable every tick, freeing and immediately refilling a slot in the very same tick it clears -- the identical \"topped up in the very same tick it frees\" behavior DeploymentReconciler#handleRollingUpdate already documents -- rather than deferring the hand-off to a subsequent tick as the old single-marker code did.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetSpec.java` (`disruption` field, `effectiveDisruptionBudget`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/StatefulSetManifestParser.java` (`parseDisruptionBudget`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`addRollingStatefulSetIndex`, `removeRollingStatefulSetIndex`, `getRollingStatefulSetIndices`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`AddRollingStatefulSetIndex`, `RemoveRollingStatefulSetIndex`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`ListRollingStatefulSetIndices`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java` (`handleRollingUpdate`, `scaleDownOneIndexIfNeeded`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (Disruption budget section)",
+        "`gimle-ivaldi-console/src/lib/render.ts`, `gimle-ivaldi-console/src/lib/rules.ts` (`STATEFULSET_MAX_SURGE`)"
+      ],
+      "testCoverageDetail": "`StatefulSetReconcilerTest` (21 tests, including the pre-existing GIMLE-682 flap-immunity pair, updated for the new same-tick budget-refill behavior) plus gimle-mimir's own StateStore/RaftCodec/DomainCodec round-trip tests -- full gimle-mimir and gimle-controlplane module suites re-verified (0 failures). Frontend: tsc/eslint/vitest/vite build all clean.",
+      "gherkinSteps": [
+        "Given a StatefulSet manifest with `disruption: {maxUnavailable: 2}` and a new module version applied, When a rolling update runs, Then up to two indices migrate concurrently rather than exactly one.",
+        "Given the same manifest with a nonzero `disruption.maxSurge`, When it is admitted, Then it is rejected outright naming why a StatefulSet has no surge concept.",
+        "Given a control-plane restart mid-rollout, When a fresh StatefulSetReconciler resumes against the same store, Then the in-flight migration set (not just a single index) survives and resumes correctly."
+      ],
+      "category": "Autoscaling",
+      "confidence": "Medium",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
     }
   ]
 }

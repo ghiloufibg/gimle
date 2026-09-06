@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 951,
+    "totalRequirements": 958,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 821,
-    "releaseReadinessPercent": 13.7
+    "notCoveredByAutomatedTest": 828,
+    "releaseReadinessPercent": 13.6
   },
   "items": [
     {
@@ -10463,6 +10463,83 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Every Inspector and Blueprint Settings form field now has a real accessible name",
       "step": "Given any Inspector or Settings text/number/select field, When a screen reader announces it, Then it announces the field's own visible label, not a bare \"edit text\".",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-953",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The mTLS IP-literal refusal names a cluster connection by its own display name, not its internal id",
+      "step": "Given a cluster connection saved under internal id 'c-internal-id' with display name 'prod-like', When a run against an mTLS topology is refused for naming the control plane by IP address, Then the refusal message names the cluster 'prod-like', never 'c-internal-id'.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-954",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A cluster connection addressed at a port the topology's own control plane never listens on is refused before anything boots",
+      "step": "Given a cluster connection configured for control-plane address 127.0.0.1:9999, When a Run is started against a topology whose own control plane listens at 127.0.0.1:8080, Then the run fails immediately naming both addresses, and no process is ever booted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-955",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The Clusters page's Control-plane URL field now carries an mTLS-aware hint and placeholder",
+      "step": "Given the add-cluster dialog, When I fill in a client certificate path, Then the Control-plane URL field's placeholder and hint switch to the mTLS-aware ones naming the machine's own hostname.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-956",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Palette items carry a stable automation id distinct from their visible label",
+      "step": "Given the palette and a canvas that already has a Deployment node on it, When automation targets 'palette-add-deployment', Then it resolves the palette's own entry, never the canvas card.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-957",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The DAEMONSET_MAX_SURGE validation finding is now reachable from the Inspector",
+      "step": "Given a DaemonSet node whose disruption budget carries a nonzero maxSurge (via import or hand-edited YAML), When the Inspector renders its Disruption budget section, Then the DAEMONSET_MAX_SURGE finding is visible under Max unavailable.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-958",
+      "module": "gimle-mimir",
+      "category": "Autoscaling",
+      "feature": "StatefulSet workloads can carry an AutoscalePolicy, identically to Deployment",
+      "step": "Given a StatefulSet manifest carrying an `autoscale:` block, When it is admitted, Then AutoscaleReconciler computes and stores an effective replica count for it exactly as it already does for a Deployment. Given a StatefulSet node in the Ivaldi designer, When I toggle Autoscale on, Then the same Min/Max/Target % fields a Deployment shows are available, and the value round-trips through the rendered topology YAML.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-959",
+      "module": "gimle-mimir",
+      "category": "Autoscaling",
+      "feature": "StatefulSet workloads can carry a DisruptionBudget, and OrderedReady rolling updates now honor a configurable maxUnavailable",
+      "step": "Given a StatefulSet manifest with `disruption: {maxUnavailable: 2}` and a new module version applied, When a rolling update runs, Then up to two indices migrate concurrently rather than exactly one. Given the same manifest with a nonzero `disruption.maxSurge`, When it is admitted, Then it is rejected outright naming why a StatefulSet has no surge concept. Given a control-plane restart mid-rollout, When a fresh StatefulSetReconciler resumes against the same store, Then the in-flight migration set (not just a single index) survives and resumes correctly.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
