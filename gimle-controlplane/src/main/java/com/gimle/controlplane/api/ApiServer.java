@@ -3695,10 +3695,46 @@ public final class ApiServer implements AutoCloseable {
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
+    lastFiringTime(spec).ifPresent(t -> status.put("lastScheduleTime", t.toString()));
     storeClient
         .getCronJobLastSchedule(spec.tenantId(), spec.name())
-        .ifPresent(t -> status.put("lastScheduleTime", t.toString()));
+        .ifPresent(t -> status.put("scheduleEvaluatedThrough", t.toString()));
     return status;
+  }
+
+  /**
+   * When this CronJob last actually produced a Job, read off the generated Jobs themselves -- each
+   * is named {@code {cronJobName}-{epochSeconds}}, so their own names carry the firing times.
+   *
+   * <p>Deliberately not the stored last-schedule value, which is the reconciler's cursor over the
+   * schedule rather than a record of anything running: it is stamped with the current time the
+   * first time a CronJob is reconciled at all, and keeps advancing past every instant that comes
+   * due while the CronJob is suspended. Reported as {@code lastScheduleTime}, that cursor claimed a
+   * firing for a CronJob that had never fired once. It is still worth surfacing -- an operator
+   * asking why nothing has fired wants to know how far the schedule has been evaluated -- so it is
+   * reported alongside, under a name that says what it is.
+   */
+  private Optional<Instant> lastFiringTime(CronJobSpec spec) {
+    return storeClient.listJobSpecs().stream()
+        .filter(job -> job.tenantId().equals(spec.tenantId()))
+        .flatMap(job -> firingTimeOf(spec.name(), job.name()).stream())
+        .max(Comparator.naturalOrder());
+  }
+
+  /**
+   * The firing instant encoded in {@code jobName}, when it names a Job {@code cronJobName}
+   * generated.
+   */
+  private static Optional<Instant> firingTimeOf(String cronJobName, String jobName) {
+    String prefix = cronJobName + "-";
+    if (!jobName.startsWith(prefix)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.ofEpochSecond(Long.parseLong(jobName.substring(prefix.length()))));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
   }
 
   // ---- /daemonsets/{name}, /daemonsets ----
