@@ -20,11 +20,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Agent-side orchestration for populating {@link SleipnirCache}: spawns exactly one training worker
- * JVM (JEP 514's {@code -XX:AOTCacheOutput=}, {@code WorkerMain}'s own {@code
- * gimle.worker.aotTraining} early-exit path from Phase A), waits for it to boot and exit cleanly,
- * then hands the verified output to {@link SleipnirCache#commit}. No hosted module is ever
- * installed during training, so the cache it produces holds no tenant or module bytes by
- * construction.
+ * JVM (JEP 514's {@code -XX:AOTCacheOutput=}), waits for it to report {@code Hello}, then closes
+ * its control channel so it shuts down through its own path, and hands the verified output to
+ * {@link SleipnirCache#commit}. No hosted module is ever installed during training, so the cache it
+ * produces holds no tenant or module bytes by construction.
  *
  * <p>Deliberately a separate class from {@link SleipnirCache}: this class's work is slow,
  * background, and one-shot (a subprocess spawn-and-wait, done once per agent lifetime), while
@@ -107,9 +106,9 @@ final class SleipnirTrainer {
       return;
     }
     try {
-      trainingRun.run(buildTrainingCommand(commandTail, tmp), TRAINING_TIMEOUT);
-      if (Files.size(tmp) <= 0) {
-        throw new IOException("training produced an empty AOT cache file");
+      trainingRun.run(buildTrainingCommand(commandTail, tmp), tmp, TRAINING_TIMEOUT);
+      if (!Files.isRegularFile(tmp) || Files.size(tmp) <= 0) {
+        throw new IOException("training produced no usable AOT cache file at " + tmp);
       }
       cache.commit(key, tmp);
     } catch (Exception e) {
@@ -128,11 +127,18 @@ final class SleipnirTrainer {
   /**
    * {@code javaExecutable} + the same stable flags every real worker gets (so a JFR/AOT interaction
    * is exercised exactly as it will be in production) + fixed representative limits (independent of
-   * any real instance's own resource request -- this JVM never hosts a module) + the two
-   * training-specific flags + {@code commandTail} + a placeholder node id/tenant (this worker never
+   * any real instance's own resource request -- this JVM never hosts a module) + the one
+   * training-specific flag + {@code commandTail} + a placeholder node id/tenant (this worker never
    * reports real instance state, so neither needs to be meaningful) -- the control-socket path is
    * appended by {@link TrainingRun} itself, mirroring {@code WorkerProcessSupervisor}'s own "always
    * appended last, by the spawner" convention.
+   *
+   * <p>Deliberately an ordinary worker command otherwise: the JVM writes the cache from the
+   * shutdown path of a process that ends of its own accord, so this worker has to reach that path
+   * the way every worker does -- its control channel closing -- rather than be told to return from
+   * {@code main} early. Returning from {@code main} does not end a worker JVM at all (its
+   * JFR-backed accounting keeps a non-daemon thread running for as long as the process lives), and
+   * a worker terminated by a signal instead of ending on its own skips the cache write entirely.
    */
   private List<String> buildTrainingCommand(List<String> commandTail, Path tmpOutput) {
     List<String> command = new ArrayList<>();
@@ -141,7 +147,6 @@ final class SleipnirTrainer {
     command.add("-Xmx512m");
     command.add("-XX:ActiveProcessorCount=1");
     command.add("-XX:AOTCacheOutput=" + tmpOutput.toAbsolutePath());
-    command.add("-Dgimle.worker.aotTraining=true");
     command.addAll(commandTail);
     command.add("sleipnir-training");
     command.add("");
@@ -156,9 +161,12 @@ final class SleipnirTrainer {
     }
   }
 
-  /** Spawns one training worker and waits for it to boot (send {@code Hello}) then exit cleanly. */
+  /**
+   * Spawns one training worker, waits for it to boot (send {@code Hello}), then brings it down
+   * cleanly so the JVM writes {@code expectedOutput}.
+   */
   interface TrainingRun {
-    void run(List<String> command, Duration timeout) throws IOException;
+    void run(List<String> command, Path expectedOutput, Duration timeout) throws IOException;
   }
 
   /**
@@ -169,10 +177,11 @@ final class SleipnirTrainer {
    * WorkerConnection}'s own javadoc already documents between the agent and worker sides of the
    * control channel.
    */
-  private static final class RealTrainingRun implements TrainingRun {
+  static final class RealTrainingRun implements TrainingRun {
 
     @Override
-    public void run(List<String> command, Duration timeout) throws IOException {
+    public void run(List<String> command, Path expectedOutput, Duration timeout)
+        throws IOException {
       Path socketPath = Files.createTempDirectory("gimle-sleipnir-training-uds-").resolve("c.sock");
       List<String> full = new ArrayList<>(command);
       full.add(socketPath.toString());
@@ -193,6 +202,11 @@ final class SleipnirTrainer {
               "training worker did not send Hello within " + timeout + ": " + e.getMessage(), e);
         }
 
+        // awaitHello above has already closed the accepted connection, and this block's own
+        // try-with-resources closes the listening socket: between them the worker sees its control
+        // channel go away, which is how it is told to shut down. Hello is the end of training
+        // anyway -- no module is ever installed into this worker, so nothing further would be
+        // class-loaded by leaving it running.
         boolean exited;
         try {
           exited = process.waitFor(millisUntil(deadline), TimeUnit.MILLISECONDS);
@@ -213,6 +227,17 @@ final class SleipnirTrainer {
           throw new IOException(
               "training worker exited "
                   + process.exitValue()
+                  + "; output=\n"
+                  + String.join("\n", outputLines));
+        }
+        // A clean exit is not on its own proof that a cache was written: the JVM declines to write
+        // one for reasons of its own (a classpath it cannot validate, most of all) and still exits
+        // 0. Checked here, with the worker's own output to explain it, rather than left to surface
+        // later as a bare "file not found" on a path.
+        if (!Files.isRegularFile(expectedOutput) || Files.size(expectedOutput) <= 0) {
+          throw new IOException(
+              "training worker exited 0 without writing an AOT cache to "
+                  + expectedOutput
                   + "; output=\n"
                   + String.join("\n", outputLines));
         }
