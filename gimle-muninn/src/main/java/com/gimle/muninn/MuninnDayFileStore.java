@@ -56,14 +56,29 @@ final class MuninnDayFileStore {
    * java.nio.file.Path} reserves {@code :} for drive letters (e.g. {@code C:}) and rejects it
    * anywhere else in a path with {@code InvalidPathException: Illegal char <:>} -- discovered via
    * {@code /ingest/metrics/CONTROLPLANE/127.0.0.1:8080} 400ing outright on Windows, where every
-   * real control-plane/store/fafnir processId takes exactly that shape. Substituting {@code _} for
-   * {@code :} only in the on-disk directory name (never in data returned to a caller, which always
-   * comes from the request URL's own processId, not a directory listing) sidesteps this with no
-   * wire-format change and no readback ambiguity -- nothing ever reconstructs a processId from a
-   * directory name.
+   * real control-plane/store/fafnir processId takes exactly that shape.
+   *
+   * <p>{@code :} is therefore escaped to {@link #COLON_ESCAPE} in the on-disk directory name only.
+   * The escape is percent-shaped rather than a plain {@code _} substitution precisely so it is
+   * reversible: a {@code processId} may itself contain {@code _} but never {@code %} (see that same
+   * {@code PROCESS_ID_SEGMENT} pattern), so {@link #decodeProcessId} recovers the exact original. A
+   * cross-process search has no request URL to read the {@code processId} off -- a directory
+   * listing is its only source -- so a lossy name would leave it unable to say which process a span
+   * it found actually ran on.
    */
   private Path resolveSubtree(String subtreePath) {
-    return dataRoot.resolve(subtreePath.replace(':', '_'));
+    return dataRoot.resolve(encodeProcessIds(subtreePath));
+  }
+
+  private static final String COLON_ESCAPE = "%3A";
+
+  private static String encodeProcessIds(String subtreePath) {
+    return subtreePath.replace(":", COLON_ESCAPE);
+  }
+
+  /** The inverse of the {@code :} escaping {@link #resolveSubtree} applies to a directory name. */
+  private static String decodeProcessId(String directoryName) {
+    return directoryName.replace(COLON_ESCAPE, ":");
   }
 
   /**
@@ -149,6 +164,131 @@ final class MuninnDayFileStore {
     String newerCursor =
         page.isEmpty() ? cursor : timestampOf(page.get(page.size() - 1)).toString();
     return new LogPage(List.copyOf(page), olderCursor, newerCursor);
+  }
+
+  /**
+   * One span carrying a searched trace id, together with the process whose shipped history holds it
+   * -- the {@code processKind}/{@code processId} pair naming that process on every other route of
+   * this store's own HTTP surface.
+   */
+  record TraceSpanHit(String processKind, String processId, Map<String, Object> span) {}
+
+  /**
+   * Every span carrying {@code traceId}, across every process that has ever shipped traces here,
+   * oldest first, capped at {@code limit} matches.
+   *
+   * <p>This exists because a trace is the one thing here that is inherently cross-process: a
+   * cross-worker call puts the caller's span in one process's history and the callee's in another,
+   * and neither process knows the other's identity. Assembled from the per-process read route
+   * instead, the same question becomes "page backwards through every process you can name until you
+   * happen to see it" -- which silently stops being able to answer at all once any one of those
+   * processes emits more spans than the pages a caller is willing to walk, and can never reach a
+   * process the caller cannot name (a worker that has since been replaced still has its shipped
+   * history here under the id it had at the time). Both failures look exactly like "that span was
+   * never created."
+   *
+   * <p>Each line is pre-filtered by a plain substring test before being parsed as JSON: a trace id
+   * is a 32-character hex string, so the overwhelming majority of lines are eliminated without
+   * paying for a parse. The substring test alone is not the answer -- the exact {@code traceId}
+   * field is still compared after parsing, so an id that happens to appear inside some other field
+   * never counts as a match.
+   */
+  List<TraceSpanHit> findSpansByTraceId(String traceId, int limit) throws IOException {
+    Path tracesRoot = dataRoot.resolve("traces");
+    if (!Files.isDirectory(tracesRoot)) {
+      return List.of();
+    }
+    List<TraceSpanHit> hits = new ArrayList<>();
+    for (Path kindDir : sortedDirectories(tracesRoot)) {
+      String processKind = fileNameOf(kindDir);
+      for (Path processDir : sortedDirectories(kindDir)) {
+        String processId = decodeProcessId(fileNameOf(processDir));
+        collectMatchingSpans(processDir, processKind, processId, traceId, limit, hits);
+        if (hits.size() >= limit) {
+          return sortedByTimestamp(hits);
+        }
+      }
+    }
+    return sortedByTimestamp(hits);
+  }
+
+  private void collectMatchingSpans(
+      Path processDir,
+      String processKind,
+      String processId,
+      String traceId,
+      int limit,
+      List<TraceSpanHit> hits)
+      throws IOException {
+    for (Path dayFile : sortedDayFiles(processDir)) {
+      List<String> lines;
+      try {
+        lines = Files.readAllLines(dayFile, StandardCharsets.UTF_8);
+      } catch (NoSuchFileException e) {
+        // Same lost-race-against-the-retention-sweep skip appendLinesFrom already takes.
+        log.debug(
+            "muninn day file {} was removed by a concurrent retention sweep; skipping", dayFile);
+        continue;
+      }
+      for (String line : lines) {
+        if (line.isBlank() || !line.contains(traceId)) {
+          continue;
+        }
+        Map<String, Object> span;
+        try {
+          span = Json.asObject(Json.parse(line));
+        } catch (IllegalArgumentException | ClassCastException e) {
+          log.warn(
+              "skipping malformed line in muninn day file {}: {}",
+              dayFile,
+              truncateForLogging(line),
+              e);
+          continue;
+        }
+        if (!traceId.equals(span.get("traceId"))) {
+          continue;
+        }
+        hits.add(new TraceSpanHit(processKind, processId, span));
+        if (hits.size() >= limit) {
+          return;
+        }
+      }
+    }
+  }
+
+  /**
+   * A line whose timestamp will not parse sorts to the front rather than being dropped: this is a
+   * targeted search for one named trace, so silently discarding a span that does carry the searched
+   * id would hide exactly what the caller is hunting for.
+   */
+  private static List<TraceSpanHit> sortedByTimestamp(List<TraceSpanHit> hits) {
+    List<TraceSpanHit> sorted = new ArrayList<>(hits);
+    sorted.sort(
+        (a, b) ->
+            tryParseTimestamp(a.span())
+                .orElse(Instant.EPOCH)
+                .compareTo(tryParseTimestamp(b.span()).orElse(Instant.EPOCH)));
+    return List.copyOf(sorted);
+  }
+
+  private static List<Path> sortedDirectories(Path parent) throws IOException {
+    try (var entries = Files.list(parent)) {
+      return entries.filter(Files::isDirectory).sorted().toList();
+    }
+  }
+
+  private static List<Path> sortedDayFiles(Path parent) throws IOException {
+    if (!Files.isDirectory(parent)) {
+      return List.of();
+    }
+    try (var entries = Files.list(parent)) {
+      return entries.filter(MuninnDayFileStore::isDayFile).sorted().toList();
+    }
+  }
+
+  private static String fileNameOf(Path path) {
+    Path name = path.getFileName();
+    return name == null ? "" : name.toString();
   }
 
   private List<Map<String, Object>> readAllLinesSorted(String subtreePath) throws IOException {
