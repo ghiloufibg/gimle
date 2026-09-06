@@ -87,7 +87,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | Complete | None |
 | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | PKI | Complete | None |
 | GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | PKI / Security | Complete | Yes |
-| GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | Complete | None |
+| GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | PKI / Internal-Infra | Complete | Partial |
 | GIMLE-079 | Worker JVM control-channel bootstrap | Worker Supervision / Internal-Infra | Complete | Yes |
 | GIMLE-080 | Newline-delimited control-channel wire protocol (worker side) | Internal-Infra | Complete | Yes |
 | GIMLE-081 | Module install/resolve/start/stop/uninstall command dispatch | Module System | Complete | Partial |
@@ -483,7 +483,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-471 | Client-side SHA-256 checksum verification on download | Web Console / Frontend | Complete | Yes |
 | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Web Console / Frontend | Complete | Yes |
 | GIMLE-473 | Maven-2 repository interop view | Web Console / Frontend | Complete | None |
-| GIMLE-474 | Andvari copy-to-clipboard utility | Web Console / Frontend | Complete | None |
+| GIMLE-474 | Andvari copy-to-clipboard utility | Web Console / Frontend | Complete | Yes |
 | GIMLE-475 | Runs list (no authentication) | Web Console / Reporting | Complete | Yes |
 | GIMLE-476 | Live run detail with streaming test feed | Web Console / Reporting | Complete | Yes |
 | GIMLE-477 | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | Complete | Yes |
@@ -855,6 +855,66 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-843 | The registry overview tells a failed or in-flight catalog read apart from an empty one | Web Console | Complete | Yes |
 | GIMLE-844 | Node freshness is judged against how long the store could have heard a heartbeat, and reported by the control plane | Observability | Complete | Yes |
 | GIMLE-845 | A fabric target reports its own inbound backlog, and callers select an endpoint per call rather than once at lookup | Service fabric | Complete | Yes |
+| GIMLE-846 | A vessel probe's named port survives the assignments round trip | Health / Self-Healing | Complete | Yes |
+| GIMLE-847 | One unparseable assignment is skipped and reported rather than aborting the whole batch | Worker Supervision | Complete | Yes |
+| GIMLE-848 | Startup registration is retried with backoff instead of killing the agent | Worker Supervision | Complete | Yes |
+| GIMLE-849 | `/health` answers from a background store probe rather than dialing the store inline | Control plane / API server | Complete | Yes |
+| GIMLE-850 | An operator can label a running node, and the label counts for placement | Scheduling | Complete | Yes |
+| GIMLE-851 | A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable | Release Management | Complete | Yes |
+| GIMLE-852 | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | Networking | Complete | Yes |
+| GIMLE-853 | Retiring a secrets key that still encrypts stored data is refused, and `gimle secret rewrap` re-encrypts under the active key | Secrets Management | Complete | Yes |
+| GIMLE-854 | A peer with an RPC still in flight counts as reachable for check-quorum | Raft Consensus | Complete | Yes |
+| GIMLE-855 | A fabric target's application exception round-trips to its caller, named even when it cannot be loaded or serialized | Service fabric | Complete | Yes |
+| GIMLE-856 | Quota, LimitRange and `policy.maxReplicasPerDeployment` bind on the `default` tenant too | Admission / Multi-tenancy | Complete | Yes |
+| GIMLE-857 | A LimitRange body declaring no usable bound, or an unrecognized field, is refused | Control plane / API server | Complete | Yes |
+| GIMLE-858 | A failed peer-sync or registry call names its real cause instead of the literal text `null` | Artifact Registry | Complete | Yes |
+| GIMLE-859 | A failed certificate-rotation check no longer ends renewal for the life of the process | Transport Security | Complete | Yes |
+| GIMLE-860 | A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved | State Store | Complete | Yes |
+| GIMLE-861 | An artifact push or delete through the control plane names the artifact it affected in the audit trail | Authorization / API Server | Complete | None |
+| GIMLE-862 | A shortfall count is never negative, and a DaemonSet's desired count covers what the same tick keeps placed | Reconciliation / API Server | Complete | Yes |
+| GIMLE-863 | A gateway follows its own tenant's Ingresses by default | Gateway/Routing | Complete | Yes |
+| GIMLE-864 | An instance's timeline opens with an INSTALLED event | Module System | Complete | Yes |
+| GIMLE-865 | Promoting a surge instance records both indexes' timelines | Instance Lifecycle Events | Complete | Yes |
+| GIMLE-866 | A lifecycle hook that fails with an `Error` is recorded rather than unwinding the worker | Module System | Complete | Yes |
+| GIMLE-867 | A start this node refuses is recorded on the instance's own timeline, once per distinct cause | Worker Supervision | Complete | Yes |
+| GIMLE-868 | A placed instance that never started is reported as not running, in the API and in the CLI's health column | Control plane / API server | Complete | Yes |
+| GIMLE-869 | A node reports the binding memory and CPU budget as its capacity | Worker Supervision | Complete | Yes |
+| GIMLE-870 | `gimle volume destroy` exits non-zero when it reclaimed nothing | CLI | Complete | Yes |
+| GIMLE-871 | An Ingress route naming an unknown `paramType` is refused at submission | Control Plane API | Complete | Yes |
+| GIMLE-872 | `gimle logs` prints the stack trace a log line carries | CLI | Complete | Yes |
+| GIMLE-873 | `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name | CLI | Complete | Yes |
+| GIMLE-874 | Every ingress apply is guarded by a compare-and-set version | CLI | Complete | Yes |
+| GIMLE-875 | An unknown Ingress route kind is rejected naming the kinds a manifest may declare | Control plane / API server | Complete | Yes |
+| GIMLE-876 | A throttled control-plane answer is retried instead of read as a signed-out session | Web Console / Frontend | Complete | Yes |
+| GIMLE-877 | An unread kind catalog is not reported as a cluster with no custom kinds | Web Console / Frontend | Complete | Yes |
+| GIMLE-878 | The console dev server proxies every API prefix its repositories use | Web Console / Frontend | Complete | None |
+| GIMLE-879 | An alert rule declaring no tenant is keyed under the default tenant, and a rule watching nothing says so once | Observability | Complete | Yes |
+| GIMLE-880 | One source of truth for which process kinds ship metrics and which ship traces, served by the API | Observability | Complete | Yes |
+| GIMLE-881 | The control plane starts a server span for every request it serves | Observability | Complete | Yes |
+| GIMLE-882 | `-Dgimle.controlplane.muninnEndpoint` is honoured alongside the command-line flag | Observability | Complete | Yes |
+| GIMLE-883 | `hilmir init` and `gimle:init` write generated manifests where the command was run | Build Tooling | Complete | Yes |
+| GIMLE-884 | `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to | Build Tooling | Complete | Yes |
+| GIMLE-885 | A rejected module name says which rule it breaks | Module System | Complete | Yes |
+| GIMLE-886 | A deployment blocked by its artifact says whether it was rejected or unreadable, and why | Reconciliation / Orchestration | Complete | Yes |
+| GIMLE-887 | `hilmir plan` rejects an unknown `--machine` the way `up` already does | Release Management | Complete | Yes |
+| GIMLE-888 | Every rejected topology document is reported as one coded finding | Release Management | Complete | Yes |
+| GIMLE-889 | Config, ConfigMaps, Secrets and SecretMaps carry their tenant in the URL | Web Console / Frontend | Complete | Yes |
+| GIMLE-890 | A topology may configure a store replica's health port | Release Management | Complete | Yes |
+| GIMLE-891 | `hilmir stop` stops one co-located role, or one process id, on a machine | Release Management | Complete | Yes |
+| GIMLE-892 | A captured stdout record is read back as the record it was written as | Observability / Logging | Complete | Yes |
+| GIMLE-893 | `GET /nodes/{nodeId}` serves a single node read | Control plane / API server | Complete | Yes |
+| GIMLE-894 | `gimle apply -f`'s help names every kind it accepts | CLI | Complete | Yes |
+| GIMLE-895 | An instance event is filed only under a workload that exists | Observability | Complete | Yes |
+| GIMLE-896 | A CronJob reports its last real firing separately from how far its schedule has been evaluated | Reconciliation / API Server | Complete | Yes |
+| GIMLE-897 | A vessel's log directory resolves from its own name, so a bare-name log read reaches it | Observability | Complete | Yes |
+| GIMLE-898 | `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run | Build Tooling | Complete | Yes |
+| GIMLE-899 | A root span reports no parent rather than the all-zero span id | Tracing | Complete | Yes |
+| GIMLE-900 | Every span of one trace is found across processes in a single read | Tracing | Complete | Yes |
+| GIMLE-901 | `GET /trace/{traceId}` and `gimle trace <traceId>` follow a whole trace, wherever it ran | Observability | Complete | Yes |
+| GIMLE-902 | A history read forwards the backward-paging parameters instead of dropping them at the proxy hop | Observability | Complete | Yes |
+| GIMLE-903 | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | Security / Identity | Complete | Yes |
+| GIMLE-904 | A worker's handshake is applied to every instance packed onto that worker | Worker Supervision | Complete | Yes |
+| GIMLE-905 | A store replica presents its own leaf certificate rather than the control plane's | Transport Security | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1127,9 +1187,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Observability / Logging
 - **User story**: As a platform developer, I want the console appender to default to colored text but be forceable to JSON.
-- **Status**: Complete
+- **Status**: Complete. The four properties `gimle-core` reads at startup -- `gimle.log.console`, `gimle.log.root`, `gimle.log.maxFileSizeBytes` and `gimle.log.maxFiles` -- are now documented with their defaults, the fact that an unrecognized console value silently falls back to text, and why console format is a presentation choice only: every process writes an unconditional JSON trail to its own platform log file through a separate appender this property never touches, and that file, not stdout, is what the Logs screen, `gimle logs` and Muninn all read. The one exception, a worker JVM its agent always spawns with `-Dgimle.log.console=json`, is documented with the reason (the agent tells structured lines from unstructured ones on the raw pipe). The two rotation properties are documented as applying to every rotated surface alike and as needing to be set consistently, since the readers behind `gimle logs` honour `gimle.log.maxFiles` too.
 - **Confidence**: High
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/ConsoleLogEncoder.java`
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/ConsoleLogEncoder.java`, `gimle-docs/docs/architecture/observability.md` (the `gimle.log.*` runtime-configuration section)
 - **Test coverage**: `ConsoleLogEncoderTest` (explicit json/text override, no override defaults to text)
 - **Gherkin scenario**:
   ```gherkin
@@ -1565,6 +1625,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the console's deployment Instances table and instance detail page read that same observation, When either screen renders, Then it shows the usage figure as "used / limit" alongside the instance's isolation tier, not a bare usage number with no ceiling to judge it against.
   ```
 
+#### GIMLE-892 — A captured stdout record is read back as the record it was written as
+
+- **Category**: Observability / Logging
+- **User story**: As an operator reading a node's SYSTEM log view, I want a captured stdout record read back as itself, so it is not re-wrapped inside its own raw string with the read time stamped in front of the capture time.
+- **Status**: Fixed. `LogFileReader#parseLine` recognised a platform-written line only by the presence of `timestamp` and `level`, but a captured-stdout record is written in the raw shape and carries a `category` instead of a level. It therefore failed the check and was re-wrapped as raw text on the way out -- producing a record nested inside its own raw string, with the read time stamped ahead of the capture time. A line carrying `timestamp` plus `category: SYSTEM` is now recognised as the record it already is.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/logging/LogFileReader.java` (`parseLine`)
+- **Test coverage**: `LogFileReaderSystemCaptureTest#a_captured_stdout_record_is_read_back_as_the_record_it_was_written_as`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node agent's captured worker stdout record on disk
+  When it is read back through the log reader
+  Then it comes back as that record, with its own capture timestamp, rather than re-wrapped as raw text
+  ```
+
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1939,6 +2014,53 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a gateway instance whose gateway.routes value is malformed, When the reload tick reads it, Then the rejection is reported once in that instance's own log and the previous route table is kept.
   ```
 
+#### GIMLE-864 — An instance's timeline opens with an INSTALLED event
+
+- **Category**: Module System
+- **User story**: As an operator reading an instance's event timeline, I want it to begin at INSTALLED, so that a timeline starting at RESOLVED does not read as if its first step were lost.
+- **Status**: Fixed. Nothing ever minted `LifecycleEvent.Installed`: the worker registered each artifact straight into `ModuleRegistry`, which announces nothing, so every instance's timeline opened at RESOLVED and never recorded that the artifact had been installed at all. `ModuleController#install` now performs the registration and emits the event, so the transition travels the same lifecycle-sink path every later one does -- the sink that turns it into both the agent's `ModuleStateChanged` and the instance's own durable timeline entry. `WorkerMain` installs through it on first install (after the instance's identity is registered, since an event arriving before that has no deployment/index to attach to), and `WorkerRuntime`'s in-worker restart re-installs through it under the instance's own key, putting the restart's INSTALLED entry on the timeline alongside the STOPPING/UNINSTALLED and ACTIVE entries bracketing it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`install`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (InstallModule case), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (restart attempt)
+- **Test coverage**: `ModuleControllerTest#installing_a_module_opens_its_timeline_rather_than_starting_it_at_resolved`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module instance being installed into a worker
+  When its timeline is read
+  Then it opens with an INSTALLED entry ahead of RESOLVED
+  And an in-worker restart records its own INSTALLED entry too
+  ```
+
+#### GIMLE-866 — A lifecycle hook that fails with an `Error` is recorded rather than unwinding the worker
+
+- **Category**: Module System
+- **User story**: As an operator deploying a badly-packaged module, I want a hook that fails to link recorded as that module's failure, so it does not take its co-tenant modules down with it and leave no account of what happened.
+- **Status**: Fixed. `ModuleController` caught only `RuntimeException` around every hook invocation, but the most common way a badly-packaged artifact breaks is a missing transitive class surfacing as `NoClassDefFoundError` the first time a hook touches it -- an `Error`, which escaped every catch. Nothing was recorded at all: no FAILED state, no `TransitionFailed` event, no line naming the cause, and the escape unwound the worker's own control loop, tearing down every co-tenant module sharing that JVM. All four hook sites (`onInstall`/`onStart`/`onStop`/`onUninstall`) now catch `Throwable`, and `WorkerRuntime`'s probe-loading path does the same, since "fails to load" is precisely the shape of failure it exists to report.
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (hook invocation sites), `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (probe class loading)
+- **Test coverage**: `HookFailureVisibilityTest#a_start_hook_that_fails_to_link_is_recorded_instead_of_escaping_uncaught`, `#a_start_hook_that_fails_to_link_reaches_the_instances_own_log_with_its_stack_trace` (driven against a real bundled hook jar built by the new `PlatformJars` test support)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module whose start hook throws NoClassDefFoundError on a missing transitive class
+  When the instance is started
+  Then that instance is marked FAILED with a TransitionFailed event naming the cause
+  And a co-tenant module sharing the same worker keeps running
+  ```
+
+#### GIMLE-885 — A rejected module name says which rule it breaks
+
+- **Category**: Module System
+- **User story**: As a module author whose `name:` is rejected, I want the rejection to state the rule, so I know a hyphen is the problem rather than guessing at the manifest.
+- **Status**: Fixed. `ModuleDescriptorParser` rejected a name that is not a dot-separated sequence of Java identifiers with `'name' is not a valid module name: <name>`, which restates the failure without naming the constraint or why it exists. The rejection now states the rule -- dot-separated Java identifiers, letters, digits, `_` and `$`, never starting with a digit -- and why it is real: the declared name is used verbatim as the JPMS module name the module's own layer is resolved by. The manifest reference, which had claimed the constraint was unenforced, was corrected to match.
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java` (`NAME_RULE`)
+- **Test coverage**: `ModuleDescriptorParserTest#a_hyphenated_name_is_rejected_and_the_rejection_says_it_is_the_name_that_is_wrong`, `#a_name_starting_with_a_digit_is_rejected`, `#a_reverse_dns_name_is_accepted`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a `gimle-module.yaml` whose `name:` contains a hyphen
+  When the descriptor is parsed
+  Then the rejection names the rule the name breaks and why it is enforced
+  ```
+
 ### gimle-os
 
 #### GIMLE-064 — Pluggable resource-limiter abstraction
@@ -2157,10 +2279,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: PKI / Internal-Infra
 - **User story**: As a cluster operator standing up a brand-new TLS-mode cluster, I want one command generating the cluster CA plus leaf certificates for the control plane, Fafnir, Muninn, Andvari, and the first human operator, plus a bootstrap console account.
-- **Status**: Complete
+- **Status**: Complete. Extended: `pki init` now also issues a `store-<hostname>` leaf. Previously no per-store leaf existed in the generated material at all and every launcher started store replicas with the control-plane certificate for their machine -- so a store replica claimed on the wire to be the very process that authenticates to it, a peer could not tell the two apart, and the store inherited that role's group grants. The store's Subject deliberately carries no `O=`: it authorizes nothing on group membership and only needs to be identifiable as itself.
 - **Confidence**: Medium
-- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
-- **Test coverage**: NONE direct (constituent pieces — CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem — each independently tested)
+- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (store `tlsFlags`)
+- **Test coverage**: The constituent pieces -- CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem -- are each independently tested, and `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes` now covers the store leaf directly.
 - **Gherkin scenario**:
   ```gherkin
   Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.
@@ -2212,6 +2334,37 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then an ERROR names the streak length and how long the current certificate stays valid
   And the consecutive-failure gauge and the outcome-tagged counter reflect it
   And a healthy process still reports an explicit zero rather than no metric at all
+  ```
+
+#### GIMLE-859 — A failed certificate-rotation check no longer ends renewal for the life of the process
+
+- **Category**: Transport Security
+- **User story**: As an operator, I want one failed rotation check to be retried at the next interval, so that a momentary unreadable key file does not silently stop certificate renewal until the certificate expires.
+- **Status**: Fixed. Each of `StoreMain`, `FafnirMain`, `MuninnMain` and `AndvariMain` scheduled its rotation check as an inline lambda on `scheduleAtFixedRate`, which cancels a repeating task permanently the moment one execution throws. The reachable failures there are transient, not terminal -- `TlsSettings.fromConfig()` throws while an external tool is mid-replacement of the certificate/key pair, and reloading a listener can fail on material the next attempt reads fine -- so one such moment ended renewal for the rest of that process's life, harmless right up until the certificate it stopped renewing expired and the process dropped out of its own cluster. Each process now runs the check through a self-contained, package-visible `rotationTick` that catches and logs, leaving the ticker alive. A misconfiguration no retry can fix still fails fast at startup, before the ticker is scheduled.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/StoreMain.java` (`rotationTick`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java` (`rotationTick`), `gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java` (`rotationTick`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java` (`rotationTick`)
+- **Test coverage**: `StoreMainResilienceTest`, `FafnirMainResilienceTest`, `MuninnMainResilienceTest` and `AndvariMainResilienceTest` each drive a tick whose rotation check throws and assert the next tick still runs.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a process whose certificate-rotation check throws once (unreadable material mid-replacement)
+  When the next scheduled check is due
+  Then it runs, and rotation continues rather than having been silently cancelled
+  ```
+
+#### GIMLE-905 — A store replica presents its own leaf certificate rather than the control plane's
+
+- **Category**: Transport Security
+- **User story**: As an operator, I want a store replica identifiable on the wire as itself, so it is not indistinguishable from the process that authenticates to it and does not inherit that role's group grants.
+- **Status**: Fixed. No per-store leaf existed in the platform's generated material, so a store replica presented the control-plane certificate for its own machine: on the wire it claimed to be the very process that authenticates to it, neither side's identity meant anything, and the store carried the control-plane group grants along with it. `pki init` now issues a `store-<hostname>` leaf whose Subject deliberately carries no `O=` -- the store authorizes nothing on group membership, it only needs to be identifiable as itself -- and `hilmir`'s launch planner and Holmgang's own cluster fixture both launch store replicas with it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java` (`store-<hostname>` leaf), `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (`tlsFlags(topology, "store", ...)`), `gimle-holmgang/src/main/java/com/gimle/holmgang/cluster/GimleCluster.java`
+- **Test coverage**: `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes`; `LaunchPlannerTest` asserts store replicas are launched with the store leaf
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster bootstrapped with `hilmir pki init`
+  When a store replica's presented certificate is inspected
+  Then its Subject names the store's own leaf, carrying no control-plane group
+  And the cluster still functions end to end over mutual TLS
   ```
 
 ### gimle-worker
@@ -2389,10 +2542,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Worker Supervision / Self-Healing
 - **User story**: As an operator, I want a module that fails its liveness probe a threshold number of times in a row to be disposed and reinstantiated automatically (with exponential backoff), and — once its restart budget is exhausted — escalated to FAILED so the worker/machine-tier self-healing chain can take over, so that a genuinely broken module doesn't loop forever without ever surfacing as needing intervention.
-- **Status**: Complete
+- **Status**: Complete. Modified: a restart attempt that failed after `controller.stop(id)` had already driven the module through UNINSTALLED dead-ended -- the module was gone from the registry with nothing retrying it and no terminal state recorded anywhere, so the instance was simply stranded. A failed attempt now re-enters the same backoff loop (`restartModule` is called again from the attempt's own tail), bounded exactly as before by the tracker's budget. Budget exhaustion now escalates through `ModuleController#abandonFailed` rather than `forceFailed`: `forceFailed` requires the module to still be ACTIVE, which is precisely the case that no longer holds after an uninstall, so exhaustion could previously fail to record anything at all. `abandonFailed` marks the registry when the module is still known and always emits the `TransitionFailed` event -- the event, not the registry write, is what reaches the agent as `ModuleStateChanged("FAILED")` and lets the machine tier take over.
 - **Confidence**: High
-- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onLivenessResult`, `restartModule`, `scheduleModuleStabilityConfirmation`, `newRestartTracker`)
-- **Test coverage**: `WorkerRuntimeTest#repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active`, `#a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed`, `#a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget`
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onLivenessResult`, `restartModule`, `scheduleModuleStabilityConfirmation`, `newRestartTracker`), `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleController.java` (`abandonFailed`)
+- **Test coverage**: `WorkerRuntimeTest#repeated_liveness_failures_restart_the_module_and_it_stays_registered_and_active`, `#a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed`, `#a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget` `ModuleControllerTest#abandon_failed_reports_an_instance_that_was_already_uninstalled`, `#abandon_failed_still_marks_a_module_that_is_only_stuck_not_gone`.
 - **Gherkin scenario**:
   ```gherkin
   Given a module's consecutive liveness failures reach livenessFailureThreshold (3)
@@ -2634,6 +2787,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given an instance whose liveness probe begins failing, When it fails enough consecutive times to trigger a module-tier restart, Then the instance's timeline carries a LIVENESS_FAILED entry naming how many failures in a row caused it.
   Given a module that fails a lifecycle transition, When its TRANSITION_FAILED event is recorded, Then the message names the transition that could not be made rather than restating both ends of it around the word failed.
+  ```
+
+#### GIMLE-865 — Promoting a surge instance records both indexes' timelines
+
+- **Category**: Instance Lifecycle Events
+- **User story**: As an operator watching a rolling update, I want the index a surge instance takes over and the index it gives up to both say what happened, so that neither timeline goes on describing a world that no longer exists.
+- **Status**: Fixed. `ControlMessage.RenameInstance` retargets an already-installed instance onto a new deployment name and index and deliberately drives no lifecycle transition -- retarget, don't restart -- so nothing flowed through the lifecycle sink and neither index's timeline moved. The index taken over stayed frozen at its previous occupant's teardown (an UNINSTALLED, for the rolling update this message exists to serve) while the instance now answering to it was running and serving, and the index handed over went on claiming a live instance it no longer had. `WorkerMain#applyRename` now mints the timeline entries by hand and relays them as `InstanceEventOccurred`: the taken-over index is recorded in the instance's *live* state rather than an assumed ACTIVE, so promoting an instance that has since failed is not recorded as promoting a healthy one. A rename repeating an identity the instance already holds, or naming a module this worker no longer hosts, records nothing.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`applyRename`, RenameInstance case)
+- **Test coverage**: `WorkerMainTest#promoting_a_surge_instance_carries_the_reused_index_timeline_past_its_teardown`, `#promoting_a_surge_instance_closes_off_the_index_it_gave_up`, `#a_promotion_of_an_instance_that_has_since_failed_is_not_recorded_as_a_healthy_one`, `#a_rename_repeating_the_identity_an_instance_already_holds_records_nothing`, `#a_rename_of_a_module_this_worker_no_longer_hosts_records_nothing`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a rolling update that promotes a surge instance onto a retiring replica's index
+  When the promotion is applied
+  Then the reused index's timeline moves past its previous occupant's teardown
+  And the surge index's timeline records that it no longer holds a live instance
   ```
 
 ### gimle-agent
@@ -3310,10 +3479,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Worker Supervision
 - **User story**: As a platform operator, I want every worker JVM this node spawns to benefit automatically from a JDK 25 AOT cache once one exists, without any manifest, API, or process-kind change, so that deploy latency and self-healing MTTR improve for every module on a jars-only classpath and degrade to today's unchanged behavior everywhere else.
-- **Status**: Complete. Phase A (WorkerStartupBenchIT) measured a real 43-46% p50 spawn->Hello reduction on a real jars-only classpath, gating Phase B: SleipnirCache (gimle-agent) computes a sha256 key over the worker javaExecutable's -version output, os.name/arch, each classpath jar's (path, size, sha256), and AgentMain.stableWorkerFlags() -- the same flag-building method buildWorkerCommand itself calls, so the key and the real command can never drift -- returning empty (ineligible) for any non-jar classpath entry (a directory disqualifies the whole cache under JEP 483). SleipnirTrainer spawns one training WorkerMain (gimle.worker.aotTraining, JEP 514's -XX:AOTCacheOutput=) at agent startup, off a background virtual thread, waits for Hello then a clean exit, and commits meta.json before the .aot itself via atomic rename so a reader can never observe an incomplete cache. buildWorkerCommand gained an Optional<Path> aotCachePath parameter that, when present, inserts -XX:AOTCache=<path> -XX:AOTMode=auto -Xlog:aot=warning -- AOTMode=auto means a corrupt or mismatched cache degrades to a normal uncached start, never a failed spawn. sweep() keeps the current key plus any key still referenced by a live worker (SupervisedInstance#aotCacheKey) and unconditionally clears orphaned .tmp files. No per-module/tenant cache, no hosted-module-class caching (JPMS user-defined loaders get no AOT benefit at all), no new process kind, manifest field, API, or store schema. A real-cluster user-perspective test pass (launching a genuine store+fafnir+controlplane+agent cluster and deploying a real module) surfaced and fixed one bug not caught by any unit/integration test: WorkerProcessSupervisor used to snapshot its spawn command once at construction and reuse it for every crash-triggered respawn, so an instance whose first spawn raced ahead of Sleipnir's still-training background cache could never benefit from that cache on any later respawn, even after training finished -- exactly the self-healing path Sleipnir's own startup-latency benefit matters most for. Fixed by changing WorkerProcessSupervisor's baseCommand from a frozen List<String> to a Supplier<List<String>> re-invoked on every spawn (initial and respawn alike), with AgentMain#startInstance's supplier re-resolving SleipnirCache#cacheFor(commandTail) fresh each call rather than snapshotting the Optional<Path> once.
+- **Status**: Complete. Phase A (WorkerStartupBenchIT) measured a real 43-46% p50 spawn->Hello reduction on a real jars-only classpath, gating Phase B: SleipnirCache (gimle-agent) computes a sha256 key over the worker javaExecutable's -version output, os.name/arch, each classpath jar's (path, size, sha256), and AgentMain.stableWorkerFlags() -- the same flag-building method buildWorkerCommand itself calls, so the key and the real command can never drift -- returning empty (ineligible) for any non-jar classpath entry (a directory disqualifies the whole cache under JEP 483). SleipnirTrainer spawns one training WorkerMain (gimle.worker.aotTraining, JEP 514's -XX:AOTCacheOutput=) at agent startup, off a background virtual thread, waits for Hello then a clean exit, and commits meta.json before the .aot itself via atomic rename so a reader can never observe an incomplete cache. buildWorkerCommand gained an Optional<Path> aotCachePath parameter that, when present, inserts -XX:AOTCache=<path> -XX:AOTMode=auto -Xlog:aot=warning -- AOTMode=auto means a corrupt or mismatched cache degrades to a normal uncached start, never a failed spawn. sweep() keeps the current key plus any key still referenced by a live worker (SupervisedInstance#aotCacheKey) and unconditionally clears orphaned .tmp files. No per-module/tenant cache, no hosted-module-class caching (JPMS user-defined loaders get no AOT benefit at all), no new process kind, manifest field, API, or store schema. A real-cluster user-perspective test pass (launching a genuine store+fafnir+controlplane+agent cluster and deploying a real module) surfaced and fixed one bug not caught by any unit/integration test: WorkerProcessSupervisor used to snapshot its spawn command once at construction and reuse it for every crash-triggered respawn, so an instance whose first spawn raced ahead of Sleipnir's still-training background cache could never benefit from that cache on any later respawn, even after training finished -- exactly the self-healing path Sleipnir's own startup-latency benefit matters most for. Fixed by changing WorkerProcessSupervisor's baseCommand from a frozen List<String> to a Supplier<List<String>> re-invoked on every spawn (initial and respawn alike), with AgentMain#startInstance's supplier re-resolving SleipnirCache#cacheFor(commandTail) fresh each call rather than snapshotting the Optional<Path> once. Modified: training never actually produced a cache. The trainer told its worker to return from `main` via a `gimle.worker.aotTraining` early-exit path, but returning from `main` does not end a worker JVM at all -- its JFR-backed accounting keeps a non-daemon thread alive for as long as the process lives -- so every training run timed out and was killed, and JEP 514 writes the cache only from the shutdown path of a process that ends of its own accord. Every Tier-2 spawn therefore ran uncached, exactly as if Sleipnir were not there. The training worker is now an ordinary worker command with no early-exit flag: the trainer waits for its `Hello`, closes the control channel, and the worker shuts down through the same path every worker does, writing the cache on the way out. The now-unreachable `isAotTrainingMode` branch was removed from `WorkerMain`, and the trainer verifies a usable output file exists rather than only that the run returned.
 - **Confidence**: High
-- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`isAotTrainingMode`), `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stableWorkerFlags`, `buildWorkerCommand`, `startInstance`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`aotCacheKey`), `gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java` (`baseCommand` supplier, `spawn`)
-- **Test coverage**: `WorkerStartupBenchIT` (real jars-only classpath, cached-vs-uncached p50/p95 gate, JFR-coexistence assertion, corrupted-cache resilience); `SleipnirCacheTest` (key determinism, ineligible-classpath, cache-hit/miss, meta.json-before-.aot ordering, sweep); `SleipnirTrainerTest` (ineligible classpath, training failure swallowed, cache-hit short-circuits retraining, concurrent calls serialize, start() idempotency) plus `SleipnirTrainerRealRunIT` (a real training run against the real worker classpath); `RedeployLoopFlatMetaspaceTest`'s added `-XX:AOTMode=auto` variant (the leak-sensitive redeploy path is unperturbed); `gimle-holmgang`'s `aot-cache.feature` (a deployment reaches ACTIVE normally under Holmgang's own directory classpath, with the ineligibility line observed in the agent's own log and no cache files written). `WorkerProcessSupervisorTest#a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time` (regression test for the respawn-freshness bug above, using two distinct command variants from one supplier to prove a crash-triggered respawn re-invokes it rather than reusing a construction-time snapshot).
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`isAotTrainingMode`), `gimle-agent/src/main/java/com/gimle/agent/SleipnirCache.java`, `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stableWorkerFlags`, `buildWorkerCommand`, `startInstance`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`aotCacheKey`), `gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java` (`baseCommand` supplier, `spawn`), `gimle-agent/src/main/java/com/gimle/agent/SleipnirTrainer.java` (`TrainingRun#run` takes the expected output)
+- **Test coverage**: `WorkerStartupBenchIT` (real jars-only classpath, cached-vs-uncached p50/p95 gate, JFR-coexistence assertion, corrupted-cache resilience); `SleipnirCacheTest` (key determinism, ineligible-classpath, cache-hit/miss, meta.json-before-.aot ordering, sweep); `SleipnirTrainerTest` (ineligible classpath, training failure swallowed, cache-hit short-circuits retraining, concurrent calls serialize, start() idempotency) plus `SleipnirTrainerRealRunIT` (a real training run against the real worker classpath); `RedeployLoopFlatMetaspaceTest`'s added `-XX:AOTMode=auto` variant (the leak-sensitive redeploy path is unperturbed); `gimle-holmgang`'s `aot-cache.feature` (a deployment reaches ACTIVE normally under Holmgang's own directory classpath, with the ineligibility line observed in the agent's own log and no cache files written). `WorkerProcessSupervisorTest#a_respawn_uses_the_freshly_supplied_command_not_a_snapshot_from_construction_time` (regression test for the respawn-freshness bug above, using two distinct command variants from one supplier to prove a crash-triggered respawn re-invokes it rather than reusing a construction-time snapshot). `SleipnirTrainingRunTest#closing_the_control_channel_is_what_makes_a_training_worker_write_its_cache`, `#a_worker_told_to_return_from_main_instead_never_ends_and_never_writes_a_cache`, `#a_training_worker_that_writes_no_cache_is_reported_as_a_failure` (driven against a stand-in training worker).
 - **Gherkin scenario**:
   ```gherkin
   Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files.
@@ -3513,10 +3682,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Operations
 - **User story**: As an operator, I want a reclaim that found nothing on disk to tell me so, rather than reporting the destruction of data it never touched, so a mis-addressed destroy is visible immediately instead of leaving me believing a volume is gone.
-- **Status**: Fixed. `VolumeManager#destroy` was `void` and documented a missing directory as a silent no-op, and `AgentLogServer#handleVolumes` answered `200 {"destroyed": true}` unconditionally -- so a destroy naming a tenant, set or index with nothing on disk reported success for data it never touched, the exact answer that hid a mis-addressed reclaim. `destroy` now returns whether it actually removed a directory and the agent answers 404 with the coordinate it looked under when it did not. Separately, the agent read `?tenant=` as `Optional.ofNullable(...)`, so a present-but-blank parameter became `Optional.of("")` -- a tenant no volume can ever have -- leaving a client that must always send the parameter no way to spell "untenanted"; blank now normalizes to untenanted on both the agent and the control plane, which is safe because a real tenant id is never blank.
+- **Status**: Fixed. `VolumeManager#destroy` was `void` and documented a missing directory as a silent no-op, and `AgentLogServer#handleVolumes` answered `200 {"destroyed": true}` unconditionally -- so a destroy naming a tenant, set or index with nothing on disk reported success for data it never touched, the exact answer that hid a mis-addressed reclaim. `destroy` now returns whether it actually removed a directory and the agent answers 404 with the coordinate it looked under when it did not. Separately, the agent read `?tenant=` as `Optional.ofNullable(...)`, so a present-but-blank parameter became `Optional.of("")` -- a tenant no volume can ever have -- leaving a client that must always send the parameter no way to spell "untenanted"; blank now normalizes to untenanted on both the agent and the control plane, which is safe because a real tenant id is never blank. Modified: the 404 this entry describes had since been replaced by an idempotent `200 {"destroyed": false}`, on the grounds that every other DELETE here is idempotent, with the distinction carried in the response body alone. That put it back where it started for every caller that reads an exit status rather than a body. The agent answers 404 again for a destroy that removed nothing, and `gimle volume destroy` now carries that to a non-zero exit code.
 - **Confidence**: High
-- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean), `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)
-- **Test coverage**: AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something.
+- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean), `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE), `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`destroy`)
+- **Test coverage**: AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something. The agent-side tests are now `destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk` and `destroying_an_already_destroyed_volume_reports_that_it_removed_nothing`.
 - **Gherkin scenario**:
   ```gherkin
   Given a node holding a volume for tenant `acme` at sessions[0]
@@ -3653,6 +3822,133 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a tenant-scoped instance running on a node, When an operator reads its logs by deployment name and index, Then the node answers with that instance's own log lines.
   Given a Tier 1 instance packed onto a sibling instance's worker, When its logs are read by name, Then they are served from the worker directory that actually holds them.
+  ```
+
+#### GIMLE-846 — A vessel probe's named port survives the assignments round trip
+
+- **Category**: Health / Self-Healing
+- **User story**: As an operator declaring a multi-port vessel, I want the probe's `port:` name to reach the node that dials it, so that a manifest the platform accepted is one the node can actually act on.
+- **Status**: Fixed. `VesselProbeSpec` carries the name of the port a probe dials, but neither direction of the `/nodes/{id}/assignments` wire shape carried it: `ApiServer#vesselProbeToJson` emitted only the probe kind and its initial delay, and `AgentMain#parseVesselProbe` reconstructed the spec with no port name at all. A single-port vessel never notices -- the port is unambiguous -- but a vessel declaring several ports had its probe silently become ambiguous the moment the agent rebuilt it, turning a well-formed manifest into an unresolvable probe on the node. The name is now emitted under the same `port` key the manifest parser reads, so a spec read back out of the API and re-applied still names the port it dials, and the agent parses it back.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`vesselProbeToJson`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`parseVesselProbe`)
+- **Test coverage**: `ApiServerTest#assignments_endpoint_keeps_the_port_a_vessel_probe_names`; `AgentMainTest#a_fetched_vessel_probe_keeps_the_port_it_names`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Vessel declaring several named ports whose readiness probe names one of them
+  When the node fetches its assignments and rebuilds the vessel spec
+  Then the probe still names that port, and a spec read back from the API and re-applied is unchanged
+  ```
+
+#### GIMLE-847 — One unparseable assignment is skipped and reported rather than aborting the whole batch
+
+- **Category**: Worker Supervision
+- **User story**: As an operator, I want a single malformed assignment to fail only the workload it belongs to, so that one bad spec cannot stop a node from learning about every other tenant's instances.
+- **Status**: Fixed. `AgentMain#fetchAssignments` parsed the whole `/nodes/{id}/assignments` array in one pass with no per-entry boundary, so any parse failure escaped the fetch entirely: the agent learned nothing about any assignment that tick, and -- because the fetch precedes the heartbeat in the same tick body -- froze this node's heartbeat for every tenant on it, not just the one at fault. Each entry is now parsed on its own through `parseAssignment`, and a failure skips exactly that entry. It is not skipped silently: `reportUnparseableAssignment` logs the offending workload and, when the entry at least carries a usable name and index, posts a durable `TRANSITION_FAILED` instance event, since an assignment the agent cannot parse is otherwise invisible to an operator, who sees only a deployment that never progresses on a node that looks perfectly healthy.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`fetchAssignments`, `parseAssignment`, `reportUnparseableAssignment`)
+- **Test coverage**: `AgentMainTest#one_unparseable_assignment_does_not_discard_the_rest_of_the_batch`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node whose assignment batch contains one entry this agent cannot parse
+  When the agent fetches its assignments
+  Then every other assignment in the batch is still returned and supervised
+  And the offending workload is named in the node's log and on its own instance timeline
+  ```
+
+#### GIMLE-848 — Startup registration is retried with backoff instead of killing the agent
+
+- **Category**: Worker Supervision
+- **User story**: As an operator, I want a node whose control plane was momentarily unreachable at startup to join the cluster once it comes back, so that a restart ordering or a transient timeout does not silently remove a machine from the cluster.
+- **Status**: Fixed. `AgentMain` called `register(...)` exactly once, and an `IOException` from it escaped `main()` and ended the process -- the node was gone from the cluster until a human noticed, even though the steady-state tick loop that follows survives exactly the same class of failure. `registerWithRetry` now retries indefinitely with exponential backoff to a 30s ceiling (`nextRegistrationBackoff`), naming each failure and the wait before the next attempt. A non-2xx answer is treated as retryable too: `register` reads the response status instead of discarding the body, so a control plane still coming up and answering 503 no longer leaves this agent believing it is registered while the cluster has never heard of it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`registerWithRetry`, `nextRegistrationBackoff`, `register`)
+- **Test coverage**: `AgentMainTest#registration_keeps_retrying_until_the_control_plane_accepts_it` (a stub control plane refusing the first attempts, then accepting), `#registration_backoff_grows_but_stops_at_its_ceiling`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node agent starting while the control plane is refusing registrations
+  When registration is attempted
+  Then the agent backs off and retries rather than exiting
+  And it registers as soon as the control plane accepts, without operator intervention
+  ```
+
+#### GIMLE-867 — A start this node refuses is recorded on the instance's own timeline, once per distinct cause
+
+- **Category**: Worker Supervision
+- **User story**: As an operator, I want a spawn a node refused -- for memory, an unreadable artifact or an unsupported tier -- recorded against the instance, so I am not left with a workload that reports desired state and nothing anywhere saying why nothing runs.
+- **Status**: Fixed. A start this node could not perform was reported only in the node's own log: a worker ceiling that would overcommit the machine's real memory, an artifact the node cannot read, an isolation tier it cannot provide. An operator saw a workload placed and apparently fine, with the only account of the failure in a node log they had no reason to suspect. `AgentMain#reportStartFailure` now posts a durable `TRANSITION_FAILED` instance event naming the refusal. Reconciliation is level-triggered, so an unfixable start is retried every tick; the event is therefore keyed through a `reportedStartFailures` map and posted once per distinct cause per instance -- posting each retry would push every other event out of that instance's own bounded timeline within minutes -- while a cause that changes is reported again as the genuinely new information it is.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reportStartFailure`, `reportedStartFailures`, `reconcileAssignments`)
+- **Test coverage**: `AgentStartFailureEventTest#a_refused_spawn_is_reported_as_a_durable_transition_failed_event_for_that_instance`, `#an_unchanged_refusal_repeated_every_tick_is_reported_once_rather_than_on_every_tick`, `#an_unreadable_artifact_is_reported_the_same_way_a_refused_spawn_is`, `#an_assignment_that_starts_normally_reports_no_failure_event`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an instance placed on a node that refuses to spawn its worker
+  When the node reconciles that assignment, tick after tick
+  Then one TRANSITION_FAILED event naming the refusal appears on that instance's timeline
+  And a repeat of the same refusal is not filed again
+  ```
+
+#### GIMLE-869 — A node reports the binding memory and CPU budget as its capacity
+
+- **Category**: Worker Supervision
+- **User story**: As the scheduler, I want a node's heartbeat to report whichever of its two budgets is actually binding, so that a node already refusing spawns for lack of real memory stops advertising room it does not have.
+- **Status**: Fixed. The heartbeat's `assignedMemoryBytes`/`assignedCpuMillicores` summed each instance's own declared *request*, while `startInstance` refuses a spawn against the sum of the real `-Xmx` ceilings every spawned worker is started with -- two different numbers, and only the second binds. A node whose agent was already refusing every new spawn therefore kept advertising free capacity, and the scheduler kept sending it work it could never run. `sendHeartbeat` now reports the larger of the two sums for each dimension, so the number the scheduler reads is the one the node actually enforces.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`sendHeartbeat`, `committedWorkerCapacity`)
+- **Test coverage**: `AgentCapacityReportTest#the_reported_capacity_reflects_the_real_worker_ceilings_this_node_has_committed`, `#a_request_sum_larger_than_the_committed_sum_is_still_the_one_reported`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node hosting workers whose committed `-Xmx` ceilings exceed the sum of their declared requests
+  When it heartbeats
+  Then the reported assigned capacity is the committed ceiling sum
+  And a node whose requests exceed its committed ceilings still reports the request sum
+  ```
+
+#### GIMLE-897 — A vessel's log directory resolves from its own name, so a bare-name log read reaches it
+
+- **Category**: Observability
+- **User story**: As an operator reading a vessel's logs, I want to name it the way I name a module instance, without having to know it is a vessel or which tenant it is in.
+- **Status**: Fixed. `AgentMain#workerDirectoryKey` -- what a log request uses to find an instance's files on disk -- consulted only the `supervised` map of module instances. A vessel is supervised in its own separate map (it has no worker connection, module descriptor or control channel at all), so a vessel log read fell through to a synthesized key built from whatever tenant the caller happened to name, and a caller naming the vessel by name alone reached nothing. The lookup now also searches `supervisedVessels` and resolves the vessel's own instance key, so a tenanted vessel resolves without the caller naming its tenant, while a declared tenant still picks between two tenants sharing a vessel name and index.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`workerDirectoryKey`, `findSupervisedVessel`)
+- **Test coverage**: `WorkerDirectoryKeyTest#a_tenanted_vessel_resolves_without_the_caller_having_to_name_its_tenant`, `#a_declared_tenant_picks_between_two_tenants_sharing_a_vessel_name_and_index`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Vessel workload running under a named tenant
+  When its logs are requested by deployment name and index alone
+  Then the node resolves that vessel's own log directory
+  And a request naming a tenant still picks the right one of two same-named vessels
+  ```
+
+#### GIMLE-903 — A node bootstraps its own identity into its own writable data root, with a DNS-named leaf
+
+- **Category**: Security / Identity
+- **User story**: As an operator running a node whose CA material is mounted read-only, I want the node to write its bootstrapped certificate under its own data root and to have its own name in the leaf, so obtaining an identity does not require write access to shared material.
+- **Status**: Fixed. A node bootstrapping its certificate wrote the key and certificate beside the shared cluster CA material `gimle.tls.caFile` points into -- a directory that is the same for every node, holds material a node only ever reads, and is routinely and correctly mounted read-only. The bootstrap now writes to a `tls` directory under this node's own `gimle.data.root` (overridable with `-Dgimle.agent.identityDir`), repoints the `gimle.tls.certFile`/`keyFile` properties at what it actually wrote, and reports what it needed to write and where when that directory is unwritable. The CSR also requests the node's own DNS name alongside its address, so a peer verifying the leaf by hostname succeeds; bind-any placeholders (`0.0.0.0`, `::`, `*`) name no reachable peer and are never requested.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`bootstrapCertificateIfNeeded`, `nodeIdentityDirectory`, `UNROUTABLE_CERTIFICATE_NAMES`), `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
+- **Test coverage**: `NodeCertificateBootstrapTest#a_nodes_identity_lives_under_its_own_data_root_by_default`, `#an_identity_directory_may_be_pointed_somewhere_else_entirely`, `#a_bootstrapped_node_certificate_carries_the_nodes_dns_name_not_only_its_address`, `#a_wildcard_gossip_bind_address_is_not_requested_as_a_name`, `#bootstrapping_repoints_the_tls_material_properties_at_what_it_actually_wrote`, `#an_unwritable_identity_directory_says_what_it_needed_to_write_and_where`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node started in TLS mode with the cluster CA material mounted read-only
+  When it bootstraps its certificate
+  Then key and certificate are written under its own data root and the process uses them
+  And the leaf carries the node's DNS name as well as its address
+  ```
+
+#### GIMLE-904 — A worker's handshake is applied to every instance packed onto that worker
+
+- **Category**: Worker Supervision
+- **User story**: As an operator, I want every instance sharing a Tier-1 worker to report that worker's id and fabric endpoints, so a density-packed instance is not the one with no worker identity at all.
+- **Status**: Fixed. A worker's `Hello` describes the worker JVM, not any one instance it hosts, but it was applied only to the instance whose read loop happened to receive it. Under Tier-1 density several instances share one worker and one connection while exactly one `Hello` ever arrives on it, so an instance packed onto a worker that had connected but not yet handshaked reported no worker id, UDS path or fabric address for the rest of its life -- and a respawn, which clears those on every hosted instance and is followed by a single fresh handshake, stripped them from all but one. `applyWorkerHandshake` now applies the handshake to every supervised instance sharing that connection, and leaves instances on other workers untouched.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`applyWorkerHandshake`)
+- **Test coverage**: `SharedWorkerHandshakeTest#an_instance_packed_onto_a_shared_worker_reports_that_workers_id`, `#an_instance_on_a_different_worker_is_left_alone`
+- **Gherkin scenario**:
+  ```gherkin
+  Given two Tier-1 instances packed onto one worker JVM
+  When that worker handshakes
+  Then both instances report its worker id and fabric endpoints
+  And an instance on another worker keeps its own
   ```
 
 ### gimle-mimir
@@ -4317,10 +4613,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Multi-Tenancy
 - **User story**: As a platform operator, I want to bound what a single Deployment within my tenant may declare for its own resources.request/resources.limit, so one deployment can't consume most of my tenant's aggregate ResourceQuota by itself as long as the sum still fits -- the platform's own equivalent of Kubernetes' LimitRange.
-- **Status**: Complete. A new `LimitRangeSpec` record (`gimle-mimir/manifest`) holds four independently optional `Optional<ResourceSpec>` bounds (`minRequest`/`maxRequest`/`minLimit`/`maxLimit`), keyed one-per-tenant by `tenantId` directly -- the same identity-is-the-tenant-scope shape `Tenant` itself already establishes, not `NetworkPolicySpec`'s separate-`name` shape, since a LimitRange is naturally singular per tenant. No `default` bound: `resources.request`/`resources.limit` are always-required on a module's own manifest, so there's no omitted-value case for a default to inject. Its compact constructor also rejects a `minRequest` above `maxLimit`, since `ModuleDescriptor`'s own compact constructor already forces `resourceRequest <= resourceLimit` on every manifest -- a `minRequest` above `maxLimit` is therefore a combination no manifest could ever satisfy, silently locking a tenant out of ever deploying anything if left unchecked. The per-workload bound check itself -- `LimitRangeSpec#violation(request, limit)` -- is a single shared method used by both `LimitRangePlugin` (admission-time) and `LimitRangeReconciler` (continuous), so the two can never drift on what counts as a violation. Replicated via new `StateMutation.PutLimitRange`/`RemoveLimitRange`/`PutLimitRangeViolation` and full `StoreRpc`/`StoreCodec`/`StoreNode`/`StoreClient` wire plumbing mirroring `NetworkPolicySpec`'s end-to-end shape. `LimitRangePlugin` (`gimle-controlplane/admission`) runs first in `deploymentAdmissionChain` (before `TenantQuotaPlugin`, since it's the cheaper single-artifact check with no cross-deployment summation) and rejects an over-range submission outright; `LimitRangeReconciler` (`gimle-controlplane/reconcile`) continuously re-checks every tenanted deployment against its tenant's current range, single-pass (unlike `QuotaReconciler`'s two-pass accumulation, since a per-workload bound needs no aggregation), and marks a deployment `limitRangeViolating` via `StateStore#putLimitRangeViolation` -- a separate flag from `quotaViolating`, since "over aggregate quota" and "violates this workload's own bound" are independently-true-or-false failure modes -- without ever evicting the running instance, matching `QuotaReconciler`'s own posture. Unlike the quota flag, this one also persists a `reason` string -- `LimitRangeSpec#violation`'s own description of which bound is failing (min/max, request/limit, memory/cpu) -- through a new `GetLimitRangeViolationReason` RPC (reusing the existing `StringResult` response shape) rather than a bare boolean, so an operator reading deployment status doesn't have to re-derive why from the tenant's current range and the deployment's own manifest; the reconciler re-proposes whenever the reason text itself changes, not just when the boolean flips, so the persisted reason never goes stale while a deployment stays violating. `ApiServer` exposes `PUT`/`GET`/`DELETE /limitranges/{tenantId}` and `GET /limitranges`, RBAC-gated on the new `ResourceKind.LIMIT_RANGE`, with a single `requireAuthorized` call per verb (no two-tier re-tenanting guard -- a LimitRange's identity is always its own tenant scope, so there's no re-parenting case to guard against, unlike NetworkPolicy). `deploymentStatus(...)` gains `limitRangeViolating` (always present) and `limitRangeViolationReason` (present only while violating) alongside the existing `quotaViolating` field. Generalized alongside `TenantQuotaPlugin` to every placeable `WorkloadSpec` kind (Deployment/Job/DaemonSet/StatefulSet) on both fronts: `LimitRangePlugin` runs in the shared `workloadAdmissionChain` at submission time, and `LimitRangeReconciler` continuously re-checks all four kinds' own store listings, not Deployment alone. A `CronJobSpec` itself still has nothing to charge (see `WorkloadResourceProfile`'s own javadoc) -- its generated `JobSpec`s are what's chargeable, and those are covered the same way any other Job is, both at admission (`GIMLE-658`) and by the reconciler's own `listJobSpecs()` sweep.
+- **Status**: Complete. A new `LimitRangeSpec` record (`gimle-mimir/manifest`) holds four independently optional `Optional<ResourceSpec>` bounds (`minRequest`/`maxRequest`/`minLimit`/`maxLimit`), keyed one-per-tenant by `tenantId` directly -- the same identity-is-the-tenant-scope shape `Tenant` itself already establishes, not `NetworkPolicySpec`'s separate-`name` shape, since a LimitRange is naturally singular per tenant. No `default` bound: `resources.request`/`resources.limit` are always-required on a module's own manifest, so there's no omitted-value case for a default to inject. Its compact constructor also rejects a `minRequest` above `maxLimit`, since `ModuleDescriptor`'s own compact constructor already forces `resourceRequest <= resourceLimit` on every manifest -- a `minRequest` above `maxLimit` is therefore a combination no manifest could ever satisfy, silently locking a tenant out of ever deploying anything if left unchecked. The per-workload bound check itself -- `LimitRangeSpec#violation(request, limit)` -- is a single shared method used by both `LimitRangePlugin` (admission-time) and `LimitRangeReconciler` (continuous), so the two can never drift on what counts as a violation. Replicated via new `StateMutation.PutLimitRange`/`RemoveLimitRange`/`PutLimitRangeViolation` and full `StoreRpc`/`StoreCodec`/`StoreNode`/`StoreClient` wire plumbing mirroring `NetworkPolicySpec`'s end-to-end shape. `LimitRangePlugin` (`gimle-controlplane/admission`) runs first in `deploymentAdmissionChain` (before `TenantQuotaPlugin`, since it's the cheaper single-artifact check with no cross-deployment summation) and rejects an over-range submission outright; `LimitRangeReconciler` (`gimle-controlplane/reconcile`) continuously re-checks every tenanted deployment against its tenant's current range, single-pass (unlike `QuotaReconciler`'s two-pass accumulation, since a per-workload bound needs no aggregation), and marks a deployment `limitRangeViolating` via `StateStore#putLimitRangeViolation` -- a separate flag from `quotaViolating`, since "over aggregate quota" and "violates this workload's own bound" are independently-true-or-false failure modes -- without ever evicting the running instance, matching `QuotaReconciler`'s own posture. Unlike the quota flag, this one also persists a `reason` string -- `LimitRangeSpec#violation`'s own description of which bound is failing (min/max, request/limit, memory/cpu) -- through a new `GetLimitRangeViolationReason` RPC (reusing the existing `StringResult` response shape) rather than a bare boolean, so an operator reading deployment status doesn't have to re-derive why from the tenant's current range and the deployment's own manifest; the reconciler re-proposes whenever the reason text itself changes, not just when the boolean flips, so the persisted reason never goes stale while a deployment stays violating. `ApiServer` exposes `PUT`/`GET`/`DELETE /limitranges/{tenantId}` and `GET /limitranges`, RBAC-gated on the new `ResourceKind.LIMIT_RANGE`, with a single `requireAuthorized` call per verb (no two-tier re-tenanting guard -- a LimitRange's identity is always its own tenant scope, so there's no re-parenting case to guard against, unlike NetworkPolicy). `deploymentStatus(...)` gains `limitRangeViolating` (always present) and `limitRangeViolationReason` (present only while violating) alongside the existing `quotaViolating` field. Generalized alongside `TenantQuotaPlugin` to every placeable `WorkloadSpec` kind (Deployment/Job/DaemonSet/StatefulSet) on both fronts: `LimitRangePlugin` runs in the shared `workloadAdmissionChain` at submission time, and `LimitRangeReconciler` continuously re-checks all four kinds' own store listings, not Deployment alone. A `CronJobSpec` itself still has nothing to charge (see `WorkloadResourceProfile`'s own javadoc) -- its generated `JobSpec`s are what's chargeable, and those are covered the same way any other Job is, both at admission (`GIMLE-658`) and by the reconciler's own `listJobSpecs()` sweep. Modified: both the admission plugin and the reconciler gated on `Tenant#isEnforceable`, which excludes the `default` tenant by name -- so a LimitRange an operator explicitly set on `default` was stored, listed and reported, and never checked against a submission or a reconcile tick, leaving every workload under it reporting `limitRangeViolating: false` forever. Both now key on whether a range exists for the tenant. Separately, `PUT /limitranges/{tenantId}` now refuses a body carrying an unrecognized field or declaring no bound at all, instead of storing a LimitRange that bounds nothing.
 - **Confidence**: High
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/LimitRangeSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutLimitRange`/`RemoveLimitRange`/`PutLimitRangeViolation`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putLimitRange`/`getLimitRange`/`listLimitRanges`/`removeLimitRange`, `putLimitRangeViolation`/`isLimitRangeViolating`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/LimitRangeReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/limitranges*`), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`LIMIT_RANGE`)
-- **Test coverage**: `LimitRangeSpecTest` (compact-constructor rejections: blank tenantId, null bound fields, min-above-max within each of the two pairs independently, min-request-above-max-limit cross-pair rejection at both the memory and cpu boundary, inclusive-boundary allow, the opposite min-limit-above-max-request pairing allowed since a limit may always exceed its request, and `violation()` reporting both the empty and the bound-description case); `LimitRangePluginTest` (untenanted allow, no-stored-range allow, unreadable artifact rejects, each of the four boundary violations independently rejects, exactly-at-boundary allows, every bound satisfied allows); `LimitRangeReconcilerTest` (marks violating on a freshly-tightened range with the correct reason text persisted, does not mark within range, ignores untenanted deployments, ignores a tenant with no range, clears a violation and its reason on relax -- convergence from arbitrary starting state, the persisted reason updates when the failing bound changes while remaining violating, one deployment's unresolvable artifact does not abort the rest of the tick); `ApiServerLimitRangesTest` (PUT/GET/DELETE round-trip including partial-bounds specs, 404s, list, malformed half-a-bound-pair 400, min-above-max 400, re-PUT replaces); `ApiServerLimitRangesAuthzTest` (write/read/delete denial without a grant, a tenant-scoped grant cannot touch another tenant's LimitRange); `ApiServerConsoleContractTest.limitrange_violating_deployment_status_includes_the_violation_reason` (the `limitRangeViolating`/`limitRangeViolationReason` deployment-status JSON shape the console's own types depend on); `RaftCodecTest`/`RaftLogTest`/`RaftNodeSafetyMechanicsTest` (StateSnapshot's `limitRangeViolations` map, reason-carrying, round-trips through the Raft wire codec and snapshot install path).
+- **Test coverage**: `LimitRangeSpecTest` (compact-constructor rejections: blank tenantId, null bound fields, min-above-max within each of the two pairs independently, min-request-above-max-limit cross-pair rejection at both the memory and cpu boundary, inclusive-boundary allow, the opposite min-limit-above-max-request pairing allowed since a limit may always exceed its request, and `violation()` reporting both the empty and the bound-description case); `LimitRangePluginTest` (untenanted allow, no-stored-range allow, unreadable artifact rejects, each of the four boundary violations independently rejects, exactly-at-boundary allows, every bound satisfied allows); `LimitRangeReconcilerTest` (marks violating on a freshly-tightened range with the correct reason text persisted, does not mark within range, ignores untenanted deployments, ignores a tenant with no range, clears a violation and its reason on relax -- convergence from arbitrary starting state, the persisted reason updates when the failing bound changes while remaining violating, one deployment's unresolvable artifact does not abort the rest of the tick); `ApiServerLimitRangesTest` (PUT/GET/DELETE round-trip including partial-bounds specs, 404s, list, malformed half-a-bound-pair 400, min-above-max 400, re-PUT replaces); `ApiServerLimitRangesAuthzTest` (write/read/delete denial without a grant, a tenant-scoped grant cannot touch another tenant's LimitRange); `ApiServerConsoleContractTest.limitrange_violating_deployment_status_includes_the_violation_reason` (the `limitRangeViolating`/`limitRangeViolationReason` deployment-status JSON shape the console's own types depend on); `RaftCodecTest`/`RaftLogTest`/`RaftNodeSafetyMechanicsTest` (StateSnapshot's `limitRangeViolations` map, reason-carrying, round-trips through the Raft wire codec and snapshot install path). Gained `LimitRangePluginTest#a_min_request_bound_set_on_the_default_tenant_is_enforced` and `LimitRangeReconcilerTest#marks_a_deployment_violating_a_range_set_on_the_default_tenant`/`#ignores_a_default_tenant_deployment_when_no_range_was_ever_set`.
 - **Gherkin scenario**:
   ```gherkin
   Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409.
@@ -4420,9 +4716,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Multi-tenancy
 - **User story**: As an operator, I want a deployment submitted with no tenantId to still have an addressable config/secret bucket, instead of 'no tenant' being a valid-but-broken state.
-- **Status**: Complete
+- **Status**: Complete. Modified: the `isEnforceable` exemption this entry described is gone from every constraint path. The predicate no longer decides whether a quota, limit range or replica ceiling is enforced -- that keys on whether such a constraint actually exists for the tenant, so one an operator sets on `default` is honoured like any other, which is what this requirement's own Gherkin always claimed. `isEnforceable` remains only where it belongs: on the rejections that cannot be verified either way (an absent tenant row, an unreadable artifact) and on the registry-coordinate ownership check.
 - **Confidence**: High
-- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`, `TenantQuotaPlugin`/`LimitRangePlugin`/`PolicyConfigPlugin`/`QuotaReconciler`/`LimitRangeReconciler` (isEnforceable exemption)
+- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`, `TenantQuotaPlugin`/`LimitRangePlugin`/`PolicyConfigPlugin`/`QuotaReconciler`/`LimitRangeReconciler` (isEnforceable exemption), `gimle-core/src/main/java/com/gimle/core/tenant/Tenant.java` (`isEnforceable` javadoc, narrowed to the unverifiable cases)
 - **Test coverage**: `DeploymentManifestParserTest#parses_a_minimal_manifest_with_no_placement_section`/`#an_explicit_tenant_id_is_kept_as_is`/`#blank_tenant_id_throws`, and the equivalent tenantId assertions in `DaemonSetManifestParserTest`/`StatefulSetManifestParserTest`/`JobManifestParserTest`/`CronJobManifestParserTest`; full `gimle-controlplane` suite (admission plugins, reconcilers, `ApiServerTest`) re-verified green against the new default-tenant seeding.
 - **Gherkin scenario**:
   ```gherkin
@@ -4603,6 +4899,54 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a 3-node store cluster holding a tenant, When the leader is partitioned from the majority and the majority elects a new leader and deletes that tenant, Then the partitioned node refuses a read of it rather than answering from its own still-present copy.
   Given a healthy store leader that has just committed a write, When a read index is established, Then a majority has confirmed the node still leads and the state machine has applied through the returned index before the store is read.
+  ```
+
+#### GIMLE-854 — A peer with an RPC still in flight counts as reachable for check-quorum
+
+- **Category**: Raft Consensus
+- **User story**: As an operator, I want a leader not to step down because a heartbeat merely ran slow, so an idle cluster does not churn elections under ordinary load or a GC pause.
+- **Status**: Fixed. `checkQuorumTick` judged each peer solely by the timestamp of its last *completed* round trip, but a single `PeerConnection` call is allowed to run far longer than `CHECK_QUORUM_WINDOW` before it reports anything at all. A heartbeat that merely ran slow therefore self-demoted a perfectly healthy leader while that very call was still on its way to succeeding -- and the successor repeated it, churning elections on a cluster nobody was writing to. `peerAttemptStartedAt` now records when each peer's outstanding attempt was dispatched, and a peer whose attempt is still within `PeerConnection#worstCaseCallDuration()` counts toward the quorum. A peer that fails fast clears its entry immediately and is judged in the ordinary window exactly as before, so genuine unreachability is still detected as promptly.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftNode.java` (`peerAttemptStartedAt`, `checkQuorumTick`, `becomeLeaderLocked`)
+- **Test coverage**: `RaftNodeVirtualTimeTest#an_established_leader_survives_a_round_trip_that_merely_runs_slow` (a peer held mid-call past the check-quorum window on a virtual clock)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an established leader whose peer heartbeat is running slower than the check-quorum window but has not failed
+  When check-quorum evaluates reachability
+  Then the peer counts as reachable and the leader keeps its term
+  And a peer that refuses the connection outright is still judged silent within the ordinary window
+  ```
+
+#### GIMLE-860 — A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved
+
+- **Category**: State Store
+- **User story**: As an operator starting a cluster whose DNS is still coming up, I want a process to wait for its store's name to resolve, so that a momentary resolver failure does not leave it unable to reach the store for the rest of its life.
+- **Status**: Fixed. `InetSocketAddress` resolves a hostname once, at construction, and keeps that answer forever. A store endpoint whose name happened to be unresolvable in the second a process started -- a DNS server still booting, a record not yet propagated -- was therefore held permanently unresolved, and every store call from that process failed for good, long after the name started resolving again. `FafnirMain`, `MuninnMain` and `AndvariMain` now pass their parsed endpoints through `awaitResolvableStoreEndpoints`, re-resolving each unresolved one with capped exponential backoff (1s to 30s, matching the node agent's own registration retry) and no attempt ceiling: a store this process cannot name is a store it cannot authorize a single request against, so serving anyway would only answer every caller with an error. A malformed endpoint spec still fails fast in `parseStoreEndpoints` -- no amount of retrying turns it into an address.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java` (`awaitResolvableStoreEndpoints`, `resolveWithRetry`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java`, `gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java`
+- **Test coverage**: `AndvariMainResilienceTest`, `FafnirMainResilienceTest` and `MuninnMainResilienceTest` each assert an already-resolvable endpoint passes through untouched and that a malformed spec still fails fast rather than looping.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a process started with a store endpoint whose hostname does not resolve yet
+  When startup reaches store-client construction
+  Then it retries resolution with backoff instead of holding an unresolved address
+  And a malformed endpoint spec still fails immediately
+  ```
+
+#### GIMLE-871 — An Ingress route naming an unknown `paramType` is refused at submission
+
+- **Category**: Control Plane API
+- **User story**: As an operator declaring a typed fabric route, I want a misspelled `paramType` rejected when I submit it, so that the mistake breaks my apply rather than whichever gateway next loads the route table.
+- **Status**: Fixed. A `FABRIC` route's `paramType` was only turned into an enum when a gateway loaded the table, so a typo was stored as a perfectly valid route and surfaced later as a broken route table on a running gateway -- the deferred, misdirected failure a declared resource exists to end. `IngressSpec`'s compact constructor now validates every declared `paramType` against the six shapes a target method's argument may take, naming them in the rejection. The list is spelled out here rather than taken from the gateway's own enum because nothing on the store side of the wire may depend on the gateway. A route kind that takes no argument declares none and is untouched by the check.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/IngressSpec.java` (`PARAM_TYPES`, `requireKnownParamType`)
+- **Test coverage**: `IngressSpecTest#a_fabric_route_naming_an_unknown_param_type_is_refused_naming_the_valid_values`, `#a_param_type_is_matched_exactly_and_never_case_folded`, `#every_supported_param_type_is_accepted`, `#a_route_kind_that_declares_no_param_type_at_all_is_untouched_by_the_check`; `ApiServerIngressesTest#a_fabric_route_naming_an_unknown_param_type_is_refused_at_admission`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an Ingress declaring a FABRIC route whose paramType is misspelled
+  When it is applied
+  Then the submission is refused naming the paramTypes a route may declare
+  And nothing is stored, so no gateway ever loads the broken route
   ```
 
 ### gimle-fabric
@@ -5195,6 +5539,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And no call fails and no circuit breaker opens
   ```
 
+#### GIMLE-855 — A fabric target's application exception round-trips to its caller, named even when it cannot be loaded or serialized
+
+- **Category**: Service fabric
+- **User story**: As a module owner, I want an exception my provider threw to reach my consumer as an application failure, so that a business error is never indistinguishable from the wire having broken.
+- **Status**: Fixed. `InvokeError` carried only the serialized throwable, which failed in both of the two cases a hosted module actually hits. An exception type private to the provider's own module layer cannot be loaded in the caller, so deserialization threw and the caller saw a decode failure; an exception reaching a non-serializable field could not be written at all, so the server produced no frame and dropped the connection, which the caller saw as a transport failure. Both were reported as something broken in the platform for a call the target had answered perfectly clearly. `InvokeError` now also carries the remote exception's binary type name and message as plain text, and `InvokeError#of` degrades to those alone when the throwable cannot be serialized (`ObjectMarshalling#serializeIfPossible`); `toThrowable` re-throws the target's own exception when the caller can rebuild it and otherwise a `RemoteInvocationException` naming what was thrown. The fabric wire version is bumped 3 -> 4 for the two added fields.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java` (`InvokeError#of`, `toThrowable`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/RemoteInvocationException.java`, `gimle-fabric/src/main/java/com/gimle/fabric/transport/ObjectMarshalling.java` (`serializeIfPossible`), `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`, `FabricServer.java`, `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java`
+- **Test coverage**: `FabricRemoteExceptionTest` (9 tests: an unloadable type arrives named rather than as a decode failure, an unserializable exception still produces an answer, null messages report absence rather than an empty string, an undecodable payload falls back to the frame's own type name); `FabricCodecTest` round-trips the added fields; `FabricServiceRegistryTest` covers the caller side.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a provider whose service method throws an exception the consumer's own layer cannot load
+  When the consumer calls it across workers
+  Then the consumer sees a failure naming the remote type and message, not a deserialization error
+  And an exception that cannot be serialized at all still produces an answer rather than a dropped connection
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -5422,10 +5782,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Reconciliation / Multi-tenancy
 - **User story**: As a platform operator, I want a deployment marked quota-violating whenever its tenant's actual usage exceeds quota, without automatic eviction.
-- **Status**: Complete
+- **Status**: Complete. Modified: `QuotaReconciler` skipped any workload whose tenant was not `Tenant#isEnforceable`, which excludes the `default` tenant by name -- so a quota an operator explicitly set on `default` was stored and reported back but never accumulated and never found violating. Both the usage accumulation and the violation verdict now key on whether the workload names a tenant at all, so the constraint's own existence decides what is enforced rather than the tenant's name.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`, `TenantUsage`
-- **Test coverage**: `QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`
+- **Test coverage**: `QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists` Gained `marks_a_deployment_violating_a_quota_set_on_the_default_tenant` and `does_not_mark_a_default_tenant_deployment_within_the_quota_set_on_it`.
 - **Gherkin scenario**:
   ```gherkin
   Given a tenant's quota is lowered below already-running usage; When QuotaReconciler ticks; Then affected deployments are marked quota-violating with no instances evicted.
@@ -5539,13 +5899,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Reconciliation / Orchestration
 - **User story**: As an operator, I want a CronJob's schedule to automatically materialize a real Job at each due time.
-- **Status**: Complete
+- **Status**: Complete. Modified: the stored last-schedule value this reconciler maintains is a cursor over the schedule, not a record of anything having run -- it is stamped with the current time the first time a CronJob is reconciled at all, and keeps advancing past every instant that comes due while the CronJob is suspended. It was reported to operators as `lastScheduleTime`, so a CronJob that had never generated a single Job claimed a firing. The cursor is now reported as `scheduleEvaluatedThrough`, and `lastScheduleTime` is derived from the generated Jobs themselves; the reconciler's own cursor semantics are unchanged.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`
 - **Test coverage**: `CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`
 - **Gherkin scenario**:
   ```gherkin
   Given a CronJobSpec with schedule "* * * * *" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named "{name}-{epochSeconds}" is materialized.
+  And the cursor this reconciler maintains is reported as `scheduleEvaluatedThrough`, never as a claim that a Job was generated.
   ```
 
 #### GIMLE-238 — CronJob concurrency policy (Allow/Forbid/Replace)
@@ -5656,10 +6017,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Admission / Multi-tenancy
 - **User story**: As a platform operator, I want a Deployment, Job, DaemonSet, or StatefulSet submission rejected outright if it would push its tenant past its quota (accounting for surge headroom on a Deployment, and each kind's own peak committed-instance count via WorkloadResourceProfile).
-- **Status**: Complete -- generalized from Deployment-only to every placeable WorkloadSpec kind (Deployment/Job/DaemonSet/StatefulSet) so a tenant can no longer bypass its quota by submitting a Job/DaemonSet/StatefulSet instead of a Deployment.
+- **Status**: Complete -- generalized from Deployment-only to every placeable WorkloadSpec kind (Deployment/Job/DaemonSet/StatefulSet) so a tenant can no longer bypass its quota by submitting a Job/DaemonSet/StatefulSet instead of a Deployment. Modified: the check gated on `Tenant#isEnforceable`, which excludes the `default` tenant by name, so a quota an operator explicitly set on `default` was accepted, reported back, and never applied to a single submission. Every tenant that exists is now charged against the quota stored for it, `default` included. The two rejections that are not a measured overage -- an absent tenant row, an artifact the control plane cannot read -- stay narrowed to a deliberately-named tenant (`unverifiable`), since refusing an untenanted workload for a jar that only ever has to exist on the node running it would break the ordinary local `artifactPath` path; the instance-count dimension, which needs no descriptor, is still checked even then.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/WorkloadResourceProfile.java`, `TenantUsage.java`
-- **Test coverage**: `TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`
+- **Test coverage**: `TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected` Gained `a_quota_an_operator_set_on_the_default_tenant_is_enforced` and `a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected`.
 - **Gherkin scenario**:
   ```gherkin
   Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409.
@@ -5669,10 +6030,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Admission / Config
 - **User story**: As a platform operator, I want a per-tenant ceiling on replicas-per-deployment via ordinary config.
-- **Status**: Complete
+- **Status**: Complete. Modified: the plugin gated on `Tenant#isEnforceable`, so a `policy.maxReplicasPerDeployment` written against the `default` tenant was stored and never checked. The presence of the config entry is now the only thing that decides -- writing the key against `default` is as deliberate an act as writing it against a named tenant.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/PolicyConfigPlugin.java`
-- **Test coverage**: `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`
+- **Test coverage**: `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` Gained `a_ceiling_configured_on_the_default_tenant_is_enforced`.
 - **Gherkin scenario**:
   ```gherkin
   Given tenant T has policy.maxReplicasPerDeployment=10; When a submission requests 15 replicas; Then admission rejects citing the ceiling.
@@ -5735,13 +6096,16 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Authorization
 - **User story**: As a platform operator, I want the reserved `gimle-system` tenant accessible only by `gimle:operators`-group callers.
-- **Status**: Complete
+- **Status**: Complete. Modified twice in the same pass. A plaintext caller previously resolved to no principal at all on this path, so the operator-group membership check had no subject to answer for and the reserved-tenant veto simply did not engage -- anyone could write, deploy into, or dry-run against `gimle-system` over plaintext. A caller presenting no credential now resolves to an explicit `anonymous` principal belonging to no group, so the veto engages and refuses it, and every audit row written in that mode has a name to attribute the write to. The second half corrects the overreach that first fix would have carried: privilege follows the credential, not the transport. `callerIdentity` now resolves whatever credential the request actually presented -- a session cookie or bearer token is honoured on a plaintext connection exactly as `resolvePrincipal` already honours it on the same request -- and falls back to the anonymous principal only when nothing at all was presented. Presenting no credential is what must never confer privilege.
 - **Confidence**: Medium
-- **Source location(s)**: `ApiServer.rejectIfReservedSystemTenant`, `isOperatorCaller`
-- **Test coverage**: Exercised within `ApiServerAuthzTest`'s broader RBAC test set
+- **Source location(s)**: `ApiServer.rejectIfReservedSystemTenant`, `isOperatorCaller`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`ANONYMOUS_PRINCIPAL`, `callerIdentity`)
+- **Test coverage**: Exercised within `ApiServerAuthzTest`'s broader RBAC test set `ApiServerTest#a_plaintext_caller_cannot_write_or_delete_the_reserved_system_tenant`, `#a_plaintext_caller_cannot_deploy_into_the_reserved_system_tenant`, `#a_plaintext_dry_run_into_the_reserved_system_tenant_reports_the_refusal`, `#a_plaintext_caller_holding_an_operator_session_may_write_the_reserved_system_tenant`, `#a_plaintext_session_without_the_operator_group_still_cannot_write_it`. `gimle-smoke-tests`' `GreeterSmokeClusterSupport` now logs in as the operator account it already creates before writing the reserved tenant, instead of relying on plaintext bypassing the veto.
 - **Gherkin scenario**:
   ```gherkin
   Given a caller holds a broad but non-operator-group grant; When writing under tenantId=gimle-system; Then rejected 403 regardless of ordinary RBAC outcome.
+  Given a caller presenting no credential at all, over plaintext transport
+  When it writes, deletes or deploys under tenantId=gimle-system
+  Then it is refused, while a plaintext caller holding an operator session is admitted
   ```
 
 #### GIMLE-253 — Node-scoped self-service authorization (`gimle:nodes` group)
@@ -5943,10 +6307,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Internal-Infra
 - **User story**: As an operator, I want to query historical metrics/traces for any process kind through the control plane.
-- **Status**: Complete
+- **Status**: Complete. Modified: the proxy forwarded only part of the query it received, so a read carrying a backward cursor was answered with the newest page again and paging back never advanced -- the paging parameters are now forwarded through to Muninn. The surface also gained the segment-less `GET /metrics-history` and `GET /traces-history` routes, which serve the process kinds that actually ship each signal (and are enforced, so a kind that ships nothing for that surface is rejected rather than proxied into an empty read), and `GET /trace/{traceId}`, which proxies Muninn's cross-process trace search and merges what every configured replica holds.
 - **Confidence**: High
-- **Source location(s)**: `ApiServer.handleMetricsHistory`/`handleTracesHistory`/`handleHistoryProxy`
-- **Test coverage**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest`
+- **Source location(s)**: `ApiServer.handleMetricsHistory`/`handleTracesHistory`/`handleHistoryProxy`, `gimle-controlplane/src/main/java/com/gimle/controlplane/muninn/MuninnClient.java` (trace search)
+- **Test coverage**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_since_query_parameter`, `ApiServerTracesHistoryTest` Gained `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`, `#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`, plus the kind-listing and rejection cases on both surfaces.
 - **Gherkin scenario**:
   ```gherkin
   Given Muninn is configured; When a caller with LOGS:READ requests /metrics-history/{processKind}/{processId}?since=...; Then the request is proxied to Muninn.
@@ -6232,10 +6596,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Multi-tenancy / Observability
 - **User story**: As a platform operator, I want a node's heartbeat instance observation matched against an assignment/run by tenantId as well as by deploymentName/instanceIndex, and an instance's log request resolved to a node only within its own tenant, so two tenants' identically-named workload landing the same instance index on the same physical node can never have their health/readiness/autoscaling signals or log reads cross-wired.
-- **Status**: Complete -- InstanceObservation carries an Optional<String> tenantId (copied from the owning AssignedInstance, threaded through the agent's heartbeat JSON and gimle-mimir's DomainCodec wire codec); every reconciler/resolver that matches an InstanceObservation against an assignment/run (HealthReconciler, ReplicaCountReconciler, AutoscaleReconciler, JobReconciler, DeploymentReconciler, StatefulSetReconciler, DaemonSetReconciler, ServiceEndpointResolver, and ApiServer's own observation lookups) now also compares tenantId. ApiServer#resolveInstanceNodeId (backing the control plane's /logs/instances/* proxy) takes the caller-declared ?tenant=<id> and resolves strictly within that tenant's own assignments/runs, closing a real cross-tenant log-read risk where a bare deploymentName/instanceIndex could resolve to a different tenant's node. Extended: an *omitted* ?tenant= on /logs/instances/* used to default straight to the untenanted namespace (workloadTenantHint's own blind default) rather than searching, so a genuinely ACTIVE instance whose real tenant wasn't literally "default" 404'd on this live path forever, workable only through Muninn's own fallback store -- resolveInstanceLogsTenant now searches across workload kinds via resolveTenantForWorkloadName first (falling back to the default tenant only once that search itself finds nothing), the same convention /endpoints/{name} already established, and throws the same AmbiguousTenantException a real same-name collision across tenants deserves rather than guessing. A second, independent instance of the same defect was found and fixed in handleAppendInstanceEvent: the tenant an agent-relayed InstanceEvent gets filed under was joined exclusively against storeClient.listAssignments() (Deployment-kind bookkeeping alone), so every StatefulSet/DaemonSet/Job instance's own relayed lifecycle events were always misfiled under the untenanted namespace regardless of their real tenant -- resolveInstanceEventTenant now tries all four assignment kinds in turn, the same cross-kind join resolveInstancePlacement already established for /instances/.../fabric-endpoint.
+- **Status**: Complete -- InstanceObservation carries an Optional<String> tenantId (copied from the owning AssignedInstance, threaded through the agent's heartbeat JSON and gimle-mimir's DomainCodec wire codec); every reconciler/resolver that matches an InstanceObservation against an assignment/run (HealthReconciler, ReplicaCountReconciler, AutoscaleReconciler, JobReconciler, DeploymentReconciler, StatefulSetReconciler, DaemonSetReconciler, ServiceEndpointResolver, and ApiServer's own observation lookups) now also compares tenantId. ApiServer#resolveInstanceNodeId (backing the control plane's /logs/instances/* proxy) takes the caller-declared ?tenant=<id> and resolves strictly within that tenant's own assignments/runs, closing a real cross-tenant log-read risk where a bare deploymentName/instanceIndex could resolve to a different tenant's node. Extended: an *omitted* ?tenant= on /logs/instances/* used to default straight to the untenanted namespace (workloadTenantHint's own blind default) rather than searching, so a genuinely ACTIVE instance whose real tenant wasn't literally "default" 404'd on this live path forever, workable only through Muninn's own fallback store -- resolveInstanceLogsTenant now searches across workload kinds via resolveTenantForWorkloadName first (falling back to the default tenant only once that search itself finds nothing), the same convention /endpoints/{name} already established, and throws the same AmbiguousTenantException a real same-name collision across tenants deserves rather than guessing. A second, independent instance of the same defect was found and fixed in handleAppendInstanceEvent: the tenant an agent-relayed InstanceEvent gets filed under was joined exclusively against storeClient.listAssignments() (Deployment-kind bookkeeping alone), so every StatefulSet/DaemonSet/Job instance's own relayed lifecycle events were always misfiled under the untenanted namespace regardless of their real tenant -- resolveInstanceEventTenant now tries all four assignment kinds in turn, the same cross-kind join resolveInstancePlacement already established for /instances/.../fabric-endpoint. Extended again: the same owning-tenant resolution now backs `/instances/{name}/{index}/fabric-endpoint`, which had gone on defaulting straight to the untenanted namespace and so 404'd for every tenanted instance addressed by name alone, and the tenant the control plane resolves is forwarded to the node exactly once rather than being appended a second time onto a request that already carried one. An ambiguous name -- the same workload name in two tenants -- is answered 400 on this path too, rather than guessed at.
 - **Confidence**: High
 - **Source location(s)**: `ApiServer#handleAppendInstanceEvent`, `ApiServer#resolveInstanceEventTenant`, `ApiServer#resolveInstanceLogsTenant`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`
-- **Test coverage**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this observation-matching path specifically. `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all` and `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick` cover the logs-proxy fallback search directly; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant` and `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all` cover the instance-event join across kinds.
+- **Test coverage**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this observation-matching path specifically. `ApiServerLogsFallbackTest#an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all` and `#an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick` cover the logs-proxy fallback search directly; `ApiServerTest#a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant` and `#a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all` cover the instance-event join across kinds. `ApiServerInstanceTenantResolutionTest#a_bare_instance_log_read_tells_the_agent_which_tenant_it_resolved`, `#a_declared_tenant_is_forwarded_once_not_twice`, `#a_name_no_workload_spec_claims_forwards_no_invented_tenant`, `#a_bare_fabric_endpoint_lookup_resolves_a_tenanted_instance`, `#a_bare_fabric_endpoint_lookup_for_an_unplaced_name_is_still_a_404`.
 - **Gherkin scenario**:
   ```gherkin
   Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready.
@@ -6803,10 +7167,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Reconciliation / Orchestration
 - **User story**: As an operator, I want a DaemonSet's status to say how many nodes it should be running on, not just which nodes it is running on, so a DaemonSet silently missing from a node doesn't look identical to one correctly running everywhere.
-- **Status**: Fixed: closes the gap gimle#15 sub-item 2 filed -- handleDeploymentsList/handleStatefulSetsList already emitted an unplaced-vs-desired signal (unplacedCount, quotaViolating for Deployment) but handleDaemonSetsList emitted only status.spec/status.instances, because a DaemonSet's desired count ("one per eligible node") depends on live node state and was never published anywhere, only recomputed transiently inside DaemonSetReconciler.reconcileDaemonSet's own eligibleNodeIds. DaemonSetReconciler now proposes StateMutation.PutDaemonSetDesiredCount(tenantId, daemonSetName, eligibleNodeIds.size()) every tick -- the same eligibleNodes call the placement pass already makes, not new eligibility logic -- but only when the value actually changed since the last tick, the same re-propose restraint LimitRangeReconciler's own violation flag already applies. The count is durably stored (StateStore#daemonSetDesiredCounts, cleared on RemoveDaemonSetSpec), replicated through the Raft log (StateMutation.PutDaemonSetDesiredCount, RaftCodec, StateSnapshot), and readable over the store RPC (StoreRpc.GetDaemonSetDesiredCount, StoreClient#getDaemonSetDesiredCount). ApiServer.daemonSetStatus adds desired and unplacedCount (desired - instances.size()) to both GET /daemonsets/{name} and GET /daemonsets, present only once the reconciler has ticked at least once for that daemonset (absent beforehand, the same "not yet known" shape getEffectiveReplicas already uses) -- so a client can finally tell a DaemonSet genuinely running everywhere apart from one silently missing a node.
+- **Status**: Fixed: closes the gap gimle#15 sub-item 2 filed -- handleDeploymentsList/handleStatefulSetsList already emitted an unplaced-vs-desired signal (unplacedCount, quotaViolating for Deployment) but handleDaemonSetsList emitted only status.spec/status.instances, because a DaemonSet's desired count ("one per eligible node") depends on live node state and was never published anywhere, only recomputed transiently inside DaemonSetReconciler.reconcileDaemonSet's own eligibleNodeIds. DaemonSetReconciler now proposes StateMutation.PutDaemonSetDesiredCount(tenantId, daemonSetName, eligibleNodeIds.size()) every tick -- the same eligibleNodes call the placement pass already makes, not new eligibility logic -- but only when the value actually changed since the last tick, the same re-propose restraint LimitRangeReconciler's own violation flag already applies. The count is durably stored (StateStore#daemonSetDesiredCounts, cleared on RemoveDaemonSetSpec), replicated through the Raft log (StateMutation.PutDaemonSetDesiredCount, RaftCodec, StateSnapshot), and readable over the store RPC (StoreRpc.GetDaemonSetDesiredCount, StoreClient#getDaemonSetDesiredCount). ApiServer.daemonSetStatus adds desired and unplacedCount (desired - instances.size()) to both GET /daemonsets/{name} and GET /daemonsets, present only once the reconciler has ticked at least once for that daemonset (absent beforehand, the same "not yet known" shape getEffectiveReplicas already uses) -- so a client can finally tell a DaemonSet genuinely running everywhere apart from one silently missing a node. Modified: the published count was the eligible-node count alone, while the same tick deliberately keeps assignments on nodes it is holding rather than evicting (a node the store cannot currently vouch for). Desired therefore disagreed with the assignments that very tick chose to keep, and a reader subtracting placed from desired saw a negative shortfall. It now counts the eligible nodes plus the held ones, and is written after that tick's evictions and rollout step and before any new placement -- the one ordering in which a tick that aborts partway can only leave desired at or above what is actually placed.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`, `putDaemonSetDesiredCount`, `getDaemonSetDesiredCount`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutDaemonSetDesiredCount`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreCodec.java`, `StoreNode.java`, `StoreClient.java`
-- **Test coverage**: DaemonSetReconcilerTest gained desired_count_is_zero_when_no_node_is_eligible, desired_count_equals_the_full_eligible_node_set_when_every_node_qualifies, desired_count_tracks_required_labels_the_same_way_placement_does, desired_count_drops_when_a_node_becomes_ineligible_and_recovers_once_it_is_eligible_again (a node cordoned then uncordoned across three ticks), an_arbitrary_starting_snapshot_still_converges_the_desired_count_with_no_prior_history (a fresh reconciler against a snapshot that never recorded a desired count, the level-triggered convergence property every reconciler here is held to), and deleting_a_daemonset_clears_its_stale_desired_count. ApiServerTest gained get_a_daemonset_surfaces_the_reconciler_published_desired_count and daemonsets_list_endpoint_also_surfaces_the_desired_count (both set the count directly on the shared StateStore, bypassing a real reconciler tick the same way every other daemonset status field in that test file does, and assert the field on both GET /daemonsets/{name} and GET /daemonsets), plus an extension of put_then_get_a_daemonset_round_trips asserting desired/unplacedCount are absent before any tick has run. RaftCodecTest.round_trips_a_state_snapshot extended to cover daemonSetDesiredCounts.
+- **Test coverage**: DaemonSetReconcilerTest gained desired_count_is_zero_when_no_node_is_eligible, desired_count_equals_the_full_eligible_node_set_when_every_node_qualifies, desired_count_tracks_required_labels_the_same_way_placement_does, desired_count_drops_when_a_node_becomes_ineligible_and_recovers_once_it_is_eligible_again (a node cordoned then uncordoned across three ticks), an_arbitrary_starting_snapshot_still_converges_the_desired_count_with_no_prior_history (a fresh reconciler against a snapshot that never recorded a desired count, the level-triggered convergence property every reconciler here is held to), and deleting_a_daemonset_clears_its_stale_desired_count. ApiServerTest gained get_a_daemonset_surfaces_the_reconciler_published_desired_count and daemonsets_list_endpoint_also_surfaces_the_desired_count (both set the count directly on the shared StateStore, bypassing a real reconciler tick the same way every other daemonset status field in that test file does, and assert the field on both GET /daemonsets/{name} and GET /daemonsets), plus an extension of put_then_get_a_daemonset_round_trips asserting desired/unplacedCount are absent before any tick has run. RaftCodecTest.round_trips_a_state_snapshot extended to cover daemonSetDesiredCounts. Gained `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed` and `#a_store_read_that_throws_mid_tick_leaves_an_already_published_count_alone`.
 - **Gherkin scenario**:
   ```gherkin
   Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent.
@@ -6935,16 +7299,299 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Observability
 - **User story**: As an operator, I want a node whose agent never stopped reporting to keep reading healthy across a store leader change, so a routine restart does not make the whole cluster look like it went dark.
-- **Status**: Implemented. Node heartbeats are leader-local and never replicated, so a store replica taking over leadership holds none for any node while every node registration, which is replicated, is still there. Read naively that says every node in the cluster went dark at the same instant: nodes flapped HEALTHY -> STALE -> UNKNOWN -> HEALTHY for minutes while their agents had never stopped reporting, and `ReplicaCountReconciler` treated every assignment as unconfirmed. `StateStore` now records when it started collecting heartbeats (`nodeObservationWindowStart`) and restarts that window when the node takes over as leader (`StoreNode` clears the map and restamps on the non-leader -> leader transition), exposed leader-routed as `GetNodeObservationWindow`. A shared `NodeFreshness` weighs an absent heartbeat against that window: a registered node inside it reads PENDING and is never acted on, an unregistered node or one past the window is dark exactly as before, and a heartbeat that did arrive and has since gone stale is stale however young the window is. The verdict is computed once by the control plane and reported as `status` on `GET /nodes`, so the CLI, hugin and the console read it instead of each deriving it from a timestamp they cannot interpret with their own copy of the staleness threshold.
+- **Status**: Implemented. Node heartbeats are leader-local and never replicated, so a store replica taking over leadership holds none for any node while every node registration, which is replicated, is still there. Read naively that says every node in the cluster went dark at the same instant: nodes flapped HEALTHY -> STALE -> UNKNOWN -> HEALTHY for minutes while their agents had never stopped reporting, and `ReplicaCountReconciler` treated every assignment as unconfirmed. `StateStore` now records when it started collecting heartbeats (`nodeObservationWindowStart`) and restarts that window when the node takes over as leader (`StoreNode` clears the map and restamps on the non-leader -> leader transition), exposed leader-routed as `GetNodeObservationWindow`. A shared `NodeFreshness` weighs an absent heartbeat against that window: a registered node inside it reads PENDING and is never acted on, an unregistered node or one past the window is dark exactly as before, and a heartbeat that did arrive and has since gone stale is stale however young the window is. The verdict is computed once by the control plane and reported as `status` on `GET /nodes`, so the CLI, hugin and the console read it instead of each deriving it from a timestamp they cannot interpret with their own copy of the staleness threshold. Extended: `DaemonSetReconciler` and `StatefulSetReconciler` now consult the same `NodeFreshness` before evicting, which `ReplicaCountReconciler` alone did. Both previously read the empty heartbeat map a new store leader holds as a fact about the nodes, so a routine leader change tore down every DaemonSet in the cluster and released every StatefulSet index the instant leadership moved. A node whose heartbeat has merely gone stale is now held for `nodeDarkTimeout + placementGracePeriod` before eviction (an ordinary bidirectional partition must not tear down a worker the node's own agent never stopped supervising), and a node with no heartbeat on record at all is held for as long as the store has not yet had the opportunity to hear from it. Every other ineligibility reason -- cordon, relabeling, a tier or label mismatch -- still evicts immediately, since those are deliberate operator actions rather than an ambiguous "is the node even there" signal.
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/node/NodeFreshness.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`beginNodeObservationWindow`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`noteLeadershipForHeartbeatObservation`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/nodes` `status`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/NodeRow.java`
-- **Test coverage**: `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/node/NodeFreshness.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`beginNodeObservationWindow`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`noteLeadershipForHeartbeatObservation`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/nodes` `status`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/NodeRow.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java` (`isUnconfirmedRatherThanGone`, `ineligibilityReason`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`
+- **Test coverage**: `NodeFreshnessTest` (6 tests) covers each verdict, including that the grace window applies to absence only and not to an unregistered node. `ReplicaCountReconcilerTest` gained `assignments_survive_the_store_losing_every_heartbeat_to_a_leadership_change` (proven to fail against the pre-fix code) and `an_assignment_is_still_released_once_the_reopened_window_has_had_time_to_fill`, so the window bounds are asserted in both directions. `StoreNodeTest` gained `taking_over_as_leader_restarts_the_heartbeat_observation_window`. `DaemonSetReconcilerTest#a_store_leader_election_does_not_tear_down_a_healthy_daemonset`, `#a_node_that_stays_unheard_from_past_the_grace_window_is_still_evicted`, `#a_store_read_that_throws_mid_tick_publishes_nothing_and_converges_on_a_later_tick`; `StatefulSetReconcilerTest#a_store_leader_election_does_not_evict_an_index_from_the_node_running_it`, `#an_index_that_is_genuinely_unheard_from_is_still_released`, `#an_election_does_not_restart_an_indexs_readiness_stabilization_timer`.
 - **Gherkin scenario**:
   ```gherkin
   Given a registered node whose agent is heartbeating normally
   When store leadership moves and the new leader holds no heartbeat for it
   Then the node reads PENDING rather than STALE, and its assignments are not released
   And once the observation window has had time to fill with the node still silent, it reads UNKNOWN and is treated as dark
+  And a store leader change tears down neither a DaemonSet's instances nor a StatefulSet's index, while a node genuinely unheard from past the grace window is still released
+  ```
+
+#### GIMLE-849 — `/health` answers from a background store probe rather than dialing the store inline
+
+- **Category**: Control plane / API server
+- **User story**: As an operator or load balancer polling the control plane, I want `/health` to answer promptly whatever the store is doing, so that an unreachable store reads as a fast, explicit DOWN instead of a request that never answers at all.
+- **Status**: Fixed. `/health` called `storeClient.listTenants()` on the caller's own thread, so it inherited `StoreClient`'s full leader-search worst case: with no reachable leader the endpoint answered nothing at all for as long as that search ran, and a caller cannot act on silence -- enough silent handlers also pile up against the server's own admission budget. A single-threaded `controlplane-store-probe` now refreshes a `StoreProbeResult` on a fixed *delay* (`gimle.controlplane.health.storeProbeIntervalMillis`, 2s), and the handler reads only the last completed one. A probe older than `gimle.controlplane.health.storeProbeMaxAgeMillis` (15s) is itself evidence the store cannot be reached and is reported DOWN with how stale it is, rather than waited on. `start()` submits the first probe to that thread and waits at most two seconds for it, so a reachable store makes the very first `/health` answer about reality while an unreachable one delays startup by that bound alone.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`refreshStoreProbe`, `StoreProbeResult`, `handleHealth`, `start`)
+- **Test coverage**: `ApiServerHealthTest#health_answers_503_quickly_once_the_store_is_gone_instead_of_hanging` (asserts both the 503 and that it arrives well inside the store's own worst case)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane whose store has become unreachable
+  When `/health` is polled
+  Then it answers 503 promptly, naming the store failure or how stale the last probe is
+  And a control plane started against an unreachable store still finishes starting
+  ```
+
+#### GIMLE-850 — An operator can label a running node, and the label counts for placement
+
+- **Category**: Scheduling
+- **User story**: As an operator, I want to add and remove labels on a node that is already running, so that a manifest's `placement.requiredLabels` can be satisfied without relaunching the agent with a different launch configuration.
+- **Status**: Implemented. A node's labels came only from its own launch configuration, so `placement.requiredLabels` could be satisfied only by relaunching that agent -- and the gateway's own edge-labelled DaemonSet could therefore never run on a cluster whose launch configuration an operator cannot reach. `NodeRegistration` now carries a second, separate `operatorLabels` set alongside the node's self-reported `capabilities().labels()`, with `effectiveLabels()` the union that placement matches against; keeping the two halves apart is what lets a node re-register -- which replaces its whole self-reported half -- without discarding what an operator applied. `PUT /nodes/{nodeId}/labels` replaces the operator half declaratively (`{"labels": [...]}`), 404s for a node that was never registered, and is deliberately excluded from the node self-service authorization short-circuit: a node that could label itself could grant itself the very labels placement uses to keep workloads off it. `gimle label node <id> <label>[ <label>-]` reads the current set and folds its edits into it, using kubectl's trailing-`-` shorthand for a removal. `NodeCandidateSource` builds each candidate from `effectiveLabels()`, and `GET /nodes` reports `labels`/`reportedLabels`/`operatorLabels` separately.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/NodeRegistration.java` (`operatorLabels`, `effectiveLabels`, `withOperatorLabels`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleNodeLabels`, `handleRegister`, `nodeJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/NodeCandidateSource.java`, `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java` (`label`), `GimleCli#handleLabel`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+- **Test coverage**: `ApiServerTest#an_operator_can_label_a_running_node_and_the_label_counts_for_placement`, `#a_re_registering_node_keeps_the_labels_an_operator_applied_to_it`, `#labelling_a_node_that_was_never_registered_is_a_404`; `CliOutputContractTest#label_node_reads_the_nodes_current_labels_and_applies_its_edit`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running node carrying none of the labels a deployment requires
+  When an operator runs `gimle label node <id> edge`
+  Then the deployment is placed on that node
+  And the label survives the node re-registering, while a trailing `-` removes it again
+  ```
+
+#### GIMLE-852 — A Service declaring no tenant defaults to the default tenant, so it can front its deployments
+
+- **Category**: Networking
+- **User story**: As an operator creating a Service without naming a tenant, I want it to front the deployments a manifest that also named no tenant created, so that the two halves of the same untenanted setup can actually meet.
+- **Status**: Fixed. A workload manifest that omits `tenantId` resolves to the `default` tenant, but `POST /services` kept `Optional.empty()` for an omitted or blank one -- so such a Service joined against an untenanted namespace no workload can ever land in, and `GET /services/{name}/endpoints` reported no endpoints for any deployment it named, in any port configuration, with nothing anywhere to say why. There is no instance to report an exclusion about, so the failure was entirely silent. An omitted or blank `tenantId` now resolves to `Tenant.DEFAULT_TENANT_ID`, the same defaulting every workload kind already applies.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleServicesPost`)
+- **Test coverage**: `ApiServerServicesTest#a_service_declaring_no_tenant_fronts_a_deployment_that_declared_none_either`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment applied with no tenantId, running and reporting a port
+  When a Service naming that deployment is created with no tenantId either
+  Then `GET /services/{name}/endpoints` reports that deployment's live endpoints
+  ```
+
+#### GIMLE-856 — Quota, LimitRange and `policy.maxReplicasPerDeployment` bind on the `default` tenant too
+
+- **Category**: Admission / Multi-tenancy
+- **User story**: As an operator, I want a constraint I deliberately set on the `default` tenant to be enforced, so that writing one and having it accepted is not silently a no-op.
+- **Status**: Fixed. `TenantQuotaPlugin`, `LimitRangePlugin`, `PolicyConfigPlugin`, `QuotaReconciler` and `LimitRangeReconciler` all gated on `Tenant#isEnforceable`, which treats `default` as no tenant at all -- so a quota, limit range or replica ceiling an operator explicitly set on `default` was stored, reported back on `GET /tenants` and `get limitranges`, and never checked against a single submission or a single reconcile tick. A constraint binds because an operator wrote it, not because of which tenant it names, so each of the five now keys on whether the constraint actually exists for the tenant (`spec.tenantId().isPresent()`), the `default` tenant included. The two rejections that are not a measured overage -- an absent tenant row, an artifact the control plane cannot read -- stay narrowed to a deliberately-named tenant (`TenantQuotaPlugin#unverifiable`), because refusing an untenanted workload for an unreadable jar that only ever has to exist on the node running it would break the ordinary local `artifactPath` path. The instance-count dimension is checked even for an unreadable artifact, since it needs no descriptor. A CronJob firing that admission refuses now answers 409 saying either the concurrency policy or an admission check refused it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java` (`unverifiable`, `overQuota`), `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/LimitRangePlugin.java`, `PolicyConfigPlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`, `LimitRangeReconciler.java`, `gimle-core/src/main/java/com/gimle/core/tenant/Tenant.java` (`isEnforceable` javadoc), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleCronJobTrigger`)
+- **Test coverage**: `TenantQuotaPluginTest#a_quota_an_operator_set_on_the_default_tenant_is_enforced`, `#a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected`; `LimitRangePluginTest#a_min_request_bound_set_on_the_default_tenant_is_enforced`; `PolicyConfigPluginTest#a_ceiling_configured_on_the_default_tenant_is_enforced`; `QuotaReconcilerTest`/`LimitRangeReconcilerTest` gained the matching default-tenant pairs (violating and within-bounds); `ApiServerTest#a_submission_past_the_default_tenants_quota_is_rejected`, `#a_replica_ceiling_configured_on_the_default_tenant_is_enforced`, `#a_limit_range_min_request_on_the_default_tenant_is_enforced`, `#a_cronjob_firing_past_the_default_tenants_quota_materializes_no_job`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a quota, limit range or `policy.maxReplicasPerDeployment` set on the `default` tenant
+  When a workload naming no tenant is submitted past that bound
+  Then admission rejects it, and the reconcilers flag an existing workload that violates it
+  And a workload naming no tenant is still admitted when the control plane cannot read its jar, since that is not a measured overage
+  ```
+
+#### GIMLE-857 — A LimitRange body declaring no usable bound, or an unrecognized field, is refused
+
+- **Category**: Control plane / API server
+- **User story**: As an operator writing a LimitRange, I want a field the server does not understand to be named back to me, so that a bound I believed I set is never silently dropped.
+- **Status**: Fixed. `PUT /limitranges/{tenantId}` read the four bound keys straight out of the body and ignored everything else, so a body spelled with the flat flag names `gimle set limitrange` uses (`minRequestMemory`) stored a LimitRange bounding nothing while reporting success -- the worst of the three possible outcomes, since the mistake surfaces later only as a workload that should have been refused running happily. Unrecognized fields are now rejected with 400 naming them and the nested `{memory, cpu}` shape a bound actually takes; a body declaring none of the four bounds is rejected too, pointing at `DELETE /limitranges/{tenantId}` as the unambiguous way to remove a tenant's bounds; and a body echoing `tenantId` is accepted only when it agrees with the path. `boundFromJson` requires both halves of a bound together, since `ResourceSpec` has no representation for a memory-only floor.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutLimitRange`, `boundFromJson`, `LIMIT_RANGE_BOUND_KEYS`)
+- **Test coverage**: `ApiServerLimitRangesTest#a_body_using_flat_flag_shaped_field_names_is_rejected_rather_than_silently_dropped`, `#a_body_declaring_no_bound_at_all_is_rejected`, `#a_body_echoing_the_path_tenant_id_is_accepted_but_a_disagreeing_one_is_not`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a LimitRange body whose bounds are spelled with flat flag names, or which declares no bound at all
+  When it is PUT
+  Then it is refused with 400 naming the unrecognized fields and the shape a bound takes
+  And nothing is stored for that tenant
+  ```
+
+#### GIMLE-861 — An artifact push or delete through the control plane names the artifact it affected in the audit trail
+
+- **Category**: Authorization / API Server
+- **User story**: As an operator, I want the control plane's own audit row for an artifact write to name the coordinate, so that under concurrent pushes "someone deleted an artifact" is not all the trail can prove.
+- **Status**: Fixed. `handleArtifactsProxy` authorized every push and delete with no target at all, so the audit row it recorded named the actor, the verb and the time but never which artifact -- and with several callers pushing at once, timestamp correlation was the only way left to work out what had been written or removed. `artifactCoordinateOf` now reads the `moduleId:version` straight out of the request path (absent for the catalog and per-module listings, which name no single artifact) and passes it as the authorization target, so it lands in the audit record.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleArtifactsProxy`, `artifactCoordinateOf`)
+- **Test coverage**: None directly: the audit target itself is not asserted by a control-plane test. The equivalent coordinate-naming on the registry's own side is covered by `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given two operators pushing artifacts concurrently through the control plane
+  When one of them deletes a version
+  Then the audit row for that delete names the `moduleId:version` it removed
+  ```
+
+#### GIMLE-862 — A shortfall count is never negative, and a DaemonSet's desired count covers what the same tick keeps placed
+
+- **Category**: Reconciliation / API Server
+- **User story**: As an operator reading a workload's status during a scale-down or a store election, I want `desired` and `unplacedCount` to stay consistent with the instances actually listed, so that a shortfall never reads as a negative number.
+- **Status**: Fixed. `unplacedCount` was published as a raw `desired - instances.size()` for Deployments, StatefulSets and DaemonSets alike, and a scale-down releases one index per tick by design -- so instances legitimately outnumber the target for a few ticks and the subtraction published a negative count of "how many are still missing". All three are now clamped at zero. The DaemonSet's published `desired` had the mirror-image problem: `DaemonSetReconciler` counted only currently-eligible nodes while the same tick deliberately kept assignments on nodes it was holding rather than evicting, so desired disagreed with the assignments that tick itself chose to keep. It now counts the eligible nodes plus the held ones, and is written after that tick's evictions and rollout step and before any new placement -- the one ordering in which a tick that aborts partway can only leave desired at or above what is actually placed.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`, `deploymentStatus`, `statefulSetStatus`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java` (desired count publication)
+- **Test coverage**: `ApiServerUnplacedReasonTest#more_instances_than_replicas_reports_no_unplaced_rather_than_a_negative_count`; `DaemonSetReconcilerTest#the_desired_count_never_falls_below_what_the_same_tick_keeps_placed`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment scaled from four replicas down to two, mid-release
+  When its status is read
+  Then `unplacedCount` is zero rather than negative
+  And a DaemonSet holding assignments on a node the store cannot currently vouch for reports a desired count that covers them
+  ```
+
+#### GIMLE-868 — A placed instance that never started is reported as not running, in the API and in the CLI's health column
+
+- **Category**: Control plane / API server
+- **User story**: As an operator, I want a workload whose replicas were all placed but never started to read as unhealthy, so that "every index accounted for, no observation anywhere" is not indistinguishable from healthy.
+- **Status**: Fixed. A placed instance reports nothing at all when its node refused to start it, and every status surface judged health from the agent-reported observation alone -- so such a workload read back as fully healthy: every index accounted for, nothing unplaced, and simply no observation where a live one would be, which is precisely the state an operator most needs told. `ApiServer#notRunningReason` now reports an instance that is placed, has no current observation, and whose newest timeline entry is a `TRANSITION_FAILED`, as `notRunningReason` on the instance entry plus a `notRunningCount`/`notRunningReason` rollup on the Deployment, StatefulSet and DaemonSet status, and as a Job run's own `reason`. It is deliberately conditioned on a recorded failure rather than on the missing observation alone -- an instance placed moments ago has legitimately not reported yet, and flagging that would flag every fresh deployment for its first seconds. `gimle get deployments|statefulsets|daemonsets` count such an instance toward their unhealthy column instead of rendering HEALTHY.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`notRunningReason`, `putNotRunningRollup`, deployment/statefulset/daemonset/job status), `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`, `StatefulSetsCommand.java`, `DaemonSetsCommand.java`
+- **Test coverage**: `ApiServerNotRunningReasonTest#a_placed_replica_whose_node_refused_to_start_it_is_reported_as_not_running`, `#a_placed_replica_that_has_simply_not_reported_yet_is_not_called_not_running`, `#only_the_index_the_refusal_was_recorded_against_is_counted`; `DeploymentsCommandTest#the_health_column_reports_unhealthy_for_a_replica_its_node_refused_to_start`
+- **Gherkin scenario**:
+  ```gherkin
+  Given every replica of a deployment placed on a node that refused to start them
+  When the deployment is read through the API or `gimle get deployments`
+  Then it reports a not-running count and reason rather than reading healthy
+  And a replica merely placed a moment ago is not counted
+  ```
+
+#### GIMLE-875 — An unknown Ingress route kind is rejected naming the kinds a manifest may declare
+
+- **Category**: Control plane / API server
+- **User story**: As an operator whose route kind is misspelled, I want the rejection to name the kinds I could have written, rather than an internal enum class.
+- **Status**: Fixed. `ingressRuleFromJson` called `IngressRule.Kind.valueOf` directly, and that method's own failure message names the fully-qualified enum class -- which tells whoever wrote the manifest nothing about what they should have written. `ingressRouteKind` now catches it and lists the route kinds a manifest may declare.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`ingressRouteKind`)
+- **Test coverage**: `ApiServerIngressesTest#a_route_naming_an_unknown_kind_is_refused_without_leaking_an_internal_class_name`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an Ingress manifest declaring a route kind that does not exist
+  When it is applied
+  Then the rejection names the route kinds a manifest may declare and no internal class name
+  ```
+
+#### GIMLE-879 — An alert rule declaring no tenant is keyed under the default tenant, and a rule watching nothing says so once
+
+- **Category**: Observability
+- **User story**: As an operator creating an alert rule without naming a tenant, I want it to watch the deployment a manifest that named no tenant created, so it does not average zero forever against a namespace nothing can exist in.
+- **Status**: Fixed. `POST /alertrules` kept `Optional.empty()` for an omitted `tenantId`, but a workload manifest's own omitted tenant already resolves to `default` -- so an untenanted rule watched a namespace no deployment can be in, averaged zero forever, never crossed a `GREATER_THAN` threshold, and sat permanently at `known: false`. An omitted tenant now resolves to the default tenant, the same defaulting every workload kind applies. Separately, `AlertReconciler#reportUnmatchedDeployment` now warns once when a rule evaluates against no live observation at all -- the deployment does not exist under its tenant, has no placed instance, or has not heartbeated yet -- since evaluating against an average of zero is otherwise indistinguishable from healthy. It is de-duplicated per rule (and cleared once readings appear), so a rule pointed at a misspelled name does not repeat the same warning every tick forever.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (alert-rule tenant defaulting), `gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertReconciler.java` (`reportUnmatchedDeployment`)
+- **Test coverage**: `ApiServerAlertRulesFiringTest#a_rule_created_with_no_tenant_evaluates_against_the_default_tenants_deployment`; `AlertReconcilerTest#a_rule_watching_a_deployment_nothing_reports_for_says_so_once`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment applied with no tenantId, reporting metrics
+  When an alert rule on it is created with no tenantId either
+  Then the rule evaluates against that deployment's real readings and can fire
+  And a rule naming a deployment nothing reports for is reported once, not every tick
+  ```
+
+#### GIMLE-881 — The control plane starts a server span for every request it serves
+
+- **Category**: Observability
+- **User story**: As an operator following a trace, I want the control plane's own request spans to exist, so its shipped trace history is not permanently empty however correctly the exporter behind it is wired.
+- **Status**: Fixed. Nothing in the control-plane process ever began a trace: its exporter and shipper were wired, and there were no spans to ship. Every request now runs inside a `ServerSpan` started by `GimleTracing#startServerSpan`, named for the verb and endpoint it hit and carrying the endpoint and method as attributes. The span is ended in the handler's own `finally` rather than by try-with-resources, so it carries the status the handler actually produced -- a resource is closed before that status can be read -- and a server error marks the span failed. It is a no-op until a tracer provider is installed, so a process shipping nowhere pays nothing.
+- **Confidence**: High
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/GimleTracing.java` (`startServerSpan`), `ServerSpan.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`)
+- **Test coverage**: `ApiServerTracingTest#a_served_request_produces_a_span_naming_the_endpoint_it_hit`; `GimleTracingServerSpanTest#a_started_server_span_reaches_the_installed_exporter_with_its_endpoint_and_status`, `#a_server_error_marks_the_span_as_failed`, `#a_span_started_before_installation_is_inert_and_does_not_block_a_later_installation`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane shipping traces to Muninn
+  When any API request is served
+  Then a span naming that endpoint and its outcome is exported
+  And a control plane with no tracer provider installed is unaffected
+  ```
+
+#### GIMLE-882 — `-Dgimle.controlplane.muninnEndpoint` is honoured alongside the command-line flag
+
+- **Category**: Observability
+- **User story**: As an operator configuring a control plane through system properties, I want its Muninn endpoint read from the same property every other shipping process kind uses, so it is not the one process that silently ships nothing.
+- **Status**: Fixed. `ControlPlaneMain` accepted a Muninn endpoint only as `--muninn-endpoint`, while every other shipping process kind reads its own `-D{process}.muninnEndpoint` property -- so a control plane started any way other than with that flag spelled out shipped its metrics and traces nowhere, with nothing to say so. `resolveMuninnEndpoint` now takes the command line first, then the system property, then nowhere; a blank on either side means unset rather than an endpoint named the empty string, so the callers downstream keep testing for null alone. The usage line names the property alongside the flag.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`resolveMuninnEndpoint`)
+- **Test coverage**: `ControlPlaneMainTest#command_line_endpoint_wins_over_the_system_property`, `#system_property_supplies_the_endpoint_when_no_flag_was_given`, `#blank_command_line_endpoint_falls_back_to_the_system_property`, `#unset_on_both_sides_ships_nowhere`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane started with `-Dgimle.controlplane.muninnEndpoint` and no `--muninn-endpoint` flag
+  When it starts
+  Then it ships its own metrics and traces to that Muninn
+  And an explicit flag still wins over the property
+  ```
+
+#### GIMLE-886 — A deployment blocked by its artifact says whether it was rejected or unreadable, and why
+
+- **Category**: Reconciliation / Orchestration
+- **User story**: As an operator whose deployment will not start, I want to be told whether the jar could not be read or its manifest was refused, so I fix the right thing.
+- **Status**: Fixed. `DeploymentReconciler` recorded every artifact-resolution failure as `artifact unreadable: <path>`, which reads to an operator as a broken or missing file even when the file is fine and the platform refused its manifest -- two different problems with different fixes. The reason now distinguishes `artifact rejected:` (a `GimleManifestException`) from `artifact unreadable:` and carries the underlying message. That also matters for de-duplication: the durable event is keyed on its own message, so a second, unrelated failure on the same instance was previously swallowed as a repeat of the first.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`recordArtifactFailure` call site)
+- **Test coverage**: `DeploymentReconcilerTest#a_rejected_manifest_is_recorded_as_a_rejection_carrying_its_own_reason`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment whose jar exists but whose bundled manifest the platform refuses
+  When the reconciler tries to place it
+  Then the recorded reason says the artifact was rejected and why, not that it was unreadable
+  ```
+
+#### GIMLE-893 — `GET /nodes/{nodeId}` serves a single node read
+
+- **Category**: Control plane / API server
+- **User story**: As a client that already knows a node's id, I want to read that one node, so I do not have to list the whole cluster and filter it myself.
+- **Status**: Implemented. `/nodes/{nodeId}` with no action segment answered 400 `expected /nodes/{nodeId}/register|heartbeat|assignments`, so the only way to read one node was to list every node in the cluster -- which `gimle label node` needs to do on every edit. A GET with no action now serves that node's full read shape, authorized exactly like the listing (`ResourceKind.NODE` READ, with the node's own id as the target so the node self-service path still reaches it), 404 for a node that was never registered and 405 for any other method. The shape itself is built by a shared `nodeJson`, used by both the listing and the single read, so the two can never drift into describing the same node differently.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleNodeRead`, `nodeJson`)
+- **Test coverage**: `CliOutputContractTest#a_nodes_taint_reads_back_identically_in_the_table_and_in_json`, `#label_node_reads_the_nodes_current_labels_and_applies_its_edit` (which drives the single-node read end to end)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a registered node
+  When `GET /nodes/{nodeId}` is requested
+  Then that node's capabilities, labels, taints, cordon state, status and capacity are returned
+  And an unregistered id answers 404
+  ```
+
+#### GIMLE-895 — An instance event is filed only under a workload that exists
+
+- **Category**: Observability
+- **User story**: As an operator reusing a deployment name, I want the deleted occupant's closing events not to appear under the new workload's timeline, so a fresh instance's history is its own.
+- **Status**: Fixed. Deleting a workload wipes the instance timelines it owned, but its instances are only torn down afterwards, so their last few lifecycle events arrive with nothing left to own them -- and were filed anyway. A deleted occupant's STOPPING/UNINSTALLED pair therefore reappeared underneath the fresh timeline of whatever was next created under the same name and index. `handleAppendInstanceEvent` now asks `workloadSpecsNamed` whether any Deployment, Job, DaemonSet or StatefulSet of that name currently exists at all -- a question `resolveTenantForWorkloadName` cannot answer on its own, since it collapses "no such workload" and "found, but untenanted" into the same empty result -- and discards the event when none does, reporting the discard rather than an error. A live workload's own teardown events are still recorded, including one whose assignment is already gone, which is filed under its spec's tenant.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAppendInstanceEvent`, `workloadSpecsNamed`, `resolveInstanceEventTenant`)
+- **Test coverage**: `ApiServerInstanceEventOwnershipTest#a_reused_name_never_inherits_the_deleted_occupants_closing_events`, `#an_event_for_a_workload_that_does_not_exist_is_discarded_not_filed`, `#a_live_workloads_own_teardown_events_are_still_recorded`, `#a_closing_event_with_no_assignment_left_is_filed_under_the_specs_tenant`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment deleted while its instances are still shutting down
+  When a deployment of the same name is created and its instance starts
+  Then the new instance's timeline holds only its own events
+  ```
+
+#### GIMLE-896 — A CronJob reports its last real firing separately from how far its schedule has been evaluated
+
+- **Category**: Reconciliation / API Server
+- **User story**: As an operator, I want `lastScheduleTime` to mean a Job was actually generated, so a CronJob that has never fired does not claim it has.
+- **Status**: Fixed. `cronJobStatus` reported the reconciler's stored schedule cursor as `lastScheduleTime`. That cursor is stamped with the current time the very first time a CronJob is reconciled at all, and keeps advancing past every instant that comes due while the CronJob is suspended -- so a CronJob that had never produced a single Job reported a last schedule time, and a suspended one reported times at which nothing ran. `lastScheduleTime` is now derived from the generated Jobs themselves (each is named `{cronJobName}-{epochSeconds}`, so their own names carry the firing times) and is absent when nothing has ever fired. The cursor is still worth surfacing -- an operator asking why nothing has fired wants to know how far the schedule has been evaluated -- and is reported alongside as `scheduleEvaluatedThrough`, under a name that says what it is. A CronJob never reconciled at all reports neither field.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`cronJobStatus`, `lastFiringTime`, `firingTimeOf`)
+- **Test coverage**: `ApiServerCronJobStatusTest#a_cronjob_reports_the_time_of_the_newest_job_it_actually_generated`, `#a_suspended_cronjob_that_never_fired_reports_no_last_schedule_time`, `#another_cronjobs_generated_jobs_are_never_mistaken_for_this_ones`, `#a_cronjob_never_reconciled_at_all_reports_neither_field`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a CronJob that has been reconciled but has never generated a Job
+  When its status is read
+  Then it reports no `lastScheduleTime`, and `scheduleEvaluatedThrough` says how far the schedule has been evaluated
+  And once a Job is generated, `lastScheduleTime` is that Job's own firing time
+  ```
+
+#### GIMLE-901 — `GET /trace/{traceId}` and `gimle trace <traceId>` follow a whole trace, wherever it ran
+
+- **Category**: Observability
+- **User story**: As an operator holding a trace id, I want one command that finds every span of it, so I do not have to guess which processes took part and page through each.
+- **Status**: Implemented. Following a trace previously meant paging backwards through each process's own history in turn, which requires already knowing which processes were involved and stops answering once any of them is busy. `GET /trace/{traceId}` proxies Muninn's cross-process search, merging what every configured Muninn replica holds and reporting whether the search hit its limit. `gimle trace <traceId> [--limit N]` prints the spans it returns, and the console's Traces screen follows a trace through this one search rather than many per-process walks -- so a span whose parent is missing now genuinely means the parent was never recorded, since the search covers every process that has shipped.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/trace/` route), `gimle-controlplane/src/main/java/com/gimle/controlplane/muninn/MuninnClient.java` (trace search), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`runTraceSearch`, `traceUsage`), `GimleCli`, `gimle-console/src/repositories/http/tracesHistory.ts`, `src/routes/-trace-follow.ts`, `src/routes/traces.tsx`
+- **Test coverage**: `ApiServerMetricsHistoryTest#a_trace_search_finds_every_process_the_trace_crossed`, `#a_trace_search_merges_what_every_replica_holds`; `HistoryCommandTest` covers the CLI verb; `tracesHistory.test.ts` and `-trace-follow.test.ts` cover the console's single-search follow.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a trace whose spans were shipped from two different processes
+  When `gimle trace <traceId>` runs, or the console's Traces screen follows it
+  Then every span comes back in one search, grouped by the process it ran on
+  And a span whose parent is absent is reported as genuinely missing rather than merely out of reach
+  ```
+
+#### GIMLE-902 — A history read forwards the backward-paging parameters instead of dropping them at the proxy hop
+
+- **Category**: Observability
+- **User story**: As an operator paging back through a process's metrics or traces, I want each page to be older than the last, so paging is not an endless re-serve of the newest page.
+- **Status**: Fixed. The `/metrics-history/*` and `/traces-history/*` proxy forwarded only some of the query it received, so a read carrying a backward cursor was served the newest page again -- paging back never advanced. The proxy now forwards the paging parameters through to Muninn, and the CLI sends `--limit` as a query parameter rather than trimming an already-fetched response client-side, so a limit bounds what is read rather than what is displayed.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (history proxy query forwarding), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`run`)
+- **Test coverage**: `ApiServerMetricsHistoryTest#proxies_to_muninn_forwarding_the_backward_paging_parameters`; `HistoryCommandTest` asserts the limit travels as a query parameter
+- **Gherkin scenario**:
+  ```gherkin
+  Given a process history longer than one page
+  When a second page is requested with the cursor the first returned
+  Then it serves the older page rather than the newest one again
   ```
 
 ### gimle-fafnir
@@ -7408,6 +8055,23 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a SecretMap member stored under its reserved key, When it is read through the flat /secrets path, Then the request is refused and directed to /secretmaps.
   ```
 
+#### GIMLE-853 — Retiring a secrets key that still encrypts stored data is refused, and `gimle secret rewrap` re-encrypts under the active key
+
+- **Category**: Secrets Management
+- **User story**: As an operator retiring an old encryption key, I want to be stopped while any stored value still depends on it, and to have a way to move those values onto the active key first, so that retirement can never destroy data I still need.
+- **Status**: Implemented. Retirement destroys a key's material, and nothing checked whether anything still needed it: a value stored under an older key became permanently unreadable the moment that key was retired, with no warning at any point. `SecretStore#countEncryptedUnder` now counts every stored version still sealed under the key being retired, and retirement is refused while that count is non-zero, naming how many values would be lost (`GimleSecretsException#keyStillEncryptsData`) and pointing at the remedy. That remedy is new: `POST /secrets/rewrap` re-encrypts every stored version not already under the active key, without minting a new key the way `rotate-key` does, and is idempotent -- a second run finds nothing to do and reports zero. The control plane proxies it through the same global secrets-admin gate `rotate-key` and `retire-key` already use (`forwardGlobalAdminRoute`), and `gimle secret rewrap` reports how many values it moved.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`countEncryptedUnder`, `rewrapAll`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleRewrapSecrets`, `handleRetireSecretsKey`), `gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`keyStillEncryptsData`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRewrapSecretsProxy`), `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`rewrap`)
+- **Test coverage**: `SecretStoreTest#a_value_left_under_an_older_key_blocks_retirement_until_it_is_rewrapped`, `#rewrapping_again_finds_nothing_left_to_do`, `#rotation_leaves_nothing_encrypted_under_the_key_it_moved_off`; `FafnirServerSealTest#retiring_a_symmetric_key_is_refused_while_a_value_is_still_encrypted_under_it`; `FafnirCryptoTest` proves a retirement survives a cold reload and is scoped to the one key.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a secret still encrypted under a key that is no longer the active one
+  When that key is retired
+  Then the request is refused, naming how many stored values still depend on it
+  And after `gimle secret rewrap` re-encrypts them under the active key, retirement succeeds
+  And a second rewrap reports nothing left to do
+  ```
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -7622,13 +8286,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Internal-Infra / Authorization
 - **User story**: As a compliance auditor, I want every artifact push and delete decision durably recorded, both as a log line and a queryable AuditEvent.
-- **Status**: Complete
+- **Status**: Complete. Modified: plaintext mode returned from the authorization helper before either audit half ran, so a push or delete received that way left no trace in this process's own log at all -- and an unauthenticated push is precisely the case where the trail matters, since it places an executable jar where agents will run it. Both halves are now written in that mode too, attributed to the same synthetic `anonymous` principal this server's own session endpoint already reports there. Both also now name the affected `moduleId:version` coordinate and the artifact's tenant: without it the trail could prove that someone deleted something and when, but not which artifact, which under concurrent pushes leaves timestamp correlation as the only way to find out. The SLF4J line is written first, so the coordinate reaches an operator's log even when the durable append cannot reach the store. Reads (pulls) are still not durably audited.
 - **Confidence**: Medium
-- **Source location(s)**: `AndvariServer.recordAudit`, `authorizeArtifacts`
-- **Test coverage**: Exercised via `AndvariServerTlsTest`'s auth test set
+- **Source location(s)**: `AndvariServer.recordAudit`, `authorizeArtifacts`, `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`recordAudit` with target and tenant, plaintext-mode audit)
+- **Test coverage**: Exercised via `AndvariServerTlsTest`'s auth test set `AndvariServerAuditTest#a_push_and_a_delete_are_both_logged_and_durably_recorded_against_their_coordinate` covers the plaintext path and the coordinate directly.
 - **Gherkin scenario**:
   ```gherkin
   Given a push or delete is attempted; When authorizeArtifacts completes; Then a SLF4J line and a durable AuditEvent are both recorded — reads (pulls) are not durably audited.
+  Given the registry is running in plaintext mode; When a jar is pushed or a version deleted; Then both audit halves are still written, naming the coordinate and the artifact's tenant.
   ```
 
 #### GIMLE-314 — Andvari's own console session story (`/auth/*`, bundled SPA)
@@ -7735,6 +8400,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a jar and its .pom published under a Maven coordinate, When a client HEADs either of them, the server-computed checksum, or maven-metadata.xml, Then each answers 200 with no body rather than 405.
+  ```
+
+#### GIMLE-858 — A failed peer-sync or registry call names its real cause instead of the literal text `null`
+
+- **Category**: Artifact Registry
+- **User story**: As an operator, I want an unreachable registry or peer reported with what actually failed, so that the log line meant to tell me the cause is not the string "null".
+- **Status**: Fixed. The JDK HTTP client reports an unresolvable host as a `ConnectException` carrying no message at all, and both `AndvariPeerSync`'s warning and the control plane's own registry-unreachable reason interpolated `getMessage()` directly -- so the single line an operator has to diagnose from read `peer sync from ... failed: null`. A shared `Failures#describe` renders the exception's own type name (and its cause's, where the message is absent) instead, and both sites also log the throwable. Two adjacent leaks were closed in the same path: an interrupted sync now restores the flag and abandons the pass rather than walking the remaining peers and emitting a burst of identical failures, and a peer answering non-200 for a download has its streaming body closed explicitly rather than leaving the connection held until collection.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari/src/main/java/com/gimle/andvari/Failures.java`, `gimle-andvari/src/main/java/com/gimle/andvari/AndvariPeerSync.java` (`syncQuietly`, `sync`, `syncFrom`), `gimle-controlplane/src/main/java/com/gimle/controlplane/andvari/AndvariClient.java`
+- **Test coverage**: `AndvariPeerSyncResilienceTest#an_unresolvable_peer_is_logged_with_its_real_cause_and_never_wedges_the_syncer`, `#a_peer_whose_downloads_keep_failing_leaves_this_replica_able_to_sync_again`; `AndvariClientTest#an_unresolvable_registry_host_is_reported_with_its_real_cause`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an artifact registry peer whose hostname does not resolve
+  When a peer sync runs, or the control plane HEADs a coordinate against it
+  Then the failure is reported with the real cause rather than the text `null`
+  And the syncer keeps running for the next interval
   ```
 
 ### gimle-muninn
@@ -7897,16 +8578,17 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Internal/Infra
 - **User story**: As an operator running Muninn on Windows, I want a `host:port`-shaped processId to round-trip through ingest/read without `InvalidPathException`, so that metrics/traces ingest from every non-AGENT process kind works cross-platform.
-- **Status**: Complete
+- **Status**: Complete. Modified: the `_`-for-`:` substitution was lossy, and a process id may itself contain `_`, so nothing could recover the original id from a directory name. That was fine while every read took its process id from the request URL, and became a real limit the moment a cross-process trace search had only a directory listing to read it from -- a lossy name would leave it unable to say which process a span it found actually ran on. The escape is now the percent-shaped, reversible `%3A` (a process id never contains `%`), with `decodeProcessId` its exact inverse.
 - **Confidence**: High
 - **Source location(s)**: `MuninnDayFileStore.java#resolveSubtree`, `MuninnServer.java#PROCESS_ID_SEGMENT`
-- **Test coverage**: `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error`
+- **Test coverage**: `MuninnDayFileStoreTest#a_subtree_path_containing_a_colon_round_trips_without_an_invalid_path_error` `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape`.
 - **Gherkin scenario**:
   ```gherkin
   Given a subtreePath containing a literal colon (e.g. "metrics/CONTROLPLANE/127.0.0.1:8080")
   When lines are appended and then read back
   Then the write succeeds by substituting "_" for ":" in the on-disk directory name only
   And the returned data's processId (from the URL, never the directory name) is unchanged
+  And a process id containing both `_` and `:` is recovered exactly from its own directory name
   ```
 
 #### GIMLE-330 — Path-segment validation / directory-traversal defense
@@ -8110,6 +8792,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When the retention sweep runs
   Then a trace day file past the traces window is deleted
   And a log day file of the same age within the logs window is kept
+  ```
+
+#### GIMLE-900 — Every span of one trace is found across processes in a single read
+
+- **Category**: Tracing
+- **User story**: As an operator following a cross-process call, I want one search that finds every span of a trace wherever it ran, so assembling it does not depend on knowing which processes took part.
+- **Status**: Implemented. A trace is the one thing here that is inherently cross-process: a cross-worker call puts the caller's span in one process's history and the callee's in another, and neither knows the other's identity. Assembled from the per-process read route alone, following a trace meant paging backwards through every process a caller could name -- which silently stops working once any of them is busy enough to have paged past the span, and can never reach a process the caller cannot name at all (a worker replaced since the call still has its shipped history under the id it had then). Both failures look exactly like the span never existing. `MuninnDayFileStore#findSpansByTraceId` now walks every process that has ever shipped traces, oldest first, capped at a caller-supplied limit and reporting when it hit that cap rather than quietly returning a slice; each line is pre-filtered by a plain substring test before being parsed, and the exact `traceId` field is still compared afterwards so an id appearing in another field never counts. The on-disk `:`-escaping in a process-id directory name became the reversible `%3A` in the same change, because a cross-process search has no request URL to read the process id off and a lossy directory name would leave it unable to say which process a span ran on. The read is authorized exactly like every other read here, against `ResourceKind.LOGS`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/MuninnDayFileStore.java` (`findSpansByTraceId`, `TraceSpanHit`, `decodeProcessId`), `gimle-muninn/src/main/java/com/gimle/muninn/MuninnServer.java` (trace-search route)
+- **Test coverage**: `MuninnServerTraceSearchTest#both_hops_of_a_cross_worker_call_come_back_from_one_search`, `#a_span_a_busy_worker_has_paged_past_is_still_found_by_trace_id`, `#a_trace_nothing_ever_shipped_a_span_for_comes_back_empty_rather_than_missing`, `#a_trace_id_that_is_not_32_hex_characters_is_rejected_before_touching_the_filesystem`, `#a_search_that_hits_its_limit_says_so_rather_than_quietly_returning_a_slice`; `MuninnServerReadAuthzTest` covers the authorization; `MuninnDayFileStoreTest#a_process_id_containing_an_underscore_and_a_colon_survives_the_directory_name_escape`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cross-worker call whose two hops shipped spans from two different processes
+  When Muninn is searched for that trace id
+  Then both spans come back in one read, each naming the process it ran on
+  And a search that reaches its limit says so rather than returning a silent slice
   ```
 
 ### gimle-observability
@@ -8410,6 +9108,37 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a trace is started and crosses a process hop
   Then the child span follows the parent's sampling decision
   And the default configuration still records every trace
+  ```
+
+#### GIMLE-880 — One source of truth for which process kinds ship metrics and which ship traces, served by the API
+
+- **Category**: Observability
+- **User story**: As an operator picking a process to read history for, I want to be offered only the kinds that actually ship that signal, so I do not read an empty history and conclude the data was lost.
+- **Status**: Fixed. The CLI, the console and the API each carried their own hard-coded list of five process kinds for both history surfaces, and all three were wrong in both directions: Skald and Andvari ship metrics and were not offered, while the store, Fafnir, Andvari, Skald and the node agent ship no spans at all yet were offered for traces, where asking could only ever come back empty. `ObservedProcessKind` is now the single enumeration of which kinds ship which signal; the control plane serves it from the new segment-less `GET /metrics-history` and `GET /traces-history` routes and enforces it, rejecting a kind that ships nothing for that surface rather than proxying a read that cannot answer. `HistoryCommand.Surface` carries each surface's own kind list into its validation and usage text, and the console's process picker reads the served lists through `useHistoryKindsStore`, falling back to its full list only when the control plane could not be asked -- and resets a deep link naming a kind the surface has no history for.
+- **Confidence**: High
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/ObservedProcessKind.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleMetricsHistoryKinds`, `handleTracesHistoryKinds`), `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java` (`Surface#processKinds`), `gimle-console/src/stores/useHistoryKindsStore.ts`, `src/components/process-picker.tsx`
+- **Test coverage**: `ApiServerMetricsHistoryTest#the_kinds_that_ship_metrics_are_served_by_the_collection_route`, `#a_process_kind_that_never_ships_metrics_is_rejected_rather_than_proxied`; the traces equivalents in `ApiServerTracesHistoryTest`; `HistoryCommandTest#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`; `useHistoryKindsStore.test.ts`, `metricsHistory.test.ts`, `tracesHistory.test.ts`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a process kind that ships metrics but starts no spans
+  When the traces-history surface is asked for it
+  Then the request is rejected naming the kinds that do ship traces
+  And the CLI's usage and the console's picker offer exactly those kinds
+  ```
+
+#### GIMLE-899 — A root span reports no parent rather than the all-zero span id
+
+- **Category**: Tracing
+- **User story**: As an operator following a trace, I want a root span to say it has no parent, so a complete trace is not judged incomplete.
+- **Status**: Fixed. `SpanLineCodec` wrote `span.getParentSpanId()` verbatim, and OpenTelemetry reports the all-zero invalid span id there for a root span rather than the absence of a parent. Every shipped root span therefore named a parent nothing could resolve, so any reader assembling a trace -- the console's trace follow above all -- reported a whole trace as provably incomplete. The parent is now written only when the parent span context is valid; the empty string is the one unambiguous "no parent" this flat line shape can carry.
+- **Confidence**: High
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/SpanLineCodec.java` (`encode`)
+- **Test coverage**: `SpanLineCodecTest#a_root_span_reports_no_parent_rather_than_the_all_zero_span_id`, `#a_child_span_still_reports_its_own_parents_span_id`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a root span shipped to Muninn
+  When a reader assembles the trace it belongs to
+  Then the root reports no parent, and the trace is not reported as missing one
   ```
 
 ### gimle-gateway
@@ -8744,6 +9473,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged.
   Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.
+  ```
+
+#### GIMLE-863 — A gateway follows its own tenant's Ingresses by default
+
+- **Category**: Gateway/Routing
+- **User story**: As an operator deploying a gateway into a tenant, I want it to serve that tenant's declared routes without being told which tenant it is in, so that it does not come up healthy and serve nothing.
+- **Status**: Fixed. `GatewayHooks#fetchIngressRoutes` fell back to `Tenant.DEFAULT_TENANT_ID` whenever `gateway.tenantId` was unset, so a gateway deployed into any other tenant polled a tenant it had nothing to do with, filtered every Ingress away, and served no route at all while reporting perfectly healthy. It now falls back to the tenant of the instance it is running as (`ctx.instanceInfo().tenantId()`), and only then to the default tenant. An explicit `gateway.tenantId` still wins, for a gateway deliberately fronting a tenant other than its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`fetchIngressRoutes`)
+- **Test coverage**: `GatewayHooksRouteReloadTest#a_gateway_follows_its_own_tenants_ingresses_without_being_told_which_tenant_it_is_in`, `#an_explicit_gateway_tenant_id_still_wins_over_the_instances_own_tenant`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a gateway deployed into tenant `acme` with no `gateway.tenantId` configured
+  When an Ingress is declared in tenant `acme`
+  Then the gateway serves that route
+  And an explicit `gateway.tenantId` still overrides which tenant it follows
   ```
 
 ### gimle-cli
@@ -9257,10 +10002,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As an operator automating an investigation, I want historical metrics and traces from the terminal, so that pulling shipped history does not force me into the browser.
-- **Status**: Fixed: closes FUNC-14. GET /metrics-history/* and GET /traces-history/* were fully wired into the console with zero references anywhere in gimle-cli. One command serves both surfaces through a shared enum matching the proxy's own shape. The process kind is validated locally against the five known kinds and a WORKER id must carry the {nodeId}:{workerId} composite. Only --since is forwarded, being the one parameter the proxy passes on; --limit is applied client-side keeping the newest N of an oldest-first response, the same treatment EventsCommand already gives its own limit and documented as such. Under the table format the resume cursor echoed is the last printed line's own timestamp rather than the envelope's cursor, because the two disagree once --limit truncates and emitting the envelope's value would silently skip records on the next call.
+- **Status**: Fixed: closes FUNC-14. GET /metrics-history/* and GET /traces-history/* were fully wired into the console with zero references anywhere in gimle-cli. One command serves both surfaces through a shared enum matching the proxy's own shape. The process kind is validated locally against the five known kinds and a WORKER id must carry the {nodeId}:{workerId} composite. Only --since is forwarded, being the one parameter the proxy passes on; --limit is applied client-side keeping the newest N of an oldest-first response, the same treatment EventsCommand already gives its own limit and documented as such. Under the table format the resume cursor echoed is the last printed line's own timestamp rather than the envelope's cursor, because the two disagree once --limit truncates and emitting the envelope's value would silently skip records on the next call. Modified: the command validated the process kind against one fixed list of five for both surfaces, which was wrong in both directions -- Skald and Andvari ship metrics and were refused, while five kinds that start no spans at all were accepted for traces, where the read could only come back empty. Each surface now carries its own kind list into validation and usage text. `--limit` also travels to the store as a query parameter rather than trimming an already-fetched response, so it bounds what is read. The sibling verb `gimle trace <traceId> [--limit N]` was added for the one question the per-process reads cannot answer.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java`
-- **Test coverage**: HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured.
+- **Test coverage**: HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured. Gained `#skald_and_andvari_are_accepted_for_metrics_history`, `#a_kind_that_ships_no_traces_is_rejected_for_traces_history`, `#the_accepted_kinds_match_what_the_platform_ships`, and the trace-search cases.
 - **Gherkin scenario**:
   ```gherkin
   Given shipped metrics history for a worker
@@ -9359,6 +10104,85 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an ArtifactSet whose second of three entries names a file that does not exist, When it is applied, Then the other two are published and the command fails naming the entry it could not read.
+  ```
+
+#### GIMLE-870 — `gimle volume destroy` exits non-zero when it reclaimed nothing
+
+- **Category**: CLI
+- **User story**: As an operator scripting a reclaim, I want a destroy that matched no volume to fail the command, so that a mistyped node, index or tenant is not reported exactly like a real reclaim.
+- **Status**: Fixed. The agent had been changed to answer `200 {"destroyed": false}` for a destroy that removed nothing, on idempotency grounds, and the CLI carried that distinction in the printed sentence alone. Reclaiming a volume is irreversible and addressed entirely by a coordinate an operator types out -- node, set, index, tenant -- so a caller that checks only the exit status, which is every shell script, read a no-op as the deletion it asked for. The agent answers 404 again for a destroy that removed nothing, naming the coordinate it looked under, and `VolumesCommand#destroy` turns that into `CliException.notFound`, so the process exits 3. A real reclaim still exits 0.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)
+- **Test coverage**: `VolumeDestroyExitCodeTest#a_destroy_that_removed_nothing_exits_non_zero_rather_than_reporting_success`, `#a_destroy_that_really_removed_a_volume_still_exits_zero`, `#a_destroy_naming_a_tenant_with_no_such_volume_exits_non_zero_too`; `AgentLogServerTest#destroying_a_volume_under_the_wrong_tenant_is_a_404_and_leaves_it_on_disk`, `#destroying_an_already_destroyed_volume_reports_that_it_removed_nothing`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a `gimle volume destroy` naming a node, set, index or tenant with nothing on disk
+  When it runs
+  Then it exits non-zero naming the coordinate it looked under
+  And a destroy that really removed a volume still exits zero
+  ```
+
+#### GIMLE-872 — `gimle logs` prints the stack trace a log line carries
+
+- **Category**: CLI
+- **User story**: As an operator reading an instance's logs, I want the stack trace the platform already recorded to be printed under its message, so that a module whose hook threw does not look like it failed for no reason.
+- **Status**: Fixed. `LogsCommand`'s human rendering built its line from timestamp, level, logger and message alone and dropped the `stackTrace` field the log reader already returns -- so the cause of a failure was recorded, shipped and served, and then thrown away by the one surface an operator reads it through. The trace is now appended under the message when the line carries one; a line without one prints exactly as before.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LogsCommand.java` (`renderLine`)
+- **Test coverage**: `LogsCommandTest#a_line_carrying_a_stack_trace_prints_it_under_the_message`, `#a_line_with_no_stack_trace_prints_exactly_as_before`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module whose lifecycle hook threw, recorded with its stack trace
+  When `gimle logs <instance>` renders that line
+  Then the stack trace is printed under the message
+  ```
+
+#### GIMLE-873 — `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name
+
+- **Category**: CLI
+- **User story**: As an operator, I want `get ingresses` with no name to list every Ingress, so that the command does not die on a cast or read my tenant flag as a resource name.
+- **Status**: Fixed. `IngressCommand#get` decided between the collection and the by-name route on `args.isEmpty()` and then parsed the answer with `getObject` either way -- but the collection route answers with a JSON array, so a bare `get ingresses` died on the cast, and `get ingresses --tenant acme` read `--tenant` as the resource name and asked for an Ingress called that. It now uses the same `GetCommandArgs.split` treatment `get services` already does: no name lists the collection through `getList` and filters client-side by tenant (an Ingress carries `tenantId` at the top level, not nested under a `spec`, since it is not status-wrapped the way a workload kind is), while a name still reads the single object.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java` (`get`, `filterByTenant`)
+- **Test coverage**: `IngressCommandTest#get_ingresses_with_no_name_lists_every_declared_ingress`, `#get_ingresses_filters_the_listing_by_tenant_rather_than_reading_the_flag_as_a_name`, `#get_ingress_by_name_still_reports_the_single_object`
+- **Gherkin scenario**:
+  ```gherkin
+  Given several Ingresses across two tenants
+  When `gimle get ingresses` runs with no name, and again with `--tenant`
+  Then the first lists every Ingress and the second lists only that tenant's
+  And `get ingress <name>` still reports the single object
+  ```
+
+#### GIMLE-874 — Every ingress apply is guarded by a compare-and-set version
+
+- **Category**: CLI
+- **User story**: As one of several operators editing a route table, I want my apply refused if it is built on a revision someone else has replaced, so that a concurrent edit is never overwritten unseen.
+- **Status**: Fixed. `IngressCommand#apply` forwarded `expectedVersion` only when the manifest happened to declare one, so an ordinary apply carried no guard at all: a resubmit built on a revision another operator had already replaced overwrote it silently and bumped the counter. Every apply now carries a guard supplied by the command itself -- the manifest's own `version` when it declares one, so the guard names exactly the revision its author edited, and otherwise the version read here at this instant, which still refuses a write landing between that read and the POST and keeps the counter from advancing past a revision no client ever saw. A 409 is reported as the stale edit it is, naming the version that was expected. A non-numeric declared `version` is rejected outright.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java` (`apply`, `guardVersion`, `currentVersion`, `staleEdit`)
+- **Test coverage**: `IngressCommandTest#re_applying_a_manifest_carrying_a_version_someone_else_moved_past_is_refused`, `#an_apply_declaring_no_version_creates_and_then_replaces_the_ingress`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an Ingress at version 3 and a manifest exported at version 2
+  When that manifest is re-applied
+  Then the apply is refused as a stale edit rather than replacing the newer revision
+  And an apply declaring no version guards on whatever is stored at that instant
+  ```
+
+#### GIMLE-894 — `gimle apply -f`'s help names every kind it accepts
+
+- **Category**: CLI
+- **User story**: As an operator, I want the help text to list every `kind:` apply understands, so a kind it has accepted for releases is not invisible to anyone reading `-h`.
+- **Status**: Fixed. `apply`'s usage text and the top-level help both listed six kinds while the dispatcher accepted fifteen, so Service, NetworkPolicy, Ingress, Tenant, LimitRange, Role, RoleBinding and Account were accepted and undocumented. One ordered `BUILT_IN_APPLY_KIND_ORDER` list is now the single source both help surfaces render (wrapped to width by `applyKindLines`), so a kind added to the dispatcher's own switch can no longer stay invisible in the help.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`BUILT_IN_APPLY_KIND_ORDER`, `applyKindLines`, `APPLY_USAGE`)
+- **Test coverage**: `ApplyKindCoverageTest#every_non_workload_kind_the_dispatcher_names_really_applies`, `#the_help_text_names_every_kind_apply_accepts`, `#the_apply_usage_names_every_kind_apply_accepts`
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle apply -h` and `gimle -h`
+  When either is printed
+  Then every kind the apply dispatcher accepts is named, plus custom kinds
+  And each named kind really is accepted by an apply
   ```
 
 ### gimle-hilmir
@@ -9790,6 +10614,100 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the enable gateway or disable gateway subcommand, When -h/--help appears anywhere in its own arguments (e.g. hilmir enable gateway -h), Then the scoped usage text is printed and exits 0 without requiring --server or reaching the extension's own flag parser.
   ```
 
+#### GIMLE-851 — A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable
+
+- **Category**: Release Management
+- **User story**: As an operator deploying a release bundle with `--wait`, I want the release recorded as soon as its resources are applied, so that a wait that times out leaves something I can roll back or tear down.
+- **Status**: Fixed. `ReleaseReconciler` applied every tenant, config, secret and workload, then waited for convergence, and only wrote the release's revision and meta rows afterwards -- so a `--wait` that timed out left a fully live release with no ledger row at all: `hilmir releases` did not list it, and every teardown path found nothing to tear down. Both `deployFresh` and the upgrade path now write the ledger before awaiting. What the ledger records is what was applied; whether it converged is a separate question, and the caller still sees the wait fail.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseReconciler.java` (`deployFresh`, upgrade path), `gimle-hilmir/src/main/java/com/gimle/hilmir/release/WaitPoller.java`
+- **Test coverage**: `DeployCommandTest#a_wait_that_times_out_still_records_the_release_so_it_can_be_undeployed`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a release bundle deployed with `--wait` whose workloads never reach ACTIVE
+  When the wait times out
+  Then the command still reports the failure
+  And the release appears in the ledger, so it can be undeployed or upgraded afterwards
+  ```
+
+#### GIMLE-883 — `hilmir init` and `gimle:init` write generated manifests where the command was run
+
+- **Category**: Build Tooling
+- **User story**: As a module author running `init`, I want the generated `deployment.yaml` and `gimle-module.yaml` in my project directory, so the next `mvn clean` does not delete them.
+- **Status**: Fixed. `hilmir init` defaulted its output directory to the inspected jar's own parent -- which for the documented workflow is `target/`, a build output directory the next clean build deletes -- and `gimle:init` passed no output directory at all, so it landed there too. `InitCommand` now defaults to the directory the command was run from, and `InitMojo`'s `outDir` parameter is declared as a `File` with a `${project.basedir}` default: Maven evaluates a default value that is exactly one expression to that expression's own type, so a `String` field was simply left null and passed nothing on.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/init/InitCommand.java` (`currentDirectory`), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/InitMojo.java` (`outDir`)
+- **Test coverage**: `InitCommandTest#writes_into_the_working_directory_not_beside_the_jar_when_no_out_dir_is_given`; `InitMojoTest#the_out_dir_parameter_takes_its_project_basedir_default_as_a_file`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a built jar under `target/` and no `--out-dir`
+  When `hilmir init` or `mvn gimle:init` runs from the project directory
+  Then the generated manifests land in that project directory, not beside the jar
+  ```
+
+#### GIMLE-887 — `hilmir plan` rejects an unknown `--machine` the way `up` already does
+
+- **Category**: Release Management
+- **User story**: As an operator previewing a launch, I want a machine name the topology does not declare to be rejected, so the preview cannot succeed by printing nothing.
+- **Status**: Fixed. `hilmir up --machine <name>` rejected a name the topology never declares, but `plan --machine <name>` filtered the plan by that name and printed whatever matched -- nothing -- then exited 0. A preview is only worth anything if it rejects exactly what running it would reject. `ClusterPlan#requireMachine` is now the single place that check lives, used by `plan`, `up` and `upgrade-cluster` alike, and names the machines the topology does declare.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/ClusterPlan.java` (`requireMachine`), `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runPlan`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java`, `upgrade/UpgradeClusterCommand.java`
+- **Test coverage**: `HilmirMainTest#plan_rejects_a_machine_name_the_topology_never_declares`, `#plan_and_up_reject_an_unknown_machine_name_the_same_way`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a topology declaring machines a, b and c
+  When `hilmir plan --machine d` runs
+  Then it fails naming the machines the topology declares, exactly as `up --machine d` does
+  ```
+
+#### GIMLE-888 — Every rejected topology document is reported as one coded finding
+
+- **Category**: Release Management
+- **User story**: As an operator whose topology file is malformed, I want the failure reported in the same coded, severity-tagged form as a validation finding, so `validate` has one output shape rather than two.
+- **Status**: Fixed. A topology file that was missing, unreadable or structurally rejected threw out of the parser before `TopologyValidator` ever ran, so `hilmir validate` reported it as a bare exception message alongside the coded, severity-tagged findings it otherwise emits -- two output shapes for the same question, and a path named twice in some of them. `CheckedTopology#check` now wraps parsing and validation together, turning a parse failure into a single finding carrying its own severity and code, and `validate`/`plan`/`up`/`upgrade-cluster` all consume that one result.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/validate/CheckedTopology.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runValidate`, `runPlan`, `runUp`), `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java`, `store/StoreEndpoints.java`, `upgrade/UpgradeClusterCommand.java`
+- **Test coverage**: `HilmirMainTest#validate_reports_a_missing_topology_file_as_a_coded_finding_naming_the_path_once`, `#validate_reports_malformed_yaml_as_a_coded_finding`, `#validate_reports_a_structurally_rejected_document_as_a_coded_finding`, `#every_validate_failure_line_carries_a_severity_and_a_code`, `#reports_an_unreadable_topology_file_as_a_clean_error_for_a_verb_without_findings`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a topology file that is missing, malformed, or structurally rejected
+  When `hilmir validate` runs against it
+  Then the failure is reported as one finding carrying a severity and a code, like every other finding
+  And the same document fails `plan` and `up` identically
+  ```
+
+#### GIMLE-890 — A topology may configure a store replica's health port
+
+- **Category**: Release Management
+- **User story**: As an operator, I want to declare the port a store replica serves its health endpoint on, so a store replica can be polled like every other role.
+- **Status**: Implemented. A store replica serves no health endpoint at all unless one is configured -- unlike every other role, whose own primary port already answers a status request -- and the topology schema had no way to name that port, so `StoreMain`'s `--health-port` was unreachable from a `hilmir`-launched cluster. `StoreReplica` gained an optional `healthPort`, parsed from `store.replicas[].healthPort`, validated for range and for collision with every other claimed port on that machine, and passed through as `--health-port` only when it is set: leaving it unset is a real configuration, not a missing value to default.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/StoreReplica.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/topology/TopologyParser.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/validate/TopologyValidator.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java`
+- **Test coverage**: `TopologyParserTest#parses_an_optional_store_health_port_and_leaves_it_unset_when_omitted`; `TopologyValidatorTest#reports_port_conflict_when_a_store_health_port_collides_with_another_claim`; `LaunchPlannerTest#plans_the_store_health_port_flag_only_when_the_topology_configures_one`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a topology declaring `healthPort` on a store replica
+  When the launch plan is built
+  Then that replica is launched with `--health-port`, and a replica omitting it is launched without one
+  And a health port colliding with another claimed port on the same machine is reported
+  ```
+
+#### GIMLE-891 — `hilmir stop` stops one co-located role, or one process id, on a machine
+
+- **Category**: Release Management
+- **User story**: As an operator, I want to stop a single process on a machine that hosts several, so that taking one role down does not mean tearing the whole machine down with `down`.
+- **Status**: Implemented. `down` was all-or-nothing per machine, so restarting one co-located role on a machine hosting several meant stopping every process it runs. `hilmir stop --machine <name> (--role <ROLE> | --id <process-id>)` kills exactly the one process and drops that entry alone from the run ledger, leaving every other recorded process running and recorded -- so a later `up` respawns just the stopped one. Exactly one of `--role`/`--id` is required (`--id` is what distinguishes two co-located replicas of the same role), the `WORKER` role is rejected as never hilmir-launched, and a role the machine never ran is reported naming what is actually recorded. It takes `--data-root` rather than `-f`, like `down` and `status`, and `--remote` re-invokes the same verb over SSH.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runStop`, `parseStoppableRole`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`stop`), `gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunLedger.java` (single-entry removal), `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`stop`)
+- **Test coverage**: `HilmirMainTest` (6 cases: the required flags, the role/id exclusivity, a rejected non-role and the WORKER role, a clean error with no ledger, and the usage line); `MachineLauncherStopIntegrationTest#stop_kills_only_the_named_role_and_drops_only_its_ledger_entry`, `#stop_by_id_picks_one_of_two_co_located_replicas_of_the_same_role`, `#stop_leaves_the_ledger_ready_for_a_later_up_to_respawn_just_that_process`; `RunLedgerTest` (3 cases); `RemoteDispatchTest#stop_carries_the_role_or_id_selector_through_to_the_remote_verb`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a machine running a store replica and a control plane
+  When `hilmir stop --machine m1 --role CONTROL_PLANE` runs
+  Then only the control plane is stopped and only its ledger entry removed
+  And a later `up` respawns just that process
+  ```
+
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -10013,6 +10931,38 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a mix of testsuite-rooted and testsuites-wrapped XML files, When SurefireReports.totals is called, Then counts summed correctly; a testcase with a flakyFailure element counts once regardless of rerun attempts; unparseable files are warned about and skipped.
   ```
 
+#### GIMLE-884 — `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to
+
+- **Category**: Build Tooling
+- **User story**: As a developer standing a local cluster up goal by goal, I want the control plane and agent goals to be able to name a Muninn, so the observability data they produce goes somewhere.
+- **Status**: Implemented. Neither goal could name a Muninn at all, so a cluster assembled from `gimle:store`/`gimle:controlplane`/`gimle:agent` alongside `gimle:muninn` shipped nothing to it. Both goals gained a `muninnEndpoint` parameter, threaded through as the process's own `-D...muninnEndpoint` property. Deliberately unset by default, unlike the store/Fafnir/Andvari addresses those goals do default: shipping to an address where nothing is listening buys a local-dev session nothing but a retry every interval, and a session that never starts `gimle:muninn` is the common one. The pre-existing Fafnir endpoints on both goals were undocumented and are now listed in the goals reference alongside them.
+- **Confidence**: High
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ControlPlaneMojo.java` (`muninnEndpoint`), `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/AgentMojo.java` (`muninnEndpoint`)
+- **Test coverage**: `ControlPlaneMojoTest#threads_the_muninn_endpoint_through_to_control_plane_main`, `#an_unset_muninn_endpoint_leaves_the_flag_off_entirely`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a local cluster started with `gimle:muninn` running
+  When `gimle:controlplane` and `gimle:agent` are given `muninnEndpoint`
+  Then both processes ship to that Muninn
+  And leaving it unset starts them with no Muninn flag at all
+  ```
+
+#### GIMLE-898 — `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run
+
+- **Category**: Build Tooling
+- **User story**: As a developer re-importing an unchanged report set, I want it to fold into the run it already described, rather than minting a new run on every invocation.
+- **Status**: Fixed. `SagaImportMojo` minted a run id from the wall clock whenever `gimle.saga.runId` was unset, so importing the same surefire reports twice produced two runs describing one test execution, and Saga's cross-run flake ledger counted that execution twice. The id is now a digest of the swept reports' own bytes (`deriveRunId`): nothing outside the report content enters it, so a re-import of an unchanged set folds into the run it already used, while the per-test durations and outcomes recorded inside each report still separate two genuinely different runs. A report's modification time is deliberately not part of the digest.
+- **Confidence**: High
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaImportMojo.java` (`deriveRunId`)
+- **Test coverage**: `SagaImportMojoTest#re_importing_an_unchanged_report_set_folds_into_the_run_id_it_already_used`, `#a_report_set_whose_content_changed_derives_its_own_run_id`, `#the_derived_run_id_ignores_a_reports_modification_time`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a set of surefire reports imported into Saga once
+  When `mvn gimle:saga-import` runs again over the unchanged set
+  Then it folds into the same run rather than creating a second one
+  And a report whose content changed derives a different run id
+  ```
+
 ### gimle-console
 
 #### GIMLE-435 — Operator session login / logout
@@ -10201,10 +11151,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As an operator, I want to pick a process and see its metrics history over time.
-- **Status**: Complete
+- **Status**: Complete. Modified: the process picker offered the same fixed list of kinds for both history surfaces, several of which ship no metrics and most of which start no spans at all, so an operator could pick a process whose history could only ever come back empty. It now reads the kinds the control plane says ship each signal (`useHistoryKindsStore`, `GET /metrics-history` and `GET /traces-history`), falls back to its full list only when that read fails so the picker is never empty, and resets a deep link naming a kind the surface has no history for rather than asking the backend for a combination it rejects.
 - **Confidence**: High
-- **Source location(s)**: `src/components/metrics-history-panel.tsx`, `src/components/process-picker.tsx`, `src/stores/useMetricsHistoryStore.ts`, `src/repositories/http/metricsHistory.ts`
-- **Test coverage**: `src/repositories/http/metricsHistory.test.ts`
+- **Source location(s)**: `src/components/metrics-history-panel.tsx`, `src/components/process-picker.tsx`, `src/stores/useMetricsHistoryStore.ts`, `src/repositories/http/metricsHistory.ts`, `gimle-console/src/stores/useHistoryKindsStore.ts`
+- **Test coverage**: `src/repositories/http/metricsHistory.test.ts`; `useHistoryKindsStore.test.ts`, `tracesHistory.test.ts`
 - **Gherkin scenario**:
   ```gherkin
   Given I pick a process target via `ProcessPicker`, When metrics history loads, Then `GET /metrics-history/*` results render as a time-series panel.
@@ -10436,10 +11386,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Observability
 - **User story**: As an operator looking at a deployment or instance in the console, I want to see which worker JVM it's actually running in and jump straight to that worker's Metrics/Traces history, instead of having to already know its workerId from a log line or the CLI before I can even open the process picker.
-- **Status**: Complete. InstanceObservation (gimle-core) gained an Optional<String> workerId component -- the raw id ("worker-" + pid) a worker JVM reports in its own Hello handshake with the agent, empty until that handshake completes and always empty for a plain Vessel instance -- appended last per this record's own established back-compat-overload convention, threaded through DomainCodec's wire format (gimle-mimir), AgentMain#observationJson (reads SupervisedInstance#fabricWorkerId, omitted entirely rather than sent null until known), and ApiServer#observationFromJson/observationToJson (gimle-controlplane, present-only-when-set on the wire, matching ports/volumeUsageBytes's own convention). The console's InstanceObservation/ModuleInstance types gained a workerId: string | null field threaded through every HTTP repository that maps a raw instance observation (deployments/daemonsets/statefulsets) and both instances repositories (Http/Mock), plus the mock fixture generator. Instances/Deployments screens gained a Worker column alongside Node; the instance detail page gained a Worker stat cell and "Worker metrics"/"Worker traces" buttons that deep-link into /metrics and /traces with the WORKER process pre-selected as `{nodeId}:{workerId}` (a new joinWorkerProcessId helper, the inverse of process-picker.tsx's existing splitWorkerProcessId). Both history routes gained a Zod validateSearch schema (mirroring routes/logs.tsx's own searchSchemaWithFallback) so a deep link -- or a browser back/forward, or another such link while the route is already mounted -- actually pre-fills the picker instead of silently falling back to the CONTROLPLANE default; the free-text workerId field in the picker itself remains the only path in for a worker with no instance currently in view, since no API enumerates every workerId a node hosts.
+- **Status**: Complete. InstanceObservation (gimle-core) gained an Optional<String> workerId component -- the raw id ("worker-" + pid) a worker JVM reports in its own Hello handshake with the agent, empty until that handshake completes and always empty for a plain Vessel instance -- appended last per this record's own established back-compat-overload convention, threaded through DomainCodec's wire format (gimle-mimir), AgentMain#observationJson (reads SupervisedInstance#fabricWorkerId, omitted entirely rather than sent null until known), and ApiServer#observationFromJson/observationToJson (gimle-controlplane, present-only-when-set on the wire, matching ports/volumeUsageBytes's own convention). The console's InstanceObservation/ModuleInstance types gained a workerId: string | null field threaded through every HTTP repository that maps a raw instance observation (deployments/daemonsets/statefulsets) and both instances repositories (Http/Mock), plus the mock fixture generator. Instances/Deployments screens gained a Worker column alongside Node; the instance detail page gained a Worker stat cell and "Worker metrics"/"Worker traces" buttons that deep-link into /metrics and /traces with the WORKER process pre-selected as `{nodeId}:{workerId}` (a new joinWorkerProcessId helper, the inverse of process-picker.tsx's existing splitWorkerProcessId). Both history routes gained a Zod validateSearch schema (mirroring routes/logs.tsx's own searchSchemaWithFallback) so a deep link -- or a browser back/forward, or another such link while the route is already mounted -- actually pre-fills the picker instead of silently falling back to the CONTROLPLANE default; the free-text workerId field in the picker itself remains the only path in for a worker with no instance currently in view, since no API enumerates every workerId a node hosts. Modified: the deep link existed only on the instance detail page, so the Instances table and a node's own detail table -- the two places an operator actually scans a list of instances -- showed a `workerId` as plain text with nothing to follow. Both tables now render that column as the same link into the Metrics screen's WORKER picker.
 - **Confidence**: High
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`/`readInstanceObservation`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationFromJson`, `observationToJson`), `gimle-console/src/types/index.ts` (`InstanceObservation`, `ModuleInstance`), `components/process-picker.tsx` (`joinWorkerProcessId`), `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
-- **Test coverage**: AgentMainTest: observation_json_omits_worker_id_until_the_workers_hello_arrives, observation_json_reports_the_workers_self_reported_id_once_its_hello_arrives. DomainCodecTest: an_instance_observation_with_a_worker_id_round_trips, an_instance_observation_with_no_worker_id_round_trips_as_empty. gimle-console Vitest: HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository each gained a workerId-defaults-to-null assertion on their existing missing-observation test, plus HttpDeploymentsRepository gained explicit present/absent workerId mapping tests.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`/`readInstanceObservation`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationFromJson`, `observationToJson`), `gimle-console/src/types/index.ts` (`InstanceObservation`, `ModuleInstance`), `components/process-picker.tsx` (`joinWorkerProcessId`), `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`, `gimle-console/src/components/instances-table.tsx` (worker column link)
+- **Test coverage**: AgentMainTest: observation_json_omits_worker_id_until_the_workers_hello_arrives, observation_json_reports_the_workers_self_reported_id_once_its_hello_arrives. DomainCodecTest: an_instance_observation_with_a_worker_id_round_trips, an_instance_observation_with_no_worker_id_round_trips_as_empty. gimle-console Vitest: HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository each gained a workerId-defaults-to-null assertion on their existing missing-observation test, plus HttpDeploymentsRepository gained explicit present/absent workerId mapping tests. `instances-table.test.tsx` renders the table to static markup and asserts the href the worker column builds.
 - **Gherkin scenario**:
   ```gherkin
   Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API.
@@ -10523,10 +11473,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As an operator investigating a cross-worker call, I want one trace's spans assembled across processes, so that I do not have to know both workers' addresses, open two views and compare truncated id prefixes by eye.
-- **Status**: Fixed: closes FUNC-20. The Traces screen was scoped to one process at a time behind a processKind/processId picker, showing a flat span table with a 12-character truncated trace id and no link or navigation to the same trace's spans in another process -- so for the cross-worker case the platform is built around (a consumer's client span and a provider's server span sharing one trace id), the underlying propagation was real but the console fell short of a trace visible end to end. Selecting a trace id now assembles that trace's spans from every worker process the console can name, grouped by process and nested by parent span. Deliberately console-only: no new backend trace-search API was added, so the view works within what GET /traces-history/{processKind}/{processId} already returns plus the process and instance lists the console already loads -- and it states explicitly what the assembled view cannot reach, rather than implying a completeness the data cannot back.
+- **Status**: Fixed: closes FUNC-20. The Traces screen was scoped to one process at a time behind a processKind/processId picker, showing a flat span table with a 12-character truncated trace id and no link or navigation to the same trace's spans in another process -- so for the cross-worker case the platform is built around (a consumer's client span and a provider's server span sharing one trace id), the underlying propagation was real but the console fell short of a trace visible end to end. Selecting a trace id now assembles that trace's spans from every worker process the console can name, grouped by process and nested by parent span. Deliberately console-only: no new backend trace-search API was added, so the view works within what GET /traces-history/{processKind}/{processId} already returns plus the process and instance lists the console already loads -- and it states explicitly what the assembled view cannot reach, rather than implying a completeness the data cannot back. Modified: the screen assembled a trace by walking each process's own history backwards, which required already knowing which processes took part and stopped answering once any of them was busy enough to have paged past the span -- and a worker replaced since the call appears in no listing to walk at all. It now follows a trace through the control plane's single cross-process search (`GET /trace/{traceId}`), so a span whose parent is absent means the parent was never recorded rather than merely out of reach, and the screen says when the search stopped at its limit or could not run.
 - **Confidence**: High
-- **Source location(s)**: `gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`
-- **Test coverage**: gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more.
+- **Source location(s)**: `gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`, `gimle-console/src/repositories/tracesHistory.ts` (`searchByTraceId`), `src/repositories/http/tracesHistory.ts`
+- **Test coverage**: gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more. `-trace-follow.test.ts` was rewritten against the single search, and `tracesHistory.test.ts` covers the repository call.
 - **Gherkin scenario**:
   ```gherkin
   Given a trace whose spans were created in two different worker processes
@@ -10838,6 +11788,68 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a DaemonSet named edge-ingress running the gateway module, When the console's Gateway screen loads, Then it reports the gateway as deployed and names that DaemonSet.
   ```
 
+#### GIMLE-876 — A throttled control-plane answer is retried instead of read as a signed-out session
+
+- **Category**: Web Console / Frontend
+- **User story**: As a console user during a burst of load, I want a 429 to be waited out and retried, so that being told "ask again shortly" does not bounce me to a sign-in screen.
+- **Status**: Fixed. `apiClient` treated any unsuccessful session probe as "nobody is signed in", so a 429 -- which the control plane sends from both its per-address rate limiter and its admission-control path, and which means ask again shortly, never you are anonymous -- signed the operator out mid-session. A throttled request is refused before its handler runs at all, so nothing it would have done has happened and re-sending it is safe for writes as well as reads: the client now retries up to three times, honouring the `Retry-After` the control plane attaches (delta-seconds or HTTP-date) but never waiting less than its own exponential backoff, and surfacing rather than sleeping through a refusal asking for more than three seconds -- a login lockout is meant to be shown, not ridden out under a spinner. `useAuthStore` re-probes on a throttled probe and only reports a signed-out operator once a probe actually answers.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts` (`isThrottled`, `throttleDelayMs`, retry loop), `gimle-console/src/stores/useAuthStore.ts`
+- **Test coverage**: `apiClient.test.ts` (10 cases: retry and return the retried body, wait out Retry-After, bounded retries, surface a long wait, backoff without a header, delta-seconds and HTTP-date parsing); `auth.test.ts` and `useAuthStore.test.ts` cover the session probe riding out a throttle and settling on the principal the retry returns.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the control plane answers a console request with 429 and a Retry-After
+  When the console makes that request
+  Then it waits the requested delay and retries rather than reporting a failure
+  And a throttled session probe never signs the operator out
+  ```
+
+#### GIMLE-877 — An unread kind catalog is not reported as a cluster with no custom kinds
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator on the Custom Resources screen, I want a failed or in-flight catalog read to say so, so that I do not go looking for a KindDefinition the screen told me was not there.
+- **Status**: Fixed. The Custom Resources screen rendered one empty state for three different situations -- read still in flight, read refused, and a cluster that genuinely defines no custom kinds. "No custom kinds defined" is a claim about the cluster, and only a read that actually came back empty supports it. `kindListEmptyReason` now distinguishes loading, unreadable and none-defined from the store's own `loading`/`catalogLoaded`/`error` triple, and the screen renders each accordingly; it also re-reads on the same auto-refresh interval its sibling screens use, so a first read the control plane refused does not stand as the answer for the rest of the session -- and the poll never raises the loading flag, so the table is not blanked mid-glance.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx` (`kindListEmptyReason`, `EmptyKindList`), `gimle-console/src/stores/useCustomResourcesStore.ts`
+- **Test coverage**: `-custom-resources.test.ts` (5 cases across the three reasons, including a failed re-read after an earlier success); `useCustomResourcesStore.test.ts` covers the poll re-reading the catalog and the selected kind's rows without blanking the table.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the control plane refuses the kind-catalog read
+  When the Custom Resources screen loads
+  Then it reports the catalog as unreadable rather than as a cluster defining no kinds
+  And a later successful re-read replaces that with the real catalog
+  ```
+
+#### GIMLE-878 — The console dev server proxies every API prefix its repositories use
+
+- **Category**: Web Console / Frontend
+- **User story**: As a console developer running `bun run dev` against a real control plane, I want every screen's requests proxied, so a working API is not read as a failed one.
+- **Status**: Fixed. `vite.config.ts` proxied only some of the prefixes the repositories actually call, and Vite answers an unproxied path with `index.html` -- which parses as neither JSON nor an error, so screens like Custom Resources and Secrets reported a perfectly working control plane as unreachable. The missing prefixes were added, so what a developer sees in `dev` matches what the bundled console serves.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/vite.config.ts`
+- **Test coverage**: None -- `vite.config.ts` is dev-server configuration with no presence in the built console; verified by running the dev server against a real control plane per `gimle-console/LOCAL_DEV.md`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the console dev server running against a real control plane
+  When a screen whose prefix was previously unproxied loads
+  Then it reads the control plane's real answer rather than the dev server's index.html
+  ```
+
+#### GIMLE-889 — Config, ConfigMaps, Secrets and SecretMaps carry their tenant in the URL
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator sharing a link to a tenant-scoped screen, I want the link to open on the tenant it names, so a colleague does not silently see whichever tenant they last picked.
+- **Status**: Fixed. The tenant a tenant-scoped screen was looking at lived only in that screen's own store, so the URL carried nothing to distinguish one tenant's view from another's: a shared link resolved, for whoever opened it, to their own last pick, showing the wrong tenant's entries with nothing to indicate it. All four screens now validate a `tenant` search parameter (`tenantScopeSearch`), read `scopedTenantId` -- the URL's tenant, else the first tenant the cluster reports so a bare navigation still lands on something real -- and write their current tenant back into the URL as it changes. A URL naming a tenant this cluster does not have is honoured rather than substituted: the read that follows reports it as missing, which is the truthful answer to that link.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/lib/tenant-scope.ts` (`tenantScopeSearch`, `scopedTenantId`), `gimle-console/src/routes/config.tsx`, `configmaps.tsx`, `secrets.tsx`, `secretmaps.tsx`
+- **Test coverage**: `tenant-scope.test.ts` (6 cases) and `-tenant-scope.test.ts` cover URL precedence, an unknown tenant being honoured, the bare-navigation fallback, and the tenant being written back into the URL.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Secrets screen scoped to tenant `acme`
+  When its URL is opened by another operator whose last pick was a different tenant
+  Then the screen opens on `acme`
+  ```
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -11016,10 +12028,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As a registry operator, I want a one-click copy button for URLs/snippets/coordinates.
-- **Status**: Complete
+- **Status**: Complete. Modified: the button's accessible name announced the value as already copied before it was ever activated, so a screen-reader user was told a copy had happened that had not. It is now named after the action it will perform (`Copy <subject>`) and switches to the past tense only once the copy has actually happened, with the wording shared by `copyActionLabel`/`copiedMessage` so the button and its toast cannot drift.
 - **Confidence**: Low
-- **Source location(s)**: `src/components/CopyButton.tsx`
-- **Test coverage**: NONE
+- **Source location(s)**: `src/components/CopyButton.tsx`, `gimle-andvari-console/src/lib/copy.ts`
+- **Test coverage**: `CopyButton.test.tsx#names the action it will perform, not one it hasn't performed yet`; `copy.test.ts` covers the two wordings.
 - **Gherkin scenario**:
   ```gherkin
   Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard.
@@ -11029,10 +12041,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As a registry operator pushing a module jar through Andvari's console, I want the dialog to read the coordinate the jar itself declares and store it under that coordinate, so a typo or a copy-paste mistake in the moduleId/version fields can never land the jar under a coordinate that doesn't match what's actually inside it.
-- **Status**: Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why.
+- **Status**: Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why. Modified: picking a second jar left the first jar's derived coordinate sitting in the fields. For a descriptor-less jar the fields unlock, so those stale values read as confirmed input when they were never typed at all. `coordinateForPickedFile` now clears a coordinate that came from a descriptor the moment a different jar is picked, while a hand-typed coordinate -- which the operator did enter -- survives.
 - **Confidence**: High
-- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
-- **Test coverage**: `zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field).
+- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`, `gimle-andvari-console/src/lib/pushCoordinate.ts`
+- **Test coverage**: `zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field). `pushCoordinate.test.ts` covers a derived coordinate being cleared and a typed one surviving.
 - **Gherkin scenario**:
   ```gherkin
   Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed.
@@ -12340,26 +13352,29 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Packaging
 - **User story**: As an operator wanting a self-contained archive with no host JDK dependency, I want an opt-in profile that jlinks a trimmed, per-component JRE, deliberately excluding agent/worker.
-- **Status**: Complete
+- **Status**: Complete. Modified: `jlink` builds a runtime image for the machine it runs on and no other, and nothing about the produced archive said which machine that was -- a Windows-built archive carried Windows binaries under `jre/` and a Linux cluster machine could only report `java: not found` somewhere further down. The profile now reads the building JDK's own `release` file and fails the build when it does not match `gimle.dist.jre.targetOsName`/`targetOsArch` (defaulting to the platform the cluster-machine archive targets, and overridable by anyone deliberately building for another), and stamps the answer into `jre/PLATFORM` inside every archive that bundles a runtime. Each wrapper script (`gimle`, `hilmir`, `ragnarok`, and their `.cmd` siblings) now checks the bundled runtime actually runs before using it, and says which platform it was built for and which machine it is on before falling back to a `java` on `PATH` -- and says so plainly when there is none.
 - **Confidence**: High
-- **Source location(s)**: `gimle-dist/pom.xml` (`dist-with-jre` profile), `platform-with-jre.xml`, `cli-with-jre.xml`, `hilmir-with-jre.xml`
-- **Test coverage**: NONE automated; manually validated via gimle-holmgang's docker-compose.bundled-jre.yml
+- **Source location(s)**: `gimle-dist/pom.xml` (`dist-with-jre` profile), `platform-with-jre.xml`, `cli-with-jre.xml`, `hilmir-with-jre.xml`, `gimle-dist/src/main/dist/bin/gimle`, `hilmir`, `ragnarok` (and their `.cmd` siblings)
+- **Test coverage**: No unit test; manually validated via gimle-holmgang's docker-compose.bundled-jre.yml. The platform check itself is a build-time assertion in the profile, so building `dist-with-jre` on a machine of another platform fails the build rather than producing an archive.
 - **Gherkin scenario**:
   ```gherkin
   Given `mvn -pl gimle-dist -am install -P dist-with-jre`, When the profile's exec-maven-plugin executions run, Then a trimmed JRE (--strip-debug --no-header-files --no-man-pages) is jlinked per component; the three archives additionally contain jre/<component>/ for their own components.
+  Given `dist-with-jre` built on a machine whose platform differs from the configured target, When the profile runs, Then the build fails naming both platforms
+  Given an archive whose bundled `jre/` cannot execute on this machine, When a `bin/` launcher runs, Then it says which platform the bundled runtime was built for and falls back to a `java` on PATH
   ```
 
 #### GIMLE-564 — Distribution archive checksums and SBOM generation
 
 - **Category**: Packaging
 - **User story**: As a security-conscious operator, I want every distribution archive accompanied by a SHA-256 checksum file and a CycloneDX SBOM.
-- **Status**: Complete (one combined SBOM covering all three archives — deliberate simplification, documented in the pom's own comment)
+- **Status**: Complete. Modified: the combined-SBOM simplification is gone for the two archives it misdescribed. `cyclonedx-maven-plugin` always writes the running Maven project as the SBOM's root `metadata.component`, with no way to override it, so the platform and midgard SBOMs both arrived claiming to describe `gimle-dist` -- a module that ships nothing an operator can install, and a name a consumer scanning `gimle-platform-<version>.tar.gz` cannot reconcile with the archive in front of them. Each is now copied through a filter that rewrites only that root component's name, description and coordinate (the coordinate by plain string replacement, since the identical string appears as the component's bom-ref, its purl and the dependency graph's root ref, and all three must keep agreeing); the resolved dependency components beneath, which are what an SBOM is read for, are left exactly as generated. Each rewrite is followed by a `<fail>` that breaks the build if the old name is still present, so a rewrite that silently stopped matching cannot ship quietly, and the generator's own attached `bom-*.json` still describes `gimle-dist` truthfully.
 - **Confidence**: High
 - **Source location(s)**: `gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)
 - **Test coverage**: NONE automated
 - **Gherkin scenario**:
   ```gherkin
   Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.
+  And each archive's own SBOM names that archive as its root component rather than `gimle-dist`
   ```
 
 #### GIMLE-611 — Midgard Docker dev-cluster distribution archive
