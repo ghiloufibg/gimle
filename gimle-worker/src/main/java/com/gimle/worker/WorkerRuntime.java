@@ -368,6 +368,10 @@ public final class WorkerRuntime {
    * activeDeadlineSeconds}, if it declares one, ever ends it). Forcing it to FAILED here instead
    * mirrors {@link #restartModule}'s own budget-exhaustion escalation: the same {@code
    * controller.forceFailed} call, the same durable {@code TransitionFailed} event on the far end.
+   *
+   * <p>Caught as a {@link Throwable}: a class that cannot be linked fails with an {@code Error},
+   * not an exception, and that is precisely the shape of "fails to load" this method exists to
+   * report rather than let escape.
    */
   private <T> Optional<T> instantiateOrFail(
       ModuleInstanceId id,
@@ -377,7 +381,7 @@ public final class WorkerRuntime {
       Class<T> expectedType) {
     try {
       return Optional.of(instantiate(id, className, handle, expectedType));
-    } catch (RuntimeException e) {
+    } catch (Throwable e) {
       log.error(
           "module {} failed to load its {} class {}: {}", id, kind, className, e.getMessage());
       try {

@@ -36,6 +36,14 @@ import org.slf4j.LoggerFactory;
  * {@code onUninstall}) are best-effort — a misbehaving hook is recorded in a {@code
  * TransitionFailed} event but never blocks resource disposal.
  *
+ * <p>A hook is module-supplied code, so a failing one is caught as a {@link Throwable} rather than
+ * only as a {@code RuntimeException}. A module that fails to link -- a missing transitive class
+ * surfacing as {@code NoClassDefFoundError} the first time a hook touches it, the most common way a
+ * badly-packaged artifact breaks -- throws an {@code Error}, and letting that escape recorded the
+ * failure nowhere at all: no FAILED state, no {@code TransitionFailed} event, no log line naming
+ * the cause, and, since the escape unwound the worker's control loop, every co-tenant module
+ * sharing that JVM torn down alongside it.
+ *
  * <p>Doesn't itself touch the shared {@link ServiceRegistry} beyond handing each module's {@link
  * ModuleContext} a reference to it — marking a stopping module's services not-ready and removing
  * them on uninstall is {@code gimle-worker}'s {@code WorkerRuntime}'s job, reacting to the same
@@ -352,7 +360,7 @@ public final class ModuleController {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
       }
-    } catch (RuntimeException e) {
+    } catch (Throwable e) {
       contextsByModule.remove(id);
       hooksByModule.remove(id);
       GimleLifecycleException wrapped =
@@ -384,7 +392,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         GimleLifecycleException wrapped = GimleLifecycleException.hookFailed(id, "onStart", e);
         markFailedAndEmit(id, ModuleState.RESOLVED, ModuleState.STARTING, wrapped);
         throw wrapped;
@@ -418,7 +426,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
@@ -457,7 +465,7 @@ public final class ModuleController {
         } finally {
           Thread.currentThread().setContextClassLoader(previousCl);
         }
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
         emit(
             new LifecycleEvent.TransitionFailed(
                 id,
