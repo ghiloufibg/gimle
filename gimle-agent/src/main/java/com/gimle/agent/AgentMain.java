@@ -442,6 +442,10 @@ public final class AgentMain {
     // worker JVM is spawned (startInstance), never for an instance packed into an already-running
     // shared worker (installIntoExistingWorker), since packing costs no additional real memory.
     CapacityTracker committedWorkerCapacity = CapacityTracker.ofThisMachine();
+    // Which start failure each assigned instance has already been reported for, so a
+    // level-triggered retry of an unfixable start doesn't re-post the same event every tick. See
+    // reportStartFailure.
+    Map<String, String> reportedStartFailures = new ConcurrentHashMap<>();
     HttpClient httpClient = buildHttpClient();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
     // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
@@ -612,7 +616,8 @@ public final class AgentMain {
             catalog,
             logRoot,
             maxTier1Density,
-            tier1Budget);
+            tier1Budget,
+            reportedStartFailures);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -1386,6 +1391,45 @@ public final class AgentMain {
             System.currentTimeMillis()));
   }
 
+  /**
+   * Names a refused or failed local start in the instance's own durable timeline, not only in this
+   * node's log. A start this node cannot perform -- a worker ceiling that would overcommit the
+   * machine's real memory, an unreadable artifact, an isolation tier this node cannot provide --
+   * otherwise leaves an operator with a workload that reports desired state and nothing anywhere
+   * saying why nothing is running: the only account of it lives in a node log they have no reason
+   * to suspect is the place to look.
+   *
+   * <p>Reported once per distinct cause per instance, keyed through {@code reportedStartFailures}:
+   * reconciliation is level-triggered, so an unfixable start is retried on every tick, and posting
+   * each retry would push every other event out of that instance's own bounded timeline within
+   * minutes. A cause that changes is reported again, since it is genuinely new information.
+   */
+  private static void reportStartFailure(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      AssignedInstance assigned,
+      String key,
+      Throwable failure,
+      Map<String, String> reportedStartFailures) {
+    String cause = String.valueOf(failure.getMessage());
+    if (cause.equals(reportedStartFailures.put(key, cause))) {
+      return;
+    }
+    postInstanceEvent(
+        httpClient,
+        baseUrl,
+        nodeId,
+        new InstanceEvent(
+            UUID.randomUUID().toString(),
+            assigned.deploymentName(),
+            assigned.instanceIndex(),
+            InstanceEventKind.TRANSITION_FAILED,
+            "instance start refused by this node",
+            Optional.of(cause),
+            System.currentTimeMillis()));
+  }
+
   private static AssignedInstance parseAssignment(Map<String, Object> map) {
     Map<String, Object> moduleIdMap = Json.asObject(map.get("moduleId"));
     ModuleId moduleId =
@@ -1664,7 +1708,7 @@ public final class AgentMain {
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
-  private static void reconcileAssignments(
+  static void reconcileAssignments(
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
@@ -1687,7 +1731,8 @@ public final class AgentMain {
       ServiceCatalog catalog,
       Path logRoot,
       int maxTier1Density,
-      Tier1WorkerBudget tier1Budget)
+      Tier1WorkerBudget tier1Budget,
+      Map<String, String> reportedStartFailures)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1832,12 +1877,19 @@ public final class AgentMain {
                   logRoot,
                   volumeManager);
             }
+            reportedStartFailures.remove(key);
           } catch (IOException | RuntimeException e) {
             log.error("failed to start instance {}: {}", key, e.getMessage(), e);
+            reportStartFailure(
+                httpClient, baseUrl, nodeId, assigned, key, e, reportedStartFailures);
           }
         }
       }
     }
+    // Keeps the report ledger scoped to what this node is still assigned: an index that goes away
+    // and later comes back must be free to report its own fresh failure rather than being
+    // suppressed by the one its predecessor already reported.
+    reportedStartFailures.keySet().retainAll(currentKeys);
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
         // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the
