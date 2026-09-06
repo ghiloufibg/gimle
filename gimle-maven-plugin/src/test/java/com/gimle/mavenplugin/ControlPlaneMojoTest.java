@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Test;
  * {@link ControlPlaneMojo#buildCommand()} needs a live Maven session to resolve the runtime
  * classpath at all, but the actual command line it hands to the spawned process is a pure function
  * of its own inputs, split out into the static {@link ControlPlaneMojo#buildCommand(String, String,
- * String, String, String, String, String, String, String, String)} overload specifically so it can
- * be asserted here without any of that machinery -- the same seam {@link InitMojo} establishes for
- * its own {@code buildCommand}.
+ * String, String, String, String, String, String, String, String, String)} overload specifically so
+ * it can be asserted here without any of that machinery -- the same seam {@link InitMojo}
+ * establishes for its own {@code buildCommand}.
  */
 class ControlPlaneMojoTest {
 
@@ -28,6 +28,7 @@ class ControlPlaneMojoTest {
             "127.0.0.1:9091",
             "127.0.0.1:9092",
             "127.0.0.1:9094",
+            null,
             null,
             null,
             null);
@@ -50,6 +51,7 @@ class ControlPlaneMojoTest {
             "   ",
             null,
             null,
+            null,
             null);
 
     assertFalse(command.contains("--andvari-endpoint"));
@@ -65,6 +67,7 @@ class ControlPlaneMojoTest {
             "secret.key",
             "127.0.0.1:9091",
             "127.0.0.1:9092",
+            null,
             null,
             null,
             null,
@@ -86,10 +89,51 @@ class ControlPlaneMojoTest {
             null,
             null,
             null,
+            null,
             null);
 
     int index = command.indexOf("--fafnir-endpoint");
     assertTrue(index >= 0);
     assertEquals("127.0.0.1:9092", command.get(index + 1));
+  }
+
+  @Test
+  void threads_the_muninn_endpoint_through_to_control_plane_main() {
+    List<String> command =
+        ControlPlaneMojo.buildCommand(
+            "java",
+            "controlplane.jar",
+            "8080",
+            "secret.key",
+            "127.0.0.1:9091",
+            "127.0.0.1:9092",
+            "127.0.0.1:9094",
+            "127.0.0.1:9093",
+            null,
+            null,
+            null);
+
+    int index = command.indexOf("--muninn-endpoint");
+    assertTrue(index >= 0, "expected --muninn-endpoint in the command line, got: " + command);
+    assertEquals("127.0.0.1:9093", command.get(index + 1));
+  }
+
+  @Test
+  void an_unset_muninn_endpoint_leaves_the_flag_off_entirely() {
+    List<String> command =
+        ControlPlaneMojo.buildCommand(
+            "java",
+            "controlplane.jar",
+            "8080",
+            "secret.key",
+            "127.0.0.1:9091",
+            "127.0.0.1:9092",
+            "127.0.0.1:9094",
+            "  ",
+            null,
+            null,
+            null);
+
+    assertFalse(command.contains("--muninn-endpoint"));
   }
 }
