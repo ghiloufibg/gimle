@@ -948,6 +948,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-931 | Stopping a deployment on a shared cluster undeploys only its own release | New | Not Covered | — |
 | GIMLE-932 | The console tracks and stops each deployment on a shared cluster independently | New | Not Covered | — |
 | GIMLE-933 | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | New | Not Covered | — |
+| GIMLE-934 | A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable | New | Not Covered | — |
+| GIMLE-935 | Dragging a palette item onto a genuinely empty canvas actually adds a node | New | Not Covered | — |
+| GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | New | Not Covered | — |
+| GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | New | Not Covered | — |
+| GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9740,11 +9745,56 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `httpRunner.test.ts` (`HttpRunnerClient.stopRun` describe block: DELETEs `/api/runs/for-blueprint/{id}`, not `/api/runs/current`). `subscribe`'s own URL scoping is not unit-tested here -- it schedules its poll loop via `window.setInterval`, and this module's `vitest.config.ts` deliberately runs in a plain Node environment with no `window` (see that file's own comment), the same reason `currentRun` was the only method of this client under test before this change too.
 - **Source location(s)**: `gimle-ivaldi-console/src/repositories/contracts.ts` (`RunnerClient.subscribe`, `.stopRun`), `gimle-ivaldi-console/src/repositories/httpRunner.ts` (`subscribe`, `stopRun`), `gimle-ivaldi-console/src/stores/useRunStore.ts` (`blueprintId`, `listen`, `start`, `attach`, `stop`), `gimle-ivaldi-console/src/routes/clusters.tsx` (`runsFor`)
 
+#### GIMLE-934 — A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(An earlier fix (this same session) set pointer-events-none on MachineNode's own inner div, but React Flow wraps every node's content in its own `.react-flow__node` element carrying `pointer-events: all` from its own base stylesheet -- a separate element spanning the same footprint, still fully click)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running IvaldiServer with Playwright/Chromium: computed the real screen-space midpoint of an edge's own invisible hit-path (`.react-flow__edge-interaction`, via `getPointAtLength`/`getScreenCTM`) that falls inside the Machine's bounding box but outside every role node's own box, clicked it, and confirmed the edge (not the Machine) became selected; also confirmed the Machine remains draggable by its header afterward. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM -- see the module's own `vitest.config.ts`.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (the `nodes` memo's `style` field)
+
+#### GIMLE-935 — Dragging a palette item onto a genuinely empty canvas actually adds a node
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(The empty-canvas placeholder (shown when a blueprint has zero nodes) is a separate render branch from the populated canvas -- the ReactFlow instance, and its own onDragOver/onDrop handlers, only mount once there is at least one node. The placeholder's own text promised drag-and-drop that nothing was)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running IvaldiServer with Playwright/Chromium: a synthetic DataTransfer drag/drop onto the empty-canvas placeholder produces a real node on the canvas.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`DesignerCanvas`'s empty-state branch)
+
+#### GIMLE-936 — Click-to-add palette nodes no longer stack invisibly on top of each other
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(Click-to-add always requests the same canvas-center point from canvasBridge.center(), and nothing staggered successive adds -- every click-to-add during one viewport state landed at the identical converted coordinate, silently hiding whatever was already there. addNode now nudges a requested positio)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useBlueprintStore.test.ts` (`useBlueprintStore.addNode` describe block: nudges away from an occupied position, keeps nudging past more than one occupied spot in a row, does not nudge a position nothing else occupies). Also live-verified: two successive click-to-adds via a real running console produce two nodes at two distinct rendered positions.
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`nextFreePosition`, `addNode`)
+
+#### GIMLE-937 — Cluster action failures show a toast title that matches which action actually failed
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(Every cluster store action (refresh/save/patch/remove) wrote its own failure into the same shared `error` field, and the Clusters screen's one toast effect always titled it "Couldn't load clusters" regardless of which action actually failed -- so a 409 refusing a delete (or a failed save) surfaced u)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: `useClustersStore.test.ts` (one test per action's own title, plus a successful action clearing both fields). Also live-verified end to end: created a cluster with a real tracked run against it via the real API, clicked Remove in the real UI, and confirmed the toast reads "Couldn't delete cluster" -- not "Couldn't load clusters".
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useClustersStore.ts` (`errorTitle`, every action's catch block), `gimle-ivaldi-console/src/routes/clusters.tsx` (the toast effect)
+
+#### GIMLE-938 — A blank LimitRange bound field no longer shows a spurious "not a valid value" error
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New  _(MemoryField/CpuField treated any value that failed isValidMemory/isValidCpu as an error, and both functions treat a blank string as invalid (parseMemory/parseCpu return 0 for blank, and the validity check requires a value greater than zero) -- correct for a required field like a workload's own resou)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM.
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`MemoryField`, `CpuField`, `allowBlank`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the LimitRange bound fields)
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**803 of 933 requirements are Not Covered.**
+**808 of 938 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9972,6 +10022,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-931 | gimle-ivaldi | Stopping a deployment on a shared cluster undeploys only its own release | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (`a_cluster_shared_by_two_blueprints_tracks_and_stops_each_independently` -- stopping one of two deployments leaves the other's own status untouched and the cluster connection still refuses deletion until it too is stopped). The undeploy call itself (a real ReleaseReconciler.undeployRelease against a live control plane) is not exercised by this fast unit-level suite -- consistent with this class's own documented boundary (see its class javadoc) that a real boot-and-deploy pipeline needs a genuine multi-process cluster fixture. |
 | GIMLE-932 | gimle-ivaldi-console | The console tracks and stops each deployment on a shared cluster independently | Developer tooling / Internal-Infra | `httpRunner.test.ts` (`HttpRunnerClient.stopRun` describe block: DELETEs `/api/runs/for-blueprint/{id}`, not `/api/runs/current`). `subscribe`'s own URL scoping is not unit-tested here -- it schedules its poll loop via `window.setInterval`, and this module's `vitest.config.ts` deliberately runs in a plain Node environment with no `window` (see that file's own comment), the same reason `currentRun` was the only method of this client under test before this change too. |
 | GIMLE-933 | gimle-ivaldi | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | Developer tooling / Internal-Infra | `FileSetValidatorTest.java` (`flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range`, `accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range`, `flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against`, `does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range` -- against a real, hand-built JPMS-shaped jar with a real gimle-module.yaml, not a mock). Also manually verified live end to end via a real running IvaldiServer's POST /api/validate against gimle-examples/hello-module's real built jar (declares request memory 16Mi): a 32Mi-minimum LimitRange correctly produces LIMITRANGE_VIOLATION naming both real numbers, and an 8Mi-minimum LimitRange correctly produces none. |
+| GIMLE-934 | gimle-ivaldi-console | A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable | Developer tooling / Internal-Infra | Live-verified against a real running IvaldiServer with Playwright/Chromium: computed the real screen-space midpoint of an edge's own invisible hit-path (`.react-flow__edge-interaction`, via `getPointAtLength`/`getScreenCTM`) that falls inside the Machine's bounding box but outside every role node's own box, clicked it, and confirmed the edge (not the Machine) became selected; also confirmed the Machine remains draggable by its header afterward. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM -- see the module's own `vitest.config.ts`. |
+| GIMLE-935 | gimle-ivaldi-console | Dragging a palette item onto a genuinely empty canvas actually adds a node | Developer tooling / Internal-Infra | Live-verified against a real running IvaldiServer with Playwright/Chromium: a synthetic DataTransfer drag/drop onto the empty-canvas placeholder produces a real node on the canvas. |
+| GIMLE-936 | gimle-ivaldi-console | Click-to-add palette nodes no longer stack invisibly on top of each other | Developer tooling / Internal-Infra | `useBlueprintStore.test.ts` (`useBlueprintStore.addNode` describe block: nudges away from an occupied position, keeps nudging past more than one occupied spot in a row, does not nudge a position nothing else occupies). Also live-verified: two successive click-to-adds via a real running console produce two nodes at two distinct rendered positions. |
+| GIMLE-937 | gimle-ivaldi-console | Cluster action failures show a toast title that matches which action actually failed | Developer tooling / Internal-Infra | `useClustersStore.test.ts` (one test per action's own title, plus a successful action clearing both fields). Also live-verified end to end: created a cluster with a real tracked run against it via the real API, clicked Remove in the real UI, and confirmed the toast reads "Couldn't delete cluster" -- not "Couldn't load clusters". |
+| GIMLE-938 | gimle-ivaldi-console | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM. |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |

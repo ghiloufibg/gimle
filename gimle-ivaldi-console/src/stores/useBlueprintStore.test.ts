@@ -125,3 +125,50 @@ describe("useBlueprintStore drag undo (beginDrag/endDrag)", () => {
     expect(useBlueprintStore.getState().past).toHaveLength(0);
   });
 });
+
+describe("useBlueprintStore.addNode", () => {
+  it("nudges a node away from an existing one at the exact same requested position", () => {
+    const bp = blueprintWith([node("n1")], []); // n1 sits at {x: 0, y: 0}
+    useBlueprintStore.setState({ blueprint: bp });
+
+    // Mirrors the palette's own click-to-add, which always requests the same canvas-center point.
+    const added = useBlueprintStore.getState().addNode("machine", { x: 0, y: 0 });
+
+    expect(added).not.toBeNull();
+    expect(added!.position).not.toEqual({ x: 0, y: 0 });
+    // n1 itself is left exactly where it was.
+    const n1After = useBlueprintStore.getState().blueprint!.nodes.find((n) => n.id === "n1")!;
+    expect(n1After.position).toEqual({ x: 0, y: 0 });
+  });
+
+  it("keeps nudging past more than one occupied spot in a row", () => {
+    const bp = blueprintWith([node("n1"), node("n2")], []);
+    useBlueprintStore.setState({ blueprint: bp });
+    // n2 already sits wherever n1's own nudge would have landed one step out.
+    useBlueprintStore.setState((s) => ({
+      blueprint: {
+        ...s.blueprint!,
+        nodes: s.blueprint!.nodes.map((n) =>
+          n.id === "n2" ? { ...n, position: { x: 32, y: 32 } } : n,
+        ),
+      },
+    }));
+
+    const added = useBlueprintStore.getState().addNode("machine", { x: 0, y: 0 });
+
+    const occupied = [
+      { x: 0, y: 0 },
+      { x: 32, y: 32 },
+    ];
+    expect(occupied).not.toContainEqual(added!.position);
+  });
+
+  it("does not nudge a position nothing else occupies", () => {
+    const bp = blueprintWith([node("n1")], []); // n1 sits at {x: 0, y: 0}
+    useBlueprintStore.setState({ blueprint: bp });
+
+    const added = useBlueprintStore.getState().addNode("machine", { x: 500, y: 500 });
+
+    expect(added!.position).toEqual({ x: 500, y: 500 });
+  });
+});

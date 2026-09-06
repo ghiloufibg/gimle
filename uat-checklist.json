@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 932,
+    "totalRequirements": 937,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 802,
+    "notCoveredByAutomatedTest": 807,
     "releaseReadinessPercent": 13.9
   },
   "items": [
@@ -10254,6 +10254,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange",
       "step": "Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-934",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable",
+      "step": "Given a role placed on a Machine whose placedOn edge is routed under the Machine's own frame, When I click a point on that edge not covered by any other node, Then the edge is selected, not the Machine.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-935",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Dragging a palette item onto a genuinely empty canvas actually adds a node",
+      "step": "Given a blueprint with no nodes, When I drag a palette item onto the empty-canvas placeholder, Then a node of that kind is added to the canvas.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-936",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Click-to-add palette nodes no longer stack invisibly on top of each other",
+      "step": "Given a node already on the canvas at the palette's own drop-center point, When I click a palette item to add another, Then the new node lands at a visibly different position, not exactly on top of the first.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-937",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Cluster action failures show a toast title that matches which action actually failed",
+      "step": "Given a cluster connection with a live deployment tracked against it, When I click Remove, Then the toast is titled \"Couldn't delete cluster\", naming the action that actually failed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-938",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A blank LimitRange bound field no longer shows a spurious \"not a valid value\" error",
+      "step": "Given a LimitRange node, When I clear its min memory field, Then no \"not a valid value\" error appears, but typing a non-numeric value into it still does.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

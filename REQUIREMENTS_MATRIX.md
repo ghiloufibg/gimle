@@ -943,6 +943,11 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-931 | Stopping a deployment on a shared cluster undeploys only its own release | Developer tooling / Internal-Infra | Complete | Partial |
 | GIMLE-932 | The console tracks and stops each deployment on a shared cluster independently | Developer tooling / Internal-Infra | Complete | Partial |
 | GIMLE-933 | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-934 | A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-935 | Dragging a palette item onto a genuinely empty canvas actually adds a node | Developer tooling / Internal-Infra | Complete | No |
+| GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Developer tooling / Internal-Infra | Complete | No |
 
 ## Detailed Requirements
 
@@ -14252,4 +14257,69 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one.
+  ```
+
+#### GIMLE-934 — A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator, I want to click an edge that happens to be routed under a Machine's dashed frame and have it actually select, not silently grab the Machine instead.
+- **Status**: An earlier fix (this same session) set pointer-events-none on MachineNode's own inner div, but React Flow wraps every node's content in its own `.react-flow__node` element carrying `pointer-events: all` from its own base stylesheet -- a separate element spanning the same footprint, still fully clickable, so the earlier fix never actually closed the gap. A follow-up attempt to fix this by giving that wrapper a `pointer-events-none` className (via the node object's own `className` field, which React Flow forwards to the wrapper) also failed once verified live: `.react-flow__node`'s own rule and a Tailwind utility class have equal CSS specificity, and the library's stylesheet loads after Tailwind's, so the class was silently overridden right back to `pointer-events: all` -- confirmed via the browser's real computed style, something neither a type-check nor a unit test can see. The working fix uses an inline `style={{pointerEvents: 'none'}}` on the machine node object instead, which always wins over a plain class selector regardless of stylesheet load order.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (the `nodes` memo's `style` field)
+- **Test coverage**: Live-verified against a real running IvaldiServer with Playwright/Chromium: computed the real screen-space midpoint of an edge's own invisible hit-path (`.react-flow__edge-interaction`, via `getPointAtLength`/`getScreenCTM`) that falls inside the Machine's bounding box but outside every role node's own box, clicked it, and confirmed the edge (not the Machine) became selected; also confirmed the Machine remains draggable by its header afterward. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM -- see the module's own `vitest.config.ts`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a role placed on a Machine whose placedOn edge is routed under the Machine's own frame, When I click a point on that edge not covered by any other node, Then the edge is selected, not the Machine.
+  ```
+
+#### GIMLE-935 — Dragging a palette item onto a genuinely empty canvas actually adds a node
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a first-time user following the empty canvas's own instruction ("Drag a machine from the palette..."), I want that drag to actually work, not silently do nothing.
+- **Status**: The empty-canvas placeholder (shown when a blueprint has zero nodes) is a separate render branch from the populated canvas -- the ReactFlow instance, and its own onDragOver/onDrop handlers, only mount once there is at least one node. The placeholder's own text promised drag-and-drop that nothing was wired up to handle. The placeholder div now carries its own onDragOver/onDrop pair, calling addNode directly at a fixed default position (there is no ReactFlow viewport yet to convert a screen point against, and this lands as the only node on the canvas regardless of exactly where).
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`DesignerCanvas`'s empty-state branch)
+- **Test coverage**: Live-verified against a real running IvaldiServer with Playwright/Chromium: a synthetic DataTransfer drag/drop onto the empty-canvas placeholder produces a real node on the canvas.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint with no nodes, When I drag a palette item onto the empty-canvas placeholder, Then a node of that kind is added to the canvas.
+  ```
+
+#### GIMLE-936 — Click-to-add palette nodes no longer stack invisibly on top of each other
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a user clicking a palette item more than once without moving the canvas, I want each new node to land somewhere I can actually see it, not exactly on top of the last one with no visual cue anything was added.
+- **Status**: Click-to-add always requests the same canvas-center point from canvasBridge.center(), and nothing staggered successive adds -- every click-to-add during one viewport state landed at the identical converted coordinate, silently hiding whatever was already there. addNode now nudges a requested position diagonally in fixed steps (nextFreePosition) until it no longer lands exactly on an existing node's own position; a real drag-and-drop, which almost never lands on this exact same spot twice, is untouched by this.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`nextFreePosition`, `addNode`)
+- **Test coverage**: `useBlueprintStore.test.ts` (`useBlueprintStore.addNode` describe block: nudges away from an occupied position, keeps nudging past more than one occupied spot in a row, does not nudge a position nothing else occupies). Also live-verified: two successive click-to-adds via a real running console produce two nodes at two distinct rendered positions.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node already on the canvas at the palette's own drop-center point, When I click a palette item to add another, Then the new node lands at a visibly different position, not exactly on top of the first.
+  ```
+
+#### GIMLE-937 — Cluster action failures show a toast title that matches which action actually failed
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator whose cluster delete is refused (a live deployment still tracked against it), I want the toast to say a delete failed, not the generic "Couldn't load clusters" title a failed list-refresh would show.
+- **Status**: Every cluster store action (refresh/save/patch/remove) wrote its own failure into the same shared `error` field, and the Clusters screen's one toast effect always titled it "Couldn't load clusters" regardless of which action actually failed -- so a 409 refusing a delete (or a failed save) surfaced under a title describing a problem that never happened, even though the underlying message text was accurate. The store gained a parallel `errorTitle` field, set per action ("Couldn't load clusters" / "Couldn't save cluster" / "Couldn't delete cluster"), and the Clusters screen's toast now uses it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/stores/useClustersStore.ts` (`errorTitle`, every action's catch block), `gimle-ivaldi-console/src/routes/clusters.tsx` (the toast effect)
+- **Test coverage**: `useClustersStore.test.ts` (one test per action's own title, plus a successful action clearing both fields). Also live-verified end to end: created a cluster with a real tracked run against it via the real API, clicked Remove in the real UI, and confirmed the toast reads "Couldn't delete cluster" -- not "Couldn't load clusters".
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster connection with a live deployment tracked against it, When I click Remove, Then the toast is titled "Couldn't delete cluster", naming the action that actually failed.
+  ```
+
+#### GIMLE-938 — A blank LimitRange bound field no longer shows a spurious "not a valid value" error
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator leaving a LimitRange bound half-filled or fully blank -- both legitimate, already-warned-about states -- I want the field itself to stop showing a red "Not a valid memory/cpu value" error for simply being empty.
+- **Status**: MemoryField/CpuField treated any value that failed isValidMemory/isValidCpu as an error, and both functions treat a blank string as invalid (parseMemory/parseCpu return 0 for blank, and the validity check requires a value greater than zero) -- correct for a required field like a workload's own resources.request, but wrong for a LimitRange bound, where blank (or half-filled) is an intentional, already-well-handled state (see this session's own LIMITRANGE_NO_BOUNDS/LIMITRANGE_HALF_FILLED warnings). Both fields gained an allowBlank prop (default false, preserving the existing required-field behavior everywhere else): when true, a blank value is treated as ok rather than an error, while a genuinely malformed non-blank value (e.g. "banana") is still flagged regardless. Passed for all four LimitRange min/max memory/cpu fields in the Inspector.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`MemoryField`, `CpuField`, `allowBlank`), `gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the LimitRange bound fields)
+- **Test coverage**: Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no "Not a valid memory value" text, while typing a genuinely invalid value ("banana") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a LimitRange node, When I clear its min memory field, Then no "not a valid value" error appears, but typing a non-numeric value into it still does.
   ```

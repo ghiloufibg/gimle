@@ -276,21 +276,31 @@ export function MemoryField({
   onChange,
   problems = [],
   hint,
+  allowBlank = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   problems?: Problem[];
   hint?: string;
+  /** Blank is its own valid state here (e.g. an unset LimitRange bound), not an unparseable one --
+   * a required field (a workload's own resources) leaves this false, its default, so clearing it
+   * still reads as an error the way it always has. */
+  allowBlank?: boolean;
 }) {
-  const ok = isValidMemory(value);
+  const blank = value.trim() === "";
+  const validNonBlank = isValidMemory(value);
+  const ok = validNonBlank || (allowBlank && blank);
   const bytes = parseMemory(value);
   return (
     <Field
       label={label}
       problems={ok ? problems : [UNIT_ERROR("memory"), ...problems]}
       hint={
-        hint ?? (ok ? `${formatMemory(bytes)} · ${bytes.toLocaleString()} B` : "Ki / Mi / Gi / Ti")
+        hint ??
+        (validNonBlank
+          ? `${formatMemory(bytes)} · ${bytes.toLocaleString()} B`
+          : "Ki / Mi / Gi / Ti")
       }
     >
       <input
@@ -309,21 +319,27 @@ export function CpuField({
   onChange,
   problems = [],
   hint,
+  allowBlank = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   problems?: Problem[];
   hint?: string;
+  /** See MemoryField's own doc -- the same allowBlank rationale applies here. */
+  allowBlank?: boolean;
 }) {
-  const ok = isValidCpu(value);
+  const blank = value.trim() === "";
+  const validNonBlank = isValidCpu(value);
+  const ok = validNonBlank || (allowBlank && blank);
   const milli = parseCpu(value);
   return (
     <Field
       label={label}
       problems={ok ? problems : [UNIT_ERROR("cpu"), ...problems]}
       hint={
-        hint ?? (ok ? `${formatCpu(milli)} · ${(milli / 1000).toFixed(3)} cores` : "500m or 0.5")
+        hint ??
+        (validNonBlank ? `${formatCpu(milli)} · ${(milli / 1000).toFixed(3)} cores` : "500m or 0.5")
       }
     >
       <input

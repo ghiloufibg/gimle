@@ -152,11 +152,7 @@ export interface RunnerClient {
    * more than one deployment, only the blueprint id stays unambiguous for polling this one run's
    * own status apart from any other deployment sharing its cluster.
    */
-  subscribe(
-    runId: string,
-    blueprintId: string,
-    onEvent: (event: RunnerEvent) => void,
-  ): () => void;
+  subscribe(runId: string, blueprintId: string, onEvent: (event: RunnerEvent) => void): () => void;
   /** Stops one blueprint's own run -- see {@link subscribe} for why blueprint, not cluster. */
   stopRun(runId: string, blueprintId: string): Promise<RunSnapshot>;
 }

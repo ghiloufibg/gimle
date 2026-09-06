@@ -17,6 +17,25 @@ import { useValidationStore } from "./useValidationStore";
 
 const HISTORY_LIMIT = 50;
 
+/**
+ * Nudges a drop position diagonally, in fixed steps, until it no longer lands exactly on an
+ * existing node. Click-to-add (the palette's own "click it to drop one in the middle" path)
+ * always requests the same canvas-center point, which otherwise stacked every successive add
+ * exactly on top of the last one, silently hiding whatever was already there -- a real
+ * drag-and-drop almost never lands on this exact same spot twice, so it is untouched by this.
+ */
+function nextFreePosition(
+  nodes: BlueprintNode[],
+  requested: { x: number; y: number },
+): { x: number; y: number } {
+  const STEP = 32;
+  let candidate = requested;
+  while (nodes.some((n) => n.position.x === candidate.x && n.position.y === candidate.y)) {
+    candidate = { x: candidate.x + STEP, y: candidate.y + STEP };
+  }
+  return candidate;
+}
+
 interface BlueprintState {
   blueprint: Blueprint | null;
   selectedId: string | null;
@@ -124,7 +143,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const bp = get().blueprint;
       if (!bp) return null;
       const seed = bp.nodes.filter((n) => n.kind === kind).length + 1;
-      const node = createNode(kind, position, seed);
+      const node = createNode(kind, nextFreePosition(bp.nodes, position), seed);
       const edges: BlueprintEdge[] = [];
       const machines = bp.nodes.filter((n) => n.kind === "machine");
       const tenants = bp.nodes.filter((n) => n.kind === "tenant");

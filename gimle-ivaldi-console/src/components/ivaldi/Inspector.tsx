@@ -796,22 +796,26 @@ function NodeForm({
               value={d.min.memory}
               onChange={(memory) => update({ min: { ...d.min, memory } } as Partial<NodeData>)}
               problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
+              allowBlank
             />
             <CpuField
               label="Min cpu"
               value={d.min.cpu}
               onChange={(cpu) => update({ min: { ...d.min, cpu } } as Partial<NodeData>)}
               problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
+              allowBlank
             />
             <MemoryField
               label="Max memory"
               value={d.max.memory}
               onChange={(memory) => update({ max: { ...d.max, memory } } as Partial<NodeData>)}
+              allowBlank
             />
             <CpuField
               label="Max cpu"
               value={d.max.cpu}
               onChange={(cpu) => update({ max: { ...d.max, cpu } } as Partial<NodeData>)}
+              allowBlank
             />
           </div>
         </>

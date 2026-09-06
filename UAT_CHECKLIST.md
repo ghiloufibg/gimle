@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 932
+- **Total requirements**: 937
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 802
+- **Not covered by automated test**: 807
 - **Release-readiness (automated coverage)**: 13.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -44,7 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 14 | 0 | 14 | 0.0% |
-| gimle-ivaldi-console | 9 | 0 | 9 | 0.0% |
+| gimle-ivaldi-console | 14 | 0 | 14 | 0.0% |
 
 ## Checklist
 
@@ -2598,3 +2598,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-926 | Dragging a node checkpoints one undo step regardless of intermediate positions | Given a node dragged through several intermediate positions to a final one, When the drag ends, Then exactly one history entry is pushed, and undoing it restores the node's original position. Given a node clicked but never moved, When the click ends, Then no history entry is pushed. | No |
 | [ ] | GIMLE-927 | Duplicating or importing a blueprint mints a fresh id rather than reusing the source's own | Given an existing blueprint, When I duplicate it, Then the copy is created under a new id, not the source's own. Given an exported blueprint document, When I import it twice, Then each import creates a blueprint under its own distinct id. | No |
 | [ ] | GIMLE-932 | The console tracks and stops each deployment on a shared cluster independently | Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one. | No |
+| [ ] | GIMLE-934 | A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable | Given a role placed on a Machine whose placedOn edge is routed under the Machine's own frame, When I click a point on that edge not covered by any other node, Then the edge is selected, not the Machine. | No |
+| [ ] | GIMLE-935 | Dragging a palette item onto a genuinely empty canvas actually adds a node | Given a blueprint with no nodes, When I drag a palette item onto the empty-canvas placeholder, Then a node of that kind is added to the canvas. | No |
+| [ ] | GIMLE-936 | Click-to-add palette nodes no longer stack invisibly on top of each other | Given a node already on the canvas at the palette's own drop-center point, When I click a palette item to add another, Then the new node lands at a visibly different position, not exactly on top of the first. | No |
+| [ ] | GIMLE-937 | Cluster action failures show a toast title that matches which action actually failed | Given a cluster connection with a live deployment tracked against it, When I click Remove, Then the toast is titled "Couldn't delete cluster", naming the action that actually failed. | No |
+| [ ] | GIMLE-938 | A blank LimitRange bound field no longer shows a spurious "not a valid value" error | Given a LimitRange node, When I clear its min memory field, Then no "not a valid value" error appears, but typing a non-numeric value into it still does. | No |

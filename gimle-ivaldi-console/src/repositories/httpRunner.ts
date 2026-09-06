@@ -219,11 +219,7 @@ export class HttpRunnerClient implements RunnerClient {
     }
   }
 
-  subscribe(
-    runId: string,
-    blueprintId: string,
-    onEvent: (event: RunnerEvent) => void,
-  ): () => void {
+  subscribe(runId: string, blueprintId: string, onEvent: (event: RunnerEvent) => void): () => void {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];
     let endpointsSettled = false;

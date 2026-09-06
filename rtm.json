@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 933,
+  "requirementCount": 938,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16104,6 +16104,83 @@
       "otherTestCoverage": "`FileSetValidatorTest.java` (`flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range`, `accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range`, `flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against`, `does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range` -- against a real, hand-built JPMS-shaped jar with a real gimle-module.yaml, not a mock). Also manually verified live end to end via a real running IvaldiServer's POST /api/validate against gimle-examples/hello-module's real built jar (declares request memory 16Mi): a 32Mi-minimum LimitRange correctly produces LIMITRANGE_VIOLATION naming both real numbers, and an 8Mi-minimum LimitRange correctly produces none.",
       "sourceLocations": [
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireJarResourcesWithinLimitRange`, `limitRangesByTenant`)"
+      ]
+    },
+    {
+      "id": "GIMLE-934",
+      "module": "gimle-ivaldi-console",
+      "feature": "A placedOn/belongsTo edge routed under a Machine's frame is genuinely clickable",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "An earlier fix (this same session) set pointer-events-none on MachineNode's own inner div, but React Flow wraps every node's content in its own `.react-flow__node` element carrying `pointer-events: all` from its own base stylesheet -- a separate element spanning the same footprint, still fully click",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running IvaldiServer with Playwright/Chromium: computed the real screen-space midpoint of an edge's own invisible hit-path (`.react-flow__edge-interaction`, via `getPointAtLength`/`getScreenCTM`) that falls inside the Machine's bounding box but outside every role node's own box, clicked it, and confirmed the edge (not the Machine) became selected; also confirmed the Machine remains draggable by its header afterward. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM -- see the module's own `vitest.config.ts`.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (the `nodes` memo's `style` field)"
+      ]
+    },
+    {
+      "id": "GIMLE-935",
+      "module": "gimle-ivaldi-console",
+      "feature": "Dragging a palette item onto a genuinely empty canvas actually adds a node",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "The empty-canvas placeholder (shown when a blueprint has zero nodes) is a separate render branch from the populated canvas -- the ReactFlow instance, and its own onDragOver/onDrop handlers, only mount once there is at least one node. The placeholder's own text promised drag-and-drop that nothing was",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running IvaldiServer with Playwright/Chromium: a synthetic DataTransfer drag/drop onto the empty-canvas placeholder produces a real node on the canvas.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/DesignerCanvas.tsx` (`DesignerCanvas`'s empty-state branch)"
+      ]
+    },
+    {
+      "id": "GIMLE-936",
+      "module": "gimle-ivaldi-console",
+      "feature": "Click-to-add palette nodes no longer stack invisibly on top of each other",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "Click-to-add always requests the same canvas-center point from canvasBridge.center(), and nothing staggered successive adds -- every click-to-add during one viewport state landed at the identical converted coordinate, silently hiding whatever was already there. addNode now nudges a requested positio",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`useBlueprintStore.test.ts` (`useBlueprintStore.addNode` describe block: nudges away from an occupied position, keeps nudging past more than one occupied spot in a row, does not nudge a position nothing else occupies). Also live-verified: two successive click-to-adds via a real running console produce two nodes at two distinct rendered positions.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`nextFreePosition`, `addNode`)"
+      ]
+    },
+    {
+      "id": "GIMLE-937",
+      "module": "gimle-ivaldi-console",
+      "feature": "Cluster action failures show a toast title that matches which action actually failed",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "Every cluster store action (refresh/save/patch/remove) wrote its own failure into the same shared `error` field, and the Clusters screen's one toast effect always titled it \"Couldn't load clusters\" regardless of which action actually failed -- so a 409 refusing a delete (or a failed save) surfaced u",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "`useClustersStore.test.ts` (one test per action's own title, plus a successful action clearing both fields). Also live-verified end to end: created a cluster with a real tracked run against it via the real API, clicked Remove in the real UI, and confirmed the toast reads \"Couldn't delete cluster\" -- not \"Couldn't load clusters\".",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/stores/useClustersStore.ts` (`errorTitle`, every action's catch block)",
+        "`gimle-ivaldi-console/src/routes/clusters.tsx` (the toast effect)"
+      ]
+    },
+    {
+      "id": "GIMLE-938",
+      "module": "gimle-ivaldi-console",
+      "feature": "A blank LimitRange bound field no longer shows a spurious \"not a valid value\" error",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "MemoryField/CpuField treated any value that failed isValidMemory/isValidCpu as an error, and both functions treat a blank string as invalid (parseMemory/parseCpu return 0 for blank, and the validity check requires a value greater than zero) -- correct for a required field like a workload's own resou",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests and/or manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "Live-verified against a real running console: clearing a LimitRange's min-memory field shows no red border and no \"Not a valid memory value\" text, while typing a genuinely invalid value (\"banana\") into the same field still shows it. Not covered by an automated test in this module's own suite, which runs in a plain Node environment with no DOM.",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/components/ivaldi/fields.tsx` (`MemoryField`, `CpuField`, `allowBlank`)",
+        "`gimle-ivaldi-console/src/components/ivaldi/Inspector.tsx` (the LimitRange bound fields)"
       ]
     }
   ]

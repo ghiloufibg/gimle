@@ -40,6 +40,7 @@ function ClustersPage() {
     status,
     checking,
     error,
+    errorTitle,
     refresh,
     save,
     patch,
@@ -59,8 +60,8 @@ function ClustersPage() {
   }, [refresh]);
 
   useEffect(() => {
-    if (error) toast.error("Couldn't load clusters", { description: error });
-  }, [error]);
+    if (error) toast.error(errorTitle ?? "Couldn't load clusters", { description: error });
+  }, [error, errorTitle]);
 
   // Which cluster is actually running something, and for whom. Without it this table showed a
   // live cluster exactly like one that had never been booted, and a cluster you had navigated

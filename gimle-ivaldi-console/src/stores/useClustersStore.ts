@@ -57,6 +57,10 @@ interface ClustersState {
   status: Record<string, ClusterStatus>;
   checking: string | null;
   error: string | null;
+  /** Which action produced `error` -- every action used to fall back to one shared field, so a
+   * failed delete or save surfaced under the same generic "Couldn't load clusters" title a failed
+   * refresh would, even though the list itself had loaded fine. */
+  errorTitle: string | null;
   refresh: () => Promise<void>;
   add: (name: string) => Promise<ClusterConnection>;
   save: (cluster: ClusterConnection) => Promise<void>;
@@ -76,15 +80,19 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
   status: {},
   checking: null,
   error: null,
+  errorTitle: null,
 
   refresh: async () => {
     try {
       const clusters = await clustersRepository.list();
       const stored = get().selectedId ?? storedSelection();
       const selectedId = clusters.some((c) => c.id === stored) ? stored : (clusters[0]?.id ?? null);
-      set({ clusters, selectedId, error: null });
+      set({ clusters, selectedId, error: null, errorTitle: null });
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't load clusters",
+      });
     }
   },
 
@@ -97,9 +105,12 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
   save: async (cluster) => {
     try {
       await clustersRepository.save(cluster);
-      set({ clusters: await clustersRepository.list(), error: null });
+      set({ clusters: await clustersRepository.list(), error: null, errorTitle: null });
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't save cluster",
+      });
     }
   },
 
@@ -108,9 +119,12 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
       const current = await clustersRepository.get(id);
       if (!current) return;
       await clustersRepository.save({ ...current, ...patch });
-      set({ clusters: await clustersRepository.list(), error: null });
+      set({ clusters: await clustersRepository.list(), error: null, errorTitle: null });
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't save cluster",
+      });
     }
   },
 
@@ -119,9 +133,12 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
       await clustersRepository.delete(id);
       const clusters = await clustersRepository.list();
       const selectedId = get().selectedId === id ? (clusters[0]?.id ?? null) : get().selectedId;
-      set({ clusters, selectedId, error: null });
+      set({ clusters, selectedId, error: null, errorTitle: null });
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        errorTitle: "Couldn't delete cluster",
+      });
     }
   },
 

@@ -87,6 +87,18 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
       position: n.position,
       selected: selectedIds.includes(n.id),
       zIndex: n.kind === "machine" ? 0 : 1,
+      // React Flow wraps every node's own content in a `.react-flow__node` element with
+      // `pointer-events: all` baked into its own base stylesheet -- a separate element spanning
+      // the same footprint, sitting above the edges pane regardless of our own content's pointer-
+      // events. An inline style, not a className: `.react-flow__node`'s own rule has equal CSS
+      // specificity to a Tailwind utility class and loads after it, so a pointer-events-none
+      // *class* here was silently overridden right back to `all` -- verified live, not just by
+      // type-checking or a unit test, neither of which touches the real computed style or a real
+      // click. An inline style always wins over a plain class selector, load order or not.
+      // MachineNode's own div already opts its content back in where it needs to (header, status
+      // stripe, handles); this is what makes the *wrapper* itself transparent everywhere else, so
+      // a placedOn/belongsTo edge routed under the frame is finally clickable.
+      style: n.kind === "machine" ? { pointerEvents: "none" } : undefined,
       data: {
         kind: n.kind,
         label: labelOf(n.kind, n.data),
@@ -229,7 +241,26 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
 export function DesignerCanvas({ blueprint }: { blueprint: Blueprint }) {
   if (blueprint.nodes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-center">
+      <div
+        className="flex h-full items-center justify-center text-center"
+        // The empty canvas has no ReactFlow instance mounted yet (CanvasInner, and its own
+        // onDragOver/onDrop, only render once there is at least one node) -- without these, the
+        // placeholder's own "Drag a machine from the palette" instruction below was a dead end:
+        // dragstart/dragover fired, but nothing ever handled the drop.
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const kind = event.dataTransfer.getData("application/ivaldi-kind") as NodeKind;
+          if (!kind) return;
+          // No viewport exists yet to convert a screen point against -- this lands as the only
+          // node on the canvas, so where exactly doesn't matter the way it would once others
+          // are already there.
+          useBlueprintStore.getState().addNode(kind, { x: 100, y: 100 });
+        }}
+      >
         <div>
           <div className="hud-label">Empty canvas</div>
           <p className="mt-1 text-xs text-muted-foreground">
