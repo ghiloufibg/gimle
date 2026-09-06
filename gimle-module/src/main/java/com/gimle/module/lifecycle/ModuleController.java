@@ -266,6 +266,23 @@ public final class ModuleController {
     }
   }
 
+  /**
+   * Registers {@code artifact} as a new instance and announces the INSTALLED state that every later
+   * transition builds on. Registering through the registry directly skips this announcement:
+   * nothing else ever mints a {@link LifecycleEvent.Installed}, so an instance's timeline opened at
+   * RESOLVED and never recorded that the artifact had been installed at all -- a timeline that
+   * begins mid-sequence reads as if the first step were lost rather than never taken.
+   *
+   * <p>{@code instanceKey} distinguishes replicas of one deployment sharing a worker; it is empty
+   * for a module installed with no deployment identity. Whatever identity an instance has must
+   * already be recorded before this call, since the event emitted here is what carries it onward.
+   */
+  public ModuleInstanceId install(ModuleArtifact artifact, String instanceKey) {
+    ModuleInstanceId id = registry.register(artifact, instanceKey);
+    emit(new LifecycleEvent.Installed(id, Instant.now()));
+    return id;
+  }
+
   public ModuleWiring resolve(ModuleInstanceId id) {
     return resolve(id, Map.of());
   }

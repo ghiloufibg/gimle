@@ -62,7 +62,6 @@ class ModuleControllerTest {
     Path jar = buildFixtureJar(name);
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     ModuleRegistry registry = new ModuleRegistry();
-    ModuleInstanceId id = registry.register(artifact);
     ModuleResolver resolver = new ModuleResolver(registry);
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     List<LifecycleEvent> events = new ArrayList<>();
@@ -74,6 +73,9 @@ class ModuleControllerTest {
             ClassLoader.getSystemClassLoader(),
             Duration.ofMillis(50),
             events::add);
+    // Installed through the controller, the way a worker installs one, so these fixtures exercise
+    // the same first transition a real instance's timeline opens with.
+    ModuleInstanceId id = controller.install(artifact, "");
     return new Fixture(registry, controller, id, events);
   }
 
@@ -91,7 +93,22 @@ class ModuleControllerTest {
     assertFalse(f.registry().contains(f.id()));
 
     List<String> eventTypes = f.events().stream().map(e -> e.getClass().getSimpleName()).toList();
-    assertEquals(List.of("Resolved", "Starting", "Active", "Stopping", "Uninstalled"), eventTypes);
+    assertEquals(
+        List.of("Installed", "Resolved", "Starting", "Active", "Stopping", "Uninstalled"),
+        eventTypes);
+  }
+
+  @Test
+  void installing_a_module_opens_its_timeline_rather_than_starting_it_at_resolved() {
+    Fixture f = fixtureFor("com.gimle.fixture.install_event");
+
+    assertEquals(ModuleState.INSTALLED, f.registry().state(f.id()));
+    assertEquals(1, f.events().size(), "install alone should have emitted exactly one event");
+    LifecycleEvent first = f.events().get(0);
+    assertTrue(
+        first instanceof LifecycleEvent.Installed,
+        "a timeline that opens at " + first.getClass().getSimpleName() + " begins mid-sequence");
+    assertEquals(f.id(), first.id());
   }
 
   @Test

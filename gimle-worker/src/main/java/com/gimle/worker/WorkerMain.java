@@ -722,11 +722,10 @@ public final class WorkerMain {
           // worker: same artifact, same coordinate, but each needs its own layer, lifecycle state
           // and exported services. Empty for a module installed with no deployment identity.
           //
-          // Both the key and this instance's identity are settled before the artifact is
-          // registered, because registering it is what emits the INSTALLED lifecycle event: an
-          // event arriving before the instance has an identity has no deployment/index to attach
-          // to and is dropped, which is why an instance's timeline used to open at RESOLVED and
-          // never show the install at all.
+          // Both the key and this instance's identity are settled before the install below,
+          // because that install is what emits the INSTALLED lifecycle event: an event arriving
+          // before the instance has an identity has no deployment/index to attach to and is
+          // dropped.
           String instanceKey =
               m.deploymentName().isBlank()
                   ? ""
@@ -738,8 +737,12 @@ public final class WorkerMain {
             identityRegistry.register(
                 id, new InstanceIdentity(m.deploymentName(), m.instanceIndex(), tenantId));
           }
-          registry.register(artifact, instanceKey);
-          channel.send(new ControlMessage.ModuleStateChanged(id, "INSTALLED"));
+          // Installed through the controller rather than straight into the registry so this
+          // transition travels the same lifecycle-sink path every later one does: that sink is
+          // what turns it into both the agent's ModuleStateChanged and this instance's own durable
+          // INSTALLED timeline entry. A direct registry write announced it to nobody, which is why
+          // an instance's timeline used to open at RESOLVED and never show the install at all.
+          controller.install(artifact, instanceKey);
           channel.send(new ControlMessage.Ack(m.correlationId()));
         } catch (RuntimeException e) {
           channel.send(new ControlMessage.Nack(m.correlationId(), String.valueOf(e.getMessage())));

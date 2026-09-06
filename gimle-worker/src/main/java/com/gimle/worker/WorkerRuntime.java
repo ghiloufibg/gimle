@@ -575,7 +575,13 @@ public final class WorkerRuntime {
             }
             try {
               controller.stop(id);
-              registry.register(artifact);
+              // Reinstalled under this instance's own key, not the artifact's bare coordinate: a
+              // replica of a deployment is keyed by which replica it is, so registering without
+              // that key would recreate a different instance and leave the resolve below with
+              // nothing to find. Going through the controller is also what puts the restart's own
+              // INSTALLED entry on this instance's timeline, alongside the STOPPING/UNINSTALLED
+              // and ACTIVE entries bracketing it.
+              controller.install(artifact, id.instanceKey());
               controller.resolve(id);
               controller.start(id);
               succeeded = true;
