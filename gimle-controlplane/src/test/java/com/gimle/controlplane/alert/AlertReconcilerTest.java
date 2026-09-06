@@ -3,6 +3,8 @@ package com.gimle.controlplane.alert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /**
  * The alerting primitive's core evaluation logic: a rule fires the first tick its metric crosses
@@ -207,6 +210,35 @@ class AlertReconcilerTest {
     assertTrue(
         secondProcessNotifier.notifications.isEmpty(),
         "a fresh reconciler instance must not re-fire an already-firing rule");
+  }
+
+  @Test
+  void a_rule_watching_a_deployment_nothing_reports_for_says_so_once() {
+    StateStore store = new StateStore();
+    AlertRuleRegistry registry = new AlertRuleRegistry(store);
+    // Nothing named checkout-service is placed anywhere: the rule can only ever average zero, so
+    // a GREATER_THAN rule stays silent forever with no other trace of why.
+    registry.put(errorRateRule(5.0));
+    AlertReconciler reconciler = new AlertReconciler(registry, store, new RecordingNotifier());
+    ch.qos.logback.classic.Logger reconcilerLogger =
+        (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AlertReconciler.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    reconcilerLogger.addAppender(appender);
+    try {
+      reconciler.reconcileOnce();
+      reconciler.reconcileOnce();
+      reconciler.reconcileOnce();
+    } finally {
+      reconcilerLogger.detachAppender(appender);
+    }
+
+    List<ILoggingEvent> warnings =
+        appender.list.stream()
+            .filter(event -> event.getFormattedMessage().contains("checkout-service"))
+            .toList();
+    assertEquals(1, warnings.size(), "reported exactly once, not once per tick: " + warnings);
+    assertTrue(warnings.get(0).getFormattedMessage().contains("high-error-rate"));
   }
 
   @Test

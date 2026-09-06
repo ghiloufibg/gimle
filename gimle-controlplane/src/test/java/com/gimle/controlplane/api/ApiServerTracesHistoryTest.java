@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
@@ -177,6 +178,51 @@ class ApiServerTracesHistoryTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     assertEquals(400, response.statusCode());
+  }
+
+  /**
+   * Traces come from far fewer kinds than metrics do: most processes never start a span, and one
+   * that installs an exporter but produces nothing has an empty history, not a readable one.
+   */
+  @Test
+  @Timeout(10)
+  void the_kinds_that_ship_traces_are_served_by_the_collection_route() throws Exception {
+    startPlaintextServer(null);
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/traces-history")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> kinds =
+        Json.asObject(Json.parse(response.body())).get("processKinds") instanceof List<?> list
+            ? List.copyOf(list)
+            : List.of();
+    assertEquals(List.of("CONTROLPLANE", "WORKER"), kinds);
+  }
+
+  /**
+   * Skald ships metrics but has no tracer provider at all, so a traces read naming it can only ever
+   * be a mistake -- answered as one instead of as an empty history.
+   */
+  @Test
+  @Timeout(10)
+  void a_process_kind_that_never_ships_traces_is_rejected_rather_than_proxied() throws Exception {
+    List<String> receivedPaths = new CopyOnWriteArrayList<>();
+    muninnStub = startMuninnStub(receivedPaths);
+    startPlaintextServer(new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort()));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/traces-history/SKALD/127.0.0.1:8053"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("CONTROLPLANE"), response.body());
+    assertTrue(receivedPaths.isEmpty(), "nothing should have been proxied");
   }
 
   /**

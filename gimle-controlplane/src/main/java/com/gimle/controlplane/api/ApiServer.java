@@ -144,6 +144,9 @@ import com.gimle.mimir.store.WorkloadTokenRecord;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
 import com.gimle.observability.CertificateRotationMetrics;
+import com.gimle.observability.GimleTracing;
+import com.gimle.observability.ObservedProcessKind;
+import com.gimle.observability.ServerSpan;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
@@ -274,6 +277,9 @@ public final class ApiServer implements AutoCloseable {
   // any public constructor parameter (no test/caller has ever needed to inject a custom
   // registry); a same-package test reads it back through #metrics().
   private final ApiServerMetrics metrics = new ApiServerMetrics();
+
+  /** Instrumentation scope every span this server starts is attributed to. */
+  private static final String TRACING_SCOPE = "com.gimle.controlplane.api";
 
   /**
    * Mirrors the cadence {@code ControlPlaneMain}'s own ticker calls {@link
@@ -699,7 +705,11 @@ public final class ApiServer implements AutoCloseable {
     target.createContext(
         "/metrics-history/", instrument("metrics-history", this::handleMetricsHistory));
     target.createContext(
+        "/metrics-history", instrument("metrics-history", this::handleMetricsHistoryKinds));
+    target.createContext(
         "/traces-history/", instrument("traces-history", this::handleTracesHistory));
+    target.createContext(
+        "/traces-history", instrument("traces-history", this::handleTracesHistoryKinds));
     target.createContext("/roles/", instrument("roles", this::handleRole));
     target.createContext("/roles", instrument("roles", this::handleRolesList));
     target.createContext("/rolebindings/", instrument("rolebindings", this::handleRoleBinding));
@@ -788,6 +798,13 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       long startNanos = System.nanoTime();
+      // The control plane's own spans: nothing else in this process ever begins a trace, so
+      // without this its shipped trace history stays permanently empty however correctly the
+      // exporter behind it is wired. A no-op until a tracer provider is installed. Ended in the
+      // finally block below rather than by try-with-resources, so the span carries the status the
+      // handler actually produced -- a resource is closed before that status can be read.
+      ServerSpan span =
+          GimleTracing.startServerSpan(TRACING_SCOPE, verb + " /" + endpoint, endpoint, verb);
       try {
         Optional<Instant> retryAt = rateLimited(exchange);
         if (retryAt.isPresent()) {
@@ -813,6 +830,8 @@ public final class ApiServer implements AutoCloseable {
         int status = exchange.getResponseCode();
         boolean error = status <= 0 || status >= 400;
         metrics.recordRequest(endpoint, verb, latency, error);
+        span.recordStatus(status);
+        span.close();
       }
     };
   }
@@ -2558,8 +2577,16 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing alert rule name");
       return;
     }
+    // An omitted tenantId resolves to the default tenant, never Optional.empty(): a rule is only
+    // ever evaluated against the assignments of the deployment it names, and a manifest's own
+    // omitted tenantId already resolves to that same default tenant, so an untenanted rule would
+    // be keyed under a namespace no deployment can ever land in -- it would match no instance,
+    // average zero forever, and so never cross its threshold nor ever report a verdict at all.
     Optional<String> tenantId =
-        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+        Optional.of(
+            body.get("tenantId") instanceof String s && !s.isBlank()
+                ? s
+                : Tenant.DEFAULT_TENANT_ID);
     String deploymentName = (String) body.get("deploymentName");
     AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf((String) body.get("metric"));
     AlertRuleSpec.Comparator comparator =
@@ -2612,9 +2639,11 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing alert rule name");
         return;
       }
-      // Caller-declared ?tenant= hint, same convention #handleService's own GET/DELETE uses: a
-      // per-tenant AlertRule name can't resolve its own tenant from the bare name alone.
-      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Caller-declared ?tenant= hint: a per-tenant AlertRule name can't resolve its own tenant
+      // from the bare name alone. Defaulted the workload way rather than to Optional.empty(),
+      // because that is the key POST writes an omitted tenantId under -- reading it back with a
+      // bare empty Optional would address a rule this API can no longer create.
+      Optional<String> tenant = workloadTenantHint(exchange);
       if (slash >= 0) {
         String subResource = tail.substring(slash + 1);
         if (!"firing".equals(subResource)) {
@@ -9087,7 +9116,22 @@ public final class ApiServer implements AutoCloseable {
    * own {@code GET /metrics/{processKind}/{processId}}, via {@link #handleHistoryProxy}.
    */
   private void handleMetricsHistory(HttpExchange exchange) {
-    handleHistoryProxy(exchange, "/metrics-history/", "/metrics/", "metrics history");
+    handleHistoryProxy(
+        exchange,
+        "/metrics-history/",
+        "/metrics/",
+        "metrics history",
+        ObservedProcessKind.Signal.METRICS);
+  }
+
+  /**
+   * {@code GET /metrics-history} -- the process kinds whose own metrics are ever shipped here, so a
+   * caller offering the operator a choice builds it from what the platform actually ships rather
+   * than from a list of its own that can quietly fall behind. The same read gate the per-process
+   * route below applies, since the answer describes that route.
+   */
+  private void handleMetricsHistoryKinds(HttpExchange exchange) {
+    handleHistoryKinds(exchange, ObservedProcessKind.Signal.METRICS, "metrics history kinds");
   }
 
   /**
@@ -9097,7 +9141,36 @@ public final class ApiServer implements AutoCloseable {
    * #handleHistoryProxy}.
    */
   private void handleTracesHistory(HttpExchange exchange) {
-    handleHistoryProxy(exchange, "/traces-history/", "/traces/", "traces history");
+    handleHistoryProxy(
+        exchange,
+        "/traces-history/",
+        "/traces/",
+        "traces history",
+        ObservedProcessKind.Signal.TRACES);
+  }
+
+  /** {@code GET /traces-history} -- see {@link #handleMetricsHistoryKinds}. */
+  private void handleTracesHistoryKinds(HttpExchange exchange) {
+    handleHistoryKinds(exchange, ObservedProcessKind.Signal.TRACES, "traces history kinds");
+  }
+
+  private void handleHistoryKinds(
+      HttpExchange exchange, ObservedProcessKind.Signal signal, String requestNoun) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, Optional.empty())) {
+        return;
+      }
+      respondJson(exchange, 200, Map.of("processKinds", ObservedProcessKind.namesShipping(signal)));
+    } catch (IOException | RuntimeException e) {
+      log.warn("{} request failed: {}", requestNoun, e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   /**
@@ -9116,7 +9189,11 @@ public final class ApiServer implements AutoCloseable {
    *     history"}
    */
   private void handleHistoryProxy(
-      HttpExchange exchange, String pathPrefix, String muninnPathPrefix, String requestNoun) {
+      HttpExchange exchange,
+      String pathPrefix,
+      String muninnPathPrefix,
+      String requestNoun,
+      ObservedProcessKind.Signal signal) {
     try {
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
@@ -9129,6 +9206,22 @@ public final class ApiServer implements AutoCloseable {
       String[] parts = tail.split("/", 2);
       if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
         respond(exchange, 400, "expected " + pathPrefix + "{processKind}/{processId}");
+        return;
+      }
+      // A kind nothing ships this signal for could only ever read back an empty history, which is
+      // indistinguishable from "the process is quiet" -- naming the kinds that do ship it turns a
+      // typo, or a picker offering a kind this signal has no data for, into an answerable error.
+      if (!ObservedProcessKind.shipsSignal(parts[0], signal)) {
+        respond(
+            exchange,
+            400,
+            "no "
+                + signal.name().toLowerCase(Locale.ROOT)
+                + " are shipped for process kind '"
+                + parts[0]
+                + "' (expected one of "
+                + String.join(", ", ObservedProcessKind.namesShipping(signal))
+                + ")");
         return;
       }
       if (muninnClient == null) {

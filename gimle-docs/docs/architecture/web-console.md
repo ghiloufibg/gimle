@@ -211,11 +211,13 @@ before the UI did:
 - **Traces** (`GET /traces-history/{processKind}/{processId}`, same envelope and process-picker
   pattern as metrics history): a flat, sortable span table (trace id, span name, kind, status,
   time) — not a flame graph or waterfall, since the wire shape carries no span duration or start
-  time today. The only production code that creates a span at all is `gimle-fabric`'s
-  `FabricServer` (an inbound cross-worker service call) and its own instance's `WorkerMain`
-  relay — so this screen only ever shows data for the `WORKER` process kind, none of the other
-  four, an accurate reflection of where spans are actually created today rather than a gap in
-  this UI. Selecting a trace id opens **Follow trace**, which assembles that one trace's spans
+  time today. Only two process kinds create spans at all: `gimle-fabric`'s `FabricServer` (an
+  inbound cross-worker service call), relayed by its own instance's `WorkerMain` under `WORKER`,
+  and the control plane's `ApiServer`, which starts one server span per request it serves under
+  `CONTROLPLANE`. The rest install a trace exporter and never feed it, so this screen shows data
+  for those two kinds only — an accurate reflection of where spans are actually created today
+  rather than a gap in this UI, and what `GET /traces-history` (no path segments) returns as the
+  kinds worth offering. Selecting a trace id opens **Follow trace**, which assembles that one trace's spans
   from every worker process the console can currently name, grouped by process and indented into a
   call tree — the cross-worker case (a consumer's client span and a provider's server span sharing
   one trace id across two JVMs) read end to end instead of by opening two views and eyeballing
