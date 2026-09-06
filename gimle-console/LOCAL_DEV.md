@@ -18,9 +18,9 @@ multi-node HA and failover need the store's own replica count decoupled from the
 at `mvn gimle:store`'s own default client port, so the two goals work together with no extra flags
 for this single-node walkthrough.
 
-Steps 1–6 below (build everything, launch the store, the control plane, and one node agent) are
+Steps 1–5 below (build everything, launch the store, the control plane, and one node agent) are
 automated by `scripts/run-local-cluster.sh` — run it directly if you just want a cluster up, or
-read on for what it does and how to do steps 7–8 (deploy the example module, watch logs) by hand.
+read on for what it does and how to do steps 6–7 (deploy the example module, watch logs) by hand.
 
 ## 0. Prerequisites
 
@@ -111,7 +111,7 @@ supplies its flags automatically, including a `--fafnir-endpoint` default), see
 
 ## 5. Launch one node agent
 
-In a fourth terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):
+In a third terminal (re-export `JAVA_HOME`/`PATH` from step 0 if this is a fresh shell):
 
 ```bash
 mvn gimle:agent
@@ -127,7 +127,7 @@ alongside the first).
 
 Refresh `/console` → the Nodes screen should now show `node-1` with real reported capacity.
 
-## 7. Deploy the example module
+## 6. Deploy the example module
 
 Either through the console's "New deployment" form, or with:
 
@@ -145,19 +145,19 @@ dependency:build-classpath -Dmdep.outputFile=<file>`, then `java -cp
 gimle-cli/target/classes;<file-contents> com.gimle.cli.GimleCli <verb> ... --server
 127.0.0.1:8080`) — `gimle:deploy` only wraps the one `apply` case developers reach for constantly.
 
-## 8. Watch real logs, including live tail
+## 7. Watch real logs, including live tail
 
 From the console's Logs screen, pick the control plane, `node-1`, or the `hello-deployment`
 instance, and confirm real lines appear; toggle "follow" and confirm new lines arrive as the
 process keeps running.
 
-The same data is available from the CLI (see step 7's note on running it directly), as a genuine
+The same data is available from the CLI (see step 6's note on running it directly), as a genuine
 `kubectl logs -f` equivalent — `GimleCli logs controlplane --follow --server 127.0.0.1:8080`.
 Running this side-by-side with the console's own "follow" toggle on the same target is the real
 proof that one backend mechanism (the control plane's `/logs/*` routes, proxying to
 `AgentLogServer` where needed) serves both consumers identically.
 
-## 9. Shut down
+## 8. Shut down
 
 `Ctrl+C` the agent terminal first (it tears down its supervised worker), then the control plane
 terminal, then the store terminal last (the control plane needs it reachable for its own shutdown
