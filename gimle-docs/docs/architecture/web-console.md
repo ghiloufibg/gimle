@@ -221,17 +221,17 @@ before the UI did:
   `CONTROLPLANE`. The rest install a trace exporter and never feed it, so this screen shows data
   for those two kinds only — an accurate reflection of where spans are actually created today
   rather than a gap in this UI, and what `GET /traces-history` (no path segments) returns as the
-  kinds worth offering. Selecting a trace id opens **Follow trace**, which assembles that one trace's spans
-  from every worker process the console can currently name, grouped by process and indented into a
-  call tree — the cross-worker case (a consumer's client span and a provider's server span sharing
-  one trace id across two JVMs) read end to end instead of by opening two views and eyeballing
-  truncated id prefixes. There is no server-side trace search, so this fans the same per-process
-  history call out client-side, and the panel states its own limits in place rather than implying
-  completeness: only `WORKER` processes are searched, searchable workers come from the instance
-  list (a torn-down worker's spans may still be in Muninn but cannot be addressed from here), each
-  worker's history is walked only a few pages back, any process that failed to answer is named,
-  and a parent span that no searched process produced is reported as making the trace provably
-  incomplete.
+  kinds worth offering. Selecting a trace id opens **Follow trace**, which shows that one trace's
+  spans grouped by process and indented into a call tree — the cross-worker case (a consumer's
+  client span and a provider's server span sharing one trace id across two JVMs) read end to end
+  instead of by opening two views and eyeballing truncated id prefixes. It is one request,
+  `GET /trace/{traceId}`, answered by a search across every process that has ever shipped spans:
+  a worker torn down since the call included, since the search reads what was stored rather than
+  what is currently running, and every configured Muninn replica is asked and the answers merged
+  (shipping is best-effort per replica, so one replica's silence about a span is not evidence it
+  was never recorded). Because the search covers everything stored, a parent span missing from the
+  result was genuinely never recorded rather than merely out of reach — the panel reports that as a
+  provably incomplete trace, and says so separately when a search stopped at its own limit.
 - **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=&cursor=`): a filterable
   table, most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode
   — see [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only

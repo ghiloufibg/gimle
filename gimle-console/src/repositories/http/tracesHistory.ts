@@ -1,5 +1,10 @@
 import type { HistoryEnvelope, ProcessKind, ProcessTarget, TraceSpanLine } from "@/types";
-import type { TracesHistoryRepository, TracesPageArgs, TracesSinceArgs } from "../tracesHistory";
+import type {
+  TraceSearchResult,
+  TracesHistoryRepository,
+  TracesPageArgs,
+  TracesSinceArgs,
+} from "../tracesHistory";
 import { createPoller } from "@/lib/polling";
 import { fetchHistoryEnvelope } from "./historyAvailability";
 import { requestJson } from "./apiClient";
@@ -20,6 +25,13 @@ export class HttpTracesHistoryRepository implements TracesHistoryRepository {
     // fetchHistoryEnvelope's remembered-404 short circuit.
     const body = await requestJson<{ processKinds: ProcessKind[] }>("GET", "/traces-history");
     return body.processKinds ?? [];
+  }
+
+  async searchByTraceId(traceId: string, limit?: number): Promise<TraceSearchResult> {
+    // Not routed through fetchHistoryEnvelope: this answers about one trace across every process,
+    // so a remembered per-process 404 says nothing about whether the search can succeed.
+    const query = limit === undefined ? "" : `?limit=${limit}`;
+    return requestJson<TraceSearchResult>("GET", `/trace/${encodeURIComponent(traceId)}${query}`);
   }
 
   async fetchPage({

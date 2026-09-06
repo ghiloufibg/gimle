@@ -1,39 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { TracesHistoryRepository, TracesPageArgs } from "@/repositories/tracesHistory";
-import type { HistoryEnvelope, ModuleInstance, ProcessTarget, TraceSpanLine } from "@/types";
-import {
-  coverageSummary,
-  followTraceAcrossProcesses,
-  groupSpansByProcess,
-  spanDepths,
-  workerTargetsFromInstances,
-} from "./-trace-follow";
+import type { FoundSpan, TracesHistoryRepository } from "@/repositories/tracesHistory";
+import type { ProcessTarget, TraceSpanLine } from "@/types";
+import { coverageSummary, groupSpansByProcess, searchTrace, spanDepths } from "./-trace-follow";
 
 // Pure cross-process assembly logic only -- this project's vitest config is deliberately
 // node-environment (see vitest.config.ts), so the panel that renders these results is verified in
 // a real browser instead, not here.
-
-function instance(overrides: Partial<ModuleInstance>): ModuleInstance {
-  return {
-    deploymentName: "greeter",
-    instanceIndex: 0,
-    moduleId: { name: "greeter", version: "1.0.0" },
-    artifactPath: "/tmp/greeter.jar",
-    tenantId: null,
-    nodeId: "node-a",
-    lifecycleState: "ACTIVE",
-    alive: true,
-    ready: true,
-    requestRatePerSecond: 0,
-    errorRatePerSecond: 0,
-    queueDepth: 0,
-    cpuMillicoresUsed: 0,
-    memoryBytesUsed: 0,
-    workerId: "worker-1",
-    ...overrides,
-  } as ModuleInstance;
-}
 
 function span(overrides: Partial<TraceSpanLine>): TraceSpanLine {
   return {
@@ -48,22 +21,18 @@ function span(overrides: Partial<TraceSpanLine>): TraceSpanLine {
   };
 }
 
-/** A repository whose per-target pages are scripted, including targets that throw. */
-function fakeRepo(
-  pagesByProcessId: Record<string, TraceSpanLine[][] | Error>,
-): TracesHistoryRepository {
+/** A repository whose trace search is scripted, including a search that fails outright. */
+function fakeRepo(hits: FoundSpan[] | Error, truncated = false): TracesHistoryRepository {
   return {
+    async searchByTraceId(traceId: string) {
+      if (hits instanceof Error) throw hits;
+      return { traceId, spans: hits, truncated };
+    },
     async fetchProcessKinds() {
       throw new Error("not used");
     },
-    async fetchPage({ target, cursor }: TracesPageArgs): Promise<HistoryEnvelope<TraceSpanLine>> {
-      const scripted = pagesByProcessId[target.processId];
-      if (scripted instanceof Error) throw scripted;
-      const pages = scripted ?? [];
-      const index = cursor === null ? 0 : Number(cursor);
-      const lines = pages[index] ?? [];
-      const hasMore = index + 1 < pages.length;
-      return { lines, olderCursor: hasMore ? String(index + 1) : null, newerCursor: null };
+    async fetchPage() {
+      throw new Error("not used");
     },
     async fetchSince() {
       throw new Error("not used");
@@ -77,114 +46,58 @@ function fakeRepo(
 const workerA: ProcessTarget = { processKind: "WORKER", processId: "node-a:worker-1" };
 const workerB: ProcessTarget = { processKind: "WORKER", processId: "node-b:worker-2" };
 
-describe("workerTargetsFromInstances", () => {
-  it("derives one deduplicated WORKER target per distinct node/worker pair", () => {
-    const targets = workerTargetsFromInstances([
-      instance({ nodeId: "node-a", workerId: "worker-1" }),
-      instance({ nodeId: "node-a", workerId: "worker-1", instanceIndex: 1 }),
-      instance({ nodeId: "node-b", workerId: "worker-2" }),
+function hit(target: ProcessTarget, line: TraceSpanLine): FoundSpan {
+  return { processKind: target.processKind, processId: target.processId, span: line };
+}
+
+describe("searchTrace", () => {
+  it("orders the spans the search returned by time, keeping where each ran", async () => {
+    const repo = fakeRepo([
+      hit(
+        workerB,
+        span({ spanId: "server", parentSpanId: "client", timestamp: "2026-08-10T10:00:01Z" }),
+      ),
+      hit(workerA, span({ spanId: "client", timestamp: "2026-08-10T10:00:00Z", kind: "CLIENT" })),
     ]);
 
-    expect(targets).toEqual([workerA, workerB]);
-  });
-
-  it("skips an instance whose worker has not reported an id yet", () => {
-    expect(workerTargetsFromInstances([instance({ workerId: null })])).toEqual([]);
-  });
-});
-
-describe("followTraceAcrossProcesses", () => {
-  it("collects the same trace's spans from two different processes, ordered by time", async () => {
-    const repo = fakeRepo({
-      "node-a:worker-1": [
-        [span({ spanId: "client", timestamp: "2026-08-10T10:00:00Z", kind: "CLIENT" })],
-      ],
-      "node-b:worker-2": [
-        [
-          span({
-            spanId: "server",
-            parentSpanId: "client",
-            timestamp: "2026-08-10T10:00:01Z",
-          }),
-        ],
-      ],
-    });
-
-    const result = await followTraceAcrossProcesses(repo, "trace-1", [workerA, workerB]);
+    const result = await searchTrace(repo, "trace-1");
 
     expect(result.spans.map((s) => s.span.spanId)).toEqual(["client", "server"]);
     expect(result.spans.map((s) => s.target.processId)).toEqual([
       "node-a:worker-1",
       "node-b:worker-2",
     ]);
-    expect(result.failures).toEqual([]);
+    expect(result.failure).toBeNull();
     expect(result.danglingParentSpanIds).toEqual([]);
   });
 
-  it("ignores spans belonging to other traces in the same history", async () => {
-    const repo = fakeRepo({
-      "node-a:worker-1": [
-        [span({ spanId: "mine" }), span({ spanId: "theirs", traceId: "trace-other" })],
-      ],
-    });
+  it("reports a failed search rather than an empty trace", async () => {
+    const repo = fakeRepo(new Error("trace search unavailable (404)"));
 
-    const result = await followTraceAcrossProcesses(repo, "trace-1", [workerA]);
+    const result = await searchTrace(repo, "trace-1");
 
-    expect(result.spans.map((s) => s.span.spanId)).toEqual(["mine"]);
+    expect(result.spans).toEqual([]);
+    expect(result.failure).toBe("trace search unavailable (404)");
+    expect(coverageSummary(result)).toContain("trace search unavailable (404)");
   });
 
-  it("walks older pages until the history runs out, within the page cap", async () => {
-    const repo = fakeRepo({
-      "node-a:worker-1": [
-        [span({ spanId: "newest", timestamp: "2026-08-10T10:00:02Z" })],
-        [span({ spanId: "older", timestamp: "2026-08-10T10:00:01Z" })],
-        [span({ spanId: "oldest", timestamp: "2026-08-10T10:00:00Z" })],
-      ],
-    });
+  it("says so when the search stopped at its limit", async () => {
+    const repo = fakeRepo([hit(workerA, span({ spanId: "one" }))], true);
 
-    const capped = await followTraceAcrossProcesses(repo, "trace-1", [workerA], {
-      maxPagesPerTarget: 2,
-    });
-    expect(capped.spans.map((s) => s.span.spanId)).toEqual(["older", "newest"]);
-
-    const full = await followTraceAcrossProcesses(repo, "trace-1", [workerA], {
-      maxPagesPerTarget: 5,
-    });
-    expect(full.spans.map((s) => s.span.spanId)).toEqual(["oldest", "older", "newest"]);
+    expect(coverageSummary(await searchTrace(repo, "trace-1"))).toContain(
+      "truncated at the search limit",
+    );
   });
 
-  it("reports an unreachable process instead of failing the whole search", async () => {
-    const repo = fakeRepo({
-      "node-a:worker-1": [[span({ spanId: "found" })]],
-      "node-b:worker-2": new Error("traces history unavailable (404)"),
-    });
-
-    const result = await followTraceAcrossProcesses(repo, "trace-1", [workerA, workerB]);
-
-    expect(result.spans.map((s) => s.span.spanId)).toEqual(["found"]);
-    expect(result.failures).toEqual([
-      { target: workerB, message: "traces history unavailable (404)" },
+  it("flags a parent span the search never found", async () => {
+    const repo = fakeRepo([
+      hit(workerA, span({ spanId: "orphan", parentSpanId: "ran-somewhere-else" })),
     ]);
-    expect(result.searched).toEqual([workerA, workerB]);
-  });
 
-  it("flags a parent span that no searched process could produce", async () => {
-    const repo = fakeRepo({
-      "node-a:worker-1": [[span({ spanId: "orphan", parentSpanId: "ran-somewhere-else" })]],
-    });
-
-    const result = await followTraceAcrossProcesses(repo, "trace-1", [workerA]);
+    const result = await searchTrace(repo, "trace-1");
 
     expect(result.danglingParentSpanIds).toEqual(["ran-somewhere-else"]);
     expect(coverageSummary(result)).toContain("this trace is incomplete");
-  });
-
-  it("searches nothing and finds nothing when no worker can be named", async () => {
-    const result = await followTraceAcrossProcesses(fakeRepo({}), "trace-1", []);
-
-    expect(result.spans).toEqual([]);
-    expect(result.searched).toEqual([]);
-    expect(coverageSummary(result)).toBe("0 spans found · 0/0 worker processes read");
   });
 });
 

@@ -134,3 +134,38 @@ describe("HttpTracesHistoryRepository.fetchProcessKinds", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/traces-history");
   });
 });
+
+describe("HttpTracesHistoryRepository.searchByTraceId", () => {
+  it("reads the whole trace from GET /trace/{traceId}", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          traceId: "abc",
+          spans: [{ processKind: "WORKER", processId: "node-a:worker-1", span: { spanId: "s1" } }],
+          truncated: false,
+        }),
+    ]);
+    const repo = new HttpTracesHistoryRepository();
+
+    const found = await repo.searchByTraceId("abc");
+
+    expect(found.spans).toHaveLength(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/trace/abc");
+  });
+
+  it("still searches after a per-process 404 has been remembered", async () => {
+    const fetchMock = stubFetchSequence([
+      () => textResponse("muninn not configured", 404),
+      () => jsonResponse({ traceId: "abc", spans: [], truncated: false }),
+    ]);
+    const repo = new HttpTracesHistoryRepository();
+
+    await expect(
+      repo.fetchPage({ target: TARGET, cursor: null, limit: 10 }),
+    ).rejects.toBeInstanceOf(ApiError);
+
+    // A per-process 404 says nothing about a search that spans every process.
+    expect((await repo.searchByTraceId("abc")).spans).toEqual([]);
+    expect(fetchMock.mock.calls).toHaveLength(2);
+  });
+});
