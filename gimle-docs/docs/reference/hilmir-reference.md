@@ -679,3 +679,7 @@ are filled in directly; everything else (version, resource sizing, isolation tie
 conservative default annotated `# TODO: measure and adjust`. Never overwrites a file that already
 exists at either target path — refuses outright, listing every colliding path, rather than silently
 clobbering a hand-edited file.
+
+Both files land in `--out-dir`, or in the directory the command was run from when that flag is
+absent — deliberately not beside the inspected jar, since that is a build output directory whose
+next clean would delete files you are meant to edit and keep.

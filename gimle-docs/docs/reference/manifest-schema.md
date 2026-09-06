@@ -38,7 +38,7 @@ health:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `name` | yes | The module's identifier (reverse-DNS style by convention, not enforced). |
+| `name` | yes | The module's identifier. Used verbatim as the JPMS module name its own `ModuleLayer` is resolved by, so it must be dot-separated Java identifiers (letters, digits, `_` and `$`, never starting with a digit) — `com.example.orders`, never `orders-service`. Reverse-DNS style is convention on top of that; the identifier shape itself is enforced, and a manifest that breaks it is rejected naming the name, not the artifact. |
 | `version` | yes | The module's own version. |
 | `resources.request.memory` / `.cpu` | yes | Requested memory (`Mi`/`Gi` suffix) and CPU (millicores, `m` suffix) — what the scheduler bin-packs against. |
 | `resources.limit.memory` / `.cpu` | yes | Hard ceiling passed to the `ResourceLimiter` (see [Tiered isolation](../architecture/tiered-isolation.md)) — enforced today via portable JVM flags (`-Xmx`, `ActiveProcessorCount`). |

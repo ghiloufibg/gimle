@@ -111,4 +111,43 @@ class InitCommandTest {
     assertEquals(sentinelContent, Files.readString(sentinel));
     assertTrue(Files.notExists(outDir.resolve("gimle-module.yaml")));
   }
+
+  /**
+   * The no---out-dir default, which only shows itself in the process's own working directory --
+   * hence a real child JVM rather than an in-process call: the generated files are meant to be
+   * edited and kept, so they must land where the command was run from, never inside the build
+   * output directory the inspected jar happens to sit in.
+   */
+  @Test
+  void writes_into_the_working_directory_not_beside_the_jar_when_no_out_dir_is_given()
+      throws Exception {
+    Path jarDir = Files.createDirectory(tempDir.resolve("build-output"));
+    Path jar =
+        HilmirTestJarBuilder.create()
+            .withModuleInfo(HilmirTestJarBuilder.minimalModuleInfo("com.example.defaulted"))
+            .build(jarDir, "defaulted.jar");
+    Path workingDir = Files.createDirectory(tempDir.resolve("project"));
+
+    Process process =
+        new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-cp",
+                System.getProperty("java.class.path"),
+                "com.gimle.hilmir.HilmirMain",
+                "init",
+                jar.toString())
+            .directory(workingDir.toFile())
+            .redirectErrorStream(true)
+            .start();
+    String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    assertEquals(0, process.waitFor(), "hilmir init failed; output=\n" + output);
+
+    assertTrue(
+        Files.exists(workingDir.resolve("deployment.yaml")),
+        "nothing was written into the working directory; output=\n" + output);
+    assertTrue(
+        Files.notExists(jar.resolveSibling("deployment.yaml")),
+        "deployment.yaml was written beside the jar instead");
+    assertTrue(Files.notExists(jar.resolveSibling("gimle-module.yaml")));
+  }
 }

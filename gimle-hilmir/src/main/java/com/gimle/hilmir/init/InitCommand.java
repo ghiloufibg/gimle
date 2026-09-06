@@ -23,7 +23,8 @@ import java.util.regex.Pattern;
  * {@code hilmir init <jar> [--out-dir <dir>]}: inspects a built jar (via the exact same {@link
  * ArtifactScanner} {@code doctor} uses -- one analyzer, two consumers) and writes {@code
  * deployment.yaml}, plus {@code gimle-module.yaml} when the jar is module-hosting-shaped, filled in
- * wherever detection can be confident and {@code # TODO}-annotated wherever it can't. Never
+ * wherever detection can be confident and {@code # TODO}-annotated wherever it can't. They land in
+ * {@code --out-dir}, or in the directory the command was run from when that flag is absent. Never
  * overwrites a file that already exists at the target path -- refuses outright, listing every
  * colliding path, rather than silently clobbering something the caller may have hand-edited.
  */
@@ -44,7 +45,7 @@ public final class InitCommand {
     }
     JarStructure structure = scan.structure().orElseThrow();
 
-    Path outDir = parsed.outDir != null ? Path.of(parsed.outDir) : defaultOutDir(jarPath);
+    Path outDir = parsed.outDir != null ? Path.of(parsed.outDir) : currentDirectory();
     boolean vesselShaped = !structure.hasModuleInfo() || structure.launcherArchiveShaped();
 
     NameGuess name = guessModuleName(jarPath, structure);
@@ -96,12 +97,13 @@ public final class InitCommand {
             + " API directly, or wrap it in a bundle's workloads: list for `hilmir deploy`");
   }
 
-  // toAbsolutePath().getParent() is null only for a filesystem root itself, never for a real
-  // jar path -- falling back to the current directory keeps this total rather than throwing on
-  // that theoretical case.
-  private static Path defaultOutDir(Path jarPath) {
-    Path parent = jarPath.toAbsolutePath().getParent();
-    return parent != null ? parent : Path.of(".");
+  // Where the generated files land when --out-dir isn't given: the directory this command was run
+  // from, which for the documented workflow (run it from the module's own project directory) is
+  // that project's own directory. Deliberately not the inspected jar's own directory -- that is a
+  // build output directory, and these files are meant to be edited and kept, not deleted by the
+  // next clean build.
+  private static Path currentDirectory() {
+    return Path.of("").toAbsolutePath();
   }
 
   private record NameGuess(String value, boolean confident) {}

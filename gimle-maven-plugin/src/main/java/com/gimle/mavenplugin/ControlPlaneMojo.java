@@ -14,8 +14,9 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * defaults to {@code gimle:store}'s own default client port, {@code
  * gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, and
  * {@code gimle.controlplane.andvariEndpoint} defaults to {@code gimle:andvari}'s own default port,
- * so the four goals keep working together with zero extra flags for single-node local dev. No-ops
- * in every other reactor module (see {@link AbstractGimleMojo}).
+ * so the four goals keep working together with zero extra flags for single-node local dev. {@code
+ * gimle.controlplane.muninnEndpoint} is the one address left unset by default -- see the parameter
+ * itself for why. No-ops in every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(
     name = "controlplane",
@@ -48,6 +49,17 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   // having to know this flag exists.
   @Parameter(property = "gimle.controlplane.andvariEndpoint", defaultValue = "127.0.0.1:9094")
   private String andvariEndpoint;
+
+  /**
+   * {@code host:port,...} of every Muninn replica this control plane ships its own metrics and
+   * traces to, and falls back to when serving {@code /logs/*} for a node or instance that no longer
+   * exists. Unset by default, unlike the three addresses above: shipping to an address where
+   * nothing is listening buys a local-dev session nothing but a retry every interval, and a session
+   * that never starts {@code gimle:muninn} is the common one. Point it at {@code gimle:muninn}'s
+   * own default port ({@code 127.0.0.1:9093}) whenever that goal is running too.
+   */
+  @Parameter(property = "gimle.controlplane.muninnEndpoint")
+  private String muninnEndpoint;
 
   /**
    * Local-dev convenience for {@code gimle.transport.protocol} -- unset by default (plaintext,
@@ -95,6 +107,7 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
         storeEndpoints,
         fafnirEndpoint,
         andvariEndpoint,
+        muninnEndpoint,
         transportProtocol,
         auditReadResourceKinds,
         consoleAddons);
@@ -113,6 +126,7 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
       String storeEndpoints,
       String fafnirEndpoint,
       String andvariEndpoint,
+      String muninnEndpoint,
       String transportProtocol,
       String auditReadResourceKinds,
       String consoleAddons) {
@@ -139,6 +153,10 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     if (andvariEndpoint != null && !andvariEndpoint.isBlank()) {
       command.add("--andvari-endpoint");
       command.add(andvariEndpoint);
+    }
+    if (muninnEndpoint != null && !muninnEndpoint.isBlank()) {
+      command.add("--muninn-endpoint");
+      command.add(muninnEndpoint);
     }
     return command;
   }

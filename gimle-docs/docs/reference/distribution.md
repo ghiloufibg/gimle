@@ -58,10 +58,23 @@ pair). The `java` each script launches itself with follows this precedence: an e
 environment variable always wins (a deliberate operator override); otherwise, if the archive was
 built with `-P dist-with-jre`, each script prefers its own bundled JRE (`jre/hilmir/bin/java`(`.exe`)
 for the `hilmir` pair, `jre/cli/bin/java`(`.exe`) for the `gimle` pair, `jre/ragnarok/bin/java`(`.exe`)
-for the `ragnarok` pair) when that file actually exists next to it; otherwise all three fall back to
-plain `java` on `PATH`, exactly as they did before this archive ever bundled a JRE of its own. A
-plain default-build archive (no `-P dist-with-jre`) simply has no `jre/` directory at all, so every
-unpacked archive built that way always falls through to the `JAVA_HOME`/`PATH` behavior.
+for the `ragnarok` pair); otherwise all three fall back to plain `java` on `PATH`, exactly as they
+did before this archive ever bundled a JRE of its own. A plain default-build archive (no `-P
+dist-with-jre`) simply has no `jre/` directory at all, so every unpacked archive built that way
+always falls through to the `JAVA_HOME`/`PATH` behavior.
+
+Two failure cases each script reports rather than swallowing:
+
+- **A bundled JRE that can't run here.** A bundled runtime only runs on the platform it was built
+  for (see [The bundled JRE is built for the machine that builds
+  it](#the-bundled-jre-is-built-for-the-machine-that-builds-it) below), and an archive travels
+  further than the machine that built it. If `jre/<component>/bin/java`(`.exe`) is missing or
+  refuses to run, the script says so — naming the platform recorded in `jre/PLATFORM` and the
+  machine it is actually on — and then continues down the same `PATH` fallback, instead of silently
+  pretending no JRE was bundled.
+- **No Java at all.** If nothing resolves — no `JAVA_HOME`, no usable bundled runtime, no `java` on
+  `PATH` — the script says exactly that and exits 1, rather than letting the launch line fail with a
+  bare `exec: java: not found`.
 
 ### Why `bin/hilmir up` needs no extra flag inside the platform archive
 
@@ -211,6 +224,45 @@ Archive contents:
 | `gimle-cli-<version>.tar.gz` | `jre/cli/` only. |
 | `gimle-hilmir-<version>.tar.gz` | `jre/hilmir/` only. |
 | `gimle-ragnarok-<version>.tar.gz` | `jre/ragnarok/` only. |
+
+Every one of those archives also carries a one-line `jre/PLATFORM` file naming the platform its
+images were built for — see the next section.
+
+### The bundled JRE is built for the machine that builds it
+
+`jlink` produces a runtime image for the platform it runs on and no other — there is no
+cross-platform build here, and none is possible from a single JDK install. So `-P dist-with-jre`
+makes an otherwise platform-neutral archive (jars, shell scripts) platform-specific: a profile build
+run on Windows produces `jre/*/bin/java.exe`, which a Linux cluster machine cannot execute, and a
+profile build on macOS produces Mach-O binaries neither of the others can.
+
+Two things make that impossible to ship by accident:
+
+- **The build states what it is building for, and checks it.** `gimle.dist.jre.targetOsName` /
+  `gimle.dist.jre.targetOsArch` default to `Linux` / `x86_64` — the platform the cluster-machine
+  archive targets. After `jlink` runs, the build reads the platform back out of a produced image's
+  own `release` file and fails if it isn't that, naming both platforms. Building for a different
+  target is a matter of building *on* that platform (or in a container for it) and declaring it:
+
+  ```bash
+  mvn -pl gimle-dist -am install -P dist-with-jre \
+      -Dgimle.dist.jre.targetOsName=Darwin -Dgimle.dist.jre.targetOsArch=aarch64
+  ```
+
+  Both values are spelled exactly as a JDK's own `release` file spells them (`OS_NAME`/`OS_ARCH`),
+  so there is no separate naming scheme to learn: `Linux`/`Darwin`/`Windows`, and
+  `x86_64`/`aarch64`/`amd64`.
+
+- **The archive says which platform its runtime is for.** Every archive that bundles a JRE carries a
+  one-line `jre/PLATFORM` file (`Linux-x86_64`) written by that same check. `cat jre/PLATFORM`
+  answers "which machines is this archive's runtime for?" without running anything, and it is what
+  the wrapper scripts name when the bundled runtime turns out not to run on the machine unpacking
+  it.
+
+The default build (no `-P dist-with-jre`) bundles no runtime at all, so its archives stay
+platform-neutral and run anywhere a JDK 25+ is already installed. If you publish archives for
+several platforms, run the profile build once per platform and keep the platform in the published
+file name; nothing in the build does that renaming for you.
 
 ### How it gets used
 
