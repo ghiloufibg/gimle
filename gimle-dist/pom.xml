@@ -305,6 +305,25 @@
         every module gimle-dist depends on finishes package before gimle-dist's own package phase
         starts), so every source file this copies already exists.
 
+        The platform and midgard SBOMs additionally get their root metadata.component rewritten to
+        name the archive they actually describe. cyclonedx-maven-plugin always writes the current
+        Maven project as that component and offers no way to override it, so both files would
+        otherwise arrive claiming to describe "gimle-dist", a module that ships nothing an operator
+        can install, and a name a consumer scanning gimle-platform-<version>.tar.gz has no way to
+        reconcile with the archive in front of them. Only that root component's own name,
+        description and coordinate are rewritten; the resolved dependency components below it,
+        which are what an SBOM is actually read for, are already correct and distinct per archive
+        and are left exactly as generated. The coordinate goes through a plain string replacement
+        because the identical string appears three times (the component's bom-ref, its purl, and
+        the dependency graph's own root ref) and all three must keep agreeing. Both rewrites happen
+        as filters on the copy rather than in place afterwards, so the generator's own bom-*.json
+        (which this module still attaches under its own coordinate) keeps describing gimle-dist
+        truthfully, and the shipped file is an ordinary freshly-created copy.
+
+        The <fail> after each copy is what keeps this honest: a rewrite that silently stopped
+        matching (a reworded module description, a formatting change in the generator) would leave
+        the wrong name in a shipped artifact, so it breaks the build instead of shipping quietly.
+
         Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
         producing archives an operator unpacks on their own machine, which includes Windows, where a
         hardcoded /bin/sh has no equivalent. maven-antrun-plugin runs pure Java, no external process
@@ -335,9 +354,41 @@
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <copy file="${project.build.directory}/bom-platform.json"
-                      tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"/>
+                      tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"
+                      overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
+                  <filterchain>
+                    <tokenfilter>
+                      <filetokenizer/>
+                      <replaceregex pattern="&quot;name&quot; : &quot;gimle-dist&quot;,(\s*&quot;version&quot; : &quot;[^&quot;]*&quot;,\s*)&quot;description&quot; : &quot;[^&quot;]*&quot;"
+                                    replace="&quot;name&quot; : &quot;gimle-platform&quot;,\1&quot;description&quot; : &quot;The Gimle cluster-machine platform distribution archive: every process kind's jars plus the hilmir and gimle launchers.&quot;"/>
+                      <replacestring from="pkg:maven/com.gimle/gimle-dist@${project.version}?type=pom"
+                                     to="pkg:maven/com.gimle/gimle-platform@${project.version}?type=tar.gz"/>
+                    </tokenfilter>
+                  </filterchain>
+                </copy>
+                <fail message="gimle-platform's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
+                  <condition>
+                    <resourcecontains resource="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                  </condition>
+                </fail>
                 <copy file="${project.build.directory}/bom-midgard.json"
-                      tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"/>
+                      tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"
+                      overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
+                  <filterchain>
+                    <tokenfilter>
+                      <filetokenizer/>
+                      <replaceregex pattern="&quot;name&quot; : &quot;gimle-dist&quot;,(\s*&quot;version&quot; : &quot;[^&quot;]*&quot;,\s*)&quot;description&quot; : &quot;[^&quot;]*&quot;"
+                                    replace="&quot;name&quot; : &quot;gimle-midgard&quot;,\1&quot;description&quot; : &quot;The Gimle Midgard dev-cluster Docker build context: the platform archive's own jars plus the example modules it seeds.&quot;"/>
+                      <replacestring from="pkg:maven/com.gimle/gimle-dist@${project.version}?type=pom"
+                                     to="pkg:maven/com.gimle/gimle-midgard@${project.version}?type=tar.gz"/>
+                    </tokenfilter>
+                  </filterchain>
+                </copy>
+                <fail message="gimle-midgard's SBOM still names gimle-dist: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
+                  <condition>
+                    <resourcecontains resource="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json" substring="gimle-dist"/>
+                  </condition>
+                </fail>
                 <copy file="${project.basedir}/../gimle-cli/target/bom.json"
                       tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
                 <copy file="${project.basedir}/../gimle-hilmir/target/bom.json"
