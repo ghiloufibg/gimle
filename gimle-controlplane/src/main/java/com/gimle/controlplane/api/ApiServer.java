@@ -2558,8 +2558,16 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing alert rule name");
       return;
     }
+    // An omitted tenantId resolves to the default tenant, never Optional.empty(): a rule is only
+    // ever evaluated against the assignments of the deployment it names, and a manifest's own
+    // omitted tenantId already resolves to that same default tenant, so an untenanted rule would
+    // be keyed under a namespace no deployment can ever land in -- it would match no instance,
+    // average zero forever, and so never cross its threshold nor ever report a verdict at all.
     Optional<String> tenantId =
-        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+        Optional.of(
+            body.get("tenantId") instanceof String s && !s.isBlank()
+                ? s
+                : Tenant.DEFAULT_TENANT_ID);
     String deploymentName = (String) body.get("deploymentName");
     AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf((String) body.get("metric"));
     AlertRuleSpec.Comparator comparator =
@@ -2612,9 +2620,11 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing alert rule name");
         return;
       }
-      // Caller-declared ?tenant= hint, same convention #handleService's own GET/DELETE uses: a
-      // per-tenant AlertRule name can't resolve its own tenant from the bare name alone.
-      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Caller-declared ?tenant= hint: a per-tenant AlertRule name can't resolve its own tenant
+      // from the bare name alone. Defaulted the workload way rather than to Optional.empty(),
+      // because that is the key POST writes an omitted tenantId under -- reading it back with a
+      // bare empty Optional would address a rule this API can no longer create.
+      Optional<String> tenant = workloadTenantHint(exchange);
       if (slash >= 0) {
         String subResource = tail.substring(slash + 1);
         if (!"firing".equals(subResource)) {

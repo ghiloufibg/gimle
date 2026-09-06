@@ -169,9 +169,17 @@ averaging each enabled rule's configured signal across its deployment's current
 tick a condition merely continues to hold. `WebhookAlertNotifier` POSTs a small JSON body
 (`{rule, deploymentName, metric, comparator, threshold, observedValue, state}`) and is best-effort:
 an unreachable webhook is logged and dropped, never allowed to fail the reconcile tick. Which rule
-is currently firing is tracked purely in-process, not durable state — a control-plane restart
-forgets it and may re-notify once on the first tick after, the same tradeoff `MuninnShipper`'s own
-in-memory shipping cursor already accepts.
+is currently firing is durable state, replicated through `gimle-mimir` and read back through `GET
+/alertrules/{name}/firing` — `known: false` there means the rule has never crossed or resolved
+since it was created, a different answer from `known: true, firing: false`.
+
+A rule is matched to its deployment by `(tenantId, deploymentName)`, so a rule submitted without a
+`tenantId` is stored under the **default tenant**, exactly as a workload manifest that omits one
+is: a rule left genuinely untenanted would watch a namespace no deployment can be created in, find
+no instance, average zero, and so sit at `known: false` forever while its condition was in fact
+continuously true. For the same reason, a rule whose deployment currently reports no instance
+metrics at all — misspelled, deleted, or not yet placed — is logged once by the reconciler rather
+than silently evaluated against a zero.
 
 `gimle-controlplane` exposes `POST`/`GET`/`DELETE /alertrules*`, RBAC-gated via
 `ResourceKind.ALERT_RULE` (a tenant able to deploy a workload can also alert on it, without a

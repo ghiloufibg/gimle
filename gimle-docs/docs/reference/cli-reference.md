@@ -467,7 +467,9 @@ on one Deployment's own observed signal (`--metric`, one of `REQUEST_RATE_PER_SE
 webhook notification once when crossed and again once resolved. `set alertrule` POSTs to the
 `/alertrules` collection the same way `set service` does, since a rule names itself in its own
 request body; `--disabled` creates the rule silenced (never evaluated) rather than enabled by
-default.
+default. `--tenant` is optional and omitting it means the **default tenant**, not "no tenant" —
+matching where a workload manifest without a `tenantId` lands, so a rule created without the flag
+watches the deployment an equally flag-less `apply` created.
 
 `limitrange` manages a tenant's [LimitRange](../architecture/multi-tenancy.md#limitrange) — a
 per-workload min/max bound on a single Deployment's own `resources.request`/`resources.limit`,
