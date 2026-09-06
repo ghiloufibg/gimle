@@ -309,7 +309,7 @@ wherever it's invoked, not self-filtered" shape as `gimle:doctor` and `gimle:pub
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.init.jar` | `${project.build.directory}/${project.build.finalName}.jar` | The jar to inspect. |
-| `gimle.init.outDir` | `${project.basedir}` | Where to write the generated file(s). Never overwrites a file that already exists there. |
+| `gimle.init.outDir` | `${project.basedir}` | Where to write the generated file(s) — this project's own directory, beside its `pom.xml`, never inside `target/` where the next `mvn clean` would delete them. Never overwrites a file that already exists there. |
 | `gimle.init.hilmirVersion` | `${plugin.version}` | Same meaning as `gimle:doctor`'s own property. |
 
 ```bash

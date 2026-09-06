@@ -1,5 +1,6 @@
 package com.gimle.mavenplugin;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.maven.plugin.AbstractMojo;
@@ -27,8 +28,16 @@ public final class InitMojo extends AbstractMojo {
       defaultValue = "${project.build.directory}/${project.build.finalName}.jar")
   private String jar;
 
+  /**
+   * Where the generated files land, this project's own directory by default. Declared as a {@link
+   * File}, not a {@code String}: Maven evaluates a default value that is exactly one expression to
+   * that expression's own type, and {@code ${project.basedir}} is a {@code File} -- a {@code
+   * String} field is simply left null, which passes no output directory on at all and lets the
+   * generated files fall back to landing beside the inspected jar, inside {@code target/}, where
+   * the next {@code mvn clean} deletes them.
+   */
   @Parameter(property = "gimle.init.outDir", defaultValue = "${project.basedir}")
-  private String outDir;
+  private File outDir;
 
   @Parameter(property = "gimle.init.hilmirVersion", defaultValue = "${plugin.version}")
   private String hilmirVersion;
@@ -54,7 +63,11 @@ public final class InitMojo extends AbstractMojo {
             repositorySystemSession,
             repositorySystem);
     List<String> command =
-        buildCommand(GimleProcesses.javaExecutable(), hilmirClasspath, jar, outDir);
+        buildCommand(
+            GimleProcesses.javaExecutable(),
+            hilmirClasspath,
+            jar,
+            outDir == null ? null : outDir.getAbsolutePath());
     GimleProcesses.runAndWait(command, getLog());
   }
 
