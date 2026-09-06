@@ -32,9 +32,10 @@ public final class FabricCodec {
   /**
    * The only wire-protocol version any writer produces today; bump this when the shape changes.
    * Bumped 1 -> 2 by the {@code tracestate}/{@code baggage} additions to {@link TraceContext}.
-   * Bumped 2 -> 3 by {@link FabricFrame.InvokeRequest#callerTenantId()}.
+   * Bumped 2 -> 3 by {@link FabricFrame.InvokeRequest#callerTenantId()}. Bumped 3 -> 4 by {@link
+   * FabricFrame.InvokeError}'s own {@code remoteTypeName}/{@code remoteMessage}.
    */
-  private static final int CURRENT_VERSION = 3;
+  private static final int CURRENT_VERSION = 4;
 
   private static final byte TAG_INVOKE_REQUEST = 0;
   private static final byte TAG_INVOKE_RESPONSE = 1;
@@ -109,6 +110,8 @@ public final class FabricCodec {
         case FabricFrame.InvokeError r -> {
           out.writeByte(TAG_INVOKE_ERROR);
           out.writeLong(r.correlationId());
+          out.writeUTF(r.remoteTypeName());
+          writeOptionalUtf(out, r.remoteMessage());
           writeBytes(out, r.serializedThrowable());
           out.writeInt(r.reportedQueueDepth());
         }
@@ -152,8 +155,13 @@ public final class FabricCodec {
         }
         case TAG_INVOKE_RESPONSE ->
             new FabricFrame.InvokeResponse(in.readLong(), readBytes(in), in.readInt());
-        case TAG_INVOKE_ERROR ->
-            new FabricFrame.InvokeError(in.readLong(), readBytes(in), in.readInt());
+        case TAG_INVOKE_ERROR -> {
+          long correlationId = in.readLong();
+          String remoteTypeName = in.readUTF();
+          Optional<String> remoteMessage = readOptionalUtf(in);
+          yield new FabricFrame.InvokeError(
+              correlationId, remoteTypeName, remoteMessage, readBytes(in), in.readInt());
+        }
         default -> throw new IllegalArgumentException("unknown fabric frame tag: " + tag);
       };
     } catch (IOException e) {
