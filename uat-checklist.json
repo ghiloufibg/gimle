@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 960,
+    "totalRequirements": 965,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 830,
+    "notCoveredByAutomatedTest": 835,
     "releaseReadinessPercent": 13.5
   },
   "items": [
@@ -6601,7 +6601,7 @@
       "module": "gimle-mimir",
       "category": "Workload Lifecycle",
       "feature": "ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback",
-      "step": "Given module \"greeter-provider\" version \"1.0.0\" deployed with 2 replicas as \"rollback-greeter\", And it is rolled to a rebuilt provider version \"1.1.0\", When \"rollback-greeter\" is rolled back to the previous revision, Then within 180s all 2 instances of \"rollback-greeter\" are ACTIVE on version \"1.0.0\".",
+      "step": "Given module \"greeter-provider\" version \"1.0.0\" deployed with 2 replicas as \"rollback-greeter\", And it is rolled to a rebuilt provider version \"1.1.0\", When \"rollback-greeter\" is rolled back to the previous revision, Then within 180s all 2 instances of \"rollback-greeter\" are ACTIVE on version \"1.0.0\". Given a rollback whose generation guard is rejected, When the write is refused, Then no ControllerRevision is left behind for the rollback that never took effect -- the revision and the spec write commit as one batch.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -7393,7 +7393,7 @@
       "module": "gimle-controlplane",
       "category": "Config / ConfigMap",
       "feature": "Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps",
-      "step": "Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path.",
+      "step": "Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path. Given a config or configmap rollback, When it is applied, Then the live row and its ledger version stamp commit as a single batch, never as two separately-visible writes.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -10562,6 +10562,61 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "A Blueprint whose topology declares more than one machine can actually be Run, booted concurrently across all of them",
       "step": "Given a Blueprint whose topology declares two or more machines, When Run is clicked, Then every machine's own declared processes are booted concurrently rather than the run being refused outright. Given a multi-machine topology with a port conflict on a machine other than the first, When Run is clicked, Then the run fails before spawning anything and names the exact machine and port in conflict. Given a multi-machine boot in progress, When Stop is clicked, Then every in-flight per-machine boot is cancelled rather than only the first machine's. Given a newly added machine node on the canvas, When it is not the first machine, Then it defaults to its own distinct 127.0.0.0/8 loopback host rather than colliding with an existing machine's host. Given a running multi-machine deployment, When the Runner page is open, Then its Machines section shows each machine with the roles actually placed on it. Given the control plane is placed on a machine other than the first, When the README is generated, Then its connect address names that machine's own host, not the first machine's.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-962",
+      "module": "gimle-mimir",
+      "category": "State Store",
+      "feature": "Request-outcome receipts are replicated store state, recorded once per request id and expired by an explicit cutoff",
+      "step": "Given a completed write's outcome recorded under a request id, When the store is snapshotted and restored, Then that receipt is still readable by its id. Given a receipt older than the sweep's cutoff and one newer than it, When SweepRequestOutcomes is applied, Then only the older one is removed and one stamped exactly at the cutoff is kept. Given a request id whose outcome is already recorded, When a second outcome is recorded for that same id, Then the first one stands and the read-back answer never changes. Given two replicas applying the same PutRequestOutcome and SweepRequestOutcomes entries, When each applies them, Then both expire exactly the same set of receipts, because the stamp and the cutoff travel in the entries rather than being read from either replica's own clock.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-963",
+      "module": "gimle-controlplane",
+      "category": "Control plane / API server",
+      "feature": "A repeated mutating request carrying the same `X-Gimle-Request-Id` is answered from the first attempt's recorded outcome instead of running again",
+      "step": "Given a deployment rollback already answered 200 under a request id, When the identical request is sent again with that same id, Then it is answered with the original status and body plus X-Gimle-Replayed: true, and no second revision is minted. Given a generation-guarded apply already committed under a request id, And a newer apply has landed since, When the first request is re-sent under its own id, Then it is answered with its original 200 and the newer content is left in place rather than being overwritten. Given a mutating request carrying no X-Gimle-Request-Id, When it is sent twice, Then both executions take effect exactly as they did before this mechanism existed. Given a request id outside 8-128 characters of [A-Za-z0-9._-], When it is sent on a keyed route, Then the request is refused with 400 naming the header and the write never runs. Given a keyed write that commits, When the cluster is inspected, Then the write's effect and its receipt are present together -- they are proposed in one batch -- except on POST /bootstrap/csr/{id}/approve, whose effect is not a replicated write and whose receipt is therefore proposed separately afterwards.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-964",
+      "module": "gimle-controlplane",
+      "category": "Authorization / API Server",
+      "feature": "A recorded request outcome is replayed only to the principal that recorded it, and a mismatch reads as a miss rather than a refusal",
+      "step": "Given caller A recorded a receipt under a request id on an authenticated listener, When caller B sends a request presenting that same id, Then B's request executes as its own and its response carries no replay marker or any other sign that the id was already in use. Given caller B's request has executed under an id A recorded, When A retries under that id, Then A is still answered with A's own original outcome. Given a plaintext listener carrying no caller identity, When two different clients present the same request id, Then both resolve to the same anonymous principal and the second one does replay the first's outcome -- the separation exists only where callers have distinct identities.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-965",
+      "module": "gimle-controlplane",
+      "category": "Reconciliation / Orchestration",
+      "feature": "Request-outcome receipts are swept off the reconcile tick after a fifteen-minute retention window",
+      "step": "Given receipts older than the retention window and receipts newer than it, When the reconcile tick runs, Then only the older ones are removed. Given no receipt is older than the retention window, When the reconcile tick runs, Then no mutation is proposed at all. Given a receipt table untouched for far longer than the window, When a single tick runs, Then every expired receipt is removed in that one pass. Given a keyed write whose receipt has aged out, When the caller retries under that same id, Then the write executes again, exactly as an unkeyed request would.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-966",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure",
+      "step": "Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none. Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried. Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

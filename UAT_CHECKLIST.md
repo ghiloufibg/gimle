@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 960
+- **Total requirements**: 965
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 830
+- **Not covered by automated test**: 835
 - **Release-readiness (automated coverage)**: 13.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -19,15 +19,15 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 14 | 6 | 8 | 42.9% |
 | gimle-worker | 26 | 2 | 24 | 7.7% |
 | gimle-agent | 70 | 6 | 64 | 8.6% |
-| gimle-mimir | 75 | 36 | 39 | 48.0% |
+| gimle-mimir | 76 | 36 | 40 | 47.4% |
 | gimle-fabric | 44 | 1 | 43 | 2.3% |
-| gimle-controlplane | 144 | 17 | 127 | 11.8% |
+| gimle-controlplane | 147 | 17 | 130 | 11.6% |
 | gimle-fafnir | 35 | 11 | 24 | 31.4% |
 | gimle-andvari | 26 | 2 | 24 | 7.7% |
 | gimle-muninn | 25 | 0 | 25 | 0.0% |
 | gimle-observability | 21 | 1 | 20 | 4.8% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
-| gimle-cli | 49 | 0 | 49 | 0.0% |
+| gimle-cli | 50 | 0 | 50 | 0.0% |
 | gimle-hilmir | 40 | 0 | 40 | 0.0% |
 | gimle-maven-plugin | 20 | 0 | 20 | 0.0% |
 | gimle-console | 62 | 0 | 62 | 0.0% |
@@ -940,6 +940,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. Given a deployment is proposed while its name is free, and the name is then created and deleted before that proposal applies, When the proposal finally reaches the state machine, Then its generation precondition fails and the deployment stays deleted. | No |
 | [ ] | GIMLE-726 | Instance event history is cleared when a workload is removed, so a reused name starts clean | Given a Deployment with recorded instance events When it is deleted and an unrelated Deployment is created with the same name Then the new Deployment's event timeline is empty And the cleared timeline does not reappear after a snapshot restore or log replay | No |
 | [ ] | GIMLE-860 | A store endpoint hostname that does not resolve at startup is retried rather than baked in unresolved | Given a process started with a store endpoint whose hostname does not resolve yet When startup reaches store-client construction Then it retries resolution with backoff instead of holding an unresolved address And a malformed endpoint spec still fails immediately | No |
+| [ ] | GIMLE-962 | Request-outcome receipts are replicated store state, recorded once per request id and expired by an explicit cutoff | Given a completed write's outcome recorded under a request id, When the store is snapshotted and restored, Then that receipt is still readable by its id. Given a receipt older than the sweep's cutoff and one newer than it, When SweepRequestOutcomes is applied, Then only the older one is removed and one stamped exactly at the cutoff is kept. Given a request id whose outcome is already recorded, When a second outcome is recorded for that same id, Then the first one stands and the read-back answer never changes. Given two replicas applying the same PutRequestOutcome and SweepRequestOutcomes entries, When each applies them, Then both expire exactly the same set of receipts, because the stamp and the cutoff travel in the entries rather than being read from either replica's own clock. | No |
 
 #### Upgrade path
 
@@ -957,7 +958,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Given module "greeter-provider" version "1.0.0" deployed with 2 replicas as "rollback-greeter", And it is rolled to a rebuilt provider version "1.1.0", When "rollback-greeter" is rolled back to the previous revision, Then within 180s all 2 instances of "rollback-greeter" are ACTIVE on version "1.0.0". | No |
+| [ ] | GIMLE-601 | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Given module "greeter-provider" version "1.0.0" deployed with 2 replicas as "rollback-greeter", And it is rolled to a rebuilt provider version "1.1.0", When "rollback-greeter" is rolled back to the previous revision, Then within 180s all 2 instances of "rollback-greeter" are ACTIVE on version "1.0.0". Given a rollback whose generation guard is rejected, When the write is refused, Then no ControllerRevision is left behind for the rollback that never took effect -- the revision and the spec write commit as one batch. | No |
 
 ### gimle-fabric
 
@@ -1154,6 +1155,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-256 | Console session login/logout/session cookie flow | Given a valid bootstrap Account; When POST /auth/login with correct credentials; Then a signed, HttpOnly, SameSite=Strict session cookie is set. | No |
 | [ ] | GIMLE-861 | An artifact push or delete through the control plane names the artifact it affected in the audit trail | Given two operators pushing artifacts concurrently through the control plane When one of them deletes a version Then the audit row for that delete names the `moduleId:version` it removed | No |
+| [ ] | GIMLE-964 | A recorded request outcome is replayed only to the principal that recorded it, and a mismatch reads as a miss rather than a refusal | Given caller A recorded a receipt under a request id on an authenticated listener, When caller B sends a request presenting that same id, Then B's request executes as its own and its response carries no replay marker or any other sign that the id was already in use. Given caller B's request has executed under an id A recorded, When A retries under that id, Then A is still answered with A's own original outcome. Given a plaintext listener carrying no caller identity, When two different clients present the same request id, Then both resolve to the same anonymous principal and the second one does replay the first's outcome -- the separation exists only where callers have distinct identities. | No |
 
 #### Authorization / Internal-Infra
 
@@ -1178,7 +1180,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-673 | Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps | Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path. | No |
+| [ ] | GIMLE-673 | Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps | Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path. Given a config or configmap rollback, When it is applied, Then the live row and its ledger version stamp commit as a single batch, never as two separately-visible writes. | No |
 
 #### Configuration Management
 
@@ -1196,6 +1198,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-868 | A placed instance that never started is reported as not running, in the API and in the CLI's health column | Given every replica of a deployment placed on a node that refused to start them When the deployment is read through the API or `gimle get deployments` Then it reports a not-running count and reason rather than reading healthy And a replica merely placed a moment ago is not counted | No |
 | [ ] | GIMLE-875 | An unknown Ingress route kind is rejected naming the kinds a manifest may declare | Given an Ingress manifest declaring a route kind that does not exist When it is applied Then the rejection names the route kinds a manifest may declare and no internal class name | No |
 | [ ] | GIMLE-893 | `GET /nodes/{nodeId}` serves a single node read | Given a registered node When `GET /nodes/{nodeId}` is requested Then that node's capabilities, labels, taints, cordon state, status and capacity are returned And an unregistered id answers 404 | No |
+| [ ] | GIMLE-963 | A repeated mutating request carrying the same `X-Gimle-Request-Id` is answered from the first attempt's recorded outcome instead of running again | Given a deployment rollback already answered 200 under a request id, When the identical request is sent again with that same id, Then it is answered with the original status and body plus X-Gimle-Replayed: true, and no second revision is minted. Given a generation-guarded apply already committed under a request id, And a newer apply has landed since, When the first request is re-sent under its own id, Then it is answered with its original 200 and the newer content is left in place rather than being overwritten. Given a mutating request carrying no X-Gimle-Request-Id, When it is sent twice, Then both executions take effect exactly as they did before this mechanism existed. Given a request id outside 8-128 characters of [A-Za-z0-9._-], When it is sent on a keyed route, Then the request is refused with 400 naming the header and the write never runs. Given a keyed write that commits, When the cluster is inspected, Then the write's effect and its receipt are present together -- they are proposed in one batch -- except on POST /bootstrap/csr/{id}/approve, whose effect is not a replicated write and whose receipt is therefore proposed separately afterwards. | No |
 
 #### Custom Kinds (Galdr)
 
@@ -1389,6 +1392,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-238 | CronJob concurrency policy (Allow/Forbid/Replace) | Given the previous firing is still non-terminal and concurrencyPolicy=FORBID; When a new firing is due; Then it is skipped and logged. | No |
 | [ ] | GIMLE-789 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent. Given a node backing a DaemonSet is cordoned; When DaemonSetReconciler ticks; Then desired drops by one on that same tick, and rises again once the node is uncordoned and re-eligible. Given a DaemonSet spec with no reconciler tick yet against it; When its status is read; Then desired and unplacedCount are both absent rather than a misleading zero. | No |
 | [ ] | GIMLE-886 | A deployment blocked by its artifact says whether it was rejected or unreadable, and why | Given a deployment whose jar exists but whose bundled manifest the platform refuses When the reconciler tries to place it Then the recorded reason says the artifact was rejected and why, not that it was unreadable | No |
+| [ ] | GIMLE-965 | Request-outcome receipts are swept off the reconcile tick after a fifteen-minute retention window | Given receipts older than the retention window and receipts newer than it, When the reconcile tick runs, Then only the older ones are removed. Given no receipt is older than the retention window, When the reconcile tick runs, Then no mutation is proposed at all. Given a receipt table untouched for far longer than the window, When a single tick runs, Then every expired receipt is removed in that one pass. Given a keyed write whose receipt has aged out, When the caller retries under that same id, Then the write executes again, exactly as an unkeyed request would. | No |
 
 #### Reconciliation / Scheduling
 
@@ -1929,6 +1933,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-873 | `gimle get ingresses` lists the collection, and a leading `--tenant` filters rather than being read as a name | Given several Ingresses across two tenants When `gimle get ingresses` runs with no name, and again with `--tenant` Then the first lists every Ingress and the second lists only that tenant's And `get ingress <name>` still reports the single object | No |
 | [ ] | GIMLE-874 | Every ingress apply is guarded by a compare-and-set version | Given an Ingress at version 3 and a manifest exported at version 2 When that manifest is re-applied Then the apply is refused as a stale edit rather than replacing the newer revision And an apply declaring no version guards on whatever is stored at that instant | No |
 | [ ] | GIMLE-894 | `gimle apply -f`'s help names every kind it accepts | Given `gimle apply -h` and `gimle -h` When either is printed Then every kind the apply dispatcher accepts is named, plus custom kinds And each named kind really is accepted by an apply | No |
+| [ ] | GIMLE-966 | Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure | Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none. Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried. Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached. | No |
 
 #### CLI / Build Tooling
 
