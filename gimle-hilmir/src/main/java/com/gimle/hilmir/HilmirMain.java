@@ -29,14 +29,11 @@ import com.gimle.hilmir.sync.SyncCommand;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.upgrade.UpgradeClusterCommand;
+import com.gimle.hilmir.validate.CheckedTopology;
 import com.gimle.hilmir.validate.Finding;
 import com.gimle.hilmir.validate.Severity;
-import com.gimle.hilmir.validate.TopologyValidator;
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -206,19 +203,18 @@ public final class HilmirMain {
   }
 
   private static int runValidate(final List<String> args, final PrintStream out) {
-    final Topology topology = parseFile(requireFileFlag(args));
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    printFindings(findings, out);
-    return hasError(findings) ? 1 : 0;
+    final CheckedTopology checked = CheckedTopology.check(requireFileFlag(args));
+    printFindings(checked.findings(), out);
+    return checked.hasError() ? 1 : 0;
   }
 
   private static int runPlan(final List<String> args, final PrintStream out) {
-    final Topology topology = parseFile(requireFileFlag(args));
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    if (hasError(findings)) {
-      printFindings(findings, out);
+    final CheckedTopology checked = CheckedTopology.check(requireFileFlag(args));
+    if (checked.hasError()) {
+      printFindings(checked.findings(), out);
       return 1;
     }
+    final Topology topology = checked.require();
     final ResolvedRuntime runtime = resolveRuntime(topology);
     final ClusterPlan plan = LaunchPlanner.plan(topology, runtime);
     final Optional<String> machineFilter = machineFlag(args);
@@ -231,12 +227,12 @@ public final class HilmirMain {
 
   private static int runUp(final List<String> args, final PrintStream out) {
     final Path topologyFile = requireFileFlag(args);
-    final Topology topology = parseFile(topologyFile);
-    final List<Finding> findings = TopologyValidator.validate(topology);
-    if (hasError(findings)) {
-      printFindings(findings, out);
+    final CheckedTopology checked = CheckedTopology.check(topologyFile);
+    if (checked.hasError()) {
+      printFindings(checked.findings(), out);
       return 1;
     }
+    final Topology topology = checked.require();
     final ResolvedRuntime runtime = resolveRuntime(topology);
     if (remoteFlag(args)) {
       return RemoteDispatch.up(
@@ -256,7 +252,7 @@ public final class HilmirMain {
 
   private static int runDown(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
       return RemoteDispatch.down(
           topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
     }
@@ -267,7 +263,7 @@ public final class HilmirMain {
 
   private static int runStatus(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = parseFile(requireFileFlagForRemote(args));
+      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
       return RemoteDispatch.status(
           topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
     }
@@ -281,7 +277,7 @@ public final class HilmirMain {
       throw new HilmirException("usage: hilmir pki init -f <topology.yaml>");
     }
     final List<String> initArgs = args.subList(1, args.size());
-    final Topology topology = parseFile(requireFileFlag(initArgs));
+    final Topology topology = TopologyParser.parseFile(requireFileFlag(initArgs));
     final ResolvedRuntime runtime = resolveRuntime(topology);
     PkiInit.run(topology, runtime, out);
     return 0;
@@ -303,7 +299,7 @@ public final class HilmirMain {
   private static int runUpgradeCluster(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
       final Path topologyFile = requireFileFlagForRemote(args);
-      final Topology topology = parseFile(topologyFile);
+      final Topology topology = TopologyParser.parseFile(topologyFile);
       return RemoteDispatch.upgradeCluster(
           topology,
           topologyFile,
@@ -410,10 +406,6 @@ public final class HilmirMain {
         topology.runtime(), "java", System.getProperty("java.class.path"), Path.of("gimle-data"));
   }
 
-  private static boolean hasError(final List<Finding> findings) {
-    return findings.stream().anyMatch(f -> f.severity() == Severity.ERROR);
-  }
-
   /**
    * Errors first, then warnings; stable within each group, so encounter order (rule-catalog order,
    * see {@code TopologyValidator}) survives the split.
@@ -437,14 +429,6 @@ public final class HilmirMain {
           out.println("    " + arg);
         }
       }
-    }
-  }
-
-  private static Topology parseFile(final Path file) {
-    try (InputStream in = Files.newInputStream(file)) {
-      return TopologyParser.parse(in);
-    } catch (final IOException e) {
-      throw new HilmirException("failed reading topology file " + file + ": " + e.getMessage(), e);
     }
   }
 

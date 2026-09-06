@@ -1,7 +1,11 @@
 package com.gimle.hilmir.topology;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.hilmir.HilmirException;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -54,6 +58,23 @@ public final class TopologyParser {
           "jvm");
 
   private TopologyParser() {}
+
+  /**
+   * Reads and parses the topology document at {@code file}. Every verb that takes a topology path
+   * loads it through here, so an absent or unreadable file reads identically whichever verb hit it.
+   * A missing file gets its own message rather than the generic one: {@link NoSuchFileException}'s
+   * own message is the bare path, which appended to a message already naming the path would print
+   * it twice and say nothing about what actually went wrong.
+   */
+  public static Topology parseFile(final Path file) {
+    try (InputStream in = Files.newInputStream(file)) {
+      return parse(in);
+    } catch (final NoSuchFileException e) {
+      throw new HilmirException("topology file not found: " + file, e);
+    } catch (final IOException e) {
+      throw new HilmirException("failed reading topology file " + file + ": " + e.getMessage(), e);
+    }
+  }
 
   public static Topology parse(final InputStream yamlContent) {
     final Object raw;

@@ -61,7 +61,13 @@ bootstrap](#remote-ssh-fleet-bootstrap) below.
 
 `validate` checks a topology document for structural and semantic problems (missing machines, port
 conflicts, an even-numbered store replica count, TLS material referenced but never declared) without
-starting anything. `plan` resolves a validated topology into the exact per-machine process commands
+starting anything. Every way a document can be rejected — the file is missing, its YAML is
+malformed, a field is the wrong shape, or a semantic rule fired — prints on stdout as the same
+`[SEVERITY] CODE: message` line, so one output format covers the lot; a document that could not be
+read at all reports `UNREADABLE_TOPOLOGY`, and one that could not be parsed into a topology reports
+`MALFORMED_TOPOLOGY`. `plan`, `up`, and `upgrade-cluster` report a rejected document the same way
+before doing anything. Only a mistake in the *invocation* — a missing flag, an unknown machine name
+— goes to stderr as `error: …` instead. `plan` resolves a validated topology into the exact per-machine process commands
 each of Gimlé's process kinds expects — useful for inspecting what `up` would run before it runs it.
 `plan --machine <name>` narrows that preview to one machine and rejects a machine name the topology
 never declares exactly as `up --machine <name>` does, naming the machines the plan does cover — a
