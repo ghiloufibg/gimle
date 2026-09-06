@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 931,
+    "totalRequirements": 932,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 801,
-    "releaseReadinessPercent": 14.0
+    "notCoveredByAutomatedTest": 802,
+    "releaseReadinessPercent": 13.9
   },
   "items": [
     {
@@ -10243,6 +10243,17 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "The console tracks and stops each deployment on a shared cluster independently",
       "step": "Given two blueprints deployed on the same cluster, When I open one blueprint's Runner page, Then it shows only that blueprint's own status, endpoints and log, and Stop only tears down that one.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-933",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange",
+      "step": "Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

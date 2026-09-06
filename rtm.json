@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 932,
+  "requirementCount": 933,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16089,6 +16089,21 @@
         "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`subscribe`, `stopRun`)",
         "`gimle-ivaldi-console/src/stores/useRunStore.ts` (`blueprintId`, `listen`, `start`, `attach`, `stop`)",
         "`gimle-ivaldi-console/src/routes/clusters.tsx` (`runsFor`)"
+      ]
+    },
+    {
+      "id": "GIMLE-933",
+      "module": "gimle-ivaldi",
+      "feature": "Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "A jar-sourced Deployment's real resources.request/resources.limit come from its own gimle-module.yaml inside the jar, never from the rendered manifest (see DeploymentSpec's own javadoc) -- the console's Inspector already says as much in its own copy ('these values never reach the generated files'), ",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by the module's own unit tests listed under otherTestCoverage, plus a manual live verification against a real running server.",
+      "otherTestCoverage": "`FileSetValidatorTest.java` (`flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range`, `accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range`, `flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against`, `does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range` -- against a real, hand-built JPMS-shaped jar with a real gimle-module.yaml, not a mock). Also manually verified live end to end via a real running IvaldiServer's POST /api/validate against gimle-examples/hello-module's real built jar (declares request memory 16Mi): a 32Mi-minimum LimitRange correctly produces LIMITRANGE_VIOLATION naming both real numbers, and an 8Mi-minimum LimitRange correctly produces none.",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireJarResourcesWithinLimitRange`, `limitRangesByTenant`)"
       ]
     }
   ]

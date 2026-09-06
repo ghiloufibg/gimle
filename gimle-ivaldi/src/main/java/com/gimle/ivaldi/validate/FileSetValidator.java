@@ -1,5 +1,6 @@
 package com.gimle.ivaldi.validate;
 
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.hilmir.release.Bundle;
@@ -14,10 +15,14 @@ import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
+import com.gimle.module.artifact.ModuleArtifactReader;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -40,9 +45,19 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *
  * <p>{@code ivaldi.artifacts.yaml} is read too, though not as a platform document: it is Ivaldi's
  * own record of which local jar backs each manifest's module coordinate, and a topology with no
- * Andvari replica to push those jars to cannot host them. Every other file in a rendered set
- * ({@code values.example.yaml}, {@code README.md}, {@code ivaldi.blueprint.json}) has nothing here
- * to check against and is silently skipped.
+ * Andvari replica to push those jars to cannot host them. The same record is also what makes {@link
+ * #requireJarResourcesWithinLimitRange} possible: a jar-sourced workload's real {@code
+ * resources.request}/{@code resources.limit} come from its own {@code gimle-module.yaml} inside the
+ * jar, never from the manifest this validator otherwise reads (see {@code DeploymentSpec}'s own
+ * javadoc) -- so without opening the jar here, a design can validate clean against a tenant's
+ * LimitRange while the module it actually pushes violates that same range, discovered only once a
+ * whole cluster has booted and the control plane's own admission plugin runs the identical check
+ * this method runs early, against the same {@link LimitRangeSpec#violation}. A registry-sourced
+ * workload (a bare module coordinate, no local jar) has no equivalent check here: its real
+ * descriptor lives in Andvari, unreachable from bytes alone, and this validator deliberately never
+ * makes a live call to check it. Every other file in a rendered set ({@code values.example.yaml},
+ * {@code README.md}, {@code ivaldi.blueprint.json}) has nothing here to check against and is
+ * silently skipped.
  */
 public final class FileSetValidator {
 
@@ -72,7 +87,7 @@ public final class FileSetValidator {
   }
 
   /**
-   * The two checks no single file can make about itself, both of which otherwise only surface as a
+   * The checks no single file can make about itself, all of which otherwise only surface as a
    * runtime failure at the far end of a run that has already booted an entire platform first.
    */
   private static void validateAcrossFiles(
@@ -80,7 +95,15 @@ public final class FileSetValidator {
       Optional<Bundle> bundle,
       List<RenderedFile> files,
       List<Finding> findings) {
-    requireRegistryForJarArtifacts(topology, files, findings);
+    List<JarArtifact> jars;
+    try {
+      jars = JarArtifact.readFrom(files);
+    } catch (IllegalArgumentException malformed) {
+      findings.add(Finding.error("ARTIFACTS_INVALID", malformed.getMessage(), SIDECAR_PATH));
+      jars = List.of();
+    }
+    requireRegistryForJarArtifacts(topology, jars, findings);
+    requireJarResourcesWithinLimitRange(jars, files, findings);
     bundle.ifPresent(parsed -> requireSingleTenantUnderPlaintext(topology, parsed, findings));
   }
 
@@ -92,14 +115,7 @@ public final class FileSetValidator {
    * case (a registry-sourced workload with no registry to resolve it from).
    */
   private static void requireRegistryForJarArtifacts(
-      Topology topology, List<RenderedFile> files, List<Finding> findings) {
-    List<JarArtifact> jars;
-    try {
-      jars = JarArtifact.readFrom(files);
-    } catch (IllegalArgumentException malformed) {
-      findings.add(Finding.error("ARTIFACTS_INVALID", malformed.getMessage(), SIDECAR_PATH));
-      return;
-    }
+      Topology topology, List<JarArtifact> jars, List<Finding> findings) {
     if (topology.andvari().replicas().isEmpty()) {
       for (JarArtifact jar : jars) {
         findings.add(
@@ -111,6 +127,126 @@ public final class FileSetValidator {
                 jar.manifestPath()));
       }
     }
+  }
+
+  /**
+   * Cross-checks each jar-sourced workload's own {@code gimle-module.yaml} resource declaration
+   * against its tenant's LimitRange -- see this class's own javadoc for why the manifest itself
+   * cannot answer this. Reuses {@link LimitRangeSpec#violation}, the exact check the control
+   * plane's own admission plugin runs, so a design flagged clean here is checked the same way a
+   * live cluster would check it, not by a re-derived approximation of that rule. A jar that cannot
+   * be read at all is reported here too (mirroring {@code RunController}'s own push-time check,
+   * just early) rather than left for the run to discover after the platform is already up.
+   */
+  private static void requireJarResourcesWithinLimitRange(
+      List<JarArtifact> jars, List<RenderedFile> files, List<Finding> findings) {
+    if (jars.isEmpty()) {
+      return;
+    }
+    Map<String, LimitRangeSpec> limitRangesByTenant = limitRangesByTenant(files);
+    if (limitRangesByTenant.isEmpty()) {
+      return;
+    }
+    for (JarArtifact jar : jars) {
+      RenderedFile manifest =
+          files.stream().filter(f -> f.path().equals(jar.manifestPath())).findFirst().orElse(null);
+      if (manifest == null) {
+        continue; // an unresolved manifest path is JarArtifact's own concern, not this one's
+      }
+      WorkloadSpec spec;
+      try {
+        spec = ManifestParser.parse(streamOf(manifest)).spec();
+      } catch (RuntimeException e) {
+        continue; // already reported by validateWorkload against this same manifest
+      }
+      Optional<String> tenantId = spec.tenantId();
+      if (tenantId.isEmpty()) {
+        continue;
+      }
+      LimitRangeSpec limitRange = limitRangesByTenant.get(tenantId.get());
+      if (limitRange == null) {
+        continue;
+      }
+      if (!Files.isRegularFile(jar.jar())) {
+        findings.add(
+            Finding.error(
+                "JAR_ARTIFACT_UNREADABLE",
+                "no jar at " + jar.jar() + " -- check the artifact path",
+                jar.manifestPath()));
+        continue;
+      }
+      ModuleArtifact artifact;
+      try {
+        artifact = ModuleArtifactReader.read(jar.jar());
+      } catch (RuntimeException notAModule) {
+        findings.add(
+            Finding.error(
+                "JAR_ARTIFACT_UNREADABLE",
+                "not a pushable module artifact at " + jar.jar() + ": " + notAModule.getMessage(),
+                jar.manifestPath()));
+        continue;
+      }
+      limitRange
+          .violation(artifact.descriptor().resourceRequest(), artifact.descriptor().resourceLimit())
+          .ifPresent(
+              violation ->
+                  findings.add(
+                      Finding.error(
+                          "LIMITRANGE_VIOLATION",
+                          "workload "
+                              + spec.name()
+                              + " violates tenant "
+                              + tenantId.get()
+                              + "'s limit range: "
+                              + violation
+                              + " -- this is the module's own real resource declaration"
+                              + " (gimle-module.yaml inside the jar), not whatever value the"
+                              + " Inspector's own Resources fields happen to show",
+                          jar.manifestPath())));
+    }
+  }
+
+  /**
+   * Every tenant-bounding LimitRange this file set declares, keyed by tenant id -- a tenant whose
+   * range declares no bounds at all is omitted, since an unconstrained range can never be violated
+   * and this map exists only to be checked against.
+   */
+  private static Map<String, LimitRangeSpec> limitRangesByTenant(List<RenderedFile> files) {
+    Map<String, LimitRangeSpec> byTenant = new LinkedHashMap<>();
+    for (RenderedFile file : files) {
+      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
+        continue;
+      }
+      Map<?, ?> root;
+      try {
+        root = readMapping(file.content());
+      } catch (RuntimeException e) {
+        continue; // already reported by validateManifest against this same file
+      }
+      if (!"LimitRange".equals(String.valueOf(root.get("kind")))) {
+        continue;
+      }
+      if (!(root.get("name") instanceof String tenantId) || tenantId.isBlank()) {
+        continue; // already reported by validateLimitRange against this same file
+      }
+      try {
+        Optional<ResourceSpec> minRequest = bound(root, "minRequest");
+        Optional<ResourceSpec> maxRequest = bound(root, "maxRequest");
+        Optional<ResourceSpec> minLimit = bound(root, "minLimit");
+        Optional<ResourceSpec> maxLimit = bound(root, "maxLimit");
+        if (minRequest.isEmpty()
+            && maxRequest.isEmpty()
+            && minLimit.isEmpty()
+            && maxLimit.isEmpty()) {
+          continue;
+        }
+        byTenant.put(
+            tenantId, new LimitRangeSpec(tenantId, minRequest, maxRequest, minLimit, maxLimit));
+      } catch (IllegalArgumentException e) {
+        // already reported by validateLimitRange against this same file
+      }
+    }
+    return byTenant;
   }
 
   /**

@@ -942,6 +942,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-930 | Deleting a cluster connection is refused while any of its deployments is still live | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-931 | Stopping a deployment on a shared cluster undeploys only its own release | Developer tooling / Internal-Infra | Complete | Partial |
 | GIMLE-932 | The console tracks and stops each deployment on a shared cluster independently | Developer tooling / Internal-Infra | Complete | Partial |
+| GIMLE-933 | Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -14113,6 +14114,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given two blueprints deployed on the same cluster, When I stop one of them, Then only its own release is undeployed and the other blueprint's deployment keeps running.
+  ```
+
+#### GIMLE-933 — Tier-2 validation catches a jar-sourced workload's real resources violating its tenant's LimitRange
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As an operator designing a blueprint with a jar-sourced Deployment, I want Validate to catch a LimitRange violation against the module's own real declared resources, not just the Inspector's modeled value, so a clean validation actually predicts a successful run instead of failing only after a whole cluster has booted.
+- **Status**: A jar-sourced Deployment's real resources.request/resources.limit come from its own gimle-module.yaml inside the jar, never from the rendered manifest (see DeploymentSpec's own javadoc) -- the console's Inspector already says as much in its own copy ('these values never reach the generated files'), but nothing validated the real value against a tenant's LimitRange before a run. Tier-1 (rules.ts) can only check the Inspector's modeled value, which can satisfy a LimitRange the module's real, smaller declaration violates -- confirmed live: a Deployment modeled at 64Mi validated clean against a 32Mi-minimum LimitRange, then failed at real deploy time because the module's own jar actually declares 16Mi. FileSetValidator gained requireJarResourcesWithinLimitRange: for each jar-sourced workload with a LimitRange declared for its tenant, it opens the jar (the same ModuleArtifactReader RunController already uses for real pushes), reads the module's real ModuleDescriptor, and runs it through LimitRangeSpec#violation -- the identical check the control plane's own admission plugin runs -- emitting the same LIMITRANGE_VIOLATION code tier-1 already uses for the modeled-value case, so the console's existing Inspector wiring for that code (Resources fields) picks it up with no frontend change. An unreadable/malformed jar is now also caught here (JAR_ARTIFACT_UNREADABLE), mirroring RunController's own push-time check, early. Scoped to jar-sourced workloads only: a registry-sourced workload's real descriptor lives in Andvari, unreachable from bytes alone, and this validator deliberately never makes a live call.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java` (`requireJarResourcesWithinLimitRange`, `limitRangesByTenant`)
+- **Test coverage**: `FileSetValidatorTest.java` (`flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range`, `accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range`, `flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against`, `does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range` -- against a real, hand-built JPMS-shaped jar with a real gimle-module.yaml, not a mock). Also manually verified live end to end via a real running IvaldiServer's POST /api/validate against gimle-examples/hello-module's real built jar (declares request memory 16Mi): a 32Mi-minimum LimitRange correctly produces LIMITRANGE_VIOLATION naming both real numbers, and an 8Mi-minimum LimitRange correctly produces none.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a jar-sourced Deployment whose module declares less memory than its tenant's LimitRange requires, When I validate the blueprint, Then Validate reports LIMITRANGE_VIOLATION naming the module's real declared value, before any run ever boots a cluster.
   ```
 
 ### gimle-ivaldi-console

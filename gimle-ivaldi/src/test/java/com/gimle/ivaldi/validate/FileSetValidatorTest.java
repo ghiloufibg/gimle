@@ -4,10 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Exercises {@link FileSetValidator} against the exact rendered shapes {@code
@@ -16,6 +24,8 @@ import org.junit.jupiter.api.Test;
  * written against: every fixture below is hand-written YAML in that shape, not generated.
  */
 class FileSetValidatorTest {
+
+  @TempDir Path tempDir;
 
   private static RenderedFile file(String path, String content) {
     return new RenderedFile(path, content);
@@ -477,6 +487,136 @@ class FileSetValidatorTest {
                 file("manifests/01-hello.yaml", JAR_WORKLOAD)));
 
     assertFalse(codes(findings).contains("NO_ANDVARI_FOR_JAR"), findings.toString());
+  }
+
+  private static final String LIMIT_RANGE_MIN_32MI =
+      "kind: LimitRange\nname: examples\nminRequest: {memory: 32Mi, cpu: 10m}\n";
+
+  /**
+   * A minimal but real module artifact: a JPMS-shaped jar ({@code module-info.class}, checked only
+   * for presence, never parsed as real bytecode) carrying a real, parseable {@code
+   * gimle-module.yaml} declaring exactly the resources the caller asks for -- what {@code
+   * ModuleArtifactReader} needs to hand back a real {@code ModuleDescriptor}, the same way a real
+   * build's own jar would.
+   */
+  private Path realModuleJar(String requestMemory, String requestCpu) {
+    String descriptor =
+        """
+        name: com.gimle.examples.hello
+        version: 1.0.0
+        isolation:
+          tier: TIER_1
+        resources:
+          request:
+            memory: %s
+            cpu: %s
+          limit:
+            memory: 512Mi
+            cpu: 1000m
+        """
+            .formatted(requestMemory, requestCpu);
+    Path jar = tempDir.resolve("hello-" + System.nanoTime() + ".jar");
+    try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+      out.putNextEntry(new JarEntry("module-info.class"));
+      out.write(new byte[] {0});
+      out.closeEntry();
+      out.putNextEntry(new JarEntry("META-INF/gimle/gimle-module.yaml"));
+      out.write(descriptor.getBytes(StandardCharsets.UTF_8));
+      out.closeEntry();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    return jar;
+  }
+
+  private static String jarSidecar(Path jar) {
+    return """
+        artifacts:
+          - manifest: manifests/01-hello.yaml
+            module: com.gimle.examples.hello
+            version: 1.0.0
+            path: %s
+        """
+        .formatted(jar);
+  }
+
+  /**
+   * The module's own real resource declaration -- read from the jar the run actually pushes, not
+   * whatever value the console's own Inspector fields happen to model -- is what gets checked here,
+   * the same way the control plane's admission plugin checks it once the module is really placed.
+   */
+  @Test
+  void flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range() {
+    Path jar = realModuleJar("16Mi", "10m");
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", jarSidecar(jar)),
+                file("manifests/01-hello.yaml", JAR_WORKLOAD),
+                file("manifests/02-lr.yaml", LIMIT_RANGE_MIN_32MI)));
+
+    Finding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("LIMITRANGE_VIOLATION"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no LIMITRANGE_VIOLATION in " + findings));
+    assertEquals(Finding.Severity.ERROR, finding.severity());
+    assertEquals("manifests/01-hello.yaml", finding.file());
+    assertTrue(finding.message().contains("16Mi"), finding.message());
+    assertTrue(finding.message().contains("32Mi"), finding.message());
+  }
+
+  @Test
+  void accepts_a_jar_sourced_workload_whose_real_resources_satisfy_the_limit_range() {
+    Path jar = realModuleJar("64Mi", "50m");
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", jarSidecar(jar)),
+                file("manifests/01-hello.yaml", JAR_WORKLOAD),
+                file("manifests/02-lr.yaml", LIMIT_RANGE_MIN_32MI)));
+
+    assertFalse(codes(findings).contains("LIMITRANGE_VIOLATION"), findings.toString());
+  }
+
+  /**
+   * Mirrors {@code RunController}'s own "not a pushable module artifact" push-time check, just
+   * early -- but only once a matching LimitRange actually needs the jar opened; see the next test.
+   */
+  @Test
+  void flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", JAR_SIDECAR), // path: /tmp/hello-module.jar, absent
+                file("manifests/01-hello.yaml", JAR_WORKLOAD),
+                file("manifests/02-lr.yaml", LIMIT_RANGE_MIN_32MI)));
+
+    Finding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("JAR_ARTIFACT_UNREADABLE"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no JAR_ARTIFACT_UNREADABLE in " + findings));
+    assertEquals("manifests/01-hello.yaml", finding.file());
+  }
+
+  /** No LimitRange for the workload's tenant means nothing here ever needs to open its jar. */
+  @Test
+  void does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", JAR_SIDECAR), // path: /tmp/hello-module.jar, absent
+                file("manifests/01-hello.yaml", JAR_WORKLOAD)));
+
+    assertFalse(codes(findings).contains("JAR_ARTIFACT_UNREADABLE"), findings.toString());
+    assertFalse(codes(findings).contains("LIMITRANGE_VIOLATION"), findings.toString());
   }
 
   @Test
