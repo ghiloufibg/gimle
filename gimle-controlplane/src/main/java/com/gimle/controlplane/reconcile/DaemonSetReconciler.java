@@ -1,6 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
+import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.Scheduler;
@@ -48,17 +49,30 @@ import org.slf4j.LoggerFactory;
  * current snapshot rather than reacting to what changed since last tick.
  *
  * <p><b>Placement safety</b>: a node whose only reason for falling out of {@code eligibleNodeIds}
- * is a stale heartbeat (past {@code nodeDarkTimeout}, the same darkness {@link #buildCandidates}
- * already excludes from placement) keeps its existing assignment until that darkness has lasted
- * {@code nodeDarkTimeout + placementGracePeriod} -- see {@link #isMerelyDarkWithinGracePeriod}.
- * Without this, an ordinary bidirectional network partition would have this reconciler tear down a
- * perfectly healthy node's assignment the instant the heartbeat goes stale, even though the node's
- * own agent (unaware of the control plane's view) keeps supervising that same worker the whole time
- * -- the assignment is simply gone from the control plane's own bookkeeping by the time the
- * partition heals, and the agent tears down a worker that never needed to move. Any other
- * ineligibility reason (cordon, relabeling, a tier/label mismatch) still evicts immediately,
- * exactly as before this grace period existed -- those are deliberate operator actions, not an
- * ambiguous "is the node even still there" signal, so there's nothing to wait out.
+ * is that the store cannot currently vouch for it keeps its existing assignment -- see {@link
+ * #isUnconfirmedRatherThanGone}. That covers both shapes the uncertainty takes. A node whose
+ * heartbeat has merely gone stale (past {@code nodeDarkTimeout}, the same darkness {@link
+ * #buildCandidates} already excludes from placement) is held until that darkness has lasted {@code
+ * nodeDarkTimeout + placementGracePeriod}; without it, an ordinary bidirectional network partition
+ * would tear down a perfectly healthy node's assignment the instant the heartbeat goes stale, even
+ * though the node's own agent (unaware of the control plane's view) keeps supervising that same
+ * worker the whole time -- the assignment is simply gone from the control plane's own bookkeeping
+ * by the time the partition heals, and the agent tears down a worker that never needed to move. A
+ * node with <em>no</em> heartbeat on record at all is held for as long as {@link NodeFreshness}
+ * says the store has not yet had the opportunity to hear from it: heartbeats live only on whichever
+ * store replica is currently leader and are never replicated, so an election leaves the new leader
+ * holding nothing for any node, and reading that emptiness as a fact about the nodes would tear
+ * every DaemonSet in the cluster down the moment leadership moved. Any other ineligibility reason
+ * (cordon, relabeling, a tier/label mismatch) still evicts immediately -- those are deliberate
+ * operator actions, not an ambiguous "is the node even still there" signal, so there's nothing to
+ * wait out.
+ *
+ * <p><b>The published desired count</b> is the number of nodes this DaemonSet should currently
+ * occupy: the eligible ones plus the ones held above. Counting only the eligible ones made it
+ * disagree with the very assignments this same tick chose to keep, so a reader subtracting placed
+ * from desired saw a negative shortfall. It is written after this tick's evictions and rollout step
+ * have been decided and before any new placement, which is the one ordering in which a tick that
+ * aborts partway can only ever leave desired at or above what is actually placed.
  *
  * <p>Rolling updates are a direct duplicate of {@link DeploymentReconciler#handleRollingUpdate}'s
  * state machine, keyed by {@code nodeId} instead of {@code instanceIndex} via {@link
@@ -98,6 +112,7 @@ public final class DaemonSetReconciler {
   private final ArtifactResolver artifactResolver;
   private final WorkloadCrashLoopBackoff crashLoopBackoff;
   private final NodeCandidateSource candidateSource;
+  private final NodeFreshness freshness;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DaemonSetReconciler(StateStore store, Scheduler scheduler) {
@@ -149,6 +164,9 @@ public final class DaemonSetReconciler {
     this.artifactResolver = artifactResolver;
     this.candidateSource = new NodeCandidateSource(store, nodeDarkTimeout, clock);
     this.crashLoopBackoff = new WorkloadCrashLoopBackoff(store);
+    // Same threshold the candidate source judges darkness by, so the two can never disagree about
+    // whether a node is answering.
+    this.freshness = new NodeFreshness(nodeDarkTimeout);
   }
 
   public void reconcileOnce() {
@@ -214,6 +232,9 @@ public final class DaemonSetReconciler {
     }
     ModuleDescriptor descriptor = artifact.descriptor();
 
+    Instant now = clock.instant();
+    Instant observingSince = store.nodeObservationWindowStart();
+
     Set<String> eligibleNodeIds =
         scheduler
             .eligibleNodes(
@@ -227,31 +248,20 @@ public final class DaemonSetReconciler {
             .map(NodeCandidate::nodeId)
             .collect(Collectors.toSet());
 
-    // Published so the API server's status surface can compare desired against placed --
-    // level-triggered means recomputing this from scratch every tick, not re-proposing every
-    // tick: only write when the eligible-node count actually moved, the same restraint
-    // LimitRangeReconciler's own violation flag applies.
-    int desiredCount = eligibleNodeIds.size();
-    if (store
-        .getDaemonSetDesiredCount(spec.tenantId(), spec.name())
-        .map(c -> c != desiredCount)
-        .orElse(true)) {
-      mutations.propose(
-          new StateMutation.PutDaemonSetDesiredCount(spec.tenantId(), spec.name(), desiredCount));
-    }
-
     // Scale-down: an assignment on a node that fell out of eligibility (cordoned, removed,
     // relabeled) is removed immediately -- a desired-state edit only, mirroring
     // DeploymentReconciler's own scale-down pass exactly. The agent's own stop()/StopModule drain
     // timing owns teardown, not this reconciler. The one exception is a node that fell out of
-    // eligibility purely because it's dark: see isMerelyDarkWithinGracePeriod and the class
-    // javadoc's own "Placement safety" note for why that case waits instead.
-    Instant now = clock.instant();
+    // eligibility purely because the store cannot currently vouch for it: see
+    // isUnconfirmedRatherThanGone and the class javadoc's own "Placement safety" note for why that
+    // case waits instead.
+    Set<String> heldNodeIds = new HashSet<>();
     List<StateMutation> evictions = new ArrayList<>();
     for (DaemonSetAssignment assignment :
         store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       if (!eligibleNodeIds.contains(assignment.nodeId())) {
-        if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
+        if (isUnconfirmedRatherThanGone(assignment.nodeId(), now, observingSince)) {
+          heldNodeIds.add(assignment.nodeId());
           continue;
         }
         log.warn(
@@ -260,7 +270,7 @@ public final class DaemonSetReconciler {
                 + " replacement node becomes eligible",
             spec.name(),
             assignment.nodeId(),
-            ineligibilityReason(assignment.nodeId(), now));
+            ineligibilityReason(assignment.nodeId(), now, observingSince));
         evictions.add(
             new StateMutation.RemoveDaemonSetAssignment(
                 spec.tenantId(), spec.name(), assignment.nodeId()));
@@ -284,7 +294,23 @@ public final class DaemonSetReconciler {
     // Flushed before handleRollingUpdate runs -- its own assignment scans must see these.
     mutations.proposeAll(evictions);
 
-    handleRollingUpdate(spec, descriptor, eligibleNodeIds);
+    handleRollingUpdate(spec, descriptor, eligibleNodeIds, now, observingSince);
+
+    // The nodes this DaemonSet should be occupying right now -- see the class javadoc's own "The
+    // published desired count" note for why the held ones count and why this is written here.
+    // Level-triggered means recomputing it from scratch every tick, not re-proposing it every
+    // tick: only write when it actually moved, the same restraint LimitRangeReconciler's own
+    // violation flag applies.
+    Set<String> desiredNodeIds = new HashSet<>(eligibleNodeIds);
+    desiredNodeIds.addAll(heldNodeIds);
+    int desiredCount = desiredNodeIds.size();
+    if (store
+        .getDaemonSetDesiredCount(spec.tenantId(), spec.name())
+        .map(c -> c != desiredCount)
+        .orElse(true)) {
+      mutations.propose(
+          new StateMutation.PutDaemonSetDesiredCount(spec.tenantId(), spec.name(), desiredCount));
+    }
 
     // Re-read: scale-down and/or the rolling-update step above may have just removed an entry.
     Set<String> assignedNodeIds = new HashSet<>();
@@ -320,7 +346,11 @@ public final class DaemonSetReconciler {
    * placement logic above re-places it with the current spec's {@code moduleId}.
    */
   private void handleRollingUpdate(
-      DaemonSetSpec spec, ModuleDescriptor descriptor, Set<String> eligibleNodeIds) {
+      DaemonSetSpec spec,
+      ModuleDescriptor descriptor,
+      Set<String> eligibleNodeIds,
+      Instant now,
+      Instant observingSince) {
     int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
     Set<String> inFlight =
         new HashSet<>(store.getRollingDaemonSetNodes(spec.tenantId(), spec.name()));
@@ -337,10 +367,15 @@ public final class DaemonSetReconciler {
         changes.add(
             new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
         inFlight.remove(nodeId);
-      } else if (current.isEmpty() && !eligibleNodeIds.contains(nodeId)) {
+      } else if (current.isEmpty()
+          && !eligibleNodeIds.contains(nodeId)
+          && !isUnconfirmedRatherThanGone(nodeId, now, observingSince)) {
         // The scale-down race, node-keyed equivalent of DeploymentReconciler's own: the node fell
         // out of eligibility (cordoned, removed, relabeled) while its old assignment was already
-        // removed for migration, so a replacement will now never come.
+        // removed for migration, so a replacement will now never come. A node the store simply
+        // cannot vouch for yet is not that case and keeps its marker -- abandoning the migration
+        // on an unconfirmed absence would leave the node running the old version with nothing
+        // tracking that it is mid-rollout.
         changes.add(
             new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
         inFlight.remove(nodeId);
@@ -494,26 +529,15 @@ public final class DaemonSetReconciler {
   }
 
   /**
-   * True when {@code nodeId} is currently dark (excluded from {@code eligibleNodeIds} by {@link
-   * #hasGoneDark} alone) but hasn't been dark long enough yet to count as genuinely gone -- see the
-   * class javadoc's "Placement safety" note. A node with no heartbeat on record at all returns
-   * {@code false} here (never merely dark, so never grace-gated): the only way a {@link
-   * DaemonSetAssignment} exists for a node in the first place is that node having heartbeated at
-   * placement time, so a heartbeat missing outright, rather than merely stale, means something more
-   * unusual happened (e.g. a leader failover this replica's own leader-local heartbeat map hasn't
-   * recovered from yet) that this reconciler doesn't try to distinguish from genuine loss --
-   * matching the immediate-removal behavior every non-darkness ineligibility reason already gets.
-   */
-  /**
    * A human-legible reason a node just fell out of eligibility, for the eviction log line above --
    * the fastest-to-check, most-specific cause first. Heartbeat state is checked ahead of {@link
    * StoreReader#isNodeCordoned}: an operator who cordoned a node already knows why; an operator
    * whose node went dark does not, and that's exactly the diagnostic gap this exists to close.
    */
-  private String ineligibilityReason(String nodeId, Instant now) {
+  private String ineligibilityReason(String nodeId, Instant now, Instant observingSince) {
     Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(nodeId);
     if (heartbeat.isEmpty()) {
-      return "no heartbeat on record";
+      return "the store has heard nothing from it since it began observing at " + observingSince;
     }
     if (hasGoneDark(heartbeat.get(), now)) {
       return "no longer confirmed by a heartbeat";
@@ -524,15 +548,23 @@ public final class DaemonSetReconciler {
     return "node no longer matches this daemonset's placement requirements";
   }
 
-  private boolean isMerelyDarkWithinGracePeriod(String nodeId, Instant now) {
-    return store
-        .getNodeHeartbeat(nodeId)
-        .filter(observed -> hasGoneDark(observed, now))
-        .filter(
-            observed ->
-                Duration.between(observed.receivedAt(), now)
-                        .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
-                    <= 0)
-        .isPresent();
+  /**
+   * True when {@code nodeId}'s absence from {@code eligibleNodeIds} is not yet a fact about the
+   * node -- the whole point being that a read which came back empty is not the same claim as a node
+   * that is gone. Two cases, both temporary by construction, both covered in the class javadoc's
+   * "Placement safety" note: a heartbeat that has gone stale but not yet for {@code nodeDarkTimeout
+   * + placementGracePeriod}, and no heartbeat at all while {@link NodeFreshness} still reports the
+   * store has not had the opportunity to hear from this node -- which is exactly the window
+   * following a store leader election, since heartbeats are leader-local and never replicated.
+   */
+  private boolean isUnconfirmedRatherThanGone(String nodeId, Instant now, Instant observingSince) {
+    Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(nodeId);
+    if (heartbeat.isEmpty()) {
+      return !freshness.hasGoneDark(true, heartbeat, observingSince, now);
+    }
+    return hasGoneDark(heartbeat.get(), now)
+        && Duration.between(heartbeat.get().receivedAt(), now)
+                .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
+            <= 0;
   }
 }
