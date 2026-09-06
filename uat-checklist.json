@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 959,
+    "totalRequirements": 960,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 829,
-    "releaseReadinessPercent": 13.6
+    "notCoveredByAutomatedTest": 830,
+    "releaseReadinessPercent": 13.5
   },
   "items": [
     {
@@ -10551,6 +10551,17 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "A blueprint edit lost to a tab or process kill inside the debounced-save window is recoverable on reload",
       "step": "Given an edit made to a blueprint, When the tab or process is killed before the 600ms debounced save reaches the server, Then a localStorage draft already reflects that edit. Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one. Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves. Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-961",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "A Blueprint whose topology declares more than one machine can actually be Run, booted concurrently across all of them",
+      "step": "Given a Blueprint whose topology declares two or more machines, When Run is clicked, Then every machine's own declared processes are booted concurrently rather than the run being refused outright. Given a multi-machine topology with a port conflict on a machine other than the first, When Run is clicked, Then the run fails before spawning anything and names the exact machine and port in conflict. Given a multi-machine boot in progress, When Stop is clicked, Then every in-flight per-machine boot is cancelled rather than only the first machine's. Given a newly added machine node on the canvas, When it is not the first machine, Then it defaults to its own distinct 127.0.0.0/8 loopback host rather than colliding with an existing machine's host. Given a running multi-machine deployment, When the Runner page is open, Then its Machines section shows each machine with the roles actually placed on it. Given the control plane is placed on a machine other than the first, When the README is generated, Then its connect address names that machine's own host, not the first machine's.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

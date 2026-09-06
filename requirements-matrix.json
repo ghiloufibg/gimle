@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 960,
+  "requirementCount": 961,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19731,6 +19731,40 @@
         "Given a localStorage draft newer than the server's own copy of a blueprint, When the designer loads that blueprint, Then it offers to Restore or Discard the draft rather than silently picking one.",
         "Given the Restore choice, When clicked, Then the draft becomes the current blueprint, marked dirty so it re-saves.",
         "Given the Discard choice, When clicked, Then the draft is removed and the server's own copy is left showing."
+      ],
+      "category": "Developer tooling / Internal-Infra",
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-961",
+      "module": "gimle-ivaldi",
+      "feature": "A Blueprint whose topology declares more than one machine can actually be Run, booted concurrently across all of them",
+      "userStory": "As an operator designing a multi-machine topology in the Ivaldi canvas, I want the Run button to actually boot every declared machine's own processes -- not refuse the run outright just because more than one machine is on the canvas.",
+      "statusDetail": "RunController.execute() previously called a requireSingleMachine(Topology) guard that threw RunFailedException for any topology naming more than one machine, even though the underlying gimle-hilmir primitives (RunLedger, one file per machine sharing a data root; MachineLauncher.up/down/status) already fully supported N machines, including real cross-machine boot-order waiting via awaitRemotePrerequisites -- the guard was stale relative to what MachineLauncher already did, not a genuine gap in gimle-hilmir. requireSingleMachine is removed. RunController.upAllMachines now starts one virtual thread per machine calling MachineLauncher.up for that machine concurrently (never sequentially: a sequential loop would deadlock the moment any two machines have a forward-only or circular cross-machine role dependency, since awaitRemotePrerequisites blocks polling for a remote machine's readiness that a sequential loop would not have started booting yet), aggregates every machine's own RunRecords, and reports a combined failure listing how many of N machines failed if any did. Port-preflight is aggregated the same way across every declared machine before any process is spawned. Cancellation (Stop while mid-boot) cascades via joinCascadingCancellation: Thread.join() clears the calling thread's interrupt flag when it throws, so a catch-and-retry loop safely propagates one interrupt to every in-flight per-machine boot thread and back out again. RunRecord/RunLedger gained a machine field (previously only role+pid+command), threaded through RunSnapshot's own ProcessInfo so a run's process list names which machine hosts each process. On the console side, a newly added machine node defaults to its own distinct 127.0.0.0/8 loopback host (127.0.0.1, 127.0.0.2, 127.0.0.3, ...) rather than every machine colliding on 127.0.0.1 -- real per-machine process isolation on one developer workstation with no Docker or any other container runtime involved, the same loopback-routing convention gimle-hilmir's own multi-machine support already established. The Runner page's own Machines section (contracts.ts RunMachine, populated by both HttpRunnerClient and MockRunnerClient from the same rendered topology.yaml) groups the topology's roles by the machine each is placed on, so a multi-machine run's process placement is visible rather than shown as one undifferentiated group. A related pre-existing bug found and fixed in the same area: the generated README's connect-address host was resolved from \"the first machine node on the canvas\" rather than \"the machine actually hosting the control-plane role\" (render.ts controlPlaneHost) -- silently wrong the moment control plane is placed on any machine but the first, which this feature is what first makes possible in practice.",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunRecord.java` (the new `machine` field)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`spawn`, `status`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunLedger.java` (`toJson`/`fromJson`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`upAllMachines`, `joinCascadingCancellation`; `requireSingleMachine` removed)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunSnapshot.java` (`ProcessInfo.machine`)",
+        "`gimle-ivaldi-console/src/lib/blueprint.ts` (`defaultDataFor`'s per-machine loopback host)",
+        "`gimle-ivaldi-console/src/lib/render.ts` (`controlPlaneHost`)",
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunMachine`, `RunSnapshot.machines`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`machinesFromTopologyText`)",
+        "`gimle-ivaldi-console/src/repositories/mockRunner.ts` (`machinesOf`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts`",
+        "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (the Machines sidebar section)"
+      ],
+      "testCoverageDetail": "gimle-hilmir: RunLedgerTest, MachineLauncherIntegrationTest, HilmirCliDownStatusEndToEndTest, MachineLauncherRestartRoleIntegrationTest, UpgradeClusterCommandTest all updated for the new machine field; full module suite green (343 tests). gimle-ivaldi: RunControllerTest gained a_port_conflict_on_the_second_machine_of_a_multi_machine_topology_is_caught_before_boot (a real ServerSocket bound on 127.0.0.2 before the run, asserting the aggregated preflight names the exact machine:port and that no topology is applied) and join_cascading_cancellation_interrupts_every_child_the_moment_this_thread_is_interrupted (three virtual threads sleeping 10s, interrupted via joinCascadingCancellation, asserting sub-5s return and restored interrupt status); full module suite green (31/31 in the class, 0 failures reactor-wide). gimle-ivaldi-console: httpRunner.test.ts gained a createRun test asserting a two-machine topology's roles group correctly by machine; useBlueprintStore.test.ts gained a test asserting a second and third added machine get 127.0.0.2/127.0.0.3 rather than colliding on 127.0.0.1; render.test.ts gained a test asserting the README names the machine actually hosting the control plane, not the first machine on the canvas. Live-verified against a real running gimle-ivaldi server and a real browser: a two-machine Blueprint (store/control-plane/fafnir on m1 at 127.0.0.1, andvari on m2 at 127.0.0.2) was actually run -- the backend's own log shows \"booted 4 process(es) across 2 machine(s): m1, m2\", the run reached RUNNING, GET /api/runs/for-blueprint/{id} showed all four real OS processes with their correct machine/address/pid, and the Runner page's Machines section rendered m1 (store, control plane, fafnir) and m2 (andvari) exactly as placed; Stop then tore the run down to idle with an empty process list.",
+      "gherkinSteps": [
+        "Given a Blueprint whose topology declares two or more machines, When Run is clicked, Then every machine's own declared processes are booted concurrently rather than the run being refused outright.",
+        "Given a multi-machine topology with a port conflict on a machine other than the first, When Run is clicked, Then the run fails before spawning anything and names the exact machine and port in conflict.",
+        "Given a multi-machine boot in progress, When Stop is clicked, Then every in-flight per-machine boot is cancelled rather than only the first machine's.",
+        "Given a newly added machine node on the canvas, When it is not the first machine, Then it defaults to its own distinct 127.0.0.0/8 loopback host rather than colliding with an existing machine's host.",
+        "Given a running multi-machine deployment, When the Runner page is open, Then its Machines section shows each machine with the roles actually placed on it.",
+        "Given the control plane is placed on a machine other than the first, When the README is generated, Then its connect address names that machine's own host, not the first machine's."
       ],
       "category": "Developer tooling / Internal-Infra",
       "confidence": "High",

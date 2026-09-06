@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 960,
+  "requirementCount": 961,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16539,6 +16539,32 @@
       "sourceLocations": [
         "`gimle-ivaldi-console/src/stores/useBlueprintStore.ts` (`persistDraft`, `readDraft`, `clearDraft`, `timeOf`, `persistDraftNow`, `restoreDraft`, `discardDraft`, `load`, `save`)",
         "`gimle-ivaldi-console/src/routes/designer.$blueprintId.tsx` (the debounce effect's `persistDraftNow()` call, the Restore/Discard `AlertDialog`)"
+      ]
+    },
+    {
+      "id": "GIMLE-961",
+      "module": "gimle-ivaldi",
+      "feature": "A Blueprint whose topology declares more than one machine can actually be Run, booted concurrently across all of them",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController's requireSingleMachine guard is removed; RunController.upAllMachines boots every declared machine's own processes concurrently (one virtual thread per machine), reusing gimle-hilmir's own already-proven N-machine RunLedger/MachineLauncher primitives rather than a new mechanism. Port preflight is aggregated across all machines, and Stop cascades cancellation to every in-flight per-machine boot via joinCascadingCancellation. A newly added machine node on the canvas defaults to its own distinct 127.0.0.0/8 loopback host, and the Runner page's Machines section groups a run's roles by the machine each is placed on.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises this yet; covered by gimle-hilmir's and gimle-ivaldi's own unit/integration tests plus manual live verification listed under otherTestCoverage.",
+      "otherTestCoverage": "gimle-hilmir: RunLedgerTest, MachineLauncherIntegrationTest, HilmirCliDownStatusEndToEndTest, MachineLauncherRestartRoleIntegrationTest, UpgradeClusterCommandTest all updated for the new RunRecord.machine field; full module suite green. gimle-ivaldi: RunControllerTest gained a_port_conflict_on_the_second_machine_of_a_multi_machine_topology_is_caught_before_boot and join_cascading_cancellation_interrupts_every_child_the_moment_this_thread_is_interrupted; full module suite green. gimle-ivaldi-console: httpRunner.test.ts, useBlueprintStore.test.ts and render.test.ts each gained a targeted test for machine grouping, distinct loopback hosts, and the README's control-plane-host fix respectively. Live-verified against a real running gimle-ivaldi server and a real browser: a real two-machine Blueprint was Run, the backend actually booted 4 real OS processes across 127.0.0.1 and 127.0.0.2, and the Runner page's Machines section rendered each machine with its correct roles; Stop tore the run back down to idle.",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunRecord.java` (the new `machine` field)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/MachineLauncher.java` (`spawn`, `status`)",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/launch/RunLedger.java` (`toJson`/`fromJson`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`upAllMachines`, `joinCascadingCancellation`; `requireSingleMachine` removed)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunSnapshot.java` (`ProcessInfo.machine`)",
+        "`gimle-ivaldi-console/src/lib/blueprint.ts` (`defaultDataFor`'s per-machine loopback host)",
+        "`gimle-ivaldi-console/src/lib/render.ts` (`controlPlaneHost`)",
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunMachine`, `RunSnapshot.machines`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`machinesFromTopologyText`)",
+        "`gimle-ivaldi-console/src/repositories/mockRunner.ts` (`machinesOf`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts`",
+        "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx` (the Machines sidebar section)"
       ]
     }
   ]
