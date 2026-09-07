@@ -176,7 +176,11 @@ describe("application rules the two tiers used to disagree on", () => {
   it("does not fault a limit range whose bounds are still empty", () => {
     const bp = clone(ordersPlatform!);
     const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
-    lr.data = { ...lr.data, min: { memory: "", cpu: "" }, max: { memory: "", cpu: "" } };
+    lr.data = {
+      ...lr.data,
+      minRequest: { memory: "", cpu: "" },
+      maxRequest: { memory: "", cpu: "" },
+    };
     const codes = codesOf(bp);
     expect(codes).not.toContain("LIMITRANGE_VIOLATION");
     expect(codes).toContain("LIMITRANGE_NO_BOUNDS");
@@ -185,8 +189,48 @@ describe("application rules the two tiers used to disagree on", () => {
   it("still faults a request outside a partially-filled limit range", () => {
     const bp = clone(ordersPlatform!);
     const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
-    lr.data = { ...lr.data, min: { memory: "8Gi", cpu: "" }, max: { memory: "", cpu: "" } };
+    lr.data = {
+      ...lr.data,
+      minRequest: { memory: "8Gi", cpu: "" },
+      maxRequest: { memory: "", cpu: "" },
+    };
     expect(codesOf(bp)).toContain("LIMITRANGE_VIOLATION");
+  });
+
+  it("faults a workload's limit outside the limit range's own limit bound", () => {
+    const bp = clone(ordersPlatform!);
+    const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
+    // Every deployment in this tenant carries limit.memory 256Mi -- a max limit below that faults
+    // the limit itself, distinct from the (still passing) request check above.
+    lr.data = { ...lr.data, maxLimit: { memory: "1Mi", cpu: "10m" } };
+    const problems = validate(bp).filter((p) => p.code === "LIMITRANGE_VIOLATION");
+    expect(problems.some((p) => p.message.startsWith("Limit is outside"))).toBe(true);
+  });
+
+  it("does not fault a limit range whose limit bound is still empty", () => {
+    const bp = clone(ordersPlatform!);
+    const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
+    lr.data = { ...lr.data, minLimit: { memory: "", cpu: "" }, maxLimit: { memory: "", cpu: "" } };
+    const problems = validate(bp).filter((p) => p.code === "LIMITRANGE_VIOLATION");
+    expect(problems.every((p) => !p.message.startsWith("Limit is outside"))).toBe(true);
+  });
+
+  it("flags a half-filled limit bound the same way a half-filled request bound is flagged", () => {
+    const bp = clone(ordersPlatform!);
+    const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
+    lr.data = { ...lr.data, minLimit: { memory: "8Gi", cpu: "" } };
+    expect(codesOf(bp)).toContain("LIMITRANGE_HALF_FILLED");
+  });
+
+  it("flags an inverted limit bound the same way an inverted request bound is flagged", () => {
+    const bp = clone(ordersPlatform!);
+    const lr = bp.nodes.find((n) => n.kind === "limitRange")!;
+    lr.data = {
+      ...lr.data,
+      minLimit: { memory: "1Gi", cpu: "10m" },
+      maxLimit: { memory: "512Mi", cpu: "1000m" },
+    };
+    expect(codesOf(bp)).toContain("LIMITRANGE_INVERTED");
   });
 
   it("refuses a jar-sourced workload with no registry to push it to", () => {

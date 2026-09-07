@@ -81,7 +81,7 @@ export function keyFact(kind: NodeKind, data: unknown): string {
       return (data as SecretData).key;
     case "limitRange": {
       const d = data as LimitRangeData;
-      return `${d.min.memory}/${d.min.cpu} – ${d.max.memory}/${d.max.cpu}`;
+      return `${d.minRequest.memory}/${d.minRequest.cpu} – ${d.maxRequest.memory}/${d.maxRequest.cpu}`;
     }
     default:
       return "";

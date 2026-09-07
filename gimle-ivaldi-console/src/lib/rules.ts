@@ -578,18 +578,37 @@ function validateApplication(bp: Blueprint): Problem[] {
     const tid = tenantIdOf(bp, lr);
     // Each bound is independently optional in the platform, so a limit range with none filled in
     // constrains nothing -- checking against it reported every deployment in the tenant as outside
-    // a range rendered as "/ – /", which is the state a freshly-dropped node is in.
+    // a range rendered as "/ – /", which is the state a freshly-dropped node is in. Request and
+    // limit are two entirely separate bound pairs, checked against a workload's own
+    // resources.request and resources.limit respectively -- mirroring exactly how the manifest
+    // itself carries minRequest/maxRequest alongside minLimit/maxLimit.
+    const boundValue = (
+      bound: { memory: string; cpu: string } | undefined,
+      unit: "memory" | "cpu",
+    ) => {
+      const raw = unit === "memory" ? bound?.memory : bound?.cpu;
+      if (!raw?.trim()) return undefined;
+      return unit === "memory" ? parseMemory(raw) : parseCpu(raw);
+    };
     const bounds = {
-      minMem: d.min?.memory?.trim() ? parseMemory(d.min.memory) : undefined,
-      maxMem: d.max?.memory?.trim() ? parseMemory(d.max.memory) : undefined,
-      minCpu: d.min?.cpu?.trim() ? parseCpu(d.min.cpu) : undefined,
-      maxCpu: d.max?.cpu?.trim() ? parseCpu(d.max.cpu) : undefined,
+      minReqMem: boundValue(d.minRequest, "memory"),
+      maxReqMem: boundValue(d.maxRequest, "memory"),
+      minReqCpu: boundValue(d.minRequest, "cpu"),
+      maxReqCpu: boundValue(d.maxRequest, "cpu"),
+      minLimMem: boundValue(d.minLimit, "memory"),
+      maxLimMem: boundValue(d.maxLimit, "memory"),
+      minLimCpu: boundValue(d.minLimit, "cpu"),
+      maxLimCpu: boundValue(d.maxLimit, "cpu"),
     };
     for (const [field, value, valid] of [
-      ["min memory", d.min?.memory, isValidMemory],
-      ["min cpu", d.min?.cpu, isValidCpu],
-      ["max memory", d.max?.memory, isValidMemory],
-      ["max cpu", d.max?.cpu, isValidCpu],
+      ["min request memory", d.minRequest?.memory, isValidMemory],
+      ["min request cpu", d.minRequest?.cpu, isValidCpu],
+      ["max request memory", d.maxRequest?.memory, isValidMemory],
+      ["max request cpu", d.maxRequest?.cpu, isValidCpu],
+      ["min limit memory", d.minLimit?.memory, isValidMemory],
+      ["min limit cpu", d.minLimit?.cpu, isValidCpu],
+      ["max limit memory", d.maxLimit?.memory, isValidMemory],
+      ["max limit cpu", d.maxLimit?.cpu, isValidCpu],
     ] as const) {
       if (value?.trim() && !valid(value))
         p.push(
@@ -606,8 +625,10 @@ function validateApplication(bp: Blueprint): Problem[] {
     // ever having said so. LIMITRANGE_NO_BOUNDS below only fires once every bound is fully empty,
     // which missed exactly this half-filled case.
     for (const [label, memory, cpu] of [
-      ["min", d.min?.memory, d.min?.cpu],
-      ["max", d.max?.memory, d.max?.cpu],
+      ["min request", d.minRequest?.memory, d.minRequest?.cpu],
+      ["max request", d.maxRequest?.memory, d.maxRequest?.cpu],
+      ["min limit", d.minLimit?.memory, d.minLimit?.cpu],
+      ["max limit", d.maxLimit?.memory, d.maxLimit?.cpu],
     ] as const) {
       const memoryFilled = Boolean(memory?.trim());
       const cpuFilled = Boolean(cpu?.trim());
@@ -621,24 +642,29 @@ function validateApplication(bp: Blueprint): Problem[] {
         );
     }
     // Checked on the limit range itself, before any workload is measured against it: an inverted
-    // range no request can ever satisfy was reported as a violation by each deployment, sending
-    // the operator to fix a value that was never the problem.
-    if (bounds.minMem !== undefined && bounds.maxMem !== undefined && bounds.minMem > bounds.maxMem)
-      p.push(
-        err(
-          "LIMITRANGE_INVERTED",
-          `Minimum memory (${d.min.memory}) exceeds the maximum (${d.max.memory}); no request can satisfy this range.`,
-          lr.id,
-        ),
-      );
-    if (bounds.minCpu !== undefined && bounds.maxCpu !== undefined && bounds.minCpu > bounds.maxCpu)
-      p.push(
-        err(
-          "LIMITRANGE_INVERTED",
-          `Minimum cpu (${d.min.cpu}) exceeds the maximum (${d.max.cpu}); no request can satisfy this range.`,
-          lr.id,
-        ),
-      );
+    // range no request/limit can ever satisfy was reported as a violation by each deployment,
+    // sending the operator to fix a value that was never the problem.
+    for (const [label, min, max, minRaw, maxRaw] of [
+      [
+        "request memory",
+        bounds.minReqMem,
+        bounds.maxReqMem,
+        d.minRequest?.memory,
+        d.maxRequest?.memory,
+      ],
+      ["request cpu", bounds.minReqCpu, bounds.maxReqCpu, d.minRequest?.cpu, d.maxRequest?.cpu],
+      ["limit memory", bounds.minLimMem, bounds.maxLimMem, d.minLimit?.memory, d.maxLimit?.memory],
+      ["limit cpu", bounds.minLimCpu, bounds.maxLimCpu, d.minLimit?.cpu, d.maxLimit?.cpu],
+    ] as const) {
+      if (min !== undefined && max !== undefined && min > max)
+        p.push(
+          err(
+            "LIMITRANGE_INVERTED",
+            `Minimum ${label} (${minRaw}) exceeds the maximum (${maxRaw}); no ${label.startsWith("request") ? "request" : "limit"} can satisfy this range.`,
+            lr.id,
+          ),
+        );
+    }
     if (Object.values(bounds).every((b) => b === undefined)) {
       p.push(
         info(
@@ -653,18 +679,33 @@ function validateApplication(bp: Blueprint): Problem[] {
     for (const w of workloads) {
       if (tenantIdOf(bp, w) !== tid) continue;
       const wd = w.data as WorkloadData;
-      const mem = parseMemory(wd.resources?.request.memory);
-      const cpu = parseCpu(wd.resources?.request.cpu);
+      const reqMem = parseMemory(wd.resources?.request.memory);
+      const reqCpu = parseCpu(wd.resources?.request.cpu);
       if (
-        (bounds.minMem !== undefined && mem < bounds.minMem) ||
-        (bounds.maxMem !== undefined && mem > bounds.maxMem) ||
-        (bounds.minCpu !== undefined && cpu < bounds.minCpu) ||
-        (bounds.maxCpu !== undefined && cpu > bounds.maxCpu)
+        (bounds.minReqMem !== undefined && reqMem < bounds.minReqMem) ||
+        (bounds.maxReqMem !== undefined && reqMem > bounds.maxReqMem) ||
+        (bounds.minReqCpu !== undefined && reqCpu < bounds.minReqCpu) ||
+        (bounds.maxReqCpu !== undefined && reqCpu > bounds.maxReqCpu)
       )
         p.push(
           err(
             "LIMITRANGE_VIOLATION",
-            `Request is outside the tenant limit range (${shown(d.min?.memory, d.min?.cpu)} – ${shown(d.max?.memory, d.max?.cpu)}).`,
+            `Request is outside the tenant limit range (${shown(d.minRequest?.memory, d.minRequest?.cpu)} – ${shown(d.maxRequest?.memory, d.maxRequest?.cpu)}).`,
+            w.id,
+          ),
+        );
+      const limMem = parseMemory(wd.resources?.limit.memory);
+      const limCpu = parseCpu(wd.resources?.limit.cpu);
+      if (
+        (bounds.minLimMem !== undefined && limMem < bounds.minLimMem) ||
+        (bounds.maxLimMem !== undefined && limMem > bounds.maxLimMem) ||
+        (bounds.minLimCpu !== undefined && limCpu < bounds.minLimCpu) ||
+        (bounds.maxLimCpu !== undefined && limCpu > bounds.maxLimCpu)
+      )
+        p.push(
+          err(
+            "LIMITRANGE_VIOLATION",
+            `Limit is outside the tenant limit range (${shown(d.minLimit?.memory, d.minLimit?.cpu)} – ${shown(d.maxLimit?.memory, d.maxLimit?.cpu)}).`,
             w.id,
           ),
         );

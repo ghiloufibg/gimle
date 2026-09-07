@@ -73,8 +73,10 @@ function ordersPlatform(): Blueprint {
       position: { x: 1100, y: 60 },
       data: {
         tenantId: "orders-platform",
-        min: { memory: "32Mi", cpu: "10m" },
-        max: { memory: "512Mi", cpu: "1000m" },
+        minRequest: { memory: "32Mi", cpu: "10m" },
+        maxRequest: { memory: "512Mi", cpu: "1000m" },
+        minLimit: { memory: "", cpu: "" },
+        maxLimit: { memory: "", cpu: "" },
       },
     },
     {

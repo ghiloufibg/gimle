@@ -309,11 +309,17 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
         // A bound block is emitted only when both of its halves are filled in: the platform reads
         // a present block as complete and refuses one carrying a blank, so a half-filled bound
         // rendered a manifest that could never be applied.
-        ...(d.min?.memory?.trim() && d.min?.cpu?.trim()
-          ? { minRequest: { memory: d.min.memory, cpu: d.min.cpu } }
+        ...(d.minRequest?.memory?.trim() && d.minRequest?.cpu?.trim()
+          ? { minRequest: { memory: d.minRequest.memory, cpu: d.minRequest.cpu } }
           : {}),
-        ...(d.max?.memory?.trim() && d.max?.cpu?.trim()
-          ? { maxRequest: { memory: d.max.memory, cpu: d.max.cpu } }
+        ...(d.maxRequest?.memory?.trim() && d.maxRequest?.cpu?.trim()
+          ? { maxRequest: { memory: d.maxRequest.memory, cpu: d.maxRequest.cpu } }
+          : {}),
+        ...(d.minLimit?.memory?.trim() && d.minLimit?.cpu?.trim()
+          ? { minLimit: { memory: d.minLimit.memory, cpu: d.minLimit.cpu } }
+          : {}),
+        ...(d.maxLimit?.memory?.trim() && d.maxLimit?.cpu?.trim()
+          ? { maxLimit: { memory: d.maxLimit.memory, cpu: d.maxLimit.cpu } }
           : {}),
       }),
     });

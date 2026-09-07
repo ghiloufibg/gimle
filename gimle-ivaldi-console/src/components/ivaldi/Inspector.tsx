@@ -814,31 +814,73 @@ function NodeForm({
             onChange={(tenantId) => update({ tenantId } as Partial<NodeData>)}
             problems={pick(problems, ["TENANT_UNKNOWN"])}
           />
+          <div className="hud-label pt-1">Request bound</div>
           <div className="grid grid-cols-2 gap-2">
             <MemoryField
               label="Min memory"
-              value={d.min.memory}
-              onChange={(memory) => update({ min: { ...d.min, memory } } as Partial<NodeData>)}
+              value={d.minRequest.memory}
+              onChange={(memory) =>
+                update({ minRequest: { ...d.minRequest, memory } } as Partial<NodeData>)
+              }
               problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
               allowBlank
             />
             <CpuField
               label="Min cpu"
-              value={d.min.cpu}
-              onChange={(cpu) => update({ min: { ...d.min, cpu } } as Partial<NodeData>)}
+              value={d.minRequest.cpu}
+              onChange={(cpu) =>
+                update({ minRequest: { ...d.minRequest, cpu } } as Partial<NodeData>)
+              }
               problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
               allowBlank
             />
             <MemoryField
               label="Max memory"
-              value={d.max.memory}
-              onChange={(memory) => update({ max: { ...d.max, memory } } as Partial<NodeData>)}
+              value={d.maxRequest.memory}
+              onChange={(memory) =>
+                update({ maxRequest: { ...d.maxRequest, memory } } as Partial<NodeData>)
+              }
               allowBlank
             />
             <CpuField
               label="Max cpu"
-              value={d.max.cpu}
-              onChange={(cpu) => update({ max: { ...d.max, cpu } } as Partial<NodeData>)}
+              value={d.maxRequest.cpu}
+              onChange={(cpu) =>
+                update({ maxRequest: { ...d.maxRequest, cpu } } as Partial<NodeData>)
+              }
+              allowBlank
+            />
+          </div>
+          <div className="hud-label pt-1">Limit bound</div>
+          <div className="grid grid-cols-2 gap-2">
+            <MemoryField
+              label="Min memory"
+              value={d.minLimit.memory}
+              onChange={(memory) =>
+                update({ minLimit: { ...d.minLimit, memory } } as Partial<NodeData>)
+              }
+              problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
+              allowBlank
+            />
+            <CpuField
+              label="Min cpu"
+              value={d.minLimit.cpu}
+              onChange={(cpu) => update({ minLimit: { ...d.minLimit, cpu } } as Partial<NodeData>)}
+              problems={pick(problems, ["LIMITRANGE_VIOLATION"])}
+              allowBlank
+            />
+            <MemoryField
+              label="Max memory"
+              value={d.maxLimit.memory}
+              onChange={(memory) =>
+                update({ maxLimit: { ...d.maxLimit, memory } } as Partial<NodeData>)
+              }
+              allowBlank
+            />
+            <CpuField
+              label="Max cpu"
+              value={d.maxLimit.cpu}
+              onChange={(cpu) => update({ maxLimit: { ...d.maxLimit, cpu } } as Partial<NodeData>)}
               allowBlank
             />
           </div>

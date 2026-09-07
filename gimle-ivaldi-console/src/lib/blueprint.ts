@@ -149,8 +149,10 @@ export interface SecretData {
 
 export interface LimitRangeData {
   tenantId: string;
-  min: { memory: string; cpu: string };
-  max: { memory: string; cpu: string };
+  minRequest: { memory: string; cpu: string };
+  maxRequest: { memory: string; cpu: string };
+  minLimit: { memory: string; cpu: string };
+  maxLimit: { memory: string; cpu: string };
 }
 
 export type NodeData =
@@ -312,8 +314,10 @@ export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
     case "limitRange":
       return {
         tenantId: "",
-        min: { memory: "32Mi", cpu: "10m" },
-        max: { memory: "512Mi", cpu: "1000m" },
+        minRequest: { memory: "32Mi", cpu: "10m" },
+        maxRequest: { memory: "512Mi", cpu: "1000m" },
+        minLimit: { memory: "", cpu: "" },
+        maxLimit: { memory: "", cpu: "" },
       } satisfies LimitRangeData;
   }
 }
