@@ -1333,7 +1333,7 @@ public final class ApiServer implements AutoCloseable {
                   kind,
                   Verb.WRITE,
                   submittedTenant,
-                  Optional.empty(),
+                  Optional.of(name),
                   true,
                   AuditOutcome.REJECTED);
             } else {
@@ -1351,7 +1351,7 @@ public final class ApiServer implements AutoCloseable {
                   kind,
                   Verb.WRITE,
                   submittedTenant,
-                  Optional.empty(),
+                  Optional.of(name),
                   true,
                   outcome);
             }
@@ -1365,7 +1365,7 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           Optional<String> tenant = declaredOrExistingTenant(exchange, existingTenant, name);
-          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)
+          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant, Optional.of(name))
               && !rejectIfReservedSystemTenant(exchange, tenant)) {
             delete.run(exchange, tenant, name);
           }
@@ -10566,15 +10566,20 @@ public final class ApiServer implements AutoCloseable {
     try {
       String tail = pathSegmentAfter(exchange, "/bootstrap/csr/");
       if (tail.endsWith("/approve")) {
+        String requestId = tail.substring(0, tail.length() - "/approve".length());
         if (!requireAuthorized(
-            exchange, ResourceKind.CERTIFICATE_REQUEST, Verb.APPROVE, Optional.empty())) {
+            exchange,
+            ResourceKind.CERTIFICATE_REQUEST,
+            Verb.APPROVE,
+            Optional.empty(),
+            Optional.of(requestId))) {
           return;
         }
         if (!"POST".equals(exchange.getRequestMethod())) {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        handleApprove(exchange, tail.substring(0, tail.length() - "/approve".length()));
+        handleApprove(exchange, requestId);
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
