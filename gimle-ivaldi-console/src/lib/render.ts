@@ -22,6 +22,15 @@ import { nodesOf } from "./rules";
 export interface RenderedFile {
   path: string;
   content: string;
+  /**
+   * The single blueprint node this file was rendered from, when it is one -- every standalone
+   * manifest (a workload, Service, NetworkPolicy, LimitRange) is. Absent for `topology.yaml`,
+   * which spans every role and machine at once, so no one node owns it. Lets a Hilmir finding's
+   * own `file` be resolved back to the exact node it's about (see useValidationStore's
+   * `nodeIdFor`) rather than matching by name alone, which -- unlike a file path -- two tenants
+   * can legally share.
+   */
+  nodeId?: string;
 }
 
 // A YAML 1.2 emitter leaves these bare because 1.2 reads them as plain strings, but the platform
@@ -236,7 +245,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     const d = w.data as WorkloadData;
     const path = `manifests/${pad(index++)}-${fileSlug(d.name)}.yaml`;
     manifestPaths.push(path);
-    files.push({ path, content: yml(workloadDoc(bp, w)) });
+    files.push({ path, content: yml(workloadDoc(bp, w)), nodeId: w.id });
   }
 
   for (const s of nodesOf(bp, "service")) {
@@ -263,6 +272,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     files.push({
       path,
       content: yml(serviceDoc),
+      nodeId: s.id,
     });
   }
 
@@ -301,7 +311,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     // require-at-least-one-direction check.
     if ((d.allowedCalleeTenantIds ?? []).length)
       doc.allowedCalleeTenantIds = [...new Set(d.allowedCalleeTenantIds)].sort();
-    files.push({ path, content: yml(doc) });
+    files.push({ path, content: yml(doc), nodeId: np.id });
   }
 
   for (const lr of nodesOf(bp, "limitRange")) {
@@ -330,6 +340,7 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
           ? { maxLimit: { memory: d.maxLimit.memory, cpu: d.maxLimit.cpu } }
           : {}),
       }),
+      nodeId: lr.id,
     });
   }
 

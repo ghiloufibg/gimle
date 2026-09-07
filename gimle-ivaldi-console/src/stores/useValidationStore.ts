@@ -31,8 +31,26 @@ interface ValidationState {
   infoCount: () => number;
 }
 
-/** Resolves a Hilmir finding back onto a canvas node so it can be selected. */
-function nodeIdFor(blueprint: Blueprint, finding: HilmirFinding): string | undefined {
+/**
+ * Resolves a Hilmir finding back onto a canvas node so it can be selected. Matching by name alone
+ * (`finding.resource`, a bare `Kind/name` with no tenant in it) picked the first node of that name
+ * on the whole canvas -- wrong the moment two tenants legally share a workload name. The finding's
+ * own `file` names the exact manifest Hilmir was looking at when it fired, and every standalone
+ * manifest file has exactly one owning node (`owners`, built alongside the very
+ * {@link renderFiles} call whose output was sent to Hilmir -- see `validateWithHilmir` below), so
+ * it is checked first; the name-only match survives only as a fallback for a finding naming no
+ * file, or a `topology.yaml` finding, which spans every role/machine at once and so has no single
+ * owning node to look up by file at all.
+ */
+function nodeIdFor(
+  blueprint: Blueprint,
+  finding: HilmirFinding,
+  owners: Map<string, string>,
+): string | undefined {
+  if (finding.file) {
+    const owner = owners.get(finding.file);
+    if (owner) return owner;
+  }
   const target = finding.resource?.includes("/")
     ? finding.resource.slice(finding.resource.indexOf("/") + 1)
     : finding.resource;
@@ -44,13 +62,17 @@ function nodeIdFor(blueprint: Blueprint, finding: HilmirFinding): string | undef
   return match?.id;
 }
 
-function toProblem(blueprint: Blueprint, finding: HilmirFinding): Problem {
+function toProblem(
+  blueprint: Blueprint,
+  finding: HilmirFinding,
+  owners: Map<string, string>,
+): Problem {
   const where = finding.path ? ` (${finding.path})` : "";
   return {
     code: finding.code,
     severity: finding.severity,
     message: `${finding.message}${where}`,
-    nodeId: nodeIdFor(blueprint, finding),
+    nodeId: nodeIdFor(blueprint, finding, owners),
     file: finding.file,
   };
 }
@@ -84,10 +106,14 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
     if (get().hilmir.running) return;
     set((s) => ({ hilmir: { ...s.hilmir, running: true, error: null } }));
     try {
-      const files = renderFiles(blueprint).map((f) => ({ path: f.path, content: f.content }));
+      const rendered = renderFiles(blueprint);
+      const files = rendered.map((f) => ({ path: f.path, content: f.content }));
+      const owners = new Map(
+        rendered.filter((f) => f.nodeId).map((f) => [f.path, f.nodeId as string]),
+      );
       const report = await hilmirValidator.validate(files);
       set((s) => ({
-        serverProblems: report.findings.map((f) => toProblem(blueprint, f)),
+        serverProblems: report.findings.map((f) => toProblem(blueprint, f, owners)),
         hilmir: { ...s.hilmir, report, running: false, error: report.error, stale: false },
       }));
     } catch (error) {
