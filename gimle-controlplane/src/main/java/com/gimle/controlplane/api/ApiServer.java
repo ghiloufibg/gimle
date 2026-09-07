@@ -206,6 +206,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -2826,6 +2827,22 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * A caller-declared {@code ?tenant=} always wins; an omitted one now resolves via {@link
+   * #resolveTenantForIngressName} the same way {@code /services/{name}} already resolves its own
+   * omitted hint (see the comment there for the full reasoning). {@link #workloadTenantHint}, which
+   * this replaced, defaults a missing {@code ?tenant=} straight to {@link Tenant#DEFAULT_TENANT_ID}
+   * -- correct for every workload kind whose own write path defaults there too, but wrong for an
+   * Ingress, whose write path ({@link #handlePostIngress}) always requires an explicit tenant and
+   * never defaults at all. Resolving against {@code default} unconditionally meant a DELETE (or
+   * GET) with no {@code ?tenant=} against an Ingress declared under any other tenant addressed the
+   * wrong stored key entirely: a DELETE silently removed nothing yet still answered {@code 200
+   * {"deleted": true}}, indistinguishable from a real deletion to a caller with no reason to expect
+   * one. {@link #resolveTenantForIngressName} finding no Ingress of this name under any tenant --
+   * ordinary for a name that never existed, or one already deleted -- is treated as "no such
+   * ingress" rather than falling back to the default namespace the same way GET already treats an
+   * absent spec.
+   */
   private void handleIngress(HttpExchange exchange) {
     try {
       String name = pathSegmentAfter(exchange, "/ingresses/");
@@ -2833,11 +2850,13 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing ingress name");
         return;
       }
-      Optional<String> tenantId = workloadTenantHint(exchange);
+      Optional<String> tenantId =
+          declaredOrExistingTenant(exchange, this::resolveTenantForIngressName, name);
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.READ, tenantId)) {
-            Optional<IngressSpec> spec = ingressRegistry.get(tenantId.orElseThrow(), name);
+            Optional<IngressSpec> spec =
+                tenantId.isEmpty() ? Optional.empty() : ingressRegistry.get(tenantId.get(), name);
             if (spec.isEmpty()) {
               respond(exchange, 404, "no such ingress: " + name);
             } else {
@@ -2848,12 +2867,18 @@ public final class ApiServer implements AutoCloseable {
         case "DELETE" -> {
           if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)
               && !rejectIfReservedSystemTenant(exchange, tenantId)) {
-            ingressRegistry.remove(tenantId.orElseThrow(), name);
-            respondJson(exchange, 200, Map.of("deleted", true));
+            if (tenantId.isEmpty()) {
+              respond(exchange, 404, "no such ingress: " + name);
+            } else {
+              ingressRegistry.remove(tenantId.get(), name);
+              respondJson(exchange, 200, Map.of("deleted", true));
+            }
           }
         }
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -4719,6 +4744,27 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * The tenant of whichever Ingress is named {@code name}, for a caller that gave no {@code
+   * ?tenant=} hint of its own -- the same role {@link #resolveTenantForServiceName} plays for
+   * {@code /services/{name}}. Unlike {@link ServiceSpec}, {@link IngressSpec#tenantId()} is a plain
+   * {@code String}, never optional -- an Ingress is always declared under an explicit tenant (see
+   * {@link #handlePostIngress}) -- so this collects it directly rather than flat-mapping an {@link
+   * Optional}.
+   */
+  private Optional<String> resolveTenantForIngressName(String name) {
+    List<String> tenantIds =
+        ingressRegistry.list().stream()
+            .filter(spec -> spec.name().equals(name))
+            .map(IngressSpec::tenantId)
+            .distinct()
+            .toList();
+    if (tenantIds.size() > 1) {
+      throw new AmbiguousTenantException("ingress", name, tenantIds);
+    }
+    return tenantIds.stream().findFirst();
+  }
+
+  /**
    * The tenant of whichever spec in {@code specs} is named {@code name} -- {@link Optional#empty()}
    * if none is, collapsing "no such resource" and "found, but genuinely untenanted" into the one
    * answer every {@link TenantLookup}/{@link #resolveTenantForWorkloadName} caller already treats
@@ -5419,47 +5465,62 @@ public final class ApiServer implements AutoCloseable {
    * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
    * since the whole point here is discovering which tenant owns the name in the first place. With
    * no matching assignment left, {@code owners} -- the workload specs currently carrying this name
-   * -- answers instead, and only a name genuinely claimed by no tenant, or by more than one, falls
-   * through to {@link Optional#empty()} (the untenanted namespace).
+   * -- answers instead, and only a name genuinely claimed by no tenant falls through to {@link
+   * Optional#empty()} (the untenanted namespace). Two tenants each genuinely holding a live
+   * assignment for the exact same {@code (deploymentName, instanceIndex)} -- a real cross-tenant
+   * collision, not a hash-order artifact -- throws {@link AmbiguousTenantException} at whichever
+   * tier the collision is found in, rather than silently returning whichever assignment happened to
+   * come first in an unordered backing collection, exactly as {@link #findTenantByName} already
+   * refuses to guess for a bare workload-name collision.
    */
   private Optional<String> resolveInstanceEventTenant(
       String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
     Optional<Optional<String>> deployment =
-        storeClient.listAssignments().stream()
-            .filter(
-                a ->
-                    a.deploymentName().equals(deploymentName) && a.instanceIndex() == instanceIndex)
-            .map(InstanceAssignment::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listAssignments().stream()
+                .filter(
+                    a ->
+                        a.deploymentName().equals(deploymentName)
+                            && a.instanceIndex() == instanceIndex)
+                .toList(),
+            InstanceAssignment::tenantId,
+            deploymentName);
     if (deployment.isPresent()) {
       return deployment.get();
     }
     Optional<Optional<String>> statefulSet =
-        storeClient.listStatefulSetAssignments().stream()
-            .filter(
-                a ->
-                    a.statefulSetName().equals(deploymentName)
-                        && a.instanceIndex() == instanceIndex)
-            .map(StatefulSetAssignment::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listStatefulSetAssignments().stream()
+                .filter(
+                    a ->
+                        a.statefulSetName().equals(deploymentName)
+                            && a.instanceIndex() == instanceIndex)
+                .toList(),
+            StatefulSetAssignment::tenantId,
+            deploymentName);
     if (statefulSet.isPresent()) {
       return statefulSet.get();
     }
     if (instanceIndex == 0) {
       Optional<Optional<String>> daemonSet =
-          storeClient.listDaemonSetAssignments().stream()
-              .filter(a -> a.daemonSetName().equals(deploymentName))
-              .map(DaemonSetAssignment::tenantId)
-              .findFirst();
+          resolveAssignmentTenant(
+              storeClient.listDaemonSetAssignments().stream()
+                  .filter(a -> a.daemonSetName().equals(deploymentName))
+                  .toList(),
+              DaemonSetAssignment::tenantId,
+              deploymentName);
       if (daemonSet.isPresent()) {
         return daemonSet.get();
       }
     }
     Optional<Optional<String>> jobRun =
-        storeClient.listJobRuns().stream()
-            .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
-            .map(JobRun::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listJobRuns().stream()
+                .filter(
+                    run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+                .toList(),
+            JobRun::tenantId,
+            deploymentName);
     if (jobRun.isPresent()) {
       return jobRun.get();
     }
@@ -5470,6 +5531,30 @@ public final class ApiServer implements AutoCloseable {
     List<String> ownerTenants =
         owners.stream().flatMap(spec -> spec.tenantId().stream()).distinct().toList();
     return ownerTenants.size() == 1 ? Optional.of(ownerTenants.get(0)) : Optional.empty();
+  }
+
+  /**
+   * Whether any of {@code matches} -- one assignment kind's own rows already filtered down to the
+   * ones matching a single {@code (deploymentName, instanceIndex)} -- exist at all, and if so which
+   * tenant they belong to: {@link Optional#empty()} when {@code matches} itself is empty (this tier
+   * found nothing, so {@link #resolveInstanceEventTenant} should keep trying the next one),
+   * otherwise a present {@link Optional} wrapping the resolved tenant (itself possibly empty, for a
+   * genuinely untenanted assignment). Mirrors {@link #findTenantByName}'s own collect-then-check
+   * shape: every present {@code tenantId()} among the matches is collected and deduplicated, and
+   * more than one distinct tenant throws {@link AmbiguousTenantException} instead of picking
+   * whichever matching assignment happened to come first.
+   */
+  private static <T> Optional<Optional<String>> resolveAssignmentTenant(
+      List<T> matches, Function<T, Optional<String>> tenantIdOf, String name) {
+    if (matches.isEmpty()) {
+      return Optional.empty();
+    }
+    List<String> tenantIds =
+        matches.stream().flatMap(match -> tenantIdOf.apply(match).stream()).distinct().toList();
+    if (tenantIds.size() > 1) {
+      throw new AmbiguousTenantException("instance", name, tenantIds);
+    }
+    return Optional.of(tenantIds.stream().findFirst());
   }
 
   /**
