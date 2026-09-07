@@ -3,6 +3,7 @@ package com.example.webui.provider;
 import com.example.inventory.InventoryLevels;
 import com.example.orders.OrderCatalog;
 import com.gimle.core.exception.GimleClusterException;
+import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleLifecycleHooks;
 import com.sun.net.httpserver.HttpExchange;
@@ -46,7 +47,11 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
  * are: {@code ctx.lookupService} throws {@link GimleClusterException} rather than returning empty
  * when nobody in the cluster has ever exported the interface yet, which is exactly the ordinary
  * state right after a fresh cluster boot -- caught and treated as "temporarily unavailable" so a
- * user hitting the page during that window sees a clear status instead of a stack trace.
+ * user hitting the page during that window sees a clear status instead of a stack trace. A lookup
+ * that does resolve can still have its actual RPC denied by the receiving worker's own tenant
+ * network-policy re-check ({@link GimleFabricAuthorizationException}, thrown from inside {@link
+ * WebUiService#inventoryJson} once a candidate is in hand) -- {@code InventoryHandler} degrades the
+ * same way around that call, a 503 rather than the request thread dying with an uncaught exception.
  *
  * <p>{@code POST /api/orders} is gated behind {@link #ADMIN_TOKEN_CONFIG_KEY}, a real secret
  * delivered by Fafnir -- the first orders-platform module to consume {@code ctx.config(...)} at
@@ -166,7 +171,7 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
    * a fresh fabric lookup every request (never cached): the whole point of this page is watching
    * real numbers move as {@code InventoryServiceHooks}'s own background reconciler and other
    * clients placing orders change them. */
-  private static final class InventoryHandler implements HttpHandler {
+  static final class InventoryHandler implements HttpHandler {
     private final ModuleContext ctx;
     private final WebUiService webUiService;
 
@@ -184,7 +189,25 @@ public final class WebUiHooks implements ModuleLifecycleHooks {
       Optional<OrderCatalog> orderCatalog = lookupQuietly(() -> ctx.lookupService(OrderCatalog.class));
       Optional<InventoryLevels> inventoryLevels =
           lookupQuietly(() -> ctx.lookupService(InventoryLevels.class));
-      sendJson(exchange, 200, webUiService.inventoryJson(orderCatalog, inventoryLevels));
+      try {
+        sendJson(exchange, 200, webUiService.inventoryJson(orderCatalog, inventoryLevels));
+      } catch (GimleFabricAuthorizationException e) {
+        // lookupQuietly above only guards ctx.lookupService itself -- the actual RPCs inside
+        // inventoryJson happen against an already-resolved endpoint, so a network-policy denial
+        // there surfaces here instead, and needs its own graceful-degradation response rather
+        // than letting the handler thread die with nothing written back to the client.
+        log.warn(
+            "web-ui instance {} (tenant {}) had its /api/inventory fabric call denied: {}",
+            ctx.instanceInfo().map(ModuleContext.InstanceInfo::deploymentName).orElse("web-ui"),
+            ctx.instanceInfo()
+                .flatMap(ModuleContext.InstanceInfo::tenantId)
+                .orElse("no tenant"),
+            e.getMessage());
+        sendJson(
+            exchange,
+            503,
+            "{\"error\":\"inventory lookup denied by tenant network policy\"}");
+      }
     }
   }
 
