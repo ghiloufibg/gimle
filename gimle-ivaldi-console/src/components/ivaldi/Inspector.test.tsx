@@ -43,4 +43,34 @@ describe("Inspector", () => {
     // the Name field the finding targets -- the field-level surfacing this test exists to prove.
     expect(screen.getAllByText(/Hilmir says this machine name collides/).length).toBeGreaterThan(0);
   });
+
+  it("shows a MODULE_VERSION_MISMATCH finding inline on the Module version field", () => {
+    const blueprint = createBlueprint("test", { empty: true });
+    const deployment = createNode("deployment", { x: 0, y: 0 });
+    blueprint.nodes = [deployment];
+    useBlueprintStore.setState({
+      blueprint,
+      selectedId: deployment.id,
+      selectedIds: [deployment.id],
+    });
+    useValidationStore.setState({
+      problems: [],
+      serverProblems: [
+        {
+          code: "MODULE_VERSION_MISMATCH",
+          severity: "error",
+          message: "declared module version doesn't match the jar's own",
+          nodeId: deployment.id,
+        },
+      ],
+    });
+
+    render(<Inspector blueprint={blueprint} />);
+
+    // Twice: once in the node's own "Problems" summary panel, once inline on the Module version
+    // field itself -- the field-level surfacing this test exists to prove actually happened.
+    expect(screen.getAllByText(/declared module version doesn't match the jar's own/)).toHaveLength(
+      2,
+    );
+  });
 });

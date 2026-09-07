@@ -348,6 +348,7 @@ function WorkloadForm({
         label="Module version"
         value={d.module.version}
         onChange={(version) => update({ module: { ...d.module, version } } as Partial<NodeData>)}
+        problems={pick(problems, ["MODULE_VERSION_MISMATCH"])}
       />
       <SelectField
         label="Artifact source"
