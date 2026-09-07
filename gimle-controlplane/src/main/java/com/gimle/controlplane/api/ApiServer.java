@@ -1147,7 +1147,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackDeployment(exchange, tenant, name);
         }
       }
@@ -1364,7 +1365,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           Optional<String> tenant = declaredOrExistingTenant(exchange, existingTenant, name);
-          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             delete.run(exchange, tenant, name);
           }
         }
@@ -2505,7 +2507,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.DELETE, tenant)
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             serviceRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -2720,7 +2723,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.DELETE, tenant)
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             alertRuleRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -2842,7 +2846,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)) {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)
+              && !rejectIfReservedSystemTenant(exchange, tenantId)) {
             ingressRegistry.remove(tenantId.orElseThrow(), name);
             respondJson(exchange, 200, Map.of("deleted", true));
           }
@@ -2878,6 +2883,9 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     if (!requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, Optional.of(tenantId))) {
+      return;
+    }
+    if (rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
       return;
     }
     List<IngressRule> routes = new ArrayList<>();
@@ -3275,7 +3283,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.NETWORK_POLICY, Verb.DELETE, Optional.of(tenant))) {
+                  exchange, ResourceKind.NETWORK_POLICY, Verb.DELETE, Optional.of(tenant))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenant))) {
             networkPolicyRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -3617,7 +3626,8 @@ public final class ApiServer implements AutoCloseable {
     Optional<String> tenant =
         declaredOrExistingTenant(
             exchange, n -> findTenantByName(storeClient.listCronJobSpecs(), n), name);
-    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)) {
+    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)
+        && !rejectIfReservedSystemTenant(exchange, tenant)) {
       handleCronJobTrigger(exchange, tenant, name);
     }
     return Optional.empty();
@@ -3831,7 +3841,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackDaemonSet(exchange, tenant, name);
         }
       }
@@ -4114,7 +4125,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackStatefulSet(exchange, tenant, name);
         }
       }
@@ -6590,7 +6602,8 @@ public final class ApiServer implements AutoCloseable {
       HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
     Optional<String> tenant = customResourceTenant(exchange, definition, name);
     if (!requireCustomResourceAuthorized(
-        exchange, definition.kindName(), Verb.DELETE, tenant, Optional.of(name))) {
+            exchange, definition.kindName(), Verb.DELETE, tenant, Optional.of(name))
+        || rejectIfReservedSystemTenant(exchange, tenant)) {
       return;
     }
     // Idempotent delete-on-missing, matching the majority convention across resource kinds.
@@ -6605,6 +6618,17 @@ public final class ApiServer implements AutoCloseable {
     Optional<Principal> auditPrincipal =
         requireCustomResourceWrite(exchange, definition.kindName(), tenant, true);
     if (auditPrincipal.isEmpty()) {
+      return;
+    }
+    if (rejectIfReservedSystemTenant(exchange, tenant)) {
+      recordCustomResourceAuditBestEffort(
+          auditPrincipal.get(),
+          definition.kindName(),
+          Verb.WRITE,
+          tenant,
+          Optional.of(name + "/status"),
+          true,
+          AuditOutcome.REJECTED);
       return;
     }
     AuditOutcome outcome = applyCustomResourceStatusPut(exchange, definition, tenant, name);
@@ -6900,7 +6924,8 @@ public final class ApiServer implements AutoCloseable {
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.LIMIT_RANGE, Verb.WRITE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.LIMIT_RANGE, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutLimitRange(exchange, tenantId);
           }
         }
@@ -6912,7 +6937,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.LIMIT_RANGE, Verb.DELETE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.LIMIT_RANGE, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteLimitRange(exchange, tenantId);
           }
         }
@@ -7133,7 +7159,8 @@ public final class ApiServer implements AutoCloseable {
           return;
         }
         if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
-          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleRollbackConfig(exchange, tenantId, key);
           }
           return;
@@ -7150,7 +7177,8 @@ public final class ApiServer implements AutoCloseable {
           String value = (String) body.get("value");
           boolean encrypted = Boolean.TRUE.equals(body.get("encrypted"));
           ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
-          if (requireAuthorized(exchange, resource, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, resource, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutConfig(exchange, tenantId, key, value, encrypted);
           }
         }
@@ -7163,7 +7191,8 @@ public final class ApiServer implements AutoCloseable {
           Optional<ConfigEntry> existing = findConfigEntry(tenantId, key);
           boolean encrypted = existing.map(ConfigEntry::encrypted).orElse(false);
           ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
-          if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteConfig(exchange, tenantId, key, encrypted);
           }
         }
@@ -7466,8 +7495,8 @@ public final class ApiServer implements AutoCloseable {
           return;
         }
         if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleRollbackConfigMap(exchange, tenantId, name);
           }
           return;
@@ -7483,20 +7512,21 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "PUT" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutConfigMap(exchange, tenantId, name);
           }
         }
         case "PATCH" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePatchConfigMap(exchange, tenantId, name);
           }
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteConfigMap(exchange, tenantId, name);
           }
         }
@@ -8109,6 +8139,10 @@ public final class ApiServer implements AutoCloseable {
       if (!requireAuthorized(exchange, ResourceKind.SECRET, verb, Optional.of(tenantId))) {
         return;
       }
+      if ((verb == Verb.WRITE || verb == Verb.DELETE)
+          && rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
+        return;
+      }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();
       resolvePrincipal(exchange)
           .ifPresent(
@@ -8173,6 +8207,10 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       if (!requireAuthorized(exchange, ResourceKind.SECRETMAP, verb, Optional.of(tenantId))) {
+        return;
+      }
+      if ((verb == Verb.WRITE || verb == Verb.DELETE)
+          && rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
         return;
       }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();
@@ -9213,11 +9251,12 @@ public final class ApiServer implements AutoCloseable {
       int instanceIndex = Integer.parseInt(segments[2]);
       Optional<String> tenantId = volumeTenant(exchange);
       if (!requireAuthorized(
-          exchange,
-          ResourceKind.STATEFULSET,
-          Verb.DELETE,
-          tenantId,
-          Optional.of(statefulSetName))) {
+              exchange,
+              ResourceKind.STATEFULSET,
+              Verb.DELETE,
+              tenantId,
+              Optional.of(statefulSetName))
+          || rejectIfReservedSystemTenant(exchange, tenantId)) {
         return;
       }
       if (isVolumeAttached(tenantId, statefulSetName, instanceIndex, nodeId)) {
