@@ -369,17 +369,23 @@ export function edgeKindFor(sourceKind: NodeKind, targetKind: NodeKind): EdgeKin
 }
 
 export function createBlueprint(name: string, options?: { empty?: boolean }): Blueprint {
-  if (options?.empty)
+  if (options?.empty) {
+    const id = uid("bp");
     return {
-      id: uid("bp"),
+      id,
       name,
       version: "0.1.0",
       transport: "plaintext",
-      runtime: { dataRoot: "~/.gimle/data" },
+      // Scoped to this blueprint's own id, not one fixed path every blueprint shared -- two
+      // blueprints run at once (two tabs, two operators) used to point at the exact same on-disk
+      // data root by default, an ambient collision nobody asked for. No behavior change for a
+      // blueprint that already explicitly overrides this in the Inspector.
+      runtime: { dataRoot: `~/.gimle/data/${id}` },
       nodes: [],
       edges: [],
       updatedAt: new Date().toISOString(),
     };
+  }
 
   const machine: BlueprintNode = {
     id: uid("machine"),
@@ -418,12 +424,14 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     source: n.id,
     target: machine.id,
   }));
+  const id = uid("bp");
   return {
-    id: uid("bp"),
+    id,
     name,
     version: "0.1.0",
     transport: "plaintext",
-    runtime: { dataRoot: "~/.gimle/data" },
+    // See the empty-blueprint branch above for why this is scoped to the blueprint's own id.
+    runtime: { dataRoot: `~/.gimle/data/${id}` },
     nodes,
     edges,
     updatedAt: new Date().toISOString(),
