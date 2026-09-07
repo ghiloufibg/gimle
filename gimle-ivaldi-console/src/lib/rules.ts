@@ -436,9 +436,6 @@ function validateApplication(bp: Blueprint): Problem[] {
           ),
         );
     }
-    // A NetworkPolicy node always restricts ingress -- an empty allowed-caller list is the
-    // deny-every-caller policy, which the renderer emits as an explicit empty list -- so the only
-    // thing left to check is that the policy scopes something.
     if ((d.deploymentNames ?? []).length === 0 && restricts.length === 0)
       p.push(
         info(

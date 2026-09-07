@@ -371,6 +371,21 @@ describe("NetworkPolicy egress and interface scoping", () => {
     expect(doc.serviceInterfaceNames).toBeUndefined();
     expect(doc.allowedCalleeTenantIds).toBeUndefined();
   });
+
+  it("omits allowedCallerTenantIds entirely for an egress-only policy, not as an empty list", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = {
+      ...policy.data,
+      allowedCallerTenantIds: [],
+      allowedCalleeTenantIds: ["orders-platform"],
+    };
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as Record<string, unknown>;
+
+    expect(doc.allowedCallerTenantIds).toBeUndefined();
+    expect(doc.allowedCalleeTenantIds).toEqual(["orders-platform"]);
+  });
 });
 
 describe("the release a blueprint deploys under", () => {
