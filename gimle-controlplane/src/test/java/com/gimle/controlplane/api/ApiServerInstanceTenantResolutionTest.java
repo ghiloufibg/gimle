@@ -115,6 +115,11 @@ class ApiServerInstanceTenantResolutionTest {
 
   /** A workload owned by {@link #TENANT}, placed on {@code node-a} at {@code index}. */
   private void placeUnderTenant(String name, int index) {
+    placeUnderTenant(TENANT, name, index);
+  }
+
+  /** A workload owned by {@code tenantId}, placed on {@code node-a} at {@code index}. */
+  private void placeUnderTenant(String tenantId, String name, int index) {
     inProcessStore
         .client()
         .propose(
@@ -126,8 +131,8 @@ class ApiServerInstanceTenantResolutionTest {
                     1,
                     PlacementConstraints.NONE,
                     Optional.empty(),
-                    Optional.of(TENANT)),
-                0));
+                    Optional.of(tenantId)),
+                inProcessStore.client().getDeploymentGeneration(Optional.of(tenantId), name)));
     inProcessStore
         .client()
         .propose(
@@ -139,7 +144,7 @@ class ApiServerInstanceTenantResolutionTest {
                     MODULE,
                     "/artifacts/orders.jar",
                     OptionalInt.empty(),
-                    Optional.of(TENANT))));
+                    Optional.of(tenantId))));
   }
 
   private HttpResponse<String> get(String path) throws Exception {
@@ -222,5 +227,25 @@ class ApiServerInstanceTenantResolutionTest {
   void a_bare_fabric_endpoint_lookup_for_an_unplaced_name_is_still_a_404() throws Exception {
     assertEquals(404, get("/instances/nothing-here/0/fabric-endpoint").statusCode());
     assertTrue(agentReceivedUris.isEmpty(), agentReceivedUris.toString());
+  }
+
+  /**
+   * Two tenants each genuinely holding a live assignment for the exact same {@code (deploymentName,
+   * instanceIndex)} is a real cross-tenant collision, not a hint to guess from: a bare {@code GET
+   * /events} with no {@code ?tenant=} must refuse rather than silently returning whichever tenant's
+   * assignment happened to come first in an unordered backing collection.
+   */
+  @Test
+  @Timeout(20)
+  void a_bare_event_read_for_a_cross_tenant_collision_is_rejected_not_guessed() throws Exception {
+    placeUnderTenant("acme", "orders", 0);
+    placeUnderTenant("widgets", "orders", 0);
+
+    HttpResponse<String> response = get("/events?deployment=orders&instance=0");
+
+    assertEquals(400, response.statusCode(), response.body());
+    assertTrue(
+        response.body().contains("ambiguous"),
+        "expected an ambiguity error, not a silently-picked tenant: " + response.body());
   }
 }
