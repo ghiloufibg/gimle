@@ -1,5 +1,6 @@
 package com.gimle.muninn;
 
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
@@ -631,17 +632,58 @@ public final class MuninnServer implements AutoCloseable {
    * originated it. Falls back to the peer certificate for a caller reaching Muninn directly (a node
    * agent's own shipper, or a test simulating one). Muninn has no console session of its own, so
    * there is no third fallback the way Fafnir's/Andvari's own {@code resolvePrincipal} has.
+   *
+   * <p>Mirrors {@code FafnirServer}/{@code AndvariServer}'s own revocation and forwarding checks: a
+   * revoked certificate's serial resolves no principal at all, whether it is presenting itself
+   * directly or attempting to vouch for a forwarded claim, and a forwarded claim is honored only
+   * when the certificate making it actually belongs to {@link BuiltinRoles#GROUP_CONTROLPLANE} --
+   * without that gate, any certificate at all could inject an arbitrary forwarded identity.
    */
-  private static Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+  private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    Optional<Principal> certificatePrincipal = certificate.flatMap(this::principalIfNotRevoked);
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
     if (forwardedName.isPresent()) {
+      boolean forwardedByControlPlane =
+          certificatePrincipal
+              .map(principal -> principal.groups().contains(BuiltinRoles.GROUP_CONTROLPLANE))
+              .orElse(false);
+      if (!forwardedByControlPlane) {
+        return Optional.empty();
+      }
       Set<String> groups = new LinkedHashSet<>(splitHeader(exchange, FORWARDED_GROUPS_HEADER));
       return Optional.of(new Principal(forwardedName.get(), groups));
     }
+    return certificatePrincipal;
+  }
+
+  /**
+   * A compromised leaf's serial lands on the store-backed denylist and every request it makes from
+   * then on resolves no principal at all -- checked before this connection's own certificate is
+   * ever allowed to vouch for anything, whether as its own identity or as a forwarded claim's.
+   */
+  private Optional<Principal> principalIfNotRevoked(X509Certificate certificate) {
+    String serial = certificateSerial(certificate);
+    if (storeClient.isCertificateRevoked(serial)) {
+      log.warn(
+          "rejecting revoked certificate serial {} presented by {}",
+          serial,
+          certificate.getSubjectX500Principal());
+      return Optional.empty();
+    }
+    return Optional.of(Subjects.principalFrom(certificate));
+  }
+
+  private static Optional<X509Certificate> peerCertificate(HttpExchange exchange) {
     if (!(exchange instanceof HttpsExchange httpsExchange)) {
       return Optional.empty();
     }
-    return peerCertificate(httpsExchange).map(Subjects::principalFrom);
+    return peerCertificate(httpsExchange);
+  }
+
+  /** Lowercase hex, the form {@code openssl x509 -serial} prints -- what operators paste back. */
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
   }
 
   private static Optional<String> firstHeader(HttpExchange exchange, String name) {
