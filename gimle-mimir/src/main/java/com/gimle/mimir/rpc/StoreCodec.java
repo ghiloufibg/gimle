@@ -195,6 +195,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_REQUEST_OUTCOME = -101;
   private static final byte TAG_REQUEST_OUTCOME_RESULT = -100;
   private static final byte TAG_COUNT_REQUEST_OUTCOMES_BEFORE = -99;
+  private static final byte TAG_LIST_ALL_CONFIG_ENTRIES = -98;
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
@@ -480,6 +481,7 @@ public final class StoreCodec {
           out.writeByte(TAG_LIST_CONFIG_ENTRIES_FOR);
           out.writeUTF(v.tenantId());
         }
+        case StoreRpc.ListAllConfigEntries v -> out.writeByte(TAG_LIST_ALL_CONFIG_ENTRIES);
         case StoreRpc.ListRoles v -> out.writeByte(TAG_LIST_ROLES);
         case StoreRpc.GetRole v -> {
           out.writeByte(TAG_GET_ROLE);
@@ -1161,6 +1163,7 @@ public final class StoreCodec {
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();
         case TAG_LIST_CONFIG_ENTRIES_FOR -> new StoreRpc.ListConfigEntriesFor(in.readUTF());
+        case TAG_LIST_ALL_CONFIG_ENTRIES -> new StoreRpc.ListAllConfigEntries();
         case TAG_LIST_ROLES -> new StoreRpc.ListRoles();
         case TAG_GET_ROLE -> new StoreRpc.GetRole(in.readUTF());
         case TAG_LIST_ROLE_BINDINGS -> new StoreRpc.ListRoleBindings();

@@ -206,6 +206,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
       case StoreRpc.ListConfigEntriesFor r ->
           new StoreRpc.ConfigEntryListResult(store.listConfigEntriesFor(r.tenantId()));
+      case StoreRpc.ListAllConfigEntries r ->
+          new StoreRpc.ConfigEntryListResult(store.listAllConfigEntries());
       case StoreRpc.ListRoles r -> new StoreRpc.RoleListResult(store.listRoles());
       case StoreRpc.GetRole r -> roleResult(store.getRole(r.name()));
       case StoreRpc.ListRoleBindings r ->

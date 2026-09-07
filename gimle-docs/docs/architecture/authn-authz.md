@@ -317,6 +317,19 @@ re-login required.
 `Authorizer` never knows or cares which path resolved a given `Principal` — a certificate and a
 session cookie both just produce `(name, groups)`.
 
+**Precedence when a request somehow carries more than one credential**: a valid, non-revoked
+session cookie wins over the connection's own peer certificate, on the control plane, Fafnir, and
+Andvari alike. This matters in practice — any browser that has ever been issued an operator
+certificate presents both a cookie and a certificate on every request to a cluster running mTLS,
+not just one or the other. A session cookie is the result of a deliberate login; a certificate on
+the same connection can be present merely because the browser has one imported, with no login
+intent behind it. The control plane's own bearer workload token outranks both, for the same
+reason: an explicit credential a caller chose to present should never be silently overridden by a
+broader one the transport happens to carry. Fafnir/Andvari's forwarded-principal header (set only
+by the control plane's own proxy hop, and only honored from a certificate confirmed to belong to
+`gimle:controlplane`) outranks all three there, since it represents a relayed identity, not this
+connection's own.
+
 ### Cookie attributes, and why
 
 - **`HttpOnly`** — never readable by the console's own JavaScript, so an XSS in the SPA can't

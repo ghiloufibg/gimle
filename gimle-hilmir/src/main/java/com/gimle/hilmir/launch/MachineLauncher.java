@@ -107,7 +107,7 @@ public final class MachineLauncher {
       for (final ProcessCommand command : myPlan.commands()) {
         final RunRecord previous = alreadyRecorded.get(command.id());
         final RunRecord record;
-        if (previous != null && isActuallyAlive(previous, readinessSummary(previous))) {
+        if (previous != null && canSkipRespawn(topology, previous)) {
           out.println(
               command.role()
                   + " "
@@ -118,6 +118,20 @@ public final class MachineLauncher {
           record = previous;
           records.add(record);
         } else {
+          if (previous != null && isActuallyAlive(previous, readinessSummary(previous))) {
+            // Still holding its port but failed its own health check -- a zombie, not a genuinely
+            // exited process (see canSkipRespawn's javadoc). The replacement needs that identical
+            // port, so it must be killed here rather than left for spawn() to collide with.
+            out.println(
+                command.role()
+                    + " "
+                    + command.id()
+                    + " (pid "
+                    + previous.pid()
+                    + ") is alive but not answering its own health check -- killing and"
+                    + " respawning");
+            killWithDescendants(runtime.dataRoot(), previous, out);
+          }
           awaitRemotePrerequisites(clusterPlan, machineName, command, confirmedReady, out);
           final Spawned spawned = spawn(topology, runtime, command, out);
           // Recorded before the readiness wait, not after: a process that starts but never opens
@@ -150,6 +164,23 @@ public final class MachineLauncher {
     out.println(
         "wrote run ledger for " + records.size() + " process(es) under " + runtime.dataRoot());
     return records;
+  }
+
+  /**
+   * Whether a previous {@code up}'s recorded process can be left alone rather than respawned: not
+   * just present in the OS process table with its port still open (see {@link #isActuallyAlive}),
+   * but -- for a role that exposes one, via {@link HealthProbe} -- actually answering its own
+   * health endpoint. A process wedged badly enough to stop responding while still holding its port
+   * open (a JVM stuck after a fatal error that failed to actually terminate the process, for
+   * instance) passes the port check forever; this is the signal that catches it, closing the gap
+   * where this command would otherwise report such a zombie "already running" and never respawn it.
+   */
+  private static boolean canSkipRespawn(final Topology topology, final RunRecord previous) {
+    if (!isActuallyAlive(previous, readinessSummary(previous))) {
+      return false;
+    }
+    return HealthProbe.isHealthy(
+        topology, ProcessRole.valueOf(previous.role()), previous.readinessAddress());
   }
 
   /**

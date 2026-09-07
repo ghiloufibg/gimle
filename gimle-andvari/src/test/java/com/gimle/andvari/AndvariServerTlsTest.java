@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.andvari.testsupport.InProcessStore;
 import com.gimle.andvari.testsupport.TlsTestFixtures;
+import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
@@ -451,6 +453,82 @@ class AndvariServerTlsTest {
 
   private String baseUrl() {
     return "https://localhost:" + server.port();
+  }
+
+  /**
+   * {@code V3-B3}: a session cookie's own identity must be what authorizes a request, even when the
+   * same mTLS connection also carries a client certificate -- the normal case for any browser that
+   * has ever been issued one. A restricted account's cookie must not be silently upgraded to the
+   * connection's own {@code gimle:operators} certificate.
+   */
+  @Test
+  @Timeout(10)
+  void a_restricted_session_cookie_is_not_upgraded_by_an_ambient_operator_certificate()
+      throws Exception {
+    store
+        .store()
+        .putAccount(new Account("restricted-user", PasswordHashes.hash("pw".toCharArray())));
+    HttpClient client =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "ambient-operator");
+    String cookie = login(client, "restricted-user", "pw");
+
+    HttpResponse<String> response =
+        send(
+            client,
+            HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
+                .header("Cookie", cookie)
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+                .build());
+
+    assertEquals(
+        403,
+        response.statusCode(),
+        "the ambient operator certificate must not upgrade this restricted cookie session");
+  }
+
+  /**
+   * The symmetric half of {@code V3-B3}: an ambient certificate holding no grant of its own must
+   * not downgrade a privileged session cookie either.
+   */
+  @Test
+  @Timeout(10)
+  void a_privileged_session_cookie_is_not_downgraded_by_an_ambient_ungrouped_certificate()
+      throws Exception {
+    store
+        .store()
+        .putAccount(
+            new Account(
+                "privileged-user",
+                PasswordHashes.hash("pw".toCharArray()),
+                Set.of(BuiltinRoles.GROUP_OPERATORS)));
+    // No group, no grant of its own.
+    HttpClient client = tls.clientWithLeaf(ca, "unrelated-caller");
+    String cookie = login(client, "privileged-user", "pw");
+
+    HttpResponse<String> response =
+        send(
+            client,
+            HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
+                .header("Cookie", cookie)
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+                .build());
+
+    assertEquals(200, response.statusCode());
+  }
+
+  /** Logs in over {@code client} and returns the {@code Set-Cookie} value it receives. */
+  private String login(HttpClient client, String username, String password) throws Exception {
+    HttpResponse<String> response =
+        send(
+            client,
+            HttpRequest.newBuilder(URI.create(baseUrl() + "/auth/login"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .build());
+    assertEquals(200, response.statusCode());
+    String setCookie = response.headers().firstValue("Set-Cookie").orElse("");
+    return setCookie.substring(0, setCookie.indexOf(';'));
   }
 
   private URI uri(String moduleId, String version) {

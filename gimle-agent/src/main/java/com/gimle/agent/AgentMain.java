@@ -2923,7 +2923,8 @@ public final class AgentMain {
             existing.workerLimit);
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
-    startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+    startShippingInstanceLogs(
+        muninnEndpoint, instanceShippers, key, existing.workerKey, assigned, logRoot);
     WorkerConnection connection = existing.connection;
     if (connection != null) {
       copyFabricIdentity(instance, existing, connection);
@@ -3164,26 +3165,22 @@ public final class AgentMain {
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());
-      // Real committed memory, not the tiny declared request tryAssign above tracks -- the
-      // check that actually catches a node overcommitting its real machine memory across
+      // Real committed memory and CPU, not the tiny declared request tryAssign above tracks --
+      // the check that actually catches a node overcommitting its real machine capacity across
       // accumulated shared-worker ceilings. Checked (and reserved) before supervisor.start()
       // below actually forks the process, so a refusal here never spawns anything to clean up.
       if (!committedWorkerCapacity.tryAssign(key, handle.limit())) {
+        // A failed tryAssign never mutates its own state, so this snapshot still reflects
+        // exactly what was compared against handle.limit() above -- safe to read after the fact
+        // rather than threading the rejected dimension back out of tryAssign itself.
         CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
-        String refusal =
-            "refusing to spawn worker "
-                + key
-                + ": committing its "
-                + ResourceSpec.formatMemory(handle.limit().memoryBytes())
-                + " ceiling would exceed this node's own real memory budget (already committed: "
-                + ResourceSpec.formatMemory(committed.assignedMemoryBytes())
-                + ", node total: "
-                + ResourceSpec.formatMemory(committed.totalMemoryBytes())
-                + ")";
+        String refusal = committedCapacityRefusalMessage(key, handle.limit(), committed);
         log.error(refusal);
         throw new IOException(refusal);
       }
-      startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+      // A freshly spawned worker's own key is its own worker directory -- unlike
+      // installIntoExistingWorker's packed instance, there is no separate owner key to defer to.
+      startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, key, assigned, logRoot);
       supervisor.start();
     } catch (IOException | RuntimeException e) {
       // Undo everything registered above so a start failure leaves no trace behind -- mirrors
@@ -3219,6 +3216,48 @@ public final class AgentMain {
                     volumeManager,
                     muninnEndpoint,
                     workerShippers));
+  }
+
+  /**
+   * Names whichever resource dimension actually failed a {@link CapacityTracker#tryAssign} call
+   * against {@code limit} -- {@code committed} must be the snapshot taken immediately after that
+   * failed call (a no-op on failure, so it still reflects the pre-assignment totals compared
+   * against {@code limit}). Memory is checked first: at least one of the two dimensions must have
+   * failed for this to be called at all, so a memory failure is reported even when CPU also happens
+   * to be over, rather than silently picking neither or reporting both.
+   */
+  static String committedCapacityRefusalMessage(
+      String key, ResourceSpec limit, CapacityTracker.Snapshot committed) {
+    boolean memoryExceeded =
+        committed.assignedMemoryBytes() + limit.memoryBytes() > committed.totalMemoryBytes();
+    String resource;
+    String limitFigure;
+    String committedFigure;
+    String totalFigure;
+    if (memoryExceeded) {
+      resource = "memory";
+      limitFigure = ResourceSpec.formatMemory(limit.memoryBytes());
+      committedFigure = ResourceSpec.formatMemory(committed.assignedMemoryBytes());
+      totalFigure = ResourceSpec.formatMemory(committed.totalMemoryBytes());
+    } else {
+      resource = "CPU";
+      limitFigure = ResourceSpec.formatCpu(limit.cpuMillicores());
+      committedFigure = ResourceSpec.formatCpu(committed.assignedCpuMillicores());
+      totalFigure = ResourceSpec.formatCpu(committed.totalCpuMillicores());
+    }
+    return "refusing to spawn worker "
+        + key
+        + ": committing its "
+        + limitFigure
+        + " "
+        + resource
+        + " ceiling would exceed this node's own real "
+        + resource
+        + " budget (already committed: "
+        + committedFigure
+        + ", node total: "
+        + totalFigure
+        + ")";
   }
 
   /**
@@ -4489,27 +4528,31 @@ public final class AgentMain {
 
   /**
    * Starts shipping this instance's worker's own {@code PLATFORM} log and this instance's own
-   * {@code APPLICATION} log to Muninn -- a no-op when {@code muninnEndpoint} is unset. Mirrors
-   * {@code AgentLogServer.handleInstanceLogs}'s own path derivation exactly (same {@code
-   * workerLogRoot}, same two file names per category) so a shipped line and a live read of the
-   * identical {@code /logs/instances/{deploymentName}/{instanceIndex}?category=} request agree,
-   * including for a Tier 1-density instance installed into another instance's already-running
-   * worker: its own {@code workerLogRoot} won't hold a real {@code worker-platform.log} of its own
-   * in that case (the shared worker's platform log lives under the *originating* instance's own key
-   * instead), and shipping simply finds nothing there each tick -- the identical "no data for this
-   * path" outcome a live read against that same path already produces today.
+   * {@code APPLICATION} log to Muninn -- a no-op when {@code muninnEndpoint} is unset. {@code key}
+   * addresses this instance's own entry in {@code instanceShippers} (so {@link
+   * #stopShippingInstanceLogs} can find and close it later), while {@code workerKey} names the
+   * {@code workers/<workerKey>} directory the files actually live under -- the same split {@link
+   * SupervisedInstance#workerKey} exists for, and the two differ for a Tier 1-density instance
+   * installed into another instance's already-running worker. Mirrors {@code
+   * AgentLogServer.handleInstanceLogs}'s own path derivation exactly (same {@code workerLogRoot},
+   * same two file names per category) so a shipped line and a live read of the identical {@code
+   * /logs/instances/{deploymentName}/{instanceIndex}?category=} request agree -- passing this
+   * instance's own {@code key} as {@code workerKey} too, rather than the owning instance's, used to
+   * point shipping at a directory no worker was ever spawned under, so a packed instance's logs
+   * were never shipped at all and a Muninn fallback read for it found nothing.
    */
   static void startShippingInstanceLogs(
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
       String key,
+      String workerKey,
       AssignedInstance assigned,
       Path logRoot) {
     if (muninnEndpoint == null) {
       return;
     }
     List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
-    Path workerLogRoot = logRoot.resolve("workers").resolve(key);
+    Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
     String instancePathPrefix =
         "/ingest/logs/instances/" + assigned.deploymentName() + "/" + assigned.instanceIndex();
 

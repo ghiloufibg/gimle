@@ -1035,22 +1035,24 @@ public final class AndvariServer implements AutoCloseable {
   }
 
   /**
-   * A forwarded principal (set only by {@code ApiServer}'s proxy) wins over the connection's own
-   * peer certificate, since a proxied request's peer certificate identifies the control-plane
-   * replica making the call, not the operator who originated it -- but only once that peer
-   * certificate is itself confirmed to belong to {@link BuiltinRoles#GROUP_CONTROLPLANE}. Any other
-   * cluster leaf certificate (a node agent's, a worker's) can present these headers just as easily
-   * as the control plane can, so honoring them without checking who is actually connected would let
-   * any such holder claim any identity, including {@code group:gimle:operators}. Falls back to the
-   * peer certificate for a direct caller (a node agent's own pull, the CLI talking straight to this
-   * port); finally falls back to this console's own session cookie -- a human operator signed in
-   * through {@link #handleAuthLogin} directly, the one caller shape with neither a forwarded header
-   * nor a client certificate of its own. Mirrors {@code FafnirServer}'s own fallback exactly,
-   * revocation check included: a present peer certificate is checked against the store-backed
-   * revocation denylist before it is trusted for anything, since Andvari (like Fafnir) holds
-   * sensitive platform state and independently re-runs its own checks rather than trusting the CA
-   * trust chain alone -- an unexpired, correctly signed certificate satisfies that chain check even
-   * once revoked.
+   * A forwarded principal (set only by {@code ApiServer}'s proxy) wins over everything else when
+   * present, since a proxied request's peer certificate identifies the control-plane replica making
+   * the call, not the operator who originated it -- but only once that peer certificate is itself
+   * confirmed to belong to {@link BuiltinRoles#GROUP_CONTROLPLANE}. Any other cluster leaf
+   * certificate (a node agent's, a worker's) can present these headers just as easily as the
+   * control plane can, so honoring them without checking who is actually connected would let any
+   * such holder claim any identity, including {@code group:gimle:operators}. Next, a valid,
+   * non-revoked console session cookie -- a human operator signed in through {@link
+   * #handleAuthLogin} directly -- wins over the connection's own peer certificate when both are
+   * present: a session cookie is the result of a deliberate login, while a certificate on the same
+   * mTLS connection can be present merely because the caller's browser has one imported, with no
+   * login intent behind it. Falls back to the plain certificate identity last, for a direct caller
+   * with no proxy, session, or login of its own (a node agent's own pull, the CLI talking straight
+   * to this port). Mirrors {@code FafnirServer}'s own fallback exactly, revocation check included:
+   * a present peer certificate is checked against the store-backed revocation denylist before it is
+   * trusted for anything, since Andvari (like Fafnir) holds sensitive platform state and
+   * independently re-runs its own checks rather than trusting the CA trust chain alone -- an
+   * unexpired, correctly signed certificate satisfies that chain check even once revoked.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     Optional<X509Certificate> certificate = peerCertificate(exchange);
@@ -1077,20 +1079,19 @@ public final class AndvariServer implements AutoCloseable {
       Set<String> groups = new LinkedHashSet<>(splitHeader(exchange, FORWARDED_GROUPS_HEADER));
       return Optional.of(new Principal(forwardedName.get(), groups));
     }
-    if (certificatePrincipal.isPresent()) {
-      return certificatePrincipal;
-    }
-    return sessionCookie(exchange)
-        .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .filter(session -> !isSessionRevoked(session))
-        .map(
-            session ->
-                new Principal(
-                    session.username(),
-                    storeClient
-                        .getAccount(session.username())
-                        .map(Account::groups)
-                        .orElse(Set.of())));
+    Optional<Principal> sessionPrincipal =
+        sessionCookie(exchange)
+            .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+            .filter(session -> !isSessionRevoked(session))
+            .map(
+                session ->
+                    new Principal(
+                        session.username(),
+                        storeClient
+                            .getAccount(session.username())
+                            .map(Account::groups)
+                            .orElse(Set.of())));
+    return sessionPrincipal.or(() -> certificatePrincipal);
   }
 
   /**

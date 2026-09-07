@@ -2099,6 +2099,95 @@ class ApiServerTest {
   }
 
   /**
+   * The reserved-tenant veto used to be wired into only a handful of the resource kinds that can
+   * mutate {@code gimle-system}: an anonymous plaintext caller could correctly not create or update
+   * a Service/DaemonSet there, but could freely write CONFIG/SECRET/LimitRange into it and could
+   * DELETE a Service or DaemonSet already there outright. This asserts the veto now covers every
+   * write and delete this class exposes against a tenant-scoped resource -- one request per route,
+   * each refused with 403 and none of them ever reaching the resource's own handler (a malformed or
+   * empty body on a route that would otherwise need one still refuses with 403, not 400, proving
+   * the veto runs before the handler, exactly like the reference {@code /tenants/*} case above).
+   */
+  @Test
+  void a_plaintext_caller_cannot_write_or_delete_any_gimle_system_scoped_resource()
+      throws Exception {
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/kinddefinitions/Greeting"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                            kind: KindDefinition
+                            name: Greeting
+                            scope: Tenant
+                            schema:
+                              fields:
+                                - name: message
+                                  type: string
+                                  required: true
+                            """))
+                .build())
+            .statusCode(),
+        "kind registration itself is cluster-scoped, not vetoed -- needed so the custom-resource"
+            + " cases below have a real kind to address");
+
+    record Case(String method, String path, String body) {}
+    List<Case> cases =
+        List.of(
+            new Case("DELETE", "/deployments/x?tenant=gimle-system", null),
+            new Case("POST", "/deployments/x/rollback?tenant=gimle-system", ""),
+            new Case("DELETE", "/jobs/x?tenant=gimle-system", null),
+            new Case("DELETE", "/cronjobs/x?tenant=gimle-system", null),
+            new Case("POST", "/cronjobs/x/trigger?tenant=gimle-system", ""),
+            new Case("DELETE", "/daemonsets/x?tenant=gimle-system", null),
+            new Case("POST", "/daemonsets/x/rollback?tenant=gimle-system", ""),
+            new Case("DELETE", "/statefulsets/x?tenant=gimle-system", null),
+            new Case("POST", "/statefulsets/x/rollback?tenant=gimle-system", ""),
+            new Case("DELETE", "/volumes/node-1/x/0?tenant=gimle-system", null),
+            new Case("DELETE", "/services/x?tenant=gimle-system", null),
+            new Case("DELETE", "/alertrules/x?tenant=gimle-system", null),
+            new Case("DELETE", "/networkpolicies/x?tenant=gimle-system", null),
+            new Case("PUT", "/limitranges/gimle-system", "{}"),
+            new Case("DELETE", "/limitranges/gimle-system", null),
+            new Case("PUT", "/config/gimle-system/k", "{\"value\":\"v\",\"encrypted\":false}"),
+            new Case("DELETE", "/config/gimle-system/k", null),
+            new Case("POST", "/config/gimle-system/k/rollback", ""),
+            new Case("PUT", "/configmaps/gimle-system/x", "{}"),
+            new Case("PATCH", "/configmaps/gimle-system/x", "{}"),
+            new Case("DELETE", "/configmaps/gimle-system/x", null),
+            new Case("POST", "/configmaps/gimle-system/x/rollback", ""),
+            new Case("PUT", "/secrets/gimle-system/k", "{\"value\":\"v\"}"),
+            new Case("DELETE", "/secrets/gimle-system/k", null),
+            new Case("PUT", "/secretmaps/gimle-system/m", "{}"),
+            new Case("DELETE", "/secretmaps/gimle-system/m", null),
+            new Case(
+                "POST",
+                "/ingresses",
+                "{\"name\":\"sys-ing\",\"tenantId\":\"gimle-system\",\"routes\":[]}"),
+            new Case("DELETE", "/ingresses/x?tenant=gimle-system", null),
+            new Case("DELETE", "/resources/custom.Greeting/x?tenant=gimle-system", null),
+            new Case("PUT", "/resources/custom.Greeting/x/status?tenant=gimle-system", "{}"));
+
+    for (Case testCase : cases) {
+      HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + testCase.path()));
+      builder =
+          switch (testCase.method()) {
+            case "DELETE" -> builder.DELETE();
+            case "PUT" -> builder.PUT(HttpRequest.BodyPublishers.ofString(testCase.body()));
+            case "PATCH" ->
+                builder.method("PATCH", HttpRequest.BodyPublishers.ofString(testCase.body()));
+            case "POST" -> builder.POST(HttpRequest.BodyPublishers.ofString(testCase.body()));
+            default -> throw new IllegalStateException("unexpected method: " + testCase.method());
+          };
+      HttpResponse<String> response = send(builder.build());
+      assertEquals(
+          403,
+          response.statusCode(),
+          testCase.method() + " " + testCase.path() + " -> " + response.body());
+    }
+  }
+
+  /**
    * The other half of the same rule: what must never confer privilege is presenting no credential,
    * not using a plaintext connection. A caller holding a real operator session is an operator on
    * whatever transport carried it -- resolving it as anonymous would discard a credential it

@@ -1147,7 +1147,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackDeployment(exchange, tenant, name);
         }
       }
@@ -1332,7 +1333,7 @@ public final class ApiServer implements AutoCloseable {
                   kind,
                   Verb.WRITE,
                   submittedTenant,
-                  Optional.empty(),
+                  Optional.of(name),
                   true,
                   AuditOutcome.REJECTED);
             } else {
@@ -1350,7 +1351,7 @@ public final class ApiServer implements AutoCloseable {
                   kind,
                   Verb.WRITE,
                   submittedTenant,
-                  Optional.empty(),
+                  Optional.of(name),
                   true,
                   outcome);
             }
@@ -1364,7 +1365,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           Optional<String> tenant = declaredOrExistingTenant(exchange, existingTenant, name);
-          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant, Optional.of(name))
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             delete.run(exchange, tenant, name);
           }
         }
@@ -2505,7 +2507,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.DELETE, tenant)
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             serviceRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -2720,7 +2723,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.DELETE, tenant)) {
+          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.DELETE, tenant)
+              && !rejectIfReservedSystemTenant(exchange, tenant)) {
             alertRuleRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -2842,7 +2846,8 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)) {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)
+              && !rejectIfReservedSystemTenant(exchange, tenantId)) {
             ingressRegistry.remove(tenantId.orElseThrow(), name);
             respondJson(exchange, 200, Map.of("deleted", true));
           }
@@ -2878,6 +2883,9 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     if (!requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, Optional.of(tenantId))) {
+      return;
+    }
+    if (rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
       return;
     }
     List<IngressRule> routes = new ArrayList<>();
@@ -3275,7 +3283,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.NETWORK_POLICY, Verb.DELETE, Optional.of(tenant))) {
+                  exchange, ResourceKind.NETWORK_POLICY, Verb.DELETE, Optional.of(tenant))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenant))) {
             networkPolicyRegistry.remove(tenant, name);
             respond(exchange, 200, "ok");
           }
@@ -3617,7 +3626,8 @@ public final class ApiServer implements AutoCloseable {
     Optional<String> tenant =
         declaredOrExistingTenant(
             exchange, n -> findTenantByName(storeClient.listCronJobSpecs(), n), name);
-    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)) {
+    if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)
+        && !rejectIfReservedSystemTenant(exchange, tenant)) {
       handleCronJobTrigger(exchange, tenant, name);
     }
     return Optional.empty();
@@ -3831,7 +3841,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackDaemonSet(exchange, tenant, name);
         }
       }
@@ -4114,7 +4125,8 @@ public final class ApiServer implements AutoCloseable {
       }
       case "rollback" -> {
         if (requireAuthorized(
-            exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))) {
+                exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))
+            && !rejectIfReservedSystemTenant(exchange, tenant)) {
           handleRollbackStatefulSet(exchange, tenant, name);
         }
       }
@@ -6632,7 +6644,8 @@ public final class ApiServer implements AutoCloseable {
       HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
     Optional<String> tenant = customResourceTenant(exchange, definition, name);
     if (!requireCustomResourceAuthorized(
-        exchange, definition.kindName(), Verb.DELETE, tenant, Optional.of(name))) {
+            exchange, definition.kindName(), Verb.DELETE, tenant, Optional.of(name))
+        || rejectIfReservedSystemTenant(exchange, tenant)) {
       return;
     }
     // Idempotent delete-on-missing, matching the majority convention across resource kinds.
@@ -6647,6 +6660,17 @@ public final class ApiServer implements AutoCloseable {
     Optional<Principal> auditPrincipal =
         requireCustomResourceWrite(exchange, definition.kindName(), tenant, true);
     if (auditPrincipal.isEmpty()) {
+      return;
+    }
+    if (rejectIfReservedSystemTenant(exchange, tenant)) {
+      recordCustomResourceAuditBestEffort(
+          auditPrincipal.get(),
+          definition.kindName(),
+          Verb.WRITE,
+          tenant,
+          Optional.of(name + "/status"),
+          true,
+          AuditOutcome.REJECTED);
       return;
     }
     AuditOutcome outcome = applyCustomResourceStatusPut(exchange, definition, tenant, name);
@@ -6942,7 +6966,8 @@ public final class ApiServer implements AutoCloseable {
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.LIMIT_RANGE, Verb.WRITE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.LIMIT_RANGE, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutLimitRange(exchange, tenantId);
           }
         }
@@ -6954,7 +6979,8 @@ public final class ApiServer implements AutoCloseable {
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.LIMIT_RANGE, Verb.DELETE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.LIMIT_RANGE, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteLimitRange(exchange, tenantId);
           }
         }
@@ -7175,7 +7201,8 @@ public final class ApiServer implements AutoCloseable {
           return;
         }
         if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
-          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleRollbackConfig(exchange, tenantId, key);
           }
           return;
@@ -7192,7 +7219,8 @@ public final class ApiServer implements AutoCloseable {
           String value = (String) body.get("value");
           boolean encrypted = Boolean.TRUE.equals(body.get("encrypted"));
           ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
-          if (requireAuthorized(exchange, resource, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, resource, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutConfig(exchange, tenantId, key, value, encrypted);
           }
         }
@@ -7205,7 +7233,8 @@ public final class ApiServer implements AutoCloseable {
           Optional<ConfigEntry> existing = findConfigEntry(tenantId, key);
           boolean encrypted = existing.map(ConfigEntry::encrypted).orElse(false);
           ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
-          if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteConfig(exchange, tenantId, key, encrypted);
           }
         }
@@ -7508,8 +7537,8 @@ public final class ApiServer implements AutoCloseable {
           return;
         }
         if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleRollbackConfigMap(exchange, tenantId, name);
           }
           return;
@@ -7525,20 +7554,21 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "PUT" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePutConfigMap(exchange, tenantId, name);
           }
         }
         case "PATCH" -> {
-          if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handlePatchConfigMap(exchange, tenantId, name);
           }
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))) {
+                  exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
             handleDeleteConfigMap(exchange, tenantId, name);
           }
         }
@@ -8151,6 +8181,10 @@ public final class ApiServer implements AutoCloseable {
       if (!requireAuthorized(exchange, ResourceKind.SECRET, verb, Optional.of(tenantId))) {
         return;
       }
+      if ((verb == Verb.WRITE || verb == Verb.DELETE)
+          && rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
+        return;
+      }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();
       resolvePrincipal(exchange)
           .ifPresent(
@@ -8215,6 +8249,10 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       if (!requireAuthorized(exchange, ResourceKind.SECRETMAP, verb, Optional.of(tenantId))) {
+        return;
+      }
+      if ((verb == Verb.WRITE || verb == Verb.DELETE)
+          && rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
         return;
       }
       Map<String, String> forwardHeaders = new LinkedHashMap<>();
@@ -9255,11 +9293,12 @@ public final class ApiServer implements AutoCloseable {
       int instanceIndex = Integer.parseInt(segments[2]);
       Optional<String> tenantId = volumeTenant(exchange);
       if (!requireAuthorized(
-          exchange,
-          ResourceKind.STATEFULSET,
-          Verb.DELETE,
-          tenantId,
-          Optional.of(statefulSetName))) {
+              exchange,
+              ResourceKind.STATEFULSET,
+              Verb.DELETE,
+              tenantId,
+              Optional.of(statefulSetName))
+          || rejectIfReservedSystemTenant(exchange, tenantId)) {
         return;
       }
       if (isVolumeAttached(tenantId, statefulSetName, instanceIndex, nodeId)) {
@@ -10583,15 +10622,20 @@ public final class ApiServer implements AutoCloseable {
     try {
       String tail = pathSegmentAfter(exchange, "/bootstrap/csr/");
       if (tail.endsWith("/approve")) {
+        String requestId = tail.substring(0, tail.length() - "/approve".length());
         if (!requireAuthorized(
-            exchange, ResourceKind.CERTIFICATE_REQUEST, Verb.APPROVE, Optional.empty())) {
+            exchange,
+            ResourceKind.CERTIFICATE_REQUEST,
+            Verb.APPROVE,
+            Optional.empty(),
+            Optional.of(requestId))) {
           return;
         }
         if (!"POST".equals(exchange.getRequestMethod())) {
           respond(exchange, 405, "method not allowed");
           return;
         }
-        handleApprove(exchange, tail.substring(0, tail.length() - "/approve".length()));
+        handleApprove(exchange, requestId);
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -11151,53 +11195,63 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A verified client certificate wins over a session cookie when both are somehow present (mTLS is
-   * the stronger proof) -- in practice only one is ever offered by a given caller (the CLI/node
-   * agents never send a session cookie, the console never presents a client certificate). The
-   * session-cookie branch's groups come from a live {@code storeClient.getAccount} read, not the
-   * token itself -- a session token carries only {@code username} (see {@code SessionTokens}'s own
-   * javadoc), so an account's {@code group:} membership, editable independently of its password, is
-   * always read fresh rather than baked into a token that could outlive a later group change.
+   * A valid, non-revoked session cookie wins over the connection's own client certificate when both
+   * are somehow present -- a session cookie is the result of a deliberate login, while a
+   * certificate on the same mTLS connection can be present merely because the caller's browser has
+   * one imported, with no login intent behind it at all (the normal case for any browser that has
+   * ever been issued an operator certificate). Falls back to the certificate when no cookie is
+   * present, or when the cookie present fails to verify -- an explicit credential that fails must
+   * fail, not silently escalate to the transport's broader one, the same reasoning the bearer-token
+   * check above already applies. The session-cookie branch's groups come from a live {@code
+   * storeClient.getAccount} read, not the token itself -- a session token carries only {@code
+   * username} (see {@code SessionTokens}'s own javadoc), so an account's {@code group:} membership,
+   * editable independently of its password, is always read fresh rather than baked into a token
+   * that could outlive a later group change.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     // A bearer workload token, when presented, is the request's identity -- deliberately checked
-    // before the peer certificate, because the one caller that sends both is a node agent
-    // relaying a hosted module's read: the module must act as its own (narrower, deny-by-default)
-    // workload principal, never ride the relaying agent's node identity. An invalid or expired
-    // bearer resolves nothing at all rather than falling back to the certificate -- an explicit
-    // credential that fails must fail, not silently escalate to the transport's broader one.
+    // before the session cookie and the peer certificate, because the one caller that sends both a
+    // bearer and a certificate is a node agent relaying a hosted module's read: the module must act
+    // as its own (narrower, deny-by-default) workload principal, never ride the relaying agent's
+    // node identity. An invalid or expired bearer resolves nothing at all rather than falling back
+    // to a weaker credential -- an explicit credential that fails must fail, not silently escalate.
     Optional<String> bearer = bearerToken(exchange);
     if (bearer.isPresent()) {
       return verifyWorkloadToken(bearer.get());
     }
-    Optional<X509Certificate> certificate = peerCertificate(exchange);
-    if (certificate.isPresent()) {
-      // The portable revocation check: a compromised leaf's serial lands on the store-backed
-      // denylist and every request it makes from then on resolves no principal at all -- checked
-      // before any authorization runs, the same per-request level-triggered store read the
-      // Authorizer itself already makes. Keyed by serial, so a legitimately re-issued certificate
-      // for the same identity is untouched.
-      String serial = certificateSerial(certificate.get());
-      if (storeClient.isCertificateRevoked(serial)) {
-        log.warn(
-            "rejecting revoked certificate serial {} presented by {}",
-            serial,
-            certificate.get().getSubjectX500Principal());
-        return Optional.empty();
-      }
-      return Optional.of(Subjects.principalFrom(certificate.get()));
+    Optional<Principal> sessionPrincipal =
+        sessionCookie(exchange)
+            .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+            .filter(session -> !isSessionRevoked(session))
+            .map(
+                session ->
+                    new Principal(
+                        session.username(),
+                        storeClient
+                            .getAccount(session.username())
+                            .map(Account::groups)
+                            .orElse(Set.of())));
+    if (sessionPrincipal.isPresent()) {
+      return sessionPrincipal;
     }
-    return sessionCookie(exchange)
-        .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .filter(session -> !isSessionRevoked(session))
-        .map(
-            session ->
-                new Principal(
-                    session.username(),
-                    storeClient
-                        .getAccount(session.username())
-                        .map(Account::groups)
-                        .orElse(Set.of())));
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    if (certificate.isEmpty()) {
+      return Optional.empty();
+    }
+    // The portable revocation check: a compromised leaf's serial lands on the store-backed
+    // denylist and every request it makes from then on resolves no principal at all -- checked
+    // before any authorization runs, the same per-request level-triggered store read the
+    // Authorizer itself already makes. Keyed by serial, so a legitimately re-issued certificate
+    // for the same identity is untouched.
+    String serial = certificateSerial(certificate.get());
+    if (storeClient.isCertificateRevoked(serial)) {
+      log.warn(
+          "rejecting revoked certificate serial {} presented by {}",
+          serial,
+          certificate.get().getSubjectX500Principal());
+      return Optional.empty();
+    }
+    return Optional.of(Subjects.principalFrom(certificate.get()));
   }
 
   /**
