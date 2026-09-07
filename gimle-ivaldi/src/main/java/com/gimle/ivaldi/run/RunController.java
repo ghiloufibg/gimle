@@ -32,8 +32,13 @@ import com.gimle.ivaldi.validate.RenderedFile;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,6 +123,9 @@ public final class RunController {
 
   /** How long a readiness probe's answer is reused before the next snapshot re-asks. */
   private static final Duration READINESS_CACHE = Duration.ofSeconds(2);
+
+  /** How long a CronJob's own generated-Job list is reused before the next snapshot re-asks. */
+  private static final Duration CRONJOB_JOBS_CACHE = Duration.ofSeconds(2);
 
   /** How long a shutdown waits for a run's own worker to unwind before tearing down under it. */
   private static final Duration SHUTDOWN_WORKER_GRACE = Duration.ofSeconds(10);
@@ -526,6 +534,7 @@ public final class RunController {
       }
       run.log.append("validated " + files.size() + " file(s), 0 errors");
       requireJarArtifactsReadable(files);
+      run.cronJobNames = cronJobManifestNames(files);
 
       RenderedFile topologyFile = requireFile(files, "topology.yaml");
       RenderedFile bundleFile = requireFile(files, "bundle.yaml");
@@ -984,6 +993,152 @@ public final class RunController {
     return standalone;
   }
 
+  /**
+   * The name of every CronJob this run's own file set declares -- what {@link #cronJobHistories}
+   * later looks up each firing for. Read from the submitted manifests directly rather than from the
+   * rendered {@link Bundle}'s own workloads, since {@code RenderedWorkload} is package-private to
+   * {@code gimle-hilmir.release} and this run engine only ever depends on that module at runtime.
+   */
+  static List<String> cronJobManifestNames(List<RenderedFile> files) {
+    List<String> names = new ArrayList<>();
+    for (RenderedFile file : files) {
+      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
+        continue;
+      }
+      Map<?, ?> mapping = readMapping(file.content());
+      if ("CronJob".equals(String.valueOf(mapping.get("kind")))
+          && mapping.get("name") instanceof String name
+          && !name.isBlank()) {
+        names.add(name);
+      }
+    }
+    return List.copyOf(names);
+  }
+
+  /**
+   * Every CronJob this run declares, each paired with the Jobs the control plane has actually
+   * generated for it -- {@code CronJobReconciler} already names each one {@code
+   * {cronJobName}-{epochSeconds}} and prunes old terminal ones beyond {@code
+   * successfulJobsHistoryLimit}/{@code failedJobsHistoryLimit}, so this only has to read {@code GET
+   * /jobs} and group by that naming convention, never re-bound anything itself. Cached briefly for
+   * the same reason {@link #refreshedProcesses} caches readiness: a console polling this snapshot
+   * must not turn into a steady trickle of requests against the control plane.
+   */
+  private List<Map<String, Object>> cronJobHistories(ActiveRun run) {
+    if (run.cronJobNames.isEmpty()) {
+      return List.of();
+    }
+    Instant now = Instant.now();
+    Instant checked = run.cronJobHistoriesCheckedAt;
+    if (checked != null && Duration.between(checked, now).compareTo(CRONJOB_JOBS_CACHE) < 0) {
+      return run.cronJobHistories;
+    }
+    List<Map<String, Object>> histories = groupJobsByCronJob(run.cronJobNames, fetchJobs(run));
+    run.cronJobHistories = histories;
+    run.cronJobHistoriesCheckedAt = now;
+    return histories;
+  }
+
+  /**
+   * {@code GET /jobs} against this run's own cluster, best-effort: a control plane that is
+   * momentarily unreachable, or a cluster whose infra isn't up yet, must not break the run snapshot
+   * a console is polling -- it just reports no Jobs found this round, exactly as if none had fired.
+   */
+  private List<Map<String, Object>> fetchJobs(ActiveRun run) {
+    Optional<String> clusterJson = clusters.get(run.clusterId);
+    Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
+    if (clusterJson.isEmpty() || appliedTopology.isEmpty()) {
+      return List.of();
+    }
+    try {
+      Map<String, Object> cluster = Json.asObject(Json.parse(clusterJson.get()));
+      String serverAddress = serverAddressOf(cluster, run.clusterId);
+      Topology topology =
+          TopologyParser.parse(
+              new ByteArrayInputStream(appliedTopology.get().getBytes(StandardCharsets.UTF_8)));
+      Optional<SSLContext> identity =
+          clientMaterialFor(topology, cluster).map(SslContexts::forMutualTls);
+      String scheme = identity.isPresent() ? "https" : "http";
+      HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(READINESS_CACHE);
+      identity.ifPresent(builder::sslContext);
+      try (HttpClient http = builder.build()) {
+        HttpResponse<String> response =
+            http.send(
+                HttpRequest.newBuilder(URI.create(scheme + "://" + serverAddress + "/jobs"))
+                    .timeout(CRONJOB_JOBS_CACHE.multipliedBy(2))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+          return List.of();
+        }
+        return Json.asObjectList(Json.parse(response.body()));
+      }
+    } catch (RuntimeException e) {
+      return List.of();
+    } catch (IOException e) {
+      return List.of();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return List.of();
+    }
+  }
+
+  /**
+   * Groups {@code jobs} (each shaped like {@code ApiServer}'s own {@code GET /jobs} response entry
+   * -- a {@code spec.name} and a top-level {@code phase}) under whichever of {@code cronJobNames}
+   * generated it, newest firing first. A CronJob with no matching Job yet reports an empty list
+   * rather than being omitted, so a blueprint that has never fired still shows the CronJob itself.
+   */
+  static List<Map<String, Object>> groupJobsByCronJob(
+      List<String> cronJobNames, List<Map<String, Object>> jobs) {
+    List<Map<String, Object>> result = new ArrayList<>();
+    for (String cronJobName : cronJobNames) {
+      List<Map<String, Object>> firings = new ArrayList<>();
+      for (Map<String, Object> job : jobs) {
+        if (!(job.get("spec") instanceof Map<?, ?> spec)
+            || !(spec.get("name") instanceof String jobName)) {
+          continue;
+        }
+        Optional<Instant> firingTime = cronJobFiringTimeOf(cronJobName, jobName);
+        if (firingTime.isEmpty()) {
+          continue;
+        }
+        Map<String, Object> firing = new LinkedHashMap<>();
+        firing.put("name", jobName);
+        firing.put("phase", job.get("phase"));
+        firing.put("firingTime", firingTime.get().toString());
+        firings.add(firing);
+      }
+      firings.sort(
+          Comparator.comparing((Map<String, Object> f) -> String.valueOf(f.get("firingTime")))
+              .reversed());
+      Map<String, Object> entry = new LinkedHashMap<>();
+      entry.put("name", cronJobName);
+      entry.put("jobs", firings);
+      result.add(entry);
+    }
+    return result;
+  }
+
+  /**
+   * The firing instant encoded in {@code jobName}, when it names a Job {@code cronJobName}
+   * generated -- the same {@code {cronJobName}-{epochSeconds}} convention {@code
+   * CronJobReconciler}/{@code ApiServer} use server-side, reimplemented here since {@code
+   * gimle-controlplane} is a runtime-only dependency of this module.
+   */
+  static Optional<Instant> cronJobFiringTimeOf(String cronJobName, String jobName) {
+    String prefix = cronJobName + "-";
+    if (!jobName.startsWith(prefix)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.ofEpochSecond(Long.parseLong(jobName.substring(prefix.length()))));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
+  }
+
   private void applyStandalone(ControlPlaneApi api, RenderedFile manifest, ActiveRun run) {
     Map<?, ?> mapping = readMapping(manifest.content());
     switch (String.valueOf(mapping.get("kind"))) {
@@ -1186,7 +1341,7 @@ public final class RunController {
     return refreshed;
   }
 
-  private static RunSnapshot snapshotOf(ActiveRun run) {
+  private RunSnapshot snapshotOf(ActiveRun run) {
     return new RunSnapshot(
         run.id,
         run.clusterId,
@@ -1194,6 +1349,7 @@ public final class RunController {
         run.status,
         run.rebooted,
         refreshedProcesses(run),
+        cronJobHistories(run),
         run.revision,
         run.error,
         run.startedAt.toString(),
@@ -1598,6 +1754,11 @@ public final class RunController {
     volatile boolean rebooted;
     volatile List<RunSnapshot.ProcessInfo> processes = List.of();
     volatile Instant processesCheckedAt;
+    // Every CronJob this run's own bundle declares -- set once from the submitted file set (see
+    // #cronJobManifestNames), read on every snapshot to know which cluster-side Jobs to look for.
+    volatile List<String> cronJobNames = List.of();
+    volatile List<Map<String, Object>> cronJobHistories = List.of();
+    volatile Instant cronJobHistoriesCheckedAt;
     volatile Optional<Integer> revision = Optional.empty();
     // Set once this run actually deploys a bundle -- see #undeployReleaseQuietly, which is the
     // only reader.

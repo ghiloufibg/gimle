@@ -10,7 +10,10 @@ import java.util.Optional;
  * needs to render a run's progress without re-reading its full log. {@code processes} is only ever
  * populated by a run that actually rebooted the cluster (see {@link RunController}) -- a
  * deploy-only run leaves the previous boot's process tree untouched and this controller has no
- * fresher list to report, so it stays empty rather than guessing.
+ * fresher list to report, so it stays empty rather than guessing. {@code cronJobs} is one entry per
+ * CronJob the run's own bundle declares -- {@code {"name", "jobs": [{"name", "phase",
+ * "firingTime"}]}} -- bounded exactly by however many the control plane still retains, never
+ * re-bounded here.
  */
 record RunSnapshot(
     String id,
@@ -19,6 +22,7 @@ record RunSnapshot(
     RunStatus status,
     boolean rebooted,
     List<ProcessInfo> processes,
+    List<Map<String, Object>> cronJobs,
     Optional<Integer> revision,
     Optional<String> error,
     String startedAt,
@@ -64,6 +68,7 @@ record RunSnapshot(
         RunStatus.IDLE,
         false,
         List.of(),
+        List.of(),
         Optional.empty(),
         Optional.empty(),
         "",
@@ -78,6 +83,7 @@ record RunSnapshot(
     map.put("status", status.wireValue());
     map.put("rebooted", rebooted);
     map.put("processes", processes.stream().map(ProcessInfo::toJsonMap).toList());
+    map.put("cronJobs", cronJobs);
     revision.ifPresent(v -> map.put("revision", v));
     map.put("error", error.orElse(null));
     map.put("startedAt", startedAt);

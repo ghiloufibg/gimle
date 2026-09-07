@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 966,
+  "requirementCount": 967,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16650,6 +16650,28 @@
         "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClient.java` (`mutating`, `sendMutation`, `unknownOutcome`, `newRequestId`)",
         "`gimle-cli/src/main/java/com/gimle/cli/CliException.java`",
         "`gimle-docs/docs/reference/cli-reference.md`"
+      ]
+    },
+    {
+      "id": "GIMLE-967",
+      "module": "gimle-ivaldi",
+      "feature": "The Runner page shows a CronJob's own firing history, not just its initial deploy status",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "RunController now records each CronJob a run's file set declares (cronJobManifestNames) and enriches the existing run snapshot (snapshotOf) with that CronJob's own generated Jobs, read from the real control plane's GET /jobs and grouped by the {cronJobName}-{epochSeconds} naming convention CronJobReconciler already mints server-side -- no backend behavior changed, only surfaced. The console's RunSnapshot gained a cronJobs field threaded through useRunStore into a new RunCronJobs component rendered on the Runner page, showing each CronJob's firings (or an explicit 'No firings yet') bounded exactly by whatever the control plane still retains.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises gimle-ivaldi at all; covered instead by gimle-ivaldi's own RunControllerTest and gimle-ivaldi-console's Vitest suite, listed under otherTestCoverage.",
+      "otherTestCoverage": "gimle-ivaldi: RunControllerTest gained cron_job_manifest_names_picks_out_only_the_cronjob_kind, cron_job_manifest_names_is_empty_when_the_bundle_declares_no_cronjob, cron_job_histories_group_jobs_by_the_cronjob_that_generated_them, a_cronjob_with_no_firings_yet_reports_an_empty_job_list_rather_than_being_omitted, a_job_belonging_to_a_different_cronjob_is_never_attributed_to_this_one, and cron_job_firing_time_reads_the_epoch_seconds_encoded_in_the_job_name; full module suite green. gimle-ivaldi-console: httpRunner.test.ts gained three tests covering the wire-to-snapshot mapping (including empty states); a new RunCronJobs.test.tsx covers the rendered component directly; full Vitest suite green (201/201).",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`cronJobManifestNames`, `cronJobHistories`, `fetchJobs`, `groupJobsByCronJob`, `cronJobFiringTimeOf`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunSnapshot.java` (`cronJobs`)",
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunCronJob`, `RunCronJobFiring`, `RunSnapshot.cronJobs`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`cronJobsOf`)",
+        "`gimle-ivaldi-console/src/repositories/mockRunner.ts` (`buildScript`'s `cronJobs`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts`",
+        "`gimle-ivaldi-console/src/components/ivaldi/RunCronJobs.tsx`",
+        "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx`"
       ]
     }
   ]

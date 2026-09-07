@@ -6,6 +6,7 @@ import { applyLogLine, finalizeSteps, initialSteps, markCurrentPhase } from "@/l
 import type {
   ActiveRun,
   CreateRunRequest,
+  RunCronJob,
   RunEndpoint,
   RunLogLine,
   RunMachine,
@@ -18,6 +19,17 @@ import type {
 
 const POLL_INTERVAL_MS = 1200;
 
+interface RawCronJobFiring {
+  name?: string;
+  phase?: string;
+  firingTime?: string;
+}
+
+interface RawCronJob {
+  name?: string;
+  jobs?: RawCronJobFiring[];
+}
+
 /** The exact shape gimle-ivaldi's RunController.snapshotOf/toJsonMap emits. `processes` exists
  * on the wire but nothing here reads it yet -- steps are derived from the log instead (see
  * lib/runPhases.ts), the finer-grained per-process readiness has no UI consumer today. */
@@ -27,10 +39,22 @@ interface RawRunSnapshot {
   blueprintId?: string | null;
   status?: string;
   rebooted?: boolean;
+  cronJobs?: RawCronJob[];
   revision?: number;
   error?: string | null;
   startedAt?: string;
   updatedAt?: string;
+}
+
+function cronJobsOf(raw: RawCronJob[] | undefined): RunCronJob[] {
+  return (raw ?? []).map((cronJob) => ({
+    name: cronJob.name ?? "",
+    jobs: (cronJob.jobs ?? []).map((job) => ({
+      name: job.name ?? "",
+      phase: job.phase ?? "",
+      firingTime: job.firingTime ?? "",
+    })),
+  }));
 }
 
 interface TopologyRole {
@@ -383,6 +407,7 @@ export class HttpRunnerClient implements RunnerClient {
       // topology, not only its finished state.
       machines,
       artifacts: [],
+      cronJobs: cronJobsOf(raw.cronJobs),
       startedAt: raw.startedAt ?? new Date().toISOString(),
       finishedAt: settled ? (raw.updatedAt ?? null) : null,
       error: raw.error ?? null,

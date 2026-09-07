@@ -96,6 +96,21 @@ export interface RunArtifact {
   error: string | null;
 }
 
+/** One Job a CronJob has generated, named {@code {cronJobName}-{epochSeconds}} by the control
+ * plane -- {@link firingTime} is that epoch decoded back to an ISO timestamp. */
+export interface RunCronJobFiring {
+  name: string;
+  phase: string;
+  firingTime: string;
+}
+
+/** One CronJob the running blueprint declares, with the Jobs the control plane has generated for
+ * it so far -- bounded exactly by whatever it still retains, oldest already pruned server-side. */
+export interface RunCronJob {
+  name: string;
+  jobs: RunCronJobFiring[];
+}
+
 export interface RunSnapshot {
   runId: string;
   status: RunStatus;
@@ -106,6 +121,7 @@ export interface RunSnapshot {
    * coarse overall status. */
   machines: RunMachine[];
   artifacts: RunArtifact[];
+  cronJobs: RunCronJob[];
   startedAt: string;
   finishedAt: string | null;
   error: string | null;

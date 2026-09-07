@@ -116,6 +116,95 @@ describe("HttpRunnerClient.currentRun", () => {
 
     expect(snapshot?.revision).toBeNull();
   });
+
+  it("reads a cronjob's own generated Jobs through onto the mapped snapshot", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/endpoints")
+          ? jsonResponse([])
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [],
+              cronJobs: [
+                {
+                  name: "nightly",
+                  jobs: [
+                    {
+                      name: "nightly-1700000000",
+                      phase: "SUCCEEDED",
+                      firingTime: "2023-11-14T22:13:20Z",
+                    },
+                  ],
+                },
+              ],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.cronJobs).toEqual([
+      {
+        name: "nightly",
+        jobs: [
+          { name: "nightly-1700000000", phase: "SUCCEEDED", firingTime: "2023-11-14T22:13:20Z" },
+        ],
+      },
+    ]);
+  });
+
+  it("reports a cronjob with no firings yet as an empty job list, not omitted", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/endpoints")
+          ? jsonResponse([])
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [],
+              cronJobs: [{ name: "nightly", jobs: [] }],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.cronJobs).toEqual([{ name: "nightly", jobs: [] }]);
+  });
+
+  it("reports no cronJobs on the wire as an empty list, not undefined", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/endpoints")
+          ? jsonResponse([])
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.cronJobs).toEqual([]);
+  });
 });
 
 describe("HttpRunnerClient.createRun", () => {

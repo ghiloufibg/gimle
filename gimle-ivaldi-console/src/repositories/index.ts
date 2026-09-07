@@ -88,6 +88,8 @@ export type {
   HilmirFinding,
   HilmirReport,
   RunArtifact,
+  RunCronJob,
+  RunCronJobFiring,
   RunEndpoint,
   RunFile,
   RunLogLine,

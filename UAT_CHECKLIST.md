@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 965
+- **Total requirements**: 966
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 835
+- **Not covered by automated test**: 836
 - **Release-readiness (automated coverage)**: 13.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -43,7 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 19 | 0 | 19 | 0.0% |
+| gimle-ivaldi | 20 | 0 | 20 | 0.0% |
 | gimle-ivaldi-console | 30 | 0 | 30 | 0.0% |
 
 ## Checklist
@@ -2594,6 +2594,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-953 | The mTLS IP-literal refusal names a cluster connection by its own display name, not its internal id | Given a cluster connection saved under internal id 'c-internal-id' with display name 'prod-like', When a run against an mTLS topology is refused for naming the control plane by IP address, Then the refusal message names the cluster 'prod-like', never 'c-internal-id'. | No |
 | [ ] | GIMLE-954 | A cluster connection addressed at a port the topology's own control plane never listens on is refused before anything boots | Given a cluster connection configured for control-plane address 127.0.0.1:9999, When a Run is started against a topology whose own control plane listens at 127.0.0.1:8080, Then the run fails immediately naming both addresses, and no process is ever booted. | No |
 | [ ] | GIMLE-961 | A Blueprint whose topology declares more than one machine can actually be Run, booted concurrently across all of them | Given a Blueprint whose topology declares two or more machines, When Run is clicked, Then every machine's own declared processes are booted concurrently rather than the run being refused outright. Given a multi-machine topology with a port conflict on a machine other than the first, When Run is clicked, Then the run fails before spawning anything and names the exact machine and port in conflict. Given a multi-machine boot in progress, When Stop is clicked, Then every in-flight per-machine boot is cancelled rather than only the first machine's. Given a newly added machine node on the canvas, When it is not the first machine, Then it defaults to its own distinct 127.0.0.0/8 loopback host rather than colliding with an existing machine's host. Given a running multi-machine deployment, When the Runner page is open, Then its Machines section shows each machine with the roles actually placed on it. Given the control plane is placed on a machine other than the first, When the README is generated, Then its connect address names that machine's own host, not the first machine's. | No |
+| [ ] | GIMLE-967 | The Runner page shows a CronJob's own firing history, not just its initial deploy status | Given a running Blueprint that declares a CronJob, When the Runner page is open, Then it shows the CronJob's own recently generated Jobs, bounded exactly by however many the control plane still retains. Given a CronJob that has not fired yet, When the Runner page is open, Then the CronJob is shown with an explicit 'No firings yet' state rather than being omitted. Given a Job name that does not match any declared CronJob's own naming prefix, When the Runner page groups Jobs by CronJob, Then that Job is never attributed to an unrelated CronJob. | No |
 
 ### gimle-ivaldi-console
 

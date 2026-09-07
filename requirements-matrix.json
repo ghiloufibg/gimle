@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 966,
+  "requirementCount": 967,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19888,6 +19888,33 @@
         "Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none.",
         "Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried.",
         "Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-967",
+      "module": "gimle-ivaldi",
+      "feature": "The Runner page shows a CronJob's own firing history, not just its initial deploy status",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As an operator running a Blueprint that declares a CronJob, I want the Runner page to show each firing the control plane has actually recorded, not just the status of the initial deploy pipeline -- which never updates once the CronJob starts firing on its own schedule.",
+      "statusDetail": "RunController.execute() now records the name of every CronJob manifest in the run's own file set (cronJobManifestNames, read from the submitted manifests/*.yaml files directly, since the rendered Bundle's own RenderedWorkload type is package-private to gimle-hilmir.release and gimle-ivaldi only depends on gimle-controlplane at runtime scope). snapshotOf now enriches the existing run snapshot with a cronJobs list (RunController.cronJobHistories) rather than adding a new endpoint: for each declared CronJob it fetches GET /jobs from the run's own cluster (a small direct java.net.http.HttpClient call, the same pattern ClusterHealth already uses, since ControlPlaneApi's own getList is package-private to gimle-hilmir.release) and groups the returned Jobs by the {cronJobName}-{epochSeconds} naming convention CronJobReconciler/ApiServer already mint server-side -- reimplemented locally as RunController.cronJobFiringTimeOf rather than shared, for the same cross-module-visibility reason. The result is cached for CRONJOB_JOBS_CACHE (2s, matching the existing readiness-probe cache) so a console poll does not turn into a steady trickle of requests, and a control plane that is momentarily unreachable degrades to 'no Jobs found this round' rather than breaking the snapshot. Nothing server-side (CronJobSpec's history limits, CronJobReconciler's pruning) changed -- this only surfaces what was already there. On the console, RunSnapshot gained a cronJobs: RunCronJob[] field (contracts.ts), both HttpRunnerClient and MockRunnerClient populate it (the mock derives CronJob names from the submitted manifests and reports an empty firing list, matching what a real cluster reports immediately after a fresh deploy), useRunStore threads it through, and a new RunCronJobs component renders it in the Runner page's sidebar next to the existing Machines section -- one entry per CronJob with its own firing time (decoded from the Job name) and phase, or an explicit 'No firings yet' state for a CronJob that has not fired.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunController.java` (`cronJobManifestNames`, `cronJobHistories`, `fetchJobs`, `groupJobsByCronJob`, `cronJobFiringTimeOf`)",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/RunSnapshot.java` (`cronJobs`)",
+        "`gimle-ivaldi-console/src/repositories/contracts.ts` (`RunCronJob`, `RunCronJobFiring`, `RunSnapshot.cronJobs`)",
+        "`gimle-ivaldi-console/src/repositories/httpRunner.ts` (`cronJobsOf`)",
+        "`gimle-ivaldi-console/src/repositories/mockRunner.ts` (`buildScript`'s `cronJobs`)",
+        "`gimle-ivaldi-console/src/stores/useRunStore.ts`",
+        "`gimle-ivaldi-console/src/components/ivaldi/RunCronJobs.tsx`",
+        "`gimle-ivaldi-console/src/routes/runner.$blueprintId.tsx`"
+      ],
+      "testCoverageDetail": "gimle-ivaldi: RunControllerTest gained cron_job_manifest_names_picks_out_only_the_cronjob_kind, cron_job_manifest_names_is_empty_when_the_bundle_declares_no_cronjob, cron_job_histories_group_jobs_by_the_cronjob_that_generated_them (asserting newest-firing-first ordering and per-job phase), a_cronjob_with_no_firings_yet_reports_an_empty_job_list_rather_than_being_omitted, a_job_belonging_to_a_different_cronjob_is_never_attributed_to_this_one, and cron_job_firing_time_reads_the_epoch_seconds_encoded_in_the_job_name; full module suite green (40/40 in the class run in isolation; 0 failures reactor-wide). gimle-ivaldi-console: httpRunner.test.ts gained three tests asserting the wire cronJobs field maps onto the snapshot, including the no-firings-yet and no-cronJobs-on-the-wire cases; a new RunCronJobs.test.tsx covers the component directly (a multi-firing list ordered as the backend already ordered it, a no-firings-yet CronJob shown rather than hidden, and an empty CronJob list); full suite green (201/201).",
+      "gherkinSteps": [
+        "Given a running Blueprint that declares a CronJob, When the Runner page is open, Then it shows the CronJob's own recently generated Jobs, bounded exactly by however many the control plane still retains.",
+        "Given a CronJob that has not fired yet, When the Runner page is open, Then the CronJob is shown with an explicit 'No firings yet' state rather than being omitted.",
+        "Given a Job name that does not match any declared CronJob's own naming prefix, When the Runner page groups Jobs by CronJob, Then that Job is never attributed to an unrelated CronJob."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

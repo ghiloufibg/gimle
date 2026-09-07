@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 965,
+    "totalRequirements": 966,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 835,
+    "notCoveredByAutomatedTest": 836,
     "releaseReadinessPercent": 13.5
   },
   "items": [
@@ -10617,6 +10617,17 @@
       "category": "CLI",
       "feature": "Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure",
       "step": "Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none. Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried. Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-967",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "The Runner page shows a CronJob's own firing history, not just its initial deploy status",
+      "step": "Given a running Blueprint that declares a CronJob, When the Runner page is open, Then it shows the CronJob's own recently generated Jobs, bounded exactly by however many the control plane still retains. Given a CronJob that has not fired yet, When the Runner page is open, Then the CronJob is shown with an explicit 'No firings yet' state rather than being omitted. Given a Job name that does not match any declared CronJob's own naming prefix, When the Runner page groups Jobs by CronJob, Then that Job is never attributed to an unrelated CronJob.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

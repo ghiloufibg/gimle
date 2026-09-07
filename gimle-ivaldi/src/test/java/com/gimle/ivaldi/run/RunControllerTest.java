@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
@@ -656,6 +657,95 @@ class RunControllerTest {
   void a_previously_failed_or_idle_deployment_has_nothing_worth_restoring() {
     assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.FAILED, false));
     assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.IDLE, false));
+  }
+
+  @Test
+  void cron_job_manifest_names_picks_out_only_the_cronjob_kind() {
+    List<RenderedFile> files =
+        List.of(
+            new RenderedFile("topology.yaml", "name: t"),
+            new RenderedFile("manifests/01-app.yaml", "kind: Deployment\nname: app\n"),
+            new RenderedFile("manifests/02-nightly.yaml", "kind: CronJob\nname: nightly\n"),
+            new RenderedFile("manifests/03-hourly.yaml", "kind: CronJob\nname: hourly\n"));
+
+    assertEquals(List.of("nightly", "hourly"), RunController.cronJobManifestNames(files));
+  }
+
+  @Test
+  void cron_job_manifest_names_is_empty_when_the_bundle_declares_no_cronjob() {
+    List<RenderedFile> files =
+        List.of(new RenderedFile("manifests/01-app.yaml", "kind: Deployment\nname: app\n"));
+
+    assertEquals(List.of(), RunController.cronJobManifestNames(files));
+  }
+
+  /**
+   * The real {@code GET /jobs} response shape ({@code ApiServer#jobStatus}): a {@code spec.name}
+   * and a top-level {@code phase}. Grouped here by the same {@code {cronJobName}-{epochSeconds}}
+   * naming convention the control plane's own {@code CronJobReconciler} mints Job names with.
+   */
+  @Test
+  void cron_job_histories_group_jobs_by_the_cronjob_that_generated_them() {
+    List<Map<String, Object>> jobs =
+        List.of(
+            jobStatus("nightly-1000", "SUCCEEDED"),
+            jobStatus("nightly-2000", "FAILED"),
+            jobStatus("hourly-1500", "SUCCEEDED"),
+            jobStatus("unrelated-job", "RUNNING"));
+
+    List<Map<String, Object>> histories =
+        RunController.groupJobsByCronJob(List.of("nightly", "hourly"), jobs);
+
+    assertEquals(2, histories.size());
+    Map<String, Object> nightly = histories.get(0);
+    assertEquals("nightly", nightly.get("name"));
+    List<Map<String, Object>> nightlyJobs = Json.asObjectList(nightly.get("jobs"));
+    // Newest firing first.
+    assertEquals(List.of("nightly-2000", "nightly-1000"), names(nightlyJobs));
+    assertEquals("FAILED", nightlyJobs.get(0).get("phase"));
+
+    Map<String, Object> hourly = histories.get(1);
+    assertEquals("hourly", hourly.get("name"));
+    assertEquals(List.of("hourly-1500"), names(Json.asObjectList(hourly.get("jobs"))));
+  }
+
+  @Test
+  void a_cronjob_with_no_firings_yet_reports_an_empty_job_list_rather_than_being_omitted() {
+    List<Map<String, Object>> histories =
+        RunController.groupJobsByCronJob(List.of("nightly"), List.of());
+
+    assertEquals(1, histories.size());
+    assertEquals("nightly", histories.get(0).get("name"));
+    assertEquals(List.of(), histories.get(0).get("jobs"));
+  }
+
+  @Test
+  void a_job_belonging_to_a_different_cronjob_is_never_attributed_to_this_one() {
+    List<Map<String, Object>> jobs = List.of(jobStatus("nightly-extra-1000", "SUCCEEDED"));
+
+    List<Map<String, Object>> histories =
+        RunController.groupJobsByCronJob(List.of("nightly"), jobs);
+
+    assertEquals(List.of(), histories.get(0).get("jobs"));
+  }
+
+  @Test
+  void cron_job_firing_time_reads_the_epoch_seconds_encoded_in_the_job_name() {
+    assertEquals(
+        Optional.of(java.time.Instant.ofEpochSecond(1700000000)),
+        RunController.cronJobFiringTimeOf("nightly", "nightly-1700000000"));
+    assertEquals(
+        Optional.empty(), RunController.cronJobFiringTimeOf("nightly", "other-1700000000"));
+    assertEquals(
+        Optional.empty(), RunController.cronJobFiringTimeOf("nightly", "nightly-notanumber"));
+  }
+
+  private static Map<String, Object> jobStatus(String jobName, String phase) {
+    return Map.of("spec", Map.of("name", jobName), "phase", phase);
+  }
+
+  private static List<String> names(List<Map<String, Object>> jobs) {
+    return jobs.stream().map(j -> String.valueOf(j.get("name"))).toList();
   }
 
   private Map<String, Object> awaitSettled() {

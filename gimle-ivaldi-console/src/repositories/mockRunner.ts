@@ -4,6 +4,7 @@ import type {
   ActiveRun,
   CreateRunRequest,
   RunArtifact,
+  RunCronJob,
   RunEndpoint,
   RunLogLine,
   RunMachine,
@@ -144,6 +145,7 @@ function buildScript(request: CreateRunRequest): {
   script: ScriptEntry[];
   artifacts: RunArtifact[];
   machines: RunMachine[];
+  cronJobs: RunCronJob[];
 } {
   const byPath = new Map(request.files.map((f) => [f.path, f.content]));
   const topology = safeParse<Topology>(byPath.get("topology.yaml")) ?? {};
@@ -351,7 +353,14 @@ function buildScript(request: CreateRunRequest): {
 
   const machines = machinesOf(topology, roles, agents, request.machine);
 
-  return { steps, script, artifacts, machines };
+  // No firings yet: a mock run completes far faster than a real schedule could ever fire, so this
+  // mirrors what a genuine cluster reports for a CronJob right after its first deploy.
+  const cronJobs: RunCronJob[] = manifests
+    .map((f) => safeParse<ManifestDoc>(f.content))
+    .filter((doc): doc is ManifestDoc => doc?.kind === "CronJob" && Boolean(doc.name))
+    .map((doc) => ({ name: doc.name as string, jobs: [] }));
+
+  return { steps, script, artifacts, machines, cronJobs };
 }
 
 export class MockRunnerClient implements RunnerClient {
@@ -370,7 +379,7 @@ export class MockRunnerClient implements RunnerClient {
   }
 
   async createRun(request: CreateRunRequest): Promise<RunSnapshot> {
-    const { steps, script, artifacts, machines } = buildScript(request);
+    const { steps, script, artifacts, machines, cronJobs } = buildScript(request);
     const runId = `run-${Date.now().toString(36)}`;
     const snapshot: RunSnapshot = {
       runId,
@@ -379,6 +388,7 @@ export class MockRunnerClient implements RunnerClient {
       endpoints: [],
       machines,
       artifacts,
+      cronJobs,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       error: null,
@@ -492,6 +502,7 @@ export class MockRunnerClient implements RunnerClient {
           endpoints: [],
           machines: [],
           artifacts: [],
+          cronJobs: [],
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
           error: null,

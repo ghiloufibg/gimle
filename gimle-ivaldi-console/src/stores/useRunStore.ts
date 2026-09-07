@@ -7,6 +7,7 @@ import {
   runnerClientFor,
   type ClusterConnection,
   type CreateRunRequest,
+  type RunCronJob,
   type RunEndpoint,
   type RunLogLine,
   type RunMachine,
@@ -38,6 +39,9 @@ interface RunState {
   steps: RunStep[];
   endpoints: RunEndpoint[];
   machines: RunMachine[];
+  /** Every CronJob the running blueprint declares, with the Jobs the control plane has generated
+   * for each -- see contracts.ts. */
+  cronJobs: RunCronJob[];
   /** The bundle revision this run is currently on, once its first deploy has landed -- shown as a
    * persistent label near the status badge rather than only in the log, which clearLog wipes on
    * every new run. */
@@ -69,6 +73,7 @@ function applySnapshot(snapshot: RunSnapshot) {
     steps: snapshot.steps,
     endpoints: snapshot.endpoints,
     machines: snapshot.machines,
+    cronJobs: snapshot.cronJobs,
     reason: snapshot.error,
     revision: snapshot.revision,
   };
@@ -117,6 +122,7 @@ export const useRunStore = create<RunState>((set, get) => {
     steps: [],
     endpoints: [],
     machines: [],
+    cronJobs: [],
     revision: null,
     log: [],
     request: null,
@@ -212,6 +218,7 @@ export const useRunStore = create<RunState>((set, get) => {
         endpoints: [],
         machines: [],
         steps: [],
+        cronJobs: [],
         revision: null,
         request,
         blueprintId: blueprint.id,

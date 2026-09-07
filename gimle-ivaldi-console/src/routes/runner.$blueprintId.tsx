@@ -6,6 +6,7 @@ import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import { ClusterPicker } from "@/components/ivaldi/ClusterPicker";
 import { RunArtifacts } from "@/components/ivaldi/RunArtifacts";
 import { RunConsole } from "@/components/ivaldi/RunConsole";
+import { RunCronJobs } from "@/components/ivaldi/RunCronJobs";
 import { RUN_STATUS_CLASS } from "@/components/ivaldi/RunDrawer";
 import { RunSteps } from "@/components/ivaldi/RunSteps";
 import { secretKeys } from "@/lib/runArtifacts";
@@ -48,6 +49,7 @@ function RunnerPage() {
     steps,
     endpoints,
     machines,
+    cronJobs,
     revision,
     log,
     request,
@@ -280,6 +282,13 @@ function RunnerPage() {
               </ul>
             )}
           </section>
+
+          {ownsRun && cronJobs.length > 0 && (
+            <section>
+              <div className="hud-label">CronJobs</div>
+              <RunCronJobs cronJobs={cronJobs} />
+            </section>
+          )}
 
           {keys.length > 0 && (
             <section>
