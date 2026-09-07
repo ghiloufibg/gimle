@@ -331,7 +331,17 @@ public final class ReleaseReconciler {
           thread.join();
           break;
         } catch (InterruptedException e) {
+          // Being interrupted here means the calling (top-level) thread was asked to cancel --
+          // e.g. a Runner "Stop" -- but that interrupt landed on this thread alone, not on any of
+          // the per-workload virtual threads it spawned and is waiting on. Retrying join() without
+          // acting on it would just consume the signal and block uninterruptibly until that
+          // workload's own poll loop finishes on its own. Propagate it to every spawned thread
+          // instead -- WaitPoller's own poll loop already checks for interruption between polls
+          // and exits cleanly -- so the retried join() below actually completes promptly.
           interrupted = true;
+          for (Thread spawned : threads) {
+            spawned.interrupt();
+          }
         }
       }
     }
