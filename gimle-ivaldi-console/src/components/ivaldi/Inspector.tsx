@@ -753,7 +753,7 @@ function NodeForm({
           </div>
           <SelectField
             label="Isolation posture"
-            value={d.isolationPosture ?? "DENY_BY_DEFAULT"}
+            value={d.isolationPosture ?? "OPEN"}
             options={["OPEN", "DENY_BY_DEFAULT"] as const}
             onChange={(isolationPosture) => update({ isolationPosture } as Partial<NodeData>)}
           />

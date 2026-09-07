@@ -274,7 +274,7 @@ export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
           maxCpuMillicores: 4000,
           maxInstances: 20,
         },
-        isolationPosture: "DENY_BY_DEFAULT",
+        isolationPosture: "OPEN",
       } satisfies TenantData;
     case "deployment":
     case "statefulSet":

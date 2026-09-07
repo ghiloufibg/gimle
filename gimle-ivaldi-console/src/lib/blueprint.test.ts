@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createBlueprint } from "./blueprint";
+import { createBlueprint, defaultDataFor, type TenantData } from "./blueprint";
 
 describe("createBlueprint's default runtime.dataRoot", () => {
   it("scopes the default data root to this blueprint's own id", () => {
@@ -27,5 +27,13 @@ describe("createBlueprint's default runtime.dataRoot", () => {
     const b = createBlueprint("b", { empty: true });
 
     expect(a.runtime.dataRoot).not.toBe(b.runtime.dataRoot);
+  });
+});
+
+describe("a new tenant's default isolation posture", () => {
+  it("defaults to OPEN, matching the platform's own documented default", () => {
+    const tenant = defaultDataFor("tenant") as TenantData;
+
+    expect(tenant.isolationPosture).toBe("OPEN");
   });
 });
