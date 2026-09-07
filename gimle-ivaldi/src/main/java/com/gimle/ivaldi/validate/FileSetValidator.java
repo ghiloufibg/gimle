@@ -1,6 +1,7 @@
 package com.gimle.ivaldi.validate;
 
 import com.gimle.core.module.ModuleArtifact;
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.hilmir.release.Bundle;
@@ -10,11 +11,16 @@ import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
 import com.gimle.hilmir.topology.Transport;
 import com.gimle.hilmir.validate.TopologyValidator;
+import com.gimle.mimir.manifest.CronJobSpec;
+import com.gimle.mimir.manifest.DaemonSetSpec;
+import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import java.io.ByteArrayInputStream;
@@ -108,6 +114,7 @@ public final class FileSetValidator {
     Map<JarArtifact, ModuleArtifact> readableJars = requireJarArtifactsReadable(jars, findings);
     requireRegistryForJarArtifacts(topology, jars, findings);
     requireJarResourcesWithinLimitRange(readableJars, files, findings);
+    requireJarVersionMatchesManifest(readableJars, files, findings);
     bundle.ifPresent(parsed -> requireSingleTenantUnderPlaintext(topology, parsed, findings));
   }
 
@@ -227,6 +234,71 @@ public final class FileSetValidator {
                               + " Inspector's own Resources fields happen to show",
                           jar.manifestPath())));
     }
+  }
+
+  /**
+   * A jar-sourced workload is pushed to the registry under the jar's own real {@code
+   * gimle-module.yaml} version, never under whatever the manifest's own {@code module.version:}
+   * field happens to still say -- so a manifest edited to a new version without re-pointing (or
+   * rebuilding) its jar validates clean today and only fails two steps later, at the push/deploy
+   * boundary, with a "not in the artifact registry" message that names a coordinate the run never
+   * actually pushed. Caught here instead, against the exact same real, on-disk version {@link
+   * #requireJarResourcesWithinLimitRange} already reads.
+   */
+  private static void requireJarVersionMatchesManifest(
+      Map<JarArtifact, ModuleArtifact> readableJars,
+      List<RenderedFile> files,
+      List<Finding> findings) {
+    for (Map.Entry<JarArtifact, ModuleArtifact> entry : readableJars.entrySet()) {
+      JarArtifact jar = entry.getKey();
+      ModuleArtifact artifact = entry.getValue();
+      RenderedFile manifest =
+          files.stream().filter(f -> f.path().equals(jar.manifestPath())).findFirst().orElse(null);
+      if (manifest == null) {
+        continue; // an unresolved manifest path is JarArtifact's own concern, not this one's
+      }
+      declaredModuleId(manifest)
+          .filter(declared -> !declared.version().equals(artifact.id().version()))
+          .ifPresent(
+              declared ->
+                  findings.add(
+                      Finding.error(
+                          "MODULE_VERSION_MISMATCH",
+                          "manifest declares module version "
+                              + declared.version()
+                              + ", but the jar at "
+                              + jar.jar()
+                              + " is actually version "
+                              + artifact.id().version()
+                              + " -- the push step pushes the jar's own real version regardless"
+                              + " of what the manifest declares, so update one to match the"
+                              + " other",
+                          jar.manifestPath())));
+    }
+  }
+
+  /**
+   * The {@link ModuleId} one jar-sourced workload manifest declares -- shared with {@code
+   * RunController}'s own push-time check so the two never compare against a differently-derived
+   * notion of "what the manifest declares." Empty when the manifest doesn't parse as one of the
+   * five workload kinds, already reported elsewhere against that same manifest.
+   */
+  public static Optional<ModuleId> declaredModuleId(RenderedFile manifest) {
+    try {
+      return Optional.of(moduleIdOf(ManifestParser.parse(streamOf(manifest)).spec()));
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static ModuleId moduleIdOf(WorkloadSpec spec) {
+    return switch (spec) {
+      case DeploymentSpec d -> d.moduleId();
+      case JobSpec j -> j.moduleId();
+      case CronJobSpec c -> c.jobTemplate().moduleId();
+      case DaemonSetSpec d -> d.moduleId();
+      case StatefulSetSpec s -> s.moduleId();
+    };
   }
 
   /**

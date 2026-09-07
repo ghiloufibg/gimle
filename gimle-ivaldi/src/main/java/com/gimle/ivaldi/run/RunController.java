@@ -936,12 +936,44 @@ public final class RunController {
    * Every jar a run will push, read before anything is torn down. The push itself is the first step
    * after the boot, so a mistyped path used to be discovered only once the running cluster had
    * already been stopped and respawned -- the whole cost of a reboot for a typo the validate phase
-   * can see.
+   * can see. Each jar's own real version is also cross-checked against its manifest's declared one
+   * here, for the same reason: a mismatch discovered only once the push has already happened under
+   * the jar's real version reads as an opaque "not in the artifact registry" failure two steps
+   * later, naming a coordinate this run never actually pushed.
    */
   private static void requireJarArtifactsReadable(List<RenderedFile> files) {
     for (JarArtifact jarArtifact : jarArtifacts(files)) {
-      readModuleArtifact(jarArtifact);
+      ModuleArtifact artifact = readModuleArtifact(jarArtifact);
+      requireDeclaredVersionMatches(jarArtifact, artifact, files);
     }
+  }
+
+  private static void requireDeclaredVersionMatches(
+      JarArtifact jarArtifact, ModuleArtifact artifact, List<RenderedFile> files) {
+    RenderedFile manifest =
+        files.stream()
+            .filter(f -> f.path().equals(jarArtifact.manifestPath()))
+            .findFirst()
+            .orElse(null);
+    if (manifest == null) {
+      return; // an unresolved manifest path is JarArtifact's own concern, not this one's
+    }
+    FileSetValidator.declaredModuleId(manifest)
+        .filter(declared -> !declared.version().equals(artifact.id().version()))
+        .ifPresent(
+            declared -> {
+              throw new RunFailedException(
+                  "manifest "
+                      + jarArtifact.manifestPath()
+                      + " declares module version "
+                      + declared.version()
+                      + ", but the jar at "
+                      + jarArtifact.jar()
+                      + " is actually version "
+                      + artifact.id().version()
+                      + " -- the module version declared in the manifest doesn't match this"
+                      + " jar's actual version; update one to match the other");
+            });
   }
 
   private void pushArtifact(ControlPlaneApi api, JarArtifact jarArtifact, ActiveRun run) {

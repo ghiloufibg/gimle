@@ -14,6 +14,7 @@ import com.gimle.ivaldi.cluster.ClusterStore;
 import com.gimle.ivaldi.validate.RenderedFile;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -448,6 +451,91 @@ class RunControllerTest {
   void stopping_a_blueprint_with_nothing_running_for_it_is_refused() {
     assertThrows(
         RunController.NotFoundException.class, () -> controller.stopBlueprint("no-such-run"));
+  }
+
+  /**
+   * A manifest edited to a new module version with no matching jar rebuild used to validate clean
+   * and push successfully under the jar's own real (unchanged) version, only to fail two steps
+   * later at deploy time with an opaque "not in the artifact registry" message naming a coordinate
+   * this run never actually pushed. {@code FileSetValidator}'s own {@code MODULE_VERSION_MISMATCH}
+   * check now refuses this before a single process ever boots.
+   */
+  @Test
+  void a_workload_whose_declared_module_version_does_not_match_its_jar_fails_before_anything_boots()
+      throws IOException {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    Path jar = realModuleJar("1.0.0");
+
+    controller.start("c1", Optional.empty(), filesWithMismatchedJarVersion(jar), Map.of());
+    Map<String, Object> snapshot = awaitSettled();
+
+    assertEquals("failed", snapshot.get("status"));
+    String error = String.valueOf(snapshot.get("error"));
+    assertTrue(error.contains("1.0.1"), error);
+    assertTrue(error.contains("1.0.0"), error);
+    assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
+  }
+
+  /**
+   * A minimal but real module artifact -- a JPMS-shaped jar carrying a real, parseable {@code
+   * gimle-module.yaml} -- declaring {@code moduleVersion}, mirroring {@code
+   * FileSetValidatorTest}'s own fixture of the same shape.
+   */
+  private Path realModuleJar(String moduleVersion) {
+    String descriptor =
+        """
+        name: com.example.app
+        version: %s
+        isolation:
+          tier: TIER_1
+        resources:
+          request:
+            memory: 32Mi
+            cpu: 10m
+          limit:
+            memory: 512Mi
+            cpu: 1000m
+        """
+            .formatted(moduleVersion);
+    Path jar = tempDir.resolve("app-" + System.nanoTime() + ".jar");
+    try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+      out.putNextEntry(new JarEntry("module-info.class"));
+      out.write(new byte[] {0});
+      out.closeEntry();
+      out.putNextEntry(new JarEntry("META-INF/gimle/gimle-module.yaml"));
+      out.write(descriptor.getBytes(StandardCharsets.UTF_8));
+      out.closeEntry();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    return jar;
+  }
+
+  private List<RenderedFile> filesWithMismatchedJarVersion(Path jar) {
+    return List.of(
+        new RenderedFile("topology.yaml", TOPOLOGY),
+        new RenderedFile("bundle.yaml", BUNDLE),
+        new RenderedFile(
+            "manifests/01-app.yaml",
+            """
+            apiVersion: v1
+            kind: Deployment
+            name: app
+            replicas: 1
+            module:
+              name: com.example.app
+              version: 1.0.1
+            """),
+        new RenderedFile(
+            "ivaldi.artifacts.yaml",
+            """
+            artifacts:
+              - manifest: manifests/01-app.yaml
+                module: com.example.app
+                version: 1.0.1
+                path: %s
+            """
+                .formatted(jar)));
   }
 
   /**

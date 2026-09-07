@@ -689,6 +689,52 @@ class FileSetValidatorTest {
     assertFalse(codes(findings).contains("LIMITRANGE_VIOLATION"), findings.toString());
   }
 
+  /**
+   * A jar's own real version -- read from the jar the run actually pushes, exactly what {@link
+   * #flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range} already
+   * reads for the LimitRange cross-check -- is what the manifest's own declared version is
+   * checked against here: the push always ships under the jar's real version regardless of what
+   * the manifest still says, so a manifest edited to a new version with no matching jar rebuild
+   * must be caught before a run ever tries to push it.
+   */
+  @Test
+  void flags_a_jar_sourced_workload_whose_manifest_declares_a_different_version_than_the_jar() {
+    Path jar = realModuleJar("64Mi", "50m"); // descriptor version hardcoded to 1.0.0
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", jarSidecar(jar)),
+                file(
+                    "manifests/01-hello.yaml",
+                    JAR_WORKLOAD.replace("version: 1.0.0", "version: 1.0.1"))));
+
+    Finding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("MODULE_VERSION_MISMATCH"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no MODULE_VERSION_MISMATCH in " + findings));
+    assertEquals(Finding.Severity.ERROR, finding.severity());
+    assertEquals("manifests/01-hello.yaml", finding.file());
+    assertTrue(finding.message().contains("1.0.1"), finding.message());
+    assertTrue(finding.message().contains("1.0.0"), finding.message());
+  }
+
+  @Test
+  void does_not_flag_a_jar_sourced_workload_whose_manifest_declares_the_jars_own_version() {
+    Path jar = realModuleJar("64Mi", "50m"); // descriptor version hardcoded to 1.0.0
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", jarSidecar(jar)),
+                file("manifests/01-hello.yaml", JAR_WORKLOAD)));
+
+    assertFalse(codes(findings).contains("MODULE_VERSION_MISMATCH"), findings.toString());
+  }
+
   @Test
   void does_not_flag_a_registry_sourced_workload_without_andvari() {
     String registryWorkload =
