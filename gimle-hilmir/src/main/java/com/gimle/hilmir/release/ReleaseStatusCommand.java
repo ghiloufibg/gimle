@@ -58,6 +58,7 @@ public final class ReleaseStatusCommand {
     body.put("name", releaseName);
     body.put("bundleVersion", meta.bundleVersion());
     body.put("currentRevision", meta.currentRevision());
+    body.put("revisionStatus", current.status().name());
     body.put("tenants", meta.tenants());
     body.put("resources", resourceStatuses);
 
@@ -67,7 +68,7 @@ public final class ReleaseStatusCommand {
     }
     out.println("release: " + releaseName);
     out.println("  bundleVersion: " + meta.bundleVersion());
-    out.println("  currentRevision: " + meta.currentRevision());
+    out.println("  currentRevision: " + meta.currentRevision() + " (" + current.status() + ")");
     out.println("  tenants: " + meta.tenants());
     for (Map<String, Object> resourceStatus : resourceStatuses) {
       out.println(

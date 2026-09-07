@@ -160,6 +160,60 @@ class RollbackCommandTest {
   }
 
   @Test
+  void rollback_refuses_a_target_revision_marked_failed() throws Exception {
+    fake = new FakeControlPlane();
+    ControlPlaneApi api = new ControlPlaneApi(fake.address());
+    RenderedBundle v1 =
+        new RenderedBundle(
+            "greeter-suite",
+            "1.0.0",
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new RenderedWorkload(
+                    "Deployment",
+                    "greeter-provider",
+                    "kind: Deployment\nname: greeter-provider\n")));
+    ReleaseReconciler.deployFresh(api, v1, false, capture(new ByteArrayOutputStream()));
+
+    fake.failWorkloadPut("Deployment", "greeter-consumer");
+    RenderedBundle v2 =
+        new RenderedBundle(
+            "greeter-suite",
+            "2.0.0",
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new RenderedWorkload(
+                    "Deployment", "greeter-provider", "kind: Deployment\nname: greeter-provider\n"),
+                new RenderedWorkload(
+                    "Deployment",
+                    "greeter-consumer",
+                    "kind: Deployment\nname: greeter-consumer\n")));
+    ReleaseMeta meta = ReleaseLedger.readMeta(api, "greeter-suite").orElseThrow();
+    assertThrows(
+        HilmirException.class,
+        () ->
+            ReleaseReconciler.upgradeExisting(
+                api, v2, meta, List.of(), List.of(), false, capture(new ByteArrayOutputStream())));
+
+    // Revision 2 is now recorded, but FAILED -- rolling back to it explicitly must be refused.
+    HilmirException e =
+        assertThrows(
+            HilmirException.class,
+            () ->
+                RollbackCommand.run(
+                    List.of(
+                        "--release", "greeter-suite",
+                        "--to-revision", "2",
+                        "--server", fake.address()),
+                    capture(new ByteArrayOutputStream())));
+    assertTrue(e.getMessage().contains("FAILED"), e.getMessage());
+  }
+
+  @Test
   void rollback_fails_cleanly_for_a_nonexistent_release() throws Exception {
     fake = new FakeControlPlane();
 

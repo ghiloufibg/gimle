@@ -19,6 +19,11 @@ import java.util.Optional;
  * value -- because this row is written through the plain, unencrypted {@code /config/*} surface
  * (see {@link ReleaseLedger}). See {@code SecretRef} for why the digest is enough.
  *
+ * <p>{@code status} distinguishes a revision that fully applied ({@link
+ * ReleaseRevisionStatus#SUCCEEDED}) from one an apply/prune failure cut short ({@link
+ * ReleaseRevisionStatus#FAILED}) -- in the failed case, every list above holds exactly what
+ * actually succeeded before the failure, not the full bundle that was declared.
+ *
  * <p>Public so {@code com.gimle.hilmir.sync} can read a release's last-applied content back through
  * {@link ReleaseLedger#readRevision} and compare it against a freshly rendered candidate via {@link
  * #matchesContent}.
@@ -30,7 +35,8 @@ public record ReleaseRevision(
     List<RenderedConfigEntry> config,
     List<SecretRef> secrets,
     List<RenderedWorkload> workloads,
-    Optional<Integer> rollbackOfRevision) {
+    Optional<Integer> rollbackOfRevision,
+    ReleaseRevisionStatus status) {
 
   List<ResourceRef> resources() {
     return workloads.stream().map(w -> new ResourceRef(w.kind(), w.name())).toList();
@@ -62,6 +68,7 @@ public record ReleaseRevision(
     json.put("secrets", secrets.stream().map(ReleaseRevision::secretToJson).toList());
     json.put("workloads", workloads.stream().map(ReleaseRevision::workloadToJson).toList());
     rollbackOfRevision.ifPresent(r -> json.put("rollbackOfRevision", r));
+    json.put("status", status.name());
     return json;
   }
 
@@ -96,7 +103,8 @@ public record ReleaseRevision(
         config,
         secrets,
         workloads,
-        rollbackOf == null ? Optional.empty() : Optional.of(((Number) rollbackOf).intValue()));
+        rollbackOf == null ? Optional.empty() : Optional.of(((Number) rollbackOf).intValue()),
+        ReleaseRevisionStatus.valueOf((String) json.get("status")));
   }
 
   private static Map<String, Object> tenantToJson(BundleTenant tenant) {

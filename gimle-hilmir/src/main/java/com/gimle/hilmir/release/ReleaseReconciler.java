@@ -38,10 +38,34 @@ public final class ReleaseReconciler {
   public static DeployOutcome deployFresh(
       ControlPlaneApi api, RenderedBundle rendered, boolean wait, PrintStream out) {
     ReleaseLedger.ensureTenant(api);
-    BundleApplier.applyTenants(api, rendered.tenants());
-    BundleApplier.applyConfig(api, rendered.config());
-    BundleApplier.applySecrets(api, rendered.secrets());
-    BundleApplier.applyWorkloads(api, rendered.workloads());
+
+    List<BundleTenant> appliedTenants = new ArrayList<>();
+    List<RenderedConfigEntry> appliedConfig = new ArrayList<>();
+    List<RenderedSecretEntry> appliedSecrets = new ArrayList<>();
+    List<RenderedWorkload> appliedWorkloads = new ArrayList<>();
+    try {
+      BundleApplier.applyTenants(api, rendered.tenants(), appliedTenants::add);
+      BundleApplier.applyConfig(api, rendered.config(), appliedConfig::add);
+      BundleApplier.applySecrets(api, rendered.secrets(), appliedSecrets::add);
+      BundleApplier.applyWorkloads(api, rendered.workloads(), appliedWorkloads::add);
+    } catch (RuntimeException e) {
+      // Every apply call above already durably persisted whatever it reached before this one
+      // failed -- recording that partial state now, marked FAILED, is what keeps a release with
+      // real, running instances from having zero trace in the ledger (Helm's own partial-install
+      // behavior: it still writes a failed revision, it just never auto-rolls-back). Recorded
+      // before rethrowing for the same reason the successful path records before its own wait:
+      // what already happened must never go unrecorded.
+      recordFailedRevision(
+          api,
+          rendered.name(),
+          rendered.version(),
+          1,
+          appliedTenants,
+          appliedConfig,
+          appliedSecrets,
+          appliedWorkloads);
+      throw e;
+    }
 
     // Recorded before the wait, not after: the resources are already applied by this point, so a
     // wait that times out would otherwise leave a live release with no ledger row -- undeployable,
@@ -58,11 +82,55 @@ public final class ReleaseReconciler {
             rendered.config(),
             rendered.secrets().stream().map(SecretRef::of).toList(),
             rendered.workloads(),
-            Optional.empty()));
+            Optional.empty(),
+            ReleaseRevisionStatus.SUCCEEDED));
     ReleaseLedger.writeMeta(
         api, rendered.name(), new ReleaseMeta(rendered.name(), rendered.version(), 1, tenantIds));
     awaitIfRequested(api, rendered, wait, out);
     return new DeployOutcome(1);
+  }
+
+  /**
+   * Writes a revision recording exactly what {@code appliedTenants}/{@code appliedConfig}/{@code
+   * appliedSecrets}/{@code appliedWorkloads} actually succeeded before an apply/prune step further
+   * along threw, marked {@link ReleaseRevisionStatus#FAILED} -- shared by {@link #deployFresh} and
+   * {@link #upgradeExisting}, the two call sites that apply a bundle rather than replay an
+   * already-recorded one.
+   */
+  private static void recordFailedRevision(
+      ControlPlaneApi api,
+      String releaseName,
+      String bundleVersion,
+      int revision,
+      List<BundleTenant> appliedTenants,
+      List<RenderedConfigEntry> appliedConfig,
+      List<RenderedSecretEntry> appliedSecrets,
+      List<RenderedWorkload> appliedWorkloads) {
+    if (appliedTenants.isEmpty()
+        && appliedConfig.isEmpty()
+        && appliedSecrets.isEmpty()
+        && appliedWorkloads.isEmpty()) {
+      // Nothing actually reached the control plane -- e.g. a manifest naming a workload kind the
+      // platform doesn't even recognize, rejected before the first PUT is ever attempted. There is
+      // no live state for a ledger row to be the only record of, so leave the ledger untouched and
+      // let the caller's own exception speak for itself.
+      return;
+    }
+    List<String> tenantIds = appliedTenants.stream().map(BundleTenant::id).toList();
+    ReleaseLedger.writeRevision(
+        api,
+        releaseName,
+        new ReleaseRevision(
+            revision,
+            Instant.now().toEpochMilli(),
+            List.copyOf(appliedTenants),
+            List.copyOf(appliedConfig),
+            appliedSecrets.stream().map(SecretRef::of).toList(),
+            List.copyOf(appliedWorkloads),
+            Optional.empty(),
+            ReleaseRevisionStatus.FAILED));
+    ReleaseLedger.writeMeta(
+        api, releaseName, new ReleaseMeta(releaseName, bundleVersion, revision, tenantIds));
   }
 
   /**
@@ -123,19 +191,41 @@ public final class ReleaseReconciler {
       List<KeyRef> keysToPrune,
       boolean wait,
       PrintStream out) {
-    BundleApplier.applyTenants(api, rendered.tenants());
-    BundleApplier.applyConfig(api, rendered.config());
-    BundleApplier.applySecrets(api, rendered.secrets());
-    BundleApplier.applyWorkloads(api, rendered.workloads());
-    BundleApplier.deleteWorkloads(api, toPrune);
-    // After the applies, so a key this revision moved between the config store and the vault is
-    // written under its new home before the old one is taken away.
-    BundleApplier.deleteConfig(api, keysToPrune);
-    BundleApplier.deleteSecrets(api, keysToPrune);
+    int nextRevision = meta.currentRevision() + 1;
+
+    List<BundleTenant> appliedTenants = new ArrayList<>();
+    List<RenderedConfigEntry> appliedConfig = new ArrayList<>();
+    List<RenderedSecretEntry> appliedSecrets = new ArrayList<>();
+    List<RenderedWorkload> appliedWorkloads = new ArrayList<>();
+    try {
+      BundleApplier.applyTenants(api, rendered.tenants(), appliedTenants::add);
+      BundleApplier.applyConfig(api, rendered.config(), appliedConfig::add);
+      BundleApplier.applySecrets(api, rendered.secrets(), appliedSecrets::add);
+      BundleApplier.applyWorkloads(api, rendered.workloads(), appliedWorkloads::add);
+      BundleApplier.deleteWorkloads(api, toPrune);
+      // After the applies, so a key this revision moved between the config store and the vault is
+      // written under its new home before the old one is taken away.
+      BundleApplier.deleteConfig(api, keysToPrune);
+      BundleApplier.deleteSecrets(api, keysToPrune);
+    } catch (RuntimeException e) {
+      // See deployFresh's own catch for why this is recorded, not just rethrown: everything
+      // gathered above (the new content that did apply, even if the prune that follows it never
+      // finished) is already real and live, and must not vanish from the ledger just because this
+      // upgrade didn't fully converge.
+      recordFailedRevision(
+          api,
+          rendered.name(),
+          rendered.version(),
+          nextRevision,
+          appliedTenants,
+          appliedConfig,
+          appliedSecrets,
+          appliedWorkloads);
+      throw e;
+    }
 
     // Recorded before the wait for the same reason deployFresh does: a timed-out wait must not
     // leave the ledger pointing at the previous revision while the new one is already live.
-    int nextRevision = meta.currentRevision() + 1;
     List<String> tenantIds = rendered.tenants().stream().map(BundleTenant::id).toList();
     ReleaseLedger.writeRevision(
         api,
@@ -147,7 +237,8 @@ public final class ReleaseReconciler {
             rendered.config(),
             rendered.secrets().stream().map(SecretRef::of).toList(),
             rendered.workloads(),
-            Optional.empty()));
+            Optional.empty(),
+            ReleaseRevisionStatus.SUCCEEDED));
     ReleaseLedger.writeMeta(
         api,
         rendered.name(),

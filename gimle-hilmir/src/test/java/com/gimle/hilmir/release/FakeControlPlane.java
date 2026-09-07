@@ -14,6 +14,8 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 
@@ -67,6 +69,7 @@ public final class FakeControlPlane implements AutoCloseable {
   private final Map<String, Map<String, ConfigValue>> config = new LinkedHashMap<>();
   private final Map<String, Map<String, WorkloadRecord>> workloads = new LinkedHashMap<>();
   private final Map<String, byte[]> artifacts = new LinkedHashMap<>();
+  private final Set<String> failingWorkloadPuts = ConcurrentHashMap.newKeySet();
   public final List<Recorded> requests = new CopyOnWriteArrayList<>();
 
   public FakeControlPlane() throws IOException {
@@ -133,6 +136,16 @@ public final class FakeControlPlane implements AutoCloseable {
     WorkloadRecord record = workloadRecord(kind, name);
     record.pollsRemaining = pollsUntilReady;
     record.instancesWhenReady = instances;
+  }
+
+  /**
+   * A subsequent {@code PUT} for this exact workload answers 409, the same shape a real control
+   * plane returns for a manifest whose {@code artifactPath} coordinate 404s against Andvari's
+   * admission HEAD-check -- for a test that needs one workload in a bundle to fail to apply while
+   * every other one around it succeeds.
+   */
+  void failWorkloadPut(String kind, String name) {
+    failingWorkloadPuts.add(kind + "/" + name);
   }
 
   private WorkloadRecord workloadRecord(String kind, String name) {
@@ -328,6 +341,10 @@ public final class FakeControlPlane implements AutoCloseable {
         workloads.computeIfAbsent(kind, k -> new LinkedHashMap<>());
     switch (method) {
       case "PUT" -> {
+        if (failingWorkloadPuts.contains(kind + "/" + name)) {
+          respond(exchange, 409, "unresolved artifact coordinate for " + name);
+          return;
+        }
         byName.computeIfAbsent(name, n -> new WorkloadRecord(body)).yaml = body;
         respond(exchange, 200, "ok");
       }

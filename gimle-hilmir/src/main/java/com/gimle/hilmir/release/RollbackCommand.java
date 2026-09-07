@@ -61,6 +61,19 @@ public final class RollbackCommand {
                             + "' has no revision "
                             + targetRevision
                             + " recorded in its ledger"));
+    if (target.status() == ReleaseRevisionStatus.FAILED) {
+      // A failed revision's own lists hold only whatever partial state its own apply reached
+      // before it failed, not the bundle it was declaring -- restoring it would silently apply
+      // that same incomplete state rather than a known-good one.
+      throw new HilmirException(
+          "revision "
+              + targetRevision
+              + " of release '"
+              + releaseName
+              + "' is marked FAILED (a partial apply that never fully succeeded) and cannot be"
+              + " used as a rollback target; pass --to-revision with a successfully applied"
+              + " revision instead");
+    }
     ReleaseRevision current =
         ReleaseLedger.readRevision(api, releaseName, meta.currentRevision())
             .orElseThrow(
@@ -91,9 +104,9 @@ public final class RollbackCommand {
       return 0;
     }
 
-    BundleApplier.applyTenants(api, target.tenants());
-    BundleApplier.applyConfig(api, target.config());
-    BundleApplier.applyWorkloads(api, target.workloads());
+    BundleApplier.applyTenants(api, target.tenants(), t -> {});
+    BundleApplier.applyConfig(api, target.config(), c -> {});
+    BundleApplier.applyWorkloads(api, target.workloads(), w -> {});
     BundleApplier.deleteWorkloads(api, toPrune);
     if (flags.isSet("--wait")) {
       for (RenderedWorkload workload : target.workloads()) {
@@ -113,7 +126,8 @@ public final class RollbackCommand {
             target.config(),
             target.secrets(),
             target.workloads(),
-            Optional.of(targetRevision)));
+            Optional.of(targetRevision),
+            ReleaseRevisionStatus.SUCCEEDED));
     ReleaseLedger.writeMeta(
         api,
         releaseName,
