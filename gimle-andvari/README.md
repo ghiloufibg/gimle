@@ -51,7 +51,8 @@ Andvari directly, with no separate repository implementation to keep in sync: `.
 resolve to the same `(moduleId, version)` coordinate the operational API uses, `.jar.sha256` is
 always server-computed from `meta.json` (never trusted from a client upload), `.pom` and checksum
 sidecars are accepted and stored opaquely, and `maven-metadata.xml` is generated fresh from the
-store's own version list on every read.
+store's own version list on every read, with its own `.sha1`/`.sha256`/`.md5` sidecars computed
+over that same freshly-generated document rather than served from an upload.
 
 ## Authorization (defense-in-depth)
 

@@ -207,6 +207,71 @@ class AndvariServerMavenRepositoryTest {
 
   @Test
   @Timeout(10)
+  void maven_metadata_sha1_is_computed_over_the_generated_document() throws Exception {
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.jar",
+            "v1".getBytes(StandardCharsets.UTF_8)));
+
+    HttpResponse<String> metadata = send(get("/repository/com/gimle/app/maven-metadata.xml"));
+    HttpResponse<String> checksum = send(get("/repository/com/gimle/app/maven-metadata.xml.sha1"));
+
+    assertEquals(200, checksum.statusCode());
+    assertEquals(sha1Of(metadata.body().getBytes(StandardCharsets.UTF_8)), checksum.body());
+  }
+
+  @Test
+  @Timeout(10)
+  void maven_metadata_md5_is_computed_over_the_generated_document() throws Exception {
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.jar",
+            "v1".getBytes(StandardCharsets.UTF_8)));
+
+    HttpResponse<String> metadata = send(get("/repository/com/gimle/app/maven-metadata.xml"));
+    HttpResponse<String> checksum = send(get("/repository/com/gimle/app/maven-metadata.xml.md5"));
+
+    assertEquals(200, checksum.statusCode());
+    assertEquals(md5Of(metadata.body().getBytes(StandardCharsets.UTF_8)), checksum.body());
+  }
+
+  @Test
+  @Timeout(10)
+  void maven_metadata_checksum_sidecars_update_when_a_new_version_is_pushed() throws Exception {
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.jar",
+            "v1".getBytes(StandardCharsets.UTF_8)));
+    // A client-uploaded sidecar must never be persisted verbatim for the one file the server
+    // regenerates on every GET -- if it were, these would keep answering the version-1 digest
+    // even after a second version changes the underlying document.
+    send(
+        put(
+            "/repository/com/gimle/app/maven-metadata.xml.sha1",
+            "stale-sha1".getBytes(StandardCharsets.UTF_8)));
+    send(
+        put(
+            "/repository/com/gimle/app/maven-metadata.xml.md5",
+            "stale-md5".getBytes(StandardCharsets.UTF_8)));
+
+    send(
+        put(
+            "/repository/com/gimle/app/2.0.0/app-2.0.0.jar",
+            "v2".getBytes(StandardCharsets.UTF_8)));
+
+    HttpResponse<String> metadata = send(get("/repository/com/gimle/app/maven-metadata.xml"));
+    byte[] currentXml = metadata.body().getBytes(StandardCharsets.UTF_8);
+    HttpResponse<String> sha1 = send(get("/repository/com/gimle/app/maven-metadata.xml.sha1"));
+    HttpResponse<String> md5 = send(get("/repository/com/gimle/app/maven-metadata.xml.md5"));
+
+    assertEquals(200, sha1.statusCode());
+    assertEquals(200, md5.statusCode());
+    assertEquals(sha1Of(currentXml), sha1.body());
+    assertEquals(md5Of(currentXml), md5.body());
+  }
+
+  @Test
+  @Timeout(10)
   void maven_metadata_for_an_unknown_module_is_404() throws Exception {
     assertEquals(404, send(get("/repository/com/gimle/ghost/maven-metadata.xml")).statusCode());
   }
@@ -281,5 +346,13 @@ class AndvariServerMavenRepositoryTest {
 
   private static String sha256Of(byte[] bytes) throws Exception {
     return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+  }
+
+  private static String sha1Of(byte[] bytes) throws Exception {
+    return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(bytes));
+  }
+
+  private static String md5Of(byte[] bytes) throws Exception {
+    return HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(bytes));
   }
 }

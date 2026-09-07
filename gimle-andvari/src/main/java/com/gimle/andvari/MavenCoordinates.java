@@ -50,9 +50,9 @@ final class MavenCoordinates {
 
   /**
    * Parses a group-level {@code maven-metadata.xml} request tail, e.g. {@code
-   * com/gimle/examples/greeter/provider/maven-metadata.xml} (or its {@code .sha1}/{@code .sha256}
-   * sidecar). Returns {@code null} when the last segment isn't a {@code maven-metadata.xml}
-   * variant, so the caller falls through to {@link #parseArtifactFile} instead.
+   * com/gimle/examples/greeter/provider/maven-metadata.xml} (or its {@code .sha1}/{@code
+   * .sha256}/{@code .md5} sidecar). Returns {@code null} when the last segment isn't a {@code
+   * maven-metadata.xml} variant, so the caller falls through to {@link #parseArtifactFile} instead.
    */
   static MetadataFile parseMetadataPath(String tail) {
     List<String> segments = splitNonEmpty(tail);
@@ -63,7 +63,8 @@ final class MavenCoordinates {
     String fileName = segments.get(n - 1);
     if (!fileName.equals("maven-metadata.xml")
         && !fileName.equals("maven-metadata.xml.sha1")
-        && !fileName.equals("maven-metadata.xml.sha256")) {
+        && !fileName.equals("maven-metadata.xml.sha256")
+        && !fileName.equals("maven-metadata.xml.md5")) {
       return null;
     }
     String artifactId = segments.get(n - 2);
