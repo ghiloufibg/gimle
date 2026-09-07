@@ -58,6 +58,8 @@ public final class FakeControlPlane implements AutoCloseable {
     String phase = "RUNNING";
     int pollsRemaining;
     List<Map<String, Object>> instancesWhenReady;
+    boolean pendingDelete;
+    int pollsUntilGoneAfterDelete;
 
     WorkloadRecord(String yaml) {
       this.yaml = yaml;
@@ -146,6 +148,16 @@ public final class FakeControlPlane implements AutoCloseable {
    */
   void failWorkloadPut(String kind, String name) {
     failingWorkloadPuts.add(kind + "/" + name);
+  }
+
+  /**
+   * A subsequent {@code DELETE} for this exact workload still succeeds (the control plane accepted
+   * it), but the workload keeps round-tripping as present on the next {@code pollsBeforeGone} GETs
+   * before it actually disappears -- simulating a DaemonSet whose instances are slow, stuck, or
+   * unhealthy to drain rather than one whose teardown is instantaneous.
+   */
+  void lingerAfterDelete(String kind, String name, int pollsBeforeGone) {
+    workloadRecord(kind, name).pollsUntilGoneAfterDelete = pollsBeforeGone;
   }
 
   private WorkloadRecord workloadRecord(String kind, String name) {
@@ -354,6 +366,15 @@ public final class FakeControlPlane implements AutoCloseable {
           respond(exchange, 404, "not found: " + name);
           return;
         }
+        if (record.pendingDelete) {
+          if (record.pollsUntilGoneAfterDelete > 0) {
+            record.pollsUntilGoneAfterDelete--;
+          } else {
+            byName.remove(name);
+            respond(exchange, 404, "not found: " + name);
+            return;
+          }
+        }
         if (record.pollsRemaining > 0) {
           record.pollsRemaining--;
           if (record.pollsRemaining == 0 && record.instancesWhenReady != null) {
@@ -366,9 +387,15 @@ public final class FakeControlPlane implements AutoCloseable {
         respondJson(exchange, 200, status);
       }
       case "DELETE" -> {
-        if (byName.remove(name) == null) {
+        WorkloadRecord record = byName.get(name);
+        if (record == null) {
           respond(exchange, 404, "not found: " + name);
           return;
+        }
+        if (record.pollsUntilGoneAfterDelete > 0) {
+          record.pendingDelete = true;
+        } else {
+          byName.remove(name);
         }
         respond(exchange, 200, "ok");
       }
