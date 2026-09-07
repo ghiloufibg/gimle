@@ -110,13 +110,23 @@ final class WorkloadCrashLoopBackoff {
   /**
    * Call once a slot is confirmed ready. Empty when there's nothing persisted to reset -- avoids an
    * unnecessary write on every healthy tick, matching {@link HealthReconciler#recordHealthy}.
+   *
+   * <p>Clears {@code permanentlyFailed} rather than carrying it forward: a slot only ever reaches
+   * here once its caller (e.g. {@code StatefulSetReconciler}'s own readiness-stabilization check)
+   * has independently confirmed it is genuinely, continuously healthy again -- real evidence
+   * whatever caused the crash loop is fixed, not merely "it didn't crash this instant." Leaving a
+   * permanently-failed slot stuck forever once that evidence exists would wedge it (and, for an
+   * {@code OrderedReady} scan, every slot behind it) past the point the underlying cause was ever
+   * corrected, with no way back short of manual intervention -- exactly the non-convergence a
+   * level-triggered reconciler must not produce.
    */
   Optional<StateMutation> handleHealthyObserved(
       String workloadKind, String workloadName, String slot, Optional<String> tenantId) {
     WorkloadHealthState persisted = currentState(workloadKind, workloadName, slot, tenantId);
     if (persisted.attemptsInWindow() == 0
         && persisted.windowStartEpochMilli() == WorkloadHealthState.ABSENT
-        && !persisted.pendingRetry()) {
+        && !persisted.pendingRetry()
+        && !persisted.permanentlyFailed()) {
       return Optional.empty();
     }
     return Optional.of(
@@ -129,7 +139,7 @@ final class WorkloadCrashLoopBackoff {
                 WorkloadHealthState.ABSENT,
                 WorkloadHealthState.ABSENT,
                 false,
-                persisted.permanentlyFailed(),
+                false,
                 persisted.firstContinuousReadyAtEpochMilli(),
                 tenantId)));
   }

@@ -101,8 +101,14 @@ import org.slf4j.LoggerFactory;
  * HealthReconciler} already established for Deployment: back off, then release the stale assignment
  * so the ordinary missing-index path above gives it a fresh placement attempt (on the same sticky
  * node, per this class's own sticky-placement contract), or give up permanently once the restart
- * budget is exhausted. A permanently-failed index is never skipped past -- the scan simply stops at
- * it, same as any other not-yet-ready index, preserving {@code OrderedReady} exactly.
+ * budget is exhausted. A permanently-failed index is never skipped past while it stays broken --
+ * the scan stops at it, same as any other not-yet-ready index, preserving {@code OrderedReady}
+ * exactly -- but it is not a one-way gate: {@link #isReady} is still evaluated for it every tick,
+ * and once that reports a genuinely stabilized, non-crash-looping observation (e.g. because a
+ * redeploy fixed whatever was wrong), {@link WorkloadCrashLoopBackoff#handleHealthyObserved} clears
+ * the flag and the scan resumes past it in the same tick. Convergence from "permanently failed"
+ * back to "healthy" must always be possible from real evidence -- a level-triggered reconciler that
+ * could only ever get stuck worse would violate its own core correctness property.
  */
 public final class StatefulSetReconciler {
 
@@ -279,7 +285,18 @@ public final class StatefulSetReconciler {
       }
       String slot = String.valueOf(index);
       if (crashLoopBackoff.isPermanentlyFailed(WORKLOAD_KIND, spec.name(), slot, spec.tenantId())) {
-        return; // never skip past a stuck index -- see class javadoc's "Crash-loop backoff" note.
+        // Not a one-way gate: give isReady a chance to report genuine, stabilized recovery (e.g.
+        // a redeploy that fixed the underlying cause) before falling back to "still stuck, stop
+        // here" -- see class javadoc's "Crash-loop backoff" note. isReady itself already reports
+        // false for a currently crash-looping observation (ready() is false while FAILED), so no
+        // separate isCrashLooping check is needed here.
+        if (!isReady(assignment.get(), now, observingSince)) {
+          return;
+        }
+        crashLoopBackoff
+            .handleHealthyObserved(WORKLOAD_KIND, spec.name(), slot, spec.tenantId())
+            .ifPresent(mutations::propose);
+        continue;
       }
       if (nodeIsGenuinelyGone(assignment.get().nodeId(), now, observingSince)) {
         log.warn(

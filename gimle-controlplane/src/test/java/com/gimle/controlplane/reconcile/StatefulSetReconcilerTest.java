@@ -1,6 +1,7 @@
 package com.gimle.controlplane.reconcile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.schedule.Scheduler;
@@ -864,6 +865,78 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce();
     assertTrue(
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty());
+  }
+
+  /**
+   * Convergence from an arbitrary starting state (CLAUDE.md's own core reconciler-correctness
+   * property): a permanently-failed index that later becomes genuinely, stably healthy again --
+   * e.g. because the manifest that caused the crash loop was redeployed with a fix -- must not stay
+   * wedged forever, and neither must any index OrderedReady was blocking behind it.
+   */
+  @Test
+  void a_permanently_failed_index_recovers_and_unblocks_indices_behind_it_once_genuinely_healthy(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 2));
+    StatefulSetReconciler reconciler =
+        new StatefulSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            Duration.ofMinutes(10),
+            Duration.ofMinutes(10),
+            clock);
+
+    // Same "drive index 0 to give up" sequence as
+    // a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past.
+    Duration initialDelay = Duration.ofSeconds(2);
+    int maxAttemptsPerWindow = 5;
+    reconciler.reconcileOnce(); // places index 0
+    for (int attempt = 1; attempt <= maxAttemptsPerWindow + 1; attempt++) {
+      StatefulSetAssignment index0 =
+          indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+      reportFailed(store, index0);
+      reconciler.reconcileOnce();
+      Duration delay =
+          initialDelay.multipliedBy(
+              (long) Math.pow(2.0, Math.min(attempt, maxAttemptsPerWindow) - 1));
+      clock.advance(delay.compareTo(Duration.ofMinutes(1)) > 0 ? Duration.ofMinutes(1) : delay);
+      reconciler.reconcileOnce();
+      if (attempt <= maxAttemptsPerWindow) {
+        reconciler.reconcileOnce();
+      }
+    }
+    StatefulSetAssignment stuck =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "StatefulSet", "orders", "0")
+            .orElseThrow()
+            .permanentlyFailed(),
+        "sanity check: index 0 must actually be permanently failed before recovery is tested");
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty(),
+        "sanity check: index 1 must still be blocked behind the stuck index 0");
+
+    // Whatever was wrong gets fixed and the same index starts reporting healthy again.
+    reportReady(store, stuck);
+    reconciler.reconcileOnce(); // records when it was first observed continuously ready again
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // stabilized: clears the flag and resumes the scan past index 0
+
+    assertFalse(
+        store
+            .getWorkloadHealthState(Optional.empty(), "StatefulSet", "orders", "0")
+            .orElseThrow()
+            .permanentlyFailed(),
+        "a genuinely healthy, stabilized observation must clear the permanently-failed flag");
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isPresent(),
+        "index 1 must resume being scheduled once index 0 is unblocked");
   }
 
   @Test
