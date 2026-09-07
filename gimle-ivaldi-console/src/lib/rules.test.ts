@@ -141,12 +141,27 @@ describe("application rules", () => {
     expect(codesOf(bp)).toContain("QUOTA_EXCEEDED");
   });
 
-  it("flags a resource belonging to no known tenant", () => {
+  it("flags a resource naming a tenant id that matches no declared tenant, as a blocking error", () => {
     const bp = clone(ordersPlatform!);
     const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
     bp.edges = bp.edges.filter((e) => e.source !== deployment.id);
     (deployment.data as { tenantId?: string }).tenantId = "no-such-tenant";
-    expect(codesOf(bp)).toContain("TENANT_UNKNOWN");
+    const problems = validate(bp).filter((p) => p.code === "TENANT_UNKNOWN");
+    expect(problems).toHaveLength(1);
+    expect(problems[0].severity).toBe("error");
+  });
+
+  it("only warns, and does not block Run, when a resource simply has no tenant set", () => {
+    // The control plane admits a blank tenantId unconditionally and runs it in the implicit
+    // default tenant -- this is a real, supported configuration, not a misconfiguration the way
+    // naming a tenant that doesn't exist is.
+    const bp = clone(ordersPlatform!);
+    const deployment = bp.nodes.find((n) => n.kind === "deployment")!;
+    bp.edges = bp.edges.filter((e) => e.source !== deployment.id);
+    (deployment.data as { tenantId?: string }).tenantId = "";
+    const problems = validate(bp).filter((p) => p.code === "TENANT_UNKNOWN");
+    expect(problems).toHaveLength(1);
+    expect(problems[0].severity).toBe("warning");
   });
 
   it("flags a cron schedule that doesn't have exactly 5 fields", () => {

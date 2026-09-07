@@ -292,8 +292,21 @@ function validateApplication(bp: Blueprint): Problem[] {
   );
   for (const n of tenantScoped) {
     const tid = tenantIdOf(bp, n);
-    if (!tid || !declaredTenantIds.includes(tid))
+    // A blank tenant id is a real, supported configuration -- the control plane admits it
+    // unconditionally and runs it in the implicit `default` tenant, the same way an untenanted
+    // Kubernetes manifest lands in its own default namespace. A non-blank id naming no tenant
+    // drawn on this canvas is different: the control plane's own admission check rejects that
+    // outright as an unknown tenantId, so that case stays a real, blocking error.
+    if (tid && !declaredTenantIds.includes(tid))
       p.push(err("TENANT_UNKNOWN", "Resource does not belong to a known tenant.", n.id));
+    else if (!tid)
+      p.push(
+        warn(
+          "TENANT_UNKNOWN",
+          "No tenant set -- this resource runs in the implicit default tenant.",
+          n.id,
+        ),
+      );
   }
 
   for (const s of nodesOf(bp, "service")) {
