@@ -139,9 +139,25 @@ function draftStorageKey(id: string): string {
   return `ivaldi:draft:${id}`;
 }
 
+/**
+ * What actually lands in localStorage: the draft blueprint plus the wall-clock time it was last
+ * written, tracked independently of the blueprint's own `updatedAt` -- which only `save` ever
+ * stamps. A draft persisted seconds before a crash, with no completed save in between, carries the
+ * exact same `updatedAt` as the last successfully-saved server copy; comparing against that field
+ * made every such draft look no newer than the server and see it deleted as "already saved," when
+ * it was actually the only surviving copy of the edit. `savedAt` is bumped on every local edit
+ * instead, so `load` below can compare "when was this draft last touched" against "when was the
+ * server copy last saved" -- the question that actually decides whether it's recoverable.
+ */
+interface DraftEnvelope {
+  blueprint: Blueprint;
+  savedAt: number;
+}
+
 function persistDraft(bp: Blueprint) {
   try {
-    localStorage.setItem(draftStorageKey(bp.id), JSON.stringify(bp));
+    const envelope: DraftEnvelope = { blueprint: bp, savedAt: Date.now() };
+    localStorage.setItem(draftStorageKey(bp.id), JSON.stringify(envelope));
   } catch {
     // Best-effort only: a private window, cleared site data, or a full quota must never block
     // the in-memory edit or the real debounced save to the backend.
@@ -156,10 +172,10 @@ function clearDraft(id: string) {
   }
 }
 
-function readDraft(id: string): Blueprint | null {
+function readDraft(id: string): DraftEnvelope | null {
   try {
     const raw = localStorage.getItem(draftStorageKey(id));
-    return raw ? (JSON.parse(raw) as Blueprint) : null;
+    return raw ? (JSON.parse(raw) as DraftEnvelope) : null;
   } catch {
     return null;
   }
@@ -221,9 +237,12 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
 
     load: async (id) => {
       const bp = normaliseLoaded((await blueprintsRepository.get(id)) ?? null);
-      const draft = normaliseLoaded(readDraft(id));
+      const envelope = readDraft(id);
+      const draft = envelope ? normaliseLoaded(envelope.blueprint) : null;
+      // Recoverable exactly when the draft was last touched after the loaded server copy's own
+      // updatedAt -- not when the draft's own (possibly stale, save-only) updatedAt says so.
       const recoverableDraft =
-        draft && (!bp || timeOf(draft.updatedAt) > timeOf(bp.updatedAt)) ? draft : null;
+        envelope && draft && (!bp || envelope.savedAt > timeOf(bp.updatedAt)) ? draft : null;
       if (draft && !recoverableDraft) clearDraft(id);
       set({
         blueprint: bp,
