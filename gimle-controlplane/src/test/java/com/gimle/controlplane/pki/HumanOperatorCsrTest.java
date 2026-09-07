@@ -2,11 +2,13 @@ package com.gimle.controlplane.pki;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -28,6 +30,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -119,6 +122,65 @@ class HumanOperatorCsrTest {
       Map<String, Object> statusAfterApproval = pollStatus(trustOnlyClient, baseUrl, requestId);
       assertEquals("APPROVED", statusAfterApproval.get("status"));
       assertNotNull(statusAfterApproval.get("certificatePem"));
+    }
+  }
+
+  /**
+   * {@code V3-M5}: an explicit {@code gimle cert approve <id>} call's own audit row must record
+   * which pending request it resolved -- before the fix, every such row carried an empty {@code
+   * targetId}, so more than one approval by the same principal was indistinguishable in the audit
+   * trail. The schema itself already supports this (a bootstrap-token node join's own {@code
+   * APPROVE} row already records the joining CSR's subject as its target), so this only needed the
+   * operator-approval call site to actually set it.
+   */
+  @Test
+  void an_operator_csr_approval_records_the_resolved_request_id_as_the_audit_target()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+
+      HttpClient trustOnlyClient = trustOnlyClient();
+      KeyPair newOperatorKeyPair = generateRsaKeyPair();
+      PKCS10CertificationRequest csr =
+          CertificateSigningRequests.generate(
+              newOperatorKeyPair, new X500Name("CN=audit-target-operator"));
+      Map<String, Object> submitResult = submitOperatorCsr(trustOnlyClient, baseUrl, csr, 202);
+      String requestId = (String) submitResult.get("requestId");
+
+      HttpClient existingOperatorClient = mutualTlsClient(ca, "existing-operator");
+      HttpRequest approveRequest =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/bootstrap/csr/" + requestId + "/approve"))
+              .POST(HttpRequest.BodyPublishers.noBody())
+              .build();
+      HttpResponse<String> approveResponse =
+          existingOperatorClient.send(
+              approveRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, approveResponse.statusCode());
+
+      List<AuditEvent> events =
+          inProcessStore
+              .client()
+              .listAuditEvents(
+                  Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+              .stream()
+              .filter(
+                  e ->
+                      e.resourceKind().equals("CERTIFICATE_REQUEST")
+                          && e.verb().equals("APPROVE")
+                          && e.targetId().equals(Optional.of(requestId)))
+              .toList();
+      assertEquals(1, events.size());
+      assertTrue(events.get(0).allowed());
     }
   }
 
