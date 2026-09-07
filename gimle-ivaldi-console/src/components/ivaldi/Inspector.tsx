@@ -311,15 +311,17 @@ function WorkloadForm({
           ])}
         />
       )}
-      {kind !== "daemonSet" && (
-        <CheckboxField
-          label="Anti-affinity"
-          checked={Boolean(d.placement?.antiAffinity)}
-          onChange={(antiAffinity) =>
-            update({ placement: { ...d.placement, antiAffinity } } as Partial<NodeData>)
-          }
-        />
-      )}
+      <CheckboxField
+        label="Anti-affinity"
+        checked={Boolean(d.placement?.antiAffinity)}
+        onChange={(antiAffinity) =>
+          update({ placement: { ...d.placement, antiAffinity } } as Partial<NodeData>)
+        }
+        // DaemonSets can't legally declare this (DAEMONSET_ANTI_AFFINITY, checked below) --
+        // rendered anyway so a value of `true` set some other way (an import, an old manifest)
+        // stays clearable, the same way DAEMONSET_MAX_SURGE is fixable via its own toggle.
+        problems={kind === "daemonSet" ? pick(problems, ["DAEMONSET_ANTI_AFFINITY"]) : undefined}
+      />
       {kind === "daemonSet" && (
         <CheckboxField
           label="Tolerate all taints"
@@ -333,7 +335,7 @@ function WorkloadForm({
         onChange={(requiredLabels) =>
           update({ placement: { ...d.placement, requiredLabels } } as Partial<NodeData>)
         }
-        problems={pick(problems, ["REQUIRED_LABEL_UNMATCHED", "DAEMONSET_ANTI_AFFINITY"])}
+        problems={pick(problems, ["REQUIRED_LABEL_UNMATCHED"])}
       />
       {(kind === "deployment" || kind === "statefulSet") && (
         <>

@@ -210,21 +210,26 @@ export function CheckboxField({
   label,
   checked,
   onChange,
+  problems,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  problems?: Problem[];
 }) {
   return (
-    <label className="flex items-center gap-2 py-0.5">
-      <input
-        type="checkbox"
-        className="size-3 accent-[var(--color-primary)]"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="hud-label">{label}</span>
-    </label>
+    <div className="space-y-0.5">
+      <label className="flex items-center gap-2 py-0.5">
+        <input
+          type="checkbox"
+          className="size-3 accent-[var(--color-primary)]"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="hud-label">{label}</span>
+      </label>
+      <ProblemList problems={problems ?? []} />
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Blueprint, StoreData, TenantData } from "./blueprint";
+import { createNode } from "./blueprint";
 import { sampleBlueprints } from "./samples";
 import { validate } from "./rules";
 
@@ -395,6 +396,19 @@ describe("faults the designer used to ship silently", () => {
     const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
     policy.data = { ...policy.data, allowedCalleeTenantIds: ["no-such-tenant"] };
     expect(codesOf(bp)).toContain("POLICY_ALLOWED_CALLEE_UNKNOWN");
+  });
+
+  it("flags anti-affinity set on a DaemonSet, which the Inspector must still let a user clear", () => {
+    // A DaemonSet's Anti-affinity checkbox used to be hidden entirely in the Inspector, so a
+    // `true` value set some other way (an import, an old manifest) had no on-screen way back --
+    // this is the finding that checkbox now surfaces so the user has a way to fix it.
+    const bp = clone(ordersPlatform!);
+    const daemonSet = createNode("daemonSet", { x: 0, y: 0 });
+    (daemonSet.data as { placement?: { antiAffinity?: boolean } }).placement = {
+      antiAffinity: true,
+    };
+    bp.nodes.push(daemonSet);
+    expect(codesOf(bp)).toContain("DAEMONSET_ANTI_AFFINITY");
   });
 
   it("does not fault a callee tenant that is genuinely declared on the canvas", () => {
