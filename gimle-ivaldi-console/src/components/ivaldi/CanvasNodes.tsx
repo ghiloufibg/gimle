@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Info, OctagonAlert, TriangleAlert } from "lucide-react";
 
 import {
   KIND_LABELS,
@@ -35,6 +36,49 @@ function stripeClass(problems: Problem[]): string {
   if (problems.some((p) => p.severity === "warning")) return "bg-status-warn";
   if (problems.some((p) => p.severity === "info")) return "bg-status-info";
   return "bg-transparent";
+}
+
+/** The worst severity among a node's own problems, or undefined for a clean node. */
+function worstSeverity(problems: Problem[]): Problem["severity"] | undefined {
+  if (problems.some((p) => p.severity === "error")) return "error";
+  if (problems.some((p) => p.severity === "warning")) return "warning";
+  if (problems.some((p) => p.severity === "info")) return "info";
+  return undefined;
+}
+
+const SEVERITY_ICON: Record<Problem["severity"], typeof OctagonAlert> = {
+  error: OctagonAlert,
+  warning: TriangleAlert,
+  info: Info,
+};
+
+const SEVERITY_TEXT_CLASS: Record<Problem["severity"], string> = {
+  error: "text-status-bad",
+  warning: "text-status-warn",
+  info: "text-status-info",
+};
+
+/**
+ * A distinct glyph per severity, not only the stripe's own color -- error/warning/info read
+ * identically to a color-blind user, or in a screenshot rendered without color, without this.
+ */
+function SeverityBadge({ problems }: { problems: Problem[] }) {
+  const severity = worstSeverity(problems);
+  if (!severity) return null;
+  const Icon = SEVERITY_ICON[severity];
+  return (
+    <div
+      role="img"
+      aria-label={`${severity} problem`}
+      title={`${severity} problem`}
+      className={cn(
+        "pointer-events-auto absolute right-1 top-1 rounded-full bg-card",
+        SEVERITY_TEXT_CLASS[severity],
+      )}
+    >
+      <Icon className="size-3" aria-hidden="true" />
+    </div>
+  );
 }
 
 export function keyFact(kind: NodeKind, data: unknown): string {
@@ -114,6 +158,7 @@ export function MachineNode({ data }: NodeProps) {
           stripeClass(d.problems),
         )}
       />
+      <SeverityBadge problems={d.problems} />
       <Handle
         type="target"
         position={Position.Left}
@@ -139,6 +184,7 @@ export function ResourceNode({ data }: NodeProps) {
       )}
     >
       <div className={cn("absolute left-0 top-0 h-full w-[3px]", stripeClass(d.problems))} />
+      <SeverityBadge problems={d.problems} />
       <div className="flex items-center gap-1.5 pl-1">
         <Icon className="size-3 text-primary" />
         <span className="hud-label">{KIND_LABELS[d.kind]}</span>

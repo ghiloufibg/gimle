@@ -48,4 +48,29 @@ describe("DesignerCanvas", () => {
     expect(screen.getByText("machine-1")).toBeTruthy();
     expect(container.querySelector(".bg-status-bad")).toBeTruthy();
   });
+
+  it("marks a problem node with a severity glyph, not color alone", () => {
+    const { blueprint, machineId } = blueprintWithMachine();
+    useBlueprintStore.setState({ blueprint, selectedId: null, selectedIds: [] });
+    useValidationStore.setState({
+      problems: [{ code: "X", severity: "warning", message: "y", nodeId: machineId }],
+      serverProblems: [],
+    });
+
+    // Reaches into the DOM directly, like the stripe assertion above -- React Flow leaves an
+    // unmeasured node `visibility: hidden` under jsdom's stubbed ResizeObserver, which a
+    // role/text query would (rightly, for real accessibility) treat as not there at all.
+    const { container } = render(<DesignerCanvas blueprint={blueprint} />);
+
+    expect(container.querySelector('[aria-label="warning problem"]')).toBeTruthy();
+  });
+
+  it("shows no severity glyph on a clean node", () => {
+    const { blueprint } = blueprintWithMachine();
+    useBlueprintStore.setState({ blueprint, selectedId: null, selectedIds: [] });
+
+    const { container } = render(<DesignerCanvas blueprint={blueprint} />);
+
+    expect(container.querySelector('[role="img"]')).toBeNull();
+  });
 });
