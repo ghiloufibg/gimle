@@ -2,6 +2,7 @@ package com.gimle.muninn;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
@@ -9,6 +10,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.muninn.testsupport.InProcessStore;
 import com.gimle.pki.CertificateAuthority;
@@ -27,6 +29,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -373,6 +376,151 @@ class MuninnServerReadAuthzTest {
       }
     }
   }
+
+  /**
+   * {@code B4}: Muninn independently re-checks a presented certificate's serial against the
+   * store-backed revocation denylist, the same one {@code ApiServer}/{@code FafnirServer}/{@code
+   * AndvariServer}'s own {@code resolvePrincipal} already check -- it must not trust the CA trust
+   * chain alone (unexpired, correctly signed), which a revoked-but-not-yet- expired certificate
+   * still satisfies. Before this check existed, an operator's standard incident-response action for
+   * a compromised credential -- revoking its certificate -- left Muninn, holding the platform's own
+   * logs, still serving that exact caller.
+   */
+  @Test
+  @Timeout(10)
+  void a_revoked_certificate_is_refused_reading_logs() throws Exception {
+    CertificateAuthority ca = selfSignedCa();
+    configureServerTls(ca);
+
+    try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      grantLogsRead(store.store(), "caller", "acme");
+      IssuedClient issued = issueClient(ca, "caller");
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
+        server.start();
+
+        // Accepted before revocation -- the cert is genuine and the RBAC grant holds.
+        assertEquals(200, statusForInstanceLogs(issued.client(), server.port()));
+
+        String serial = certificateSerial(issued.certificate());
+        store.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+        // Refused after revocation with the identical cert/key and the identical grant still in
+        // place -- proving this is the revocation check, not a permission change.
+        assertEquals(401, statusForInstanceLogs(issued.client(), server.port()));
+      }
+    }
+  }
+
+  /**
+   * The forwarded-principal path shares the identical revocation gate: a revoked control-plane
+   * proxy certificate must not be allowed to keep vouching for a forwarded claim just because
+   * resolution would otherwise fall through to trusting the raw certificate identity unchecked.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_from_a_revoked_control_plane_certificate_is_refused()
+      throws Exception {
+    CertificateAuthority ca = selfSignedCa();
+    configureServerTls(ca);
+
+    try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      IssuedClient issued = issueGroupClient(ca, BuiltinRoles.GROUP_CONTROLPLANE, "cp");
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
+        server.start();
+
+        assertEquals(200, statusForForwardedInstanceLogs(issued.client(), server.port()));
+
+        String serial = certificateSerial(issued.certificate());
+        store.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+        assertEquals(401, statusForForwardedInstanceLogs(issued.client(), server.port()));
+      }
+    }
+  }
+
+  /**
+   * A forwarded-principal header is honored only when the certificate presenting it actually
+   * belongs to {@link BuiltinRoles#GROUP_CONTROLPLANE} -- without that gate, any CA-signed
+   * certificate at all could inject an arbitrary forwarded identity and bypass its own RBAC grant.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored()
+      throws Exception {
+    CertificateAuthority ca = selfSignedCa();
+    configureServerTls(ca);
+
+    try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      HttpClient client = clientWithLeaf(ca, "mallory");
+      try (MuninnServer server = new MuninnServer(store.client(), 0, tempDir.resolve("data"))) {
+        server.start();
+
+        assertEquals(401, statusForForwardedInstanceLogs(client, server.port()));
+      }
+    }
+  }
+
+  private static int statusForInstanceLogs(HttpClient client, int port) throws Exception {
+    return client
+        .send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        "https://localhost:"
+                            + port
+                            + "/logs/instances/orders/0/APPLICATION?tenant=acme"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private static int statusForForwardedInstanceLogs(HttpClient client, int port) throws Exception {
+    return client
+        .send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        "https://localhost:"
+                            + port
+                            + "/logs/instances/orders/0/APPLICATION?tenant=acme"))
+                .header("X-Gimle-Forwarded-Principal", "user:admin")
+                .header("X-Gimle-Forwarded-Groups", BuiltinRoles.GROUP_OPERATORS)
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        .statusCode();
+  }
+
+  private IssuedClient issueClient(CertificateAuthority ca, String commonName) throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
+    return new IssuedClient(leaf, clientFor(ca, commonName, keyPair, leaf));
+  }
+
+  private IssuedClient issueGroupClient(CertificateAuthority ca, String group, String commonName)
+      throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf =
+        ca.signCertificateRequest(
+            csr, new X500Name("O=" + group + ",CN=" + commonName), Duration.ofDays(1));
+    return new IssuedClient(leaf, clientFor(ca, commonName, keyPair, leaf));
+  }
+
+  private HttpClient clientFor(
+      CertificateAuthority ca, String label, KeyPair keyPair, X509Certificate leaf)
+      throws Exception {
+    TlsSettings settings = writeLeaf(label, keyPair, leaf, ca);
+    return HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
+  }
+
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
+  }
+
+  private record IssuedClient(X509Certificate certificate, HttpClient client) {}
 
   /**
    * Plaintext mode has no identity to check -- fully open, matching every other Gimlé process's
