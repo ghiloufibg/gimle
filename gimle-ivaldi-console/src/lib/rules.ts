@@ -144,12 +144,19 @@ export function validateTopology(bp: Blueprint): Problem[] {
 
   for (const group of portConflicts(bp)) {
     const [first] = group;
+    // Two claims of the same kind (two Andvari nodes, say) share the same `what` -- "andvari port
+    // and andvari port" doesn't say which is which, so a claim whose `what` isn't unique in this
+    // group is prefixed by its own node id to tell the claimants apart.
+    const whatCounts = new Map<string, number>();
+    for (const g of group) whatCounts.set(g.what, (whatCounts.get(g.what) ?? 0) + 1);
+    const label = (g: (typeof group)[number]) =>
+      (whatCounts.get(g.what) ?? 0) > 1 ? `${g.nodeId}'s ${g.what}` : g.what;
     for (const c of group)
       p.push(
         err(
           "PORT_CONFLICT",
           `Port ${first.port} on machine "${first.machine || "?"}" is claimed by ${group
-            .map((g) => g.what)
+            .map(label)
             .join(" and ")}.`,
           c.nodeId,
         ),

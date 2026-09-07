@@ -439,4 +439,18 @@ describe("faults the designer used to ship silently", () => {
     policy.data = { ...policy.data, allowedCalleeTenantIds: ["orders-platform"] };
     expect(codesOf(bp)).not.toContain("POLICY_ALLOWED_CALLEE_UNKNOWN");
   });
+
+  it("names both claimants by node id when two same-kind nodes collide on one port", () => {
+    const bp = clone(ordersPlatform!);
+    const first = createNode("andvari", { x: 0, y: 0 });
+    const second = createNode("andvari", { x: 0, y: 100 });
+    (first.data as { machine: string }).machine = "local";
+    (second.data as { machine: string }).machine = "local";
+    bp.nodes.push(first, second);
+
+    const message = validate(bp).find((p) => p.code === "PORT_CONFLICT")!.message;
+
+    expect(message).toContain(`${first.id}'s andvari port`);
+    expect(message).toContain(`${second.id}'s andvari port`);
+  });
 });
