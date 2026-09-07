@@ -692,10 +692,10 @@ class FileSetValidatorTest {
   /**
    * A jar's own real version -- read from the jar the run actually pushes, exactly what {@link
    * #flags_a_jar_sourced_workload_whose_real_resources_violate_the_tenant_limit_range} already
-   * reads for the LimitRange cross-check -- is what the manifest's own declared version is
-   * checked against here: the push always ships under the jar's real version regardless of what
-   * the manifest still says, so a manifest edited to a new version with no matching jar rebuild
-   * must be caught before a run ever tries to push it.
+   * reads for the LimitRange cross-check -- is what the manifest's own declared version is checked
+   * against here: the push always ships under the jar's real version regardless of what the
+   * manifest still says, so a manifest edited to a new version with no matching jar rebuild must be
+   * caught before a run ever tries to push it.
    */
   @Test
   void flags_a_jar_sourced_workload_whose_manifest_declares_a_different_version_than_the_jar() {

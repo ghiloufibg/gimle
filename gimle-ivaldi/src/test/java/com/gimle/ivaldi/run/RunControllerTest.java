@@ -441,8 +441,7 @@ class RunControllerTest {
 
     controller.stopBlueprint("bp-one");
 
-    assertEquals(
-        "idle", awaitSettled(() -> controller.clusterSnapshotJson("c1")).get("status"));
+    assertEquals("idle", awaitSettled(() -> controller.clusterSnapshotJson("c1")).get("status"));
     // the older, already-failed run on the other cluster is left exactly as it was
     assertEquals("failed", controller.clusterSnapshotJson("c2").get("status"));
   }
@@ -478,8 +477,8 @@ class RunControllerTest {
 
   /**
    * A minimal but real module artifact -- a JPMS-shaped jar carrying a real, parseable {@code
-   * gimle-module.yaml} -- declaring {@code moduleVersion}, mirroring {@code
-   * FileSetValidatorTest}'s own fixture of the same shape.
+   * gimle-module.yaml} -- declaring {@code moduleVersion}, mirroring {@code FileSetValidatorTest}'s
+   * own fixture of the same shape.
    */
   private Path realModuleJar(String moduleVersion) {
     String descriptor =
