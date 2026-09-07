@@ -420,6 +420,37 @@ class RunControllerTest {
   }
 
   /**
+   * A blueprint can own more than one non-idle run at once when it was deployed against two
+   * different clusters (an older, now-failed attempt on one, a genuinely current one on another) --
+   * {@code stopBlueprint} must always act on the one with the latest {@code startedAt}, exactly the
+   * ordering {@code blueprintSnapshotJson} already uses, never on whichever the map's own unordered
+   * iteration happens to visit first.
+   */
+  @Test
+  void stop_blueprint_acts_on_the_most_recently_started_run_not_an_arbitrary_stale_one() {
+    clusters.save("c2", "{\"name\":\"older\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    clusters.save("c1", "{\"name\":\"newer\",\"controlPlaneUrl\":\"http://127.0.0.1:8081\"}");
+
+    controller.start("c2", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled(() -> controller.clusterSnapshotJson("c2"));
+    controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    awaitSettled(() -> controller.clusterSnapshotJson("c1"));
+
+    controller.stopBlueprint("bp-one");
+
+    assertEquals(
+        "idle", awaitSettled(() -> controller.clusterSnapshotJson("c1")).get("status"));
+    // the older, already-failed run on the other cluster is left exactly as it was
+    assertEquals("failed", controller.clusterSnapshotJson("c2").get("status"));
+  }
+
+  @Test
+  void stopping_a_blueprint_with_nothing_running_for_it_is_refused() {
+    assertThrows(
+        RunController.NotFoundException.class, () -> controller.stopBlueprint("no-such-run"));
+  }
+
+  /**
    * A run is a property of the cluster it targets, not of the process. Holding one globally meant
    * starting a second abandoned the first with no way to reach it, and every blueprint's Runner
    * rendered whichever run happened to be current.

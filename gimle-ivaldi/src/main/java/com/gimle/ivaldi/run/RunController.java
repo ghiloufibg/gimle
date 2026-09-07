@@ -373,11 +373,25 @@ public final class RunController {
    * cluster.
    */
   public Map<String, Object> blueprintSnapshotJson(String blueprintId) {
-    return runsByDeployment.values().stream()
-        .filter(run -> run.blueprintId.map(blueprintId::equals).orElse(false))
-        .max(Comparator.comparing(run -> run.startedAt))
+    return mostRecentRunForBlueprint(blueprintId, false)
         .map(run -> snapshotOf(run).toJsonMap())
         .orElseGet(() -> RunSnapshot.idle().toJsonMap());
+  }
+
+  /**
+   * The single selection both {@link #blueprintSnapshotJson} and {@link #stopBlueprint} need for
+   * "the run this blueprint owns": the one with the latest {@code startedAt}, optionally narrowed
+   * to a non-{@code IDLE} one. Pulled out so the two paths structurally cannot select a different
+   * run for the same blueprint from each other -- {@code stopBlueprint} once picked via an
+   * unordered {@code findFirst()} over this same map's {@code values()}, which could act on a
+   * stale, already-failed run instead of the genuinely live one a Runner page's own status read
+   * (this method's other caller) already knew was current.
+   */
+  private Optional<ActiveRun> mostRecentRunForBlueprint(String blueprintId, boolean liveOnly) {
+    return runsByDeployment.values().stream()
+        .filter(run -> run.blueprintId.map(blueprintId::equals).orElse(false))
+        .filter(run -> !liveOnly || run.status != RunStatus.IDLE)
+        .max(Comparator.comparing(run -> run.startedAt));
   }
 
   /**
@@ -430,10 +444,7 @@ public final class RunController {
    */
   public synchronized Map<String, Object> stopBlueprint(String blueprintId) {
     ActiveRun run =
-        runsByDeployment.values().stream()
-            .filter(r -> r.blueprintId.map(blueprintId::equals).orElse(false))
-            .filter(r -> r.status != RunStatus.IDLE)
-            .findFirst()
+        mostRecentRunForBlueprint(blueprintId, true)
             .orElseThrow(
                 () -> new NotFoundException("no run to stop for blueprint: " + blueprintId));
     return stopRun(run);
