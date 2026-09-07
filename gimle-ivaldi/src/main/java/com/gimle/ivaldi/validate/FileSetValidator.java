@@ -45,19 +45,22 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *
  * <p>{@code ivaldi.artifacts.yaml} is read too, though not as a platform document: it is Ivaldi's
  * own record of which local jar backs each manifest's module coordinate, and a topology with no
- * Andvari replica to push those jars to cannot host them. The same record is also what makes {@link
- * #requireJarResourcesWithinLimitRange} possible: a jar-sourced workload's real {@code
- * resources.request}/{@code resources.limit} come from its own {@code gimle-module.yaml} inside the
- * jar, never from the manifest this validator otherwise reads (see {@code DeploymentSpec}'s own
- * javadoc) -- so without opening the jar here, a design can validate clean against a tenant's
- * LimitRange while the module it actually pushes violates that same range, discovered only once a
- * whole cluster has booted and the control plane's own admission plugin runs the identical check
- * this method runs early, against the same {@link LimitRangeSpec#violation}. A registry-sourced
- * workload (a bare module coordinate, no local jar) has no equivalent check here: its real
- * descriptor lives in Andvari, unreachable from bytes alone, and this validator deliberately never
- * makes a live call to check it. Every other file in a rendered set ({@code values.example.yaml},
- * {@code README.md}, {@code ivaldi.blueprint.json}) has nothing here to check against and is
- * silently skipped.
+ * Andvari replica to push those jars to cannot host them. Every jar it names is also confirmed to
+ * actually resolve to a pushable module artifact ({@link #requireJarArtifactsReadable}) --
+ * unconditionally, not only when some other check happens to need the jar opened, so a wrong or
+ * missing local path is caught here rather than only once a run tries to push it. The same record
+ * is also what makes {@link #requireJarResourcesWithinLimitRange} possible: a jar-sourced
+ * workload's real {@code resources.request}/{@code resources.limit} come from its own {@code
+ * gimle-module.yaml} inside the jar, never from the manifest this validator otherwise reads (see
+ * {@code DeploymentSpec}'s own javadoc) -- so without opening the jar here, a design can validate
+ * clean against a tenant's LimitRange while the module it actually pushes violates that same range,
+ * discovered only once a whole cluster has booted and the control plane's own admission plugin runs
+ * the identical check this method runs early, against the same {@link LimitRangeSpec#violation}. A
+ * registry-sourced workload (a bare module coordinate, no local jar) has no equivalent check here:
+ * its real descriptor lives in Andvari, unreachable from bytes alone, and this validator
+ * deliberately never makes a live call to check it. Every other file in a rendered set ({@code
+ * values.example.yaml}, {@code README.md}, {@code ivaldi.blueprint.json}) has nothing here to check
+ * against and is silently skipped.
  */
 public final class FileSetValidator {
 
@@ -102,8 +105,9 @@ public final class FileSetValidator {
       findings.add(Finding.error("ARTIFACTS_INVALID", malformed.getMessage(), SIDECAR_PATH));
       jars = List.of();
     }
+    Map<JarArtifact, ModuleArtifact> readableJars = requireJarArtifactsReadable(jars, findings);
     requireRegistryForJarArtifacts(topology, jars, findings);
-    requireJarResourcesWithinLimitRange(jars, files, findings);
+    requireJarResourcesWithinLimitRange(readableJars, files, findings);
     bundle.ifPresent(parsed -> requireSingleTenantUnderPlaintext(topology, parsed, findings));
   }
 
@@ -130,24 +134,62 @@ public final class FileSetValidator {
   }
 
   /**
+   * A jar-sourced workload's local path is checked to actually resolve to a pushable module
+   * artifact for every such workload, regardless of whether any tenant LimitRange applies to it.
+   * This used to run only as a side effect of {@link #requireJarResourcesWithinLimitRange} below,
+   * so a design with no LimitRange declared anywhere -- the common case -- never learned a wrong or
+   * missing jar path until the run itself tried to push it. Returns the artifacts it did manage to
+   * read, keyed by their own {@link JarArtifact}, so the LimitRange cross-check below can reuse
+   * them rather than reading each jar a second time.
+   */
+  private static Map<JarArtifact, ModuleArtifact> requireJarArtifactsReadable(
+      List<JarArtifact> jars, List<Finding> findings) {
+    Map<JarArtifact, ModuleArtifact> readable = new LinkedHashMap<>();
+    for (JarArtifact jar : jars) {
+      if (!Files.isRegularFile(jar.jar())) {
+        findings.add(
+            Finding.error(
+                "JAR_ARTIFACT_UNREADABLE",
+                "no jar at " + jar.jar() + " -- check the artifact path",
+                jar.manifestPath()));
+        continue;
+      }
+      try {
+        readable.put(jar, ModuleArtifactReader.read(jar.jar()));
+      } catch (RuntimeException notAModule) {
+        findings.add(
+            Finding.error(
+                "JAR_ARTIFACT_UNREADABLE",
+                "not a pushable module artifact at " + jar.jar() + ": " + notAModule.getMessage(),
+                jar.manifestPath()));
+      }
+    }
+    return readable;
+  }
+
+  /**
    * Cross-checks each jar-sourced workload's own {@code gimle-module.yaml} resource declaration
    * against its tenant's LimitRange -- see this class's own javadoc for why the manifest itself
    * cannot answer this. Reuses {@link LimitRangeSpec#violation}, the exact check the control
    * plane's own admission plugin runs, so a design flagged clean here is checked the same way a
-   * live cluster would check it, not by a re-derived approximation of that rule. A jar that cannot
-   * be read at all is reported here too (mirroring {@code RunController}'s own push-time check,
-   * just early) rather than left for the run to discover after the platform is already up.
+   * live cluster would check it, not by a re-derived approximation of that rule. Only ever sees the
+   * jars {@link #requireJarArtifactsReadable} could actually read -- an unreadable one is already
+   * reported there.
    */
   private static void requireJarResourcesWithinLimitRange(
-      List<JarArtifact> jars, List<RenderedFile> files, List<Finding> findings) {
-    if (jars.isEmpty()) {
+      Map<JarArtifact, ModuleArtifact> readableJars,
+      List<RenderedFile> files,
+      List<Finding> findings) {
+    if (readableJars.isEmpty()) {
       return;
     }
     Map<String, LimitRangeSpec> limitRangesByTenant = limitRangesByTenant(files);
     if (limitRangesByTenant.isEmpty()) {
       return;
     }
-    for (JarArtifact jar : jars) {
+    for (Map.Entry<JarArtifact, ModuleArtifact> entry : readableJars.entrySet()) {
+      JarArtifact jar = entry.getKey();
+      ModuleArtifact artifact = entry.getValue();
       RenderedFile manifest =
           files.stream().filter(f -> f.path().equals(jar.manifestPath())).findFirst().orElse(null);
       if (manifest == null) {
@@ -165,25 +207,6 @@ public final class FileSetValidator {
       }
       LimitRangeSpec limitRange = limitRangesByTenant.get(tenantId.get());
       if (limitRange == null) {
-        continue;
-      }
-      if (!Files.isRegularFile(jar.jar())) {
-        findings.add(
-            Finding.error(
-                "JAR_ARTIFACT_UNREADABLE",
-                "no jar at " + jar.jar() + " -- check the artifact path",
-                jar.manifestPath()));
-        continue;
-      }
-      ModuleArtifact artifact;
-      try {
-        artifact = ModuleArtifactReader.read(jar.jar());
-      } catch (RuntimeException notAModule) {
-        findings.add(
-            Finding.error(
-                "JAR_ARTIFACT_UNREADABLE",
-                "not a pushable module artifact at " + jar.jar() + ": " + notAModule.getMessage(),
-                jar.manifestPath()));
         continue;
       }
       limitRange

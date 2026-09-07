@@ -628,7 +628,8 @@ class FileSetValidatorTest {
 
   /**
    * Mirrors {@code RunController}'s own "not a pushable module artifact" push-time check, just
-   * early -- but only once a matching LimitRange actually needs the jar opened; see the next test.
+   * early -- run for every jar-sourced workload regardless of whether a LimitRange applies to it;
+   * see the next test for the no-LimitRange case.
    */
   @Test
   void flags_an_unreadable_jar_when_its_tenant_has_a_limit_range_to_check_it_against() {
@@ -648,14 +649,40 @@ class FileSetValidatorTest {
     assertEquals("manifests/01-hello.yaml", finding.file());
   }
 
-  /** No LimitRange for the workload's tenant means nothing here ever needs to open its jar. */
+  /**
+   * The common case: no LimitRange applies at all. A missing/wrong jar path must still be caught
+   * here rather than left for the run itself to discover after a whole platform has booted -- this
+   * used to run only as a side effect of the LimitRange cross-check above, so a design with no
+   * LimitRange declared anywhere never learned its jar path was wrong until push time.
+   */
   @Test
-  void does_not_open_the_jar_at_all_when_its_tenant_has_no_limit_range() {
+  void flags_an_unreadable_jar_even_when_its_tenant_has_no_limit_range() {
     List<Finding> findings =
         FileSetValidator.validate(
             List.of(
                 file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
                 file("ivaldi.artifacts.yaml", JAR_SIDECAR), // path: /tmp/hello-module.jar, absent
+                file("manifests/01-hello.yaml", JAR_WORKLOAD)));
+
+    Finding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("JAR_ARTIFACT_UNREADABLE"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no JAR_ARTIFACT_UNREADABLE in " + findings));
+    assertEquals("manifests/01-hello.yaml", finding.file());
+    // Nothing here to violate: no LimitRange was ever declared.
+    assertFalse(codes(findings).contains("LIMITRANGE_VIOLATION"), findings.toString());
+  }
+
+  @Test
+  void does_not_flag_a_real_jar_at_all_when_its_tenant_has_no_limit_range() {
+    Path jar = realModuleJar("64Mi", "50m");
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("ivaldi.artifacts.yaml", jarSidecar(jar)),
                 file("manifests/01-hello.yaml", JAR_WORKLOAD)));
 
     assertFalse(codes(findings).contains("JAR_ARTIFACT_UNREADABLE"), findings.toString());
