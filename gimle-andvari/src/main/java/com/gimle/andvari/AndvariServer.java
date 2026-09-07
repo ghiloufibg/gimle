@@ -47,6 +47,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -54,6 +56,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -650,7 +653,7 @@ public final class AndvariServer implements AutoCloseable {
    * GET             .../{artifactId}/{version}/{artifactId}-{version}.jar.sha256   server-computed digest
    * GET/PUT         anything else under a version directory (.pom, client checksum
    *                 sidecars) -- accepted and stored opaquely, never parsed or trusted
-   * GET             .../{artifactId}/maven-metadata.xml[.sha256]           generated from the
+   * GET             .../{artifactId}/maven-metadata.xml[.sha1|.sha256|.md5]   generated from the
    *                                                                         stored version list
    * </pre>
    *
@@ -820,6 +823,14 @@ public final class AndvariServer implements AutoCloseable {
       respondTextOrHeaders(exchange, sha256Hex(xml));
       return;
     }
+    if (metadataFile.fileName().equals(MAVEN_METADATA_FILE + ".sha1")) {
+      respondTextOrHeaders(exchange, sha1Hex(xml));
+      return;
+    }
+    if (metadataFile.fileName().equals(MAVEN_METADATA_FILE + ".md5")) {
+      respondTextOrHeaders(exchange, md5Hex(xml));
+      return;
+    }
     respondNotFoundOrHeaders(exchange, "unsupported metadata file: " + metadataFile.fileName());
   }
 
@@ -858,6 +869,29 @@ public final class AndvariServer implements AutoCloseable {
 
   private static String sha256Hex(byte[] bytes) {
     return Sha256.sha256Hex(bytes);
+  }
+
+  /**
+   * The hex-encoded SHA-1 digest of {@code bytes} -- alongside {@link #sha256Hex} and {@link
+   * #md5Hex}, only ever used for {@code maven-metadata.xml}'s own checksum sidecars, which a
+   * generic Maven client requests unconditionally regardless of what a real registry actually
+   * considers a strong digest.
+   */
+  private static String sha1Hex(byte[] bytes) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(bytes));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-1 is a mandatory JCA algorithm", e);
+    }
+  }
+
+  /** The hex-encoded MD5 digest of {@code bytes}, see {@link #sha1Hex}'s own javadoc. */
+  private static String md5Hex(byte[] bytes) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(bytes));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("MD5 is a mandatory JCA algorithm", e);
+    }
   }
 
   /**
