@@ -2859,7 +2859,8 @@ public final class AgentMain {
             existing.workerLimit);
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
-    startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+    startShippingInstanceLogs(
+        muninnEndpoint, instanceShippers, key, existing.workerKey, assigned, logRoot);
     WorkerConnection connection = existing.connection;
     if (connection != null) {
       copyFabricIdentity(instance, existing, connection);
@@ -3113,7 +3114,9 @@ public final class AgentMain {
         log.error(refusal);
         throw new IOException(refusal);
       }
-      startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+      // A freshly spawned worker's own key is its own worker directory -- unlike
+      // installIntoExistingWorker's packed instance, there is no separate owner key to defer to.
+      startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, key, assigned, logRoot);
       supervisor.start();
     } catch (IOException | RuntimeException e) {
       // Undo everything registered above so a start failure leaves no trace behind -- mirrors
@@ -4456,27 +4459,31 @@ public final class AgentMain {
 
   /**
    * Starts shipping this instance's worker's own {@code PLATFORM} log and this instance's own
-   * {@code APPLICATION} log to Muninn -- a no-op when {@code muninnEndpoint} is unset. Mirrors
-   * {@code AgentLogServer.handleInstanceLogs}'s own path derivation exactly (same {@code
-   * workerLogRoot}, same two file names per category) so a shipped line and a live read of the
-   * identical {@code /logs/instances/{deploymentName}/{instanceIndex}?category=} request agree,
-   * including for a Tier 1-density instance installed into another instance's already-running
-   * worker: its own {@code workerLogRoot} won't hold a real {@code worker-platform.log} of its own
-   * in that case (the shared worker's platform log lives under the *originating* instance's own key
-   * instead), and shipping simply finds nothing there each tick -- the identical "no data for this
-   * path" outcome a live read against that same path already produces today.
+   * {@code APPLICATION} log to Muninn -- a no-op when {@code muninnEndpoint} is unset. {@code key}
+   * addresses this instance's own entry in {@code instanceShippers} (so {@link
+   * #stopShippingInstanceLogs} can find and close it later), while {@code workerKey} names the
+   * {@code workers/<workerKey>} directory the files actually live under -- the same split {@link
+   * SupervisedInstance#workerKey} exists for, and the two differ for a Tier 1-density instance
+   * installed into another instance's already-running worker. Mirrors {@code
+   * AgentLogServer.handleInstanceLogs}'s own path derivation exactly (same {@code workerLogRoot},
+   * same two file names per category) so a shipped line and a live read of the identical {@code
+   * /logs/instances/{deploymentName}/{instanceIndex}?category=} request agree -- passing this
+   * instance's own {@code key} as {@code workerKey} too, rather than the owning instance's, used to
+   * point shipping at a directory no worker was ever spawned under, so a packed instance's logs
+   * were never shipped at all and a Muninn fallback read for it found nothing.
    */
   static void startShippingInstanceLogs(
       String muninnEndpoint,
       Map<String, List<MuninnShipper>> instanceShippers,
       String key,
+      String workerKey,
       AssignedInstance assigned,
       Path logRoot) {
     if (muninnEndpoint == null) {
       return;
     }
     List<String> muninnEndpoints = MuninnShipper.parseEndpoints(muninnEndpoint);
-    Path workerLogRoot = logRoot.resolve("workers").resolve(key);
+    Path workerLogRoot = logRoot.resolve("workers").resolve(workerKey);
     String instancePathPrefix =
         "/ingest/logs/instances/" + assigned.deploymentName() + "/" + assigned.instanceIndex();
 
