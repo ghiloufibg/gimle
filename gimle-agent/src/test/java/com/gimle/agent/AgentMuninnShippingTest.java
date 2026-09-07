@@ -90,7 +90,12 @@ class AgentMuninnShippingTest {
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
 
     AgentMain.startShippingInstanceLogs(
-        null, instanceShippers, "greeter-deployment#0", assignedInstance(), tempDir);
+        null,
+        instanceShippers,
+        "greeter-deployment#0",
+        "greeter-deployment#0",
+        assignedInstance(),
+        tempDir);
 
     assertTrue(instanceShippers.isEmpty());
   }
@@ -120,7 +125,7 @@ class AgentMuninnShippingTest {
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
     try {
       AgentMain.startShippingInstanceLogs(
-          muninnEndpoint, instanceShippers, key, assignedInstance(), tempDir);
+          muninnEndpoint, instanceShippers, key, key, assignedInstance(), tempDir);
 
       assertEquals(
           2, instanceShippers.get(key).size(), "expected a PLATFORM + APPLICATION shipper");
@@ -130,6 +135,62 @@ class AgentMuninnShippingTest {
           Duration.ofSeconds(5));
     } finally {
       AgentMain.stopShippingInstanceLogs(instanceShippers, key);
+    }
+  }
+
+  /**
+   * Regression test: a Tier 1 density-packed instance's own {@code key} used to be passed as the
+   * worker directory too, pointing shipping at {@code workers/<its-own-key>/} -- a directory no
+   * worker was ever spawned under, since the packed instance shares the *owning* instance's worker
+   * JVM. The file it needs to ship instead lives under {@code workers/<ownerKey>/}, exactly where
+   * {@code AgentMain#workerDirectoryKey} already resolves a live read to.
+   */
+  @Test
+  @Timeout(10)
+  void a_packed_instances_logs_ship_from_the_owning_instances_worker_directory(
+      @TempDir Path tempDir) throws Exception {
+    AtomicInteger requestCount = new AtomicInteger();
+    List<String> receivedPaths = new CopyOnWriteArrayList<>();
+    stub = startStub(requestCount, receivedPaths);
+    String muninnEndpoint = "127.0.0.1:" + stub.getAddress().getPort();
+
+    String ownerKey = "provider-deployment#0";
+    String packedKey = "consumer-deployment#0";
+    AssignedInstance packedAssigned =
+        new AssignedInstance(
+            "consumer-deployment",
+            0,
+            new ModuleId("greeter", Version.parse("1.0.0")),
+            "/does/not/matter.jar",
+            Optional.empty());
+    // Filed under the owner's key -- the shared Tier 1 worker's own writer never creates a
+    // directory for the packed instance's own key at all.
+    Path applicationLog =
+        tempDir
+            .resolve("workers")
+            .resolve(ownerKey)
+            .resolve("instances")
+            .resolve("consumer-deployment-0.log");
+    Files.createDirectories(applicationLog.getParent());
+    Files.writeString(
+        applicationLog,
+        Json.write(Map.of("timestamp", "2026-08-10T10:00:00Z", "level", "INFO", "message", "hi"))
+            + "\n");
+
+    Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
+    try {
+      AgentMain.startShippingInstanceLogs(
+          muninnEndpoint, instanceShippers, packedKey, ownerKey, packedAssigned, tempDir);
+
+      // instanceShippers stays keyed by the packed instance's own key -- stopShippingInstanceLogs
+      // must still be able to find and close it by that key alone.
+      assertTrue(instanceShippers.containsKey(packedKey));
+
+      awaitUntil(
+          () -> receivedPaths.contains("/ingest/logs/instances/consumer-deployment/0/APPLICATION"),
+          Duration.ofSeconds(5));
+    } finally {
+      AgentMain.stopShippingInstanceLogs(instanceShippers, packedKey);
     }
   }
 
@@ -145,7 +206,7 @@ class AgentMuninnShippingTest {
     String key = "greeter-deployment#0";
     Map<String, List<MuninnShipper>> instanceShippers = new ConcurrentHashMap<>();
     AgentMain.startShippingInstanceLogs(
-        muninnEndpoint, instanceShippers, key, assignedInstance(), tempDir);
+        muninnEndpoint, instanceShippers, key, key, assignedInstance(), tempDir);
     assertTrue(instanceShippers.containsKey(key));
 
     AgentMain.stopShippingInstanceLogs(instanceShippers, key);
