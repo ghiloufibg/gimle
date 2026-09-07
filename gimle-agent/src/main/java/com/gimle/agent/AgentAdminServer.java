@@ -189,12 +189,17 @@ final class AgentAdminServer implements AutoCloseable {
         return;
       }
 
-      String key = deploymentName + "#" + instanceIndex;
-      SupervisedInstance instance = supervised.get(key);
+      // The URL names only deploymentName+instanceIndex, never a tenant, so resolution goes
+      // through the same scan-based lookup every other tenant-unaware caller in this agent uses
+      // rather than a raw untenanted Map.get -- the real supervision key is tenant-scoped
+      // (AgentMain.instanceKey), and a caller composing one by hand here would silently stop
+      // matching the moment that shape changes.
+      SupervisedInstance instance =
+          AgentMain.findSupervised(supervised, Optional.empty(), deploymentName, instanceIndex);
       // Authorize before ever revealing whether this instance exists here at all -- an unknown
-      // key still needs a real grant to get past this check, using whatever tenant is known (empty
-      // when the instance is unsupervised, matching how a cluster-admin/operator grant, which needs
-      // no tenant, is still enough to pass).
+      // instance still needs a real grant to get past this check, using whatever tenant is known
+      // (empty when the instance is unsupervised, matching how a cluster-admin/operator grant,
+      // which needs no tenant, is still enough to pass).
       Optional<String> tenantId =
           instance == null ? Optional.empty() : instance.assigned.tenantId();
       if (!authorizeFault(
@@ -202,11 +207,14 @@ final class AgentAdminServer implements AutoCloseable {
         return;
       }
       if (instance == null) {
-        respond(exchange, 404, "no supervised instance for " + key + " on this node");
+        respond(
+            exchange,
+            404,
+            "no supervised instance for " + deploymentName + "#" + instanceIndex + " on this node");
         return;
       }
       if (killRequest) {
-        handleKill(exchange, instance, key);
+        handleKill(exchange, instance);
       } else {
         handleStatus(exchange, instance);
       }
@@ -234,7 +242,7 @@ final class AgentAdminServer implements AutoCloseable {
    * respawn already replaced it since -- protects against a chaos tool racing its own strike
    * against a legitimate respawn that happened moments earlier.
    */
-  private static void handleKill(HttpExchange exchange, SupervisedInstance instance, String key)
+  private static void handleKill(HttpExchange exchange, SupervisedInstance instance)
       throws IOException {
     Map<String, Object> requestBody = Json.asObject(Json.parse(readBody(exchange)));
     Object pidValue = requestBody.get("pid");
@@ -253,7 +261,10 @@ final class AgentAdminServer implements AutoCloseable {
       return;
     }
     process.destroyForcibly();
-    log.info("admin fault API killed worker for {} (pid {})", key, currentPid);
+    log.info(
+        "admin fault API killed worker for {} (pid {})",
+        AgentMain.instanceKey(instance.assigned),
+        currentPid);
     respondJson(exchange, 200, Map.of("killed", true));
   }
 
