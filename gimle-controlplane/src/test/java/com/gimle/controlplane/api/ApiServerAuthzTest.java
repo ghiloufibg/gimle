@@ -357,6 +357,105 @@ class ApiServerAuthzTest {
   }
 
   /**
+   * {@code V3-B3}: a session cookie's own identity must be what authorizes and audits a request,
+   * even when the same mTLS connection also carries a client certificate -- the normal case for any
+   * browser that has ever been issued one. A restricted account's cookie must not be silently
+   * upgraded to the connection's own far more privileged operator certificate.
+   */
+  @Test
+  void
+      a_restricted_session_cookie_is_authorized_and_audited_as_its_own_account_despite_an_ambient_operator_certificate()
+          throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("restricted-user", PasswordHashes.hash("pw".toCharArray())));
+    // Deliberately no ROLE grant of any kind -- this account can do nothing an operator can.
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      // The same connection presents a genuine gimle:operators certificate throughout -- exactly
+      // the shape an operator's own browser has, once it has ever been issued one.
+      HttpClient client = mutualTlsClient(ca, "O=gimle:operators,CN=ambient-operator");
+      String cookie = login(client, baseUrl, "restricted-user", "pw");
+
+      HttpResponse<String> roleWrite =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/roles/should-never-exist"))
+                  .header("Cookie", cookie)
+                  .PUT(HttpRequest.BodyPublishers.ofString("{}"))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+      assertEquals(
+          403,
+          roleWrite.statusCode(),
+          "the ambient operator certificate must not upgrade this restricted cookie session");
+      assertTrue(store.getRole("should-never-exist").isEmpty());
+
+      List<AuditEvent> events = listAuditEvents(store);
+      assertEquals(1, events.size());
+      assertEquals(
+          "restricted-user",
+          events.get(0).principal(),
+          "the audit trail must attribute this to the cookie's own account, never the"
+              + " certificate's identity");
+      assertFalse(events.get(0).allowed());
+    }
+  }
+
+  /**
+   * The symmetric half of {@code V3-B3}: an ambient certificate weaker than the session cookie must
+   * not downgrade it either -- a privileged login stays privileged regardless of what else the
+   * connection happens to carry.
+   */
+  @Test
+  void an_ambient_certificates_lesser_permission_does_not_downgrade_a_privileged_session_cookie()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("privileged-user", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "config-writer",
+            java.util.Set.of(Permission.scoped(ResourceKind.CONFIG, Verb.WRITE, "acme"))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("privileged-user"), "config-writer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      // An unrelated, unprivileged certificate -- no gimle:operators, no grant of its own -- rides
+      // the same connection as the privileged cookie.
+      HttpClient client = mutualTlsClient(ca, "CN=unrelated-caller");
+      String cookie = login(client, baseUrl, "privileged-user", "pw");
+
+      assertEquals(200, putConfig(client, baseUrl, cookie, "acme", "k1", "v1", false));
+
+      List<AuditEvent> events = listAuditEvents(store);
+      assertEquals(1, events.size());
+      assertEquals("privileged-user", events.get(0).principal());
+      assertTrue(events.get(0).allowed());
+    }
+  }
+
+  /**
    * Repeated failed logins against the same username eventually get throttled to a 429 with a
    * {@code Retry-After} header -- even a subsequently-correct password doesn't bypass it, since the
    * point is slowing down a guessing attempt, not just rejecting wrong guesses.

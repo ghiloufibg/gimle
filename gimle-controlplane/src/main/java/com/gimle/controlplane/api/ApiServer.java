@@ -11134,53 +11134,63 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A verified client certificate wins over a session cookie when both are somehow present (mTLS is
-   * the stronger proof) -- in practice only one is ever offered by a given caller (the CLI/node
-   * agents never send a session cookie, the console never presents a client certificate). The
-   * session-cookie branch's groups come from a live {@code storeClient.getAccount} read, not the
-   * token itself -- a session token carries only {@code username} (see {@code SessionTokens}'s own
-   * javadoc), so an account's {@code group:} membership, editable independently of its password, is
-   * always read fresh rather than baked into a token that could outlive a later group change.
+   * A valid, non-revoked session cookie wins over the connection's own client certificate when both
+   * are somehow present -- a session cookie is the result of a deliberate login, while a
+   * certificate on the same mTLS connection can be present merely because the caller's browser has
+   * one imported, with no login intent behind it at all (the normal case for any browser that has
+   * ever been issued an operator certificate). Falls back to the certificate when no cookie is
+   * present, or when the cookie present fails to verify -- an explicit credential that fails must
+   * fail, not silently escalate to the transport's broader one, the same reasoning the bearer-token
+   * check above already applies. The session-cookie branch's groups come from a live {@code
+   * storeClient.getAccount} read, not the token itself -- a session token carries only {@code
+   * username} (see {@code SessionTokens}'s own javadoc), so an account's {@code group:} membership,
+   * editable independently of its password, is always read fresh rather than baked into a token
+   * that could outlive a later group change.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     // A bearer workload token, when presented, is the request's identity -- deliberately checked
-    // before the peer certificate, because the one caller that sends both is a node agent
-    // relaying a hosted module's read: the module must act as its own (narrower, deny-by-default)
-    // workload principal, never ride the relaying agent's node identity. An invalid or expired
-    // bearer resolves nothing at all rather than falling back to the certificate -- an explicit
-    // credential that fails must fail, not silently escalate to the transport's broader one.
+    // before the session cookie and the peer certificate, because the one caller that sends both a
+    // bearer and a certificate is a node agent relaying a hosted module's read: the module must act
+    // as its own (narrower, deny-by-default) workload principal, never ride the relaying agent's
+    // node identity. An invalid or expired bearer resolves nothing at all rather than falling back
+    // to a weaker credential -- an explicit credential that fails must fail, not silently escalate.
     Optional<String> bearer = bearerToken(exchange);
     if (bearer.isPresent()) {
       return verifyWorkloadToken(bearer.get());
     }
-    Optional<X509Certificate> certificate = peerCertificate(exchange);
-    if (certificate.isPresent()) {
-      // The portable revocation check: a compromised leaf's serial lands on the store-backed
-      // denylist and every request it makes from then on resolves no principal at all -- checked
-      // before any authorization runs, the same per-request level-triggered store read the
-      // Authorizer itself already makes. Keyed by serial, so a legitimately re-issued certificate
-      // for the same identity is untouched.
-      String serial = certificateSerial(certificate.get());
-      if (storeClient.isCertificateRevoked(serial)) {
-        log.warn(
-            "rejecting revoked certificate serial {} presented by {}",
-            serial,
-            certificate.get().getSubjectX500Principal());
-        return Optional.empty();
-      }
-      return Optional.of(Subjects.principalFrom(certificate.get()));
+    Optional<Principal> sessionPrincipal =
+        sessionCookie(exchange)
+            .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+            .filter(session -> !isSessionRevoked(session))
+            .map(
+                session ->
+                    new Principal(
+                        session.username(),
+                        storeClient
+                            .getAccount(session.username())
+                            .map(Account::groups)
+                            .orElse(Set.of())));
+    if (sessionPrincipal.isPresent()) {
+      return sessionPrincipal;
     }
-    return sessionCookie(exchange)
-        .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .filter(session -> !isSessionRevoked(session))
-        .map(
-            session ->
-                new Principal(
-                    session.username(),
-                    storeClient
-                        .getAccount(session.username())
-                        .map(Account::groups)
-                        .orElse(Set.of())));
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    if (certificate.isEmpty()) {
+      return Optional.empty();
+    }
+    // The portable revocation check: a compromised leaf's serial lands on the store-backed
+    // denylist and every request it makes from then on resolves no principal at all -- checked
+    // before any authorization runs, the same per-request level-triggered store read the
+    // Authorizer itself already makes. Keyed by serial, so a legitimately re-issued certificate
+    // for the same identity is untouched.
+    String serial = certificateSerial(certificate.get());
+    if (storeClient.isCertificateRevoked(serial)) {
+      log.warn(
+          "rejecting revoked certificate serial {} presented by {}",
+          serial,
+          certificate.get().getSubjectX500Principal());
+      return Optional.empty();
+    }
+    return Optional.of(Subjects.principalFrom(certificate.get()));
   }
 
   /**
