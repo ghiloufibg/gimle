@@ -274,6 +274,11 @@ describe("application rules the two tiers used to disagree on", () => {
     expect(codesOf({ ...bp, transport: "mtls", tlsMaterialDir: "/tmp/tls" })).not.toContain(
       "PLAINTEXT_MULTI_TENANT",
     );
+    const message = validate(bp).find((p) => p.code === "PLAINTEXT_MULTI_TENANT")!.message;
+    expect(message).toBe(
+      "Plaintext transport has no caller identity to distinguish tenants by, so only one may" +
+        " exist; this design declares 2. Switch the topology to mTLS for real multi-tenancy.",
+    );
   });
 
   it("refuses a fractional replica count and a non-positive quota", () => {

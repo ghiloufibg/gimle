@@ -756,7 +756,7 @@ function validateApplication(bp: Blueprint): Problem[] {
       p.push(
         err(
           "PLAINTEXT_MULTI_TENANT",
-          `Plaintext transport permits only one tenant; this design declares ${tenantIds.size}. Switch the topology to mTLS for real multi-tenancy.`,
+          `Plaintext transport has no caller identity to distinguish tenants by, so only one may exist; this design declares ${tenantIds.size}. Switch the topology to mTLS for real multi-tenancy.`,
           nodeIds[0],
         ),
       );
