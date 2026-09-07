@@ -109,6 +109,11 @@ export interface RunSnapshot {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
+  /** The bundle revision this run is currently on (1 for a fresh deploy, incrementing on each
+   * redeploy) -- null until the bundle's first deploy actually lands. Persists across the log
+   * being cleared on a new run, unlike the transient "deployed fresh (revision N)"/"upgraded
+   * (revision N)" line that only ever appears once, in the log. */
+  revision: number | null;
 }
 
 export interface RunLogLine {

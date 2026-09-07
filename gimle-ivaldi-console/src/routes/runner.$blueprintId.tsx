@@ -48,6 +48,7 @@ function RunnerPage() {
     steps,
     endpoints,
     machines,
+    revision,
     log,
     request,
     health,
@@ -164,6 +165,14 @@ function RunnerPage() {
             >
               {status}
             </span>
+            {ownsRun && revision !== null && (
+              <span
+                className="num rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                title="The bundle revision this run is currently on"
+              >
+                Revision {revision}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">

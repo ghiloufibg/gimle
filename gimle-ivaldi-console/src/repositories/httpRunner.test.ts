@@ -69,6 +69,53 @@ describe("HttpRunnerClient.currentRun", () => {
     expect(snapshot?.runId).toBe("run-1");
     expect(snapshot?.status).toBe("running");
   });
+
+  it("reads the backend's own revision through onto the mapped snapshot", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/endpoints")
+          ? jsonResponse([])
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [],
+              revision: 3,
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.revision).toBe(3);
+  });
+
+  it("reports no revision as null, not 0, before a bundle's first deploy has landed", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/endpoints")
+          ? jsonResponse([])
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "booting",
+              processes: [],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.revision).toBeNull();
+  });
 });
 
 describe("HttpRunnerClient.createRun", () => {

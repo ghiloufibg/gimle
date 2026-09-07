@@ -38,6 +38,10 @@ interface RunState {
   steps: RunStep[];
   endpoints: RunEndpoint[];
   machines: RunMachine[];
+  /** The bundle revision this run is currently on, once its first deploy has landed -- shown as a
+   * persistent label near the status badge rather than only in the log, which clearLog wipes on
+   * every new run. */
+  revision: number | null;
   log: RunLogLine[];
   request: CreateRunRequest | null;
   health: RunnerHealth | null;
@@ -66,6 +70,7 @@ function applySnapshot(snapshot: RunSnapshot) {
     endpoints: snapshot.endpoints,
     machines: snapshot.machines,
     reason: snapshot.error,
+    revision: snapshot.revision,
   };
 }
 
@@ -112,6 +117,7 @@ export const useRunStore = create<RunState>((set, get) => {
     steps: [],
     endpoints: [],
     machines: [],
+    revision: null,
     log: [],
     request: null,
     health: null,
@@ -206,6 +212,7 @@ export const useRunStore = create<RunState>((set, get) => {
         endpoints: [],
         machines: [],
         steps: [],
+        revision: null,
         request,
         blueprintId: blueprint.id,
         cluster,

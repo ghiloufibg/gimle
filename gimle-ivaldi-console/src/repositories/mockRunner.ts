@@ -382,6 +382,7 @@ export class MockRunnerClient implements RunnerClient {
       startedAt: new Date().toISOString(),
       finishedAt: null,
       error: null,
+      revision: null,
     };
     this.sessions.set(runId, { snapshot, script, timers: [], seq: 0 });
     return snapshot;
@@ -494,6 +495,7 @@ export class MockRunnerClient implements RunnerClient {
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
           error: null,
+          revision: null,
         };
     if (session) session.snapshot = snapshot;
     return snapshot;

@@ -27,6 +27,7 @@ interface RawRunSnapshot {
   blueprintId?: string | null;
   status?: string;
   rebooted?: boolean;
+  revision?: number;
   error?: string | null;
   startedAt?: string;
   updatedAt?: string;
@@ -385,6 +386,9 @@ export class HttpRunnerClient implements RunnerClient {
       startedAt: raw.startedAt ?? new Date().toISOString(),
       finishedAt: settled ? (raw.updatedAt ?? null) : null,
       error: raw.error ?? null,
+      // Absent (rather than 0) until the bundle's own first deploy actually lands -- 0 would read
+      // as a real revision rather than "none yet".
+      revision: typeof raw.revision === "number" ? raw.revision : null,
     };
   }
 }
