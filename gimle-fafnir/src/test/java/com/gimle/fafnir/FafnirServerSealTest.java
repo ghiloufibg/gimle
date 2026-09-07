@@ -22,6 +22,7 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -342,5 +343,48 @@ class FafnirServerSealTest {
     assertEquals(200, retired.statusCode(), retired.body());
     // Still readable: rewrapping moved it onto the active key before the old one went away.
     assertEquals(200, send("GET", "/secrets/acme/plain-secret", null).statusCode());
+  }
+
+  /**
+   * The other way a value can be left behind by {@link FafnirCrypto#rotate}'s own sweep, distinct
+   * from {@link #retiring_a_symmetric_key_is_refused_while_a_value_is_still_encrypted_under_it}'s
+   * racing-the-sweep case: a tenant deletion never cascades into deleting that tenant's own
+   * secrets, so a value written while a tenant was still registered can outlive the tenant's own
+   * registration, and the sweep -- which only walks currently-registered tenants -- never reaches
+   * it. The key encrypting that now-orphaned value is exactly as depended-on as one encrypting an
+   * ordinary tenant's value, so retiring it must be refused the same way.
+   */
+  @Test
+  @Timeout(15)
+  void retiring_a_superseded_key_is_refused_while_an_orphaned_tenants_value_still_depends_on_it()
+      throws Exception {
+    HttpResponse<String> firstRotate = send("POST", "/secrets/rotate-key", "");
+    assertEquals(200, firstRotate.statusCode());
+    int encryptingKeyId =
+        ((Number) Json.asObject(Json.parse(firstRotate.body())).get("activeKeyId")).intValue();
+
+    store.store().putTenant(new Tenant("doomed", new ResourceQuota(1, 1, 1)));
+    SecretStore secrets = new SecretStore(store.client(), crypto);
+    secrets.put(
+        "doomed",
+        "isokey",
+        "isolated-value".getBytes(StandardCharsets.UTF_8),
+        SecretWrite.opaqueBy("test"));
+    store.client().propose(new StateMutation.RemoveTenant("doomed"));
+
+    HttpResponse<String> secondRotate = send("POST", "/secrets/rotate-key", "");
+    assertEquals(200, secondRotate.statusCode());
+
+    HttpResponse<String> refused =
+        send("POST", "/secrets/retire-key", Json.write(Map.of("keyId", encryptingKeyId)));
+    assertEquals(400, refused.statusCode());
+    assertTrue(refused.body().contains("still encrypted under it"), refused.body());
+
+    // Untouched by the refusal, and still fully readable straight from the store.
+    assertEquals(
+        "isolated-value",
+        new String(
+            secrets.get("doomed", "isokey", OptionalInt.empty()).orElseThrow(),
+            StandardCharsets.UTF_8));
   }
 }

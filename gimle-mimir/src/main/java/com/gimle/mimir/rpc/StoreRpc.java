@@ -120,6 +120,7 @@ public sealed interface StoreRpc {
           ListNodeRegistrations,
           ListTenants,
           ListConfigEntriesFor,
+          ListAllConfigEntries,
           ListRoles,
           GetRole,
           ListRoleBindings,
@@ -425,6 +426,17 @@ public sealed interface StoreRpc {
   record ListTenants() implements Request {}
 
   record ListConfigEntriesFor(String tenantId) implements Request {}
+
+  /**
+   * Every stored config entry cluster-wide, unscoped by tenant registration -- unlike {@link
+   * ListConfigEntriesFor}, this also surfaces an entry whose {@code tenantId} names a tenant that
+   * has since been removed from {@link ListTenants}' own view. A caller iterating {@link
+   * ListTenants} to enumerate config entries misses exactly that orphaned data, which matters most
+   * for a destructive operation (e.g. a secrets key retirement) that must know about every value
+   * still depending on what it is about to remove, not only the values reachable through a
+   * currently-registered tenant.
+   */
+  record ListAllConfigEntries() implements Request {}
 
   record ListRoles() implements Request {}
 

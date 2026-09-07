@@ -187,6 +187,7 @@ class StoreCodecTest {
         new StoreRpc.ListNodeRegistrations(),
         new StoreRpc.ListTenants(),
         new StoreRpc.ListConfigEntriesFor("tenant-1"),
+        new StoreRpc.ListAllConfigEntries(),
         new StoreRpc.ListRoles(),
         new StoreRpc.GetRole("viewer"),
         new StoreRpc.ListRoleBindings(),
