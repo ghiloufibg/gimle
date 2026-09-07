@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, Plug, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
@@ -393,7 +393,7 @@ function ClustersPage() {
 const inputClass =
   "h-7 w-full rounded-sm border border-border bg-background px-2 font-mono text-[11px] text-foreground";
 
-function Field({
+export function Field({
   label,
   className,
   hint,
@@ -404,10 +404,20 @@ function Field({
   hint?: string;
   children: React.ReactNode;
 }) {
+  // A real <label for> rather than an unassociated sibling <div>, so a screen reader announces
+  // which field it's in -- the same htmlFor/id wiring fields.tsx's own Field already has. Cloned
+  // onto the single child (always exactly one input/select here) rather than threaded through
+  // every call site individually.
+  const id = useId();
+  const control = isValidElement<{ id?: string }>(children)
+    ? cloneElement(children, { id })
+    : children;
   return (
     <div className={className}>
-      <div className="hud-label mb-1">{label}</div>
-      {children}
+      <label htmlFor={id} className="hud-label mb-1 block">
+        {label}
+      </label>
+      {control}
       {hint && <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div>}
     </div>
   );
