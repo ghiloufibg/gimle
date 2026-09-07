@@ -47,6 +47,12 @@ public final class IvaldiServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(IvaldiServer.class);
   private static final long MAX_BODY_BYTES = 8L * 1024 * 1024;
 
+  /**
+   * See the PUT case in {@link #handleOneBlueprint}: the save's own optimistic-concurrency
+   * precondition, carrying the updatedAt the caller last read.
+   */
+  private static final String IF_UNMODIFIED_SINCE_HEADER = "X-Gimle-If-Unmodified-Since";
+
   private final BlueprintStore store;
   private final ClusterStore clusters;
   private final RunController runs;
@@ -130,6 +136,8 @@ public final class IvaldiServer implements AutoCloseable {
       respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (BlueprintStore.IdAlreadyExistsException e) {
       respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
+    } catch (BlueprintStore.StaleWriteException e) {
+      respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
     } catch (RunController.DeploymentInUseException e) {
       respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -164,7 +172,16 @@ public final class IvaldiServer implements AutoCloseable {
           respondRawJson(exchange, 200, body.get());
         }
       }
-      case "PUT" -> respondJson(exchange, 200, store.save(id, readBody(exchange)).toJsonMap());
+      case "PUT" -> {
+        // Optimistic-concurrency precondition: the updatedAt the caller last read, so a save from
+        // a stale copy (two tabs, or an autosave racing a manual Save) is refused rather than
+        // silently clobbering whatever landed in between. Absent entirely for a caller that never
+        // read an updatedAt to begin with (a brand-new blueprint's very first save).
+        Optional<String> expectedUpdatedAt =
+            Optional.ofNullable(exchange.getRequestHeaders().getFirst(IF_UNMODIFIED_SINCE_HEADER));
+        respondJson(
+            exchange, 200, store.save(id, readBody(exchange), expectedUpdatedAt).toJsonMap());
+      }
       case "DELETE" -> {
         runs.requireNoLiveRunForBlueprint(id);
         boolean deleted = store.delete(id);

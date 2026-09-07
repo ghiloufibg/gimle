@@ -14,6 +14,7 @@ import {
 } from "@/lib/blueprint";
 import { normaliseBlueprint } from "@/lib/import";
 import { blueprintsRepository } from "@/repositories";
+import { ApiError } from "@/repositories/apiClient";
 
 import { useValidationStore } from "./useValidationStore";
 
@@ -224,6 +225,92 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
   // store state, since it drives no rendering of its own and only ever needs to be read back by
   // endDrag once, right after it is written by beginDrag.
   let dragSnapshot: Blueprint | null = null;
+
+  // Serializes save() calls to at most one PUT in flight at a time: two overlapping calls in this
+  // same tab (a debounced autosave still running when the user hits Save, say) would otherwise
+  // each send the same expectedUpdatedAt precondition, and whichever lands second would see it as
+  // a stale write and be refused with a 409 -- a same-tab race, not the cross-tab conflict that
+  // check exists to catch. A call made while one is already in flight waits for it, then saves
+  // again only if the blueprint is still dirty by that point.
+  let saveInFlight: Promise<void> | null = null;
+
+  const performSave = async (): Promise<"conflict" | void> => {
+    const bp = get().blueprint;
+    if (!bp) return;
+    // The backend never stamps timestamps or versions: we do it here.
+    const next: Blueprint = {
+      ...bp,
+      version: bp.version || "1.0.0",
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await blueprintsRepository.save(next, bp.updatedAt || undefined);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        // Someone else's save landed on this blueprint since this tab last read it (two tabs on
+        // the same blueprint, most commonly). Overwriting the server with this tab's own copy, or
+        // silently discarding this tab's edits in favor of the server's, both lose someone's work
+        // with no sign anything happened -- so neither happens here. This tab's edits become a
+        // recoverable draft, the exact dialog a crash-recovered draft already uses, framed as the
+        // blueprint having changed elsewhere; the server's current copy replaces what's shown
+        // until the user decides.
+        persistDraft(bp);
+        const server = normaliseLoaded(
+          (await blueprintsRepository.get(bp.id).catch(() => undefined)) ?? null,
+        );
+        if (server) {
+          set({ blueprint: server, dirty: false, recoverableDraft: bp });
+          revalidate(server);
+        } else {
+          // Could not even fetch what the server now holds -- leave this tab's own edit as the
+          // shown (still dirty, still unsaved) blueprint rather than presenting a "changed
+          // elsewhere" view with nothing to show it changed to. It's still offered as a
+          // recoverable draft, the same as any other unsaved edit.
+          set({ recoverableDraft: bp });
+        }
+        // Signals coalescedSave below to not treat "still dirty" as more work to save
+        // immediately: a conflict needs the user's own restore/discard choice first, not another
+        // attempt against the same precondition that just failed.
+        return "conflict";
+      }
+      throw e;
+    }
+    clearDraft(next.id);
+    // Two saves can overlap (a debounced autosave still in flight when the user hits Save, or two
+    // autosaves back to back) and resolve out of order. Applying this call's own `next` wholesale
+    // would then clobber whatever nodes/edges a later edit -- or a later save's own completion --
+    // already committed while this one was in flight. Re-reading the store here and only stamping
+    // version/updatedAt onto whatever is current preserves every edit regardless of resolution
+    // order; `dirty` only clears if nothing changed since this save's own snapshot was taken.
+    set((state) => {
+      if (!state.blueprint || state.blueprint.id !== next.id) return {};
+      return {
+        blueprint: { ...state.blueprint, version: next.version, updatedAt: next.updatedAt },
+        dirty: state.blueprint === bp ? false : state.dirty,
+      };
+    });
+  };
+
+  const coalescedSave = (): Promise<void> => {
+    if (saveInFlight) return saveInFlight;
+    saveInFlight = performSave().then(
+      (outcome) => {
+        saveInFlight = null;
+        // A dirty edit landed while this save was running: it hasn't been sent yet, so run once
+        // more rather than leaving it waiting for the next debounce cycle or a further user
+        // action. Not after a conflict, though -- that needs the user's own restore/discard
+        // choice first, not another attempt against the same precondition that just failed with a
+        // 409; and not after a genuine failure (a dropped connection, a 500), which would
+        // otherwise turn one bad request into a silent retry storm.
+        if (outcome !== "conflict" && get().dirty) void coalescedSave();
+      },
+      (error: unknown) => {
+        saveInFlight = null;
+        throw error;
+      },
+    );
+    return saveInFlight;
+  };
 
   return {
     blueprint: null,
@@ -504,32 +591,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       revalidate(blueprint);
     },
 
-    save: async () => {
-      const bp = get().blueprint;
-      if (!bp) return;
-      // The backend never stamps timestamps or versions: we do it here.
-      const next: Blueprint = {
-        ...bp,
-        version: bp.version || "1.0.0",
-        updatedAt: new Date().toISOString(),
-      };
-      await blueprintsRepository.save(next);
-      clearDraft(next.id);
-      // Two saves can overlap (a debounced autosave still in flight when the user hits Save, or
-      // two autosaves back to back) and resolve out of order. Applying this call's own `next`
-      // wholesale would then clobber whatever nodes/edges a later edit -- or a later save's own
-      // completion -- already committed while this one was in flight. Re-reading the store here
-      // and only stamping version/updatedAt onto whatever is current preserves every edit
-      // regardless of resolution order; `dirty` only clears if nothing changed since this save's
-      // own snapshot was taken.
-      set((state) => {
-        if (!state.blueprint || state.blueprint.id !== next.id) return {};
-        return {
-          blueprint: { ...state.blueprint, version: next.version, updatedAt: next.updatedAt },
-          dirty: state.blueprint === bp ? false : state.dirty,
-        };
-      });
-    },
+    save: () => coalescedSave(),
 
     duplicate: async () => {
       const bp = get().blueprint;

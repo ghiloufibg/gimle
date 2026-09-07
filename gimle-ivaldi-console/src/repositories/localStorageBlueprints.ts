@@ -63,7 +63,7 @@ export class MockBlueprintsRepository implements BlueprintsRepository {
     return summary(next);
   }
 
-  async save(blueprint: Blueprint): Promise<BlueprintSummary> {
+  async save(blueprint: Blueprint, _expectedUpdatedAt?: string): Promise<BlueprintSummary> {
     const list = read();
     const idx = list.findIndex((b) => b.id === blueprint.id);
     if (idx >= 0) list[idx] = blueprint;

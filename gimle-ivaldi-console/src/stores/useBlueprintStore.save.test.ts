@@ -4,12 +4,13 @@ import type { Blueprint, BlueprintNode } from "@/lib/blueprint";
 import type { BlueprintsRepository } from "@/repositories/contracts";
 
 const saveMock = vi.fn();
+const getMock = vi.fn();
 
 vi.mock("@/repositories", () => ({
   blueprintsRepository: {
     mode: "http",
     list: vi.fn(),
-    get: vi.fn(),
+    get: (...args: unknown[]) => getMock(...args),
     create: vi.fn(),
     save: (...args: unknown[]) => saveMock(...args),
     delete: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("@/repositories", () => ({
 
 // Imported after the mock so the store picks up the mocked repository module.
 const { useBlueprintStore } = await import("./useBlueprintStore");
+const { ApiError } = await import("@/repositories/apiClient");
 
 class FakeLocalStorage {
   private data = new Map<string, string>();
@@ -81,6 +83,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 beforeEach(() => {
   saveMock.mockReset();
+  getMock.mockReset();
   vi.stubGlobal("localStorage", new FakeLocalStorage());
   useBlueprintStore.setState({
     blueprint: null,
@@ -95,55 +98,103 @@ beforeEach(() => {
 });
 
 describe("useBlueprintStore.save", () => {
-  it("does not clobber an edit that lands on a node while an earlier save is still in flight", async () => {
-    const node = workloadNode("n1");
-    useBlueprintStore.setState({ blueprint: blueprint({ nodes: [node] }), dirty: true });
+  it("sends the previously-known updatedAt as the save's own optimistic-concurrency precondition", async () => {
+    useBlueprintStore.setState({
+      blueprint: blueprint({ updatedAt: "2026-01-01T00:00:00Z" }),
+      dirty: true,
+    });
+    saveMock.mockResolvedValue(undefined);
 
-    const first = deferred<void>();
-    const second = deferred<void>();
-    saveMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await useBlueprintStore.getState().save();
 
-    // Save #1 snapshots the blueprint before either field edit below has happened.
-    const saveCall1 = useBlueprintStore.getState().save();
-
-    // Two rapid field edits on the freshly-added node, exactly as two quick keystrokes in the
-    // Inspector would produce -- each is its own updateNode call.
-    useBlueprintStore.getState().updateNode("n1", { name: "renamed" } as never);
-    useBlueprintStore.getState().updateNode("n1", {
-      module: { name: "com.example.module", version: "1.0.0" },
-    } as never);
-
-    // Save #2 snapshots the blueprint with both edits already applied.
-    const saveCall2 = useBlueprintStore.getState().save();
-
-    // Save #2's network call resolves first -- entirely plausible for two overlapping requests.
-    second.resolve();
-    await saveCall2;
-    // Save #1's call, kicked off earlier against a stale snapshot, resolves after.
-    first.resolve();
-    await saveCall1;
-
-    const after = useBlueprintStore.getState().blueprint!.nodes[0].data as {
-      name: string;
-      module: { name: string };
-    };
-    expect(after.name).toBe("renamed");
-    expect(after.module.name).toBe("com.example.module");
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(saveMock.mock.calls[0][1]).toBe("2026-01-01T00:00:00Z");
   });
 
-  it("marks the blueprint saved only when nothing has changed since that save's own snapshot", async () => {
+  it("coalesces a save() called while one is already in flight into a single network write", async () => {
     useBlueprintStore.setState({ blueprint: blueprint(), dirty: true });
     const pending = deferred<void>();
     saveMock.mockReturnValueOnce(pending.promise);
 
+    const first = useBlueprintStore.getState().save();
+    const second = useBlueprintStore.getState().save();
+
+    pending.resolve();
+    await Promise.all([first, second]);
+
+    expect(saveMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clobber an edit that lands on a node while a save is still in flight", async () => {
+    const node = workloadNode("n1");
+    useBlueprintStore.setState({ blueprint: blueprint({ nodes: [node] }), dirty: true });
+    const pending = deferred<void>();
+    saveMock.mockReturnValueOnce(pending.promise);
+
     const saveCall = useBlueprintStore.getState().save();
-    useBlueprintStore.getState().patchBlueprint({ name: "edited-during-save" });
+    // A field edit landing mid-flight -- the exact "two rapid Inspector edits on a freshly-added
+    // node" shape, except here the second one arrives while the first save's network round trip
+    // is still outstanding.
+    useBlueprintStore.getState().updateNode("n1", { name: "renamed" } as never);
 
     pending.resolve();
     await saveCall;
 
-    // The edit that landed after this save's own snapshot was taken is still unsaved.
+    expect((useBlueprintStore.getState().blueprint!.nodes[0].data as { name: string }).name).toBe(
+      "renamed",
+    );
+  });
+
+  it("automatically re-saves once a save in flight completes if an edit made it dirty again", async () => {
+    useBlueprintStore.setState({ blueprint: blueprint(), dirty: true });
+    const first = deferred<void>();
+    saveMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce(undefined);
+
+    const saveCall = useBlueprintStore.getState().save();
+    useBlueprintStore.getState().patchBlueprint({ name: "edited-during-first-save" });
+
+    first.resolve();
+    await saveCall;
+    // The follow-up save the completion triggers is fired-and-forgotten -- wait for it directly.
+    await vi.waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(useBlueprintStore.getState().dirty).toBe(false));
+
+    expect(saveMock.mock.calls[1][0]).toMatchObject({ name: "edited-during-first-save" });
+  });
+
+  it("recovers a 409 conflict as the same draft-restore dialog, without overwriting either copy", async () => {
+    const mine = blueprint({ name: "my-tab-edit", updatedAt: "2026-01-01T00:00:00Z" });
+    useBlueprintStore.setState({ blueprint: mine, dirty: true });
+    saveMock.mockRejectedValueOnce(new ApiError(409, "stale write"));
+    const serverCopy = blueprint({ name: "someone-elses-save", updatedAt: "2026-01-01T00:00:05Z" });
+    getMock.mockResolvedValue(serverCopy);
+
+    await useBlueprintStore.getState().save();
+
+    // The server's current copy is what's shown -- not silently overwritten by this tab's edit.
+    expect(useBlueprintStore.getState().blueprint?.name).toBe("someone-elses-save");
+    expect(useBlueprintStore.getState().dirty).toBe(false);
+    // This tab's own edit survives as a recoverable draft rather than being silently discarded.
+    expect(useBlueprintStore.getState().recoverableDraft?.name).toBe("my-tab-edit");
+  });
+
+  it("keeps this tab's own edit shown, still dirty, if the server copy can't even be fetched after a 409", async () => {
+    const mine = blueprint({ name: "my-tab-edit", updatedAt: "2026-01-01T00:00:00Z" });
+    useBlueprintStore.setState({ blueprint: mine, dirty: true });
+    saveMock.mockRejectedValueOnce(new ApiError(409, "stale write"));
+    getMock.mockRejectedValue(new Error("network down"));
+
+    await useBlueprintStore.getState().save();
+
+    expect(useBlueprintStore.getState().blueprint?.name).toBe("my-tab-edit");
     expect(useBlueprintStore.getState().dirty).toBe(true);
-    expect(useBlueprintStore.getState().blueprint?.name).toBe("edited-during-save");
+    expect(useBlueprintStore.getState().recoverableDraft?.name).toBe("my-tab-edit");
+  });
+
+  it("lets a genuine failure (not a conflict) propagate rather than swallowing it", async () => {
+    useBlueprintStore.setState({ blueprint: blueprint(), dirty: true });
+    saveMock.mockRejectedValueOnce(new Error("network down"));
+
+    await expect(useBlueprintStore.getState().save()).rejects.toThrow("network down");
   });
 });

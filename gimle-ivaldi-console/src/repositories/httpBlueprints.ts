@@ -54,11 +54,22 @@ export class HttpBlueprintsRepository implements BlueprintsRepository {
     return mapSummary(raw);
   }
 
-  /** PUT: upsert at a known id. */
-  async save(blueprint: Blueprint): Promise<BlueprintSummary> {
+  /**
+   * PUT: upsert at a known id. `expectedUpdatedAt`, when given, rides the same header the backend
+   * checks against what's currently on disk -- a mismatch comes back as an `ApiError` with
+   * `status === 409`, which the caller (see useBlueprintStore.save) treats as a conflict rather
+   * than a generic failure.
+   */
+  async save(blueprint: Blueprint, expectedUpdatedAt?: string): Promise<BlueprintSummary> {
     const raw = await requestJson<RawBlueprintSummary>(
       `/api/blueprints/${encodeURIComponent(blueprint.id)}`,
-      { method: "PUT", body: jsonBody(blueprint) },
+      {
+        method: "PUT",
+        body: jsonBody(blueprint),
+        headers: expectedUpdatedAt
+          ? { "X-Gimle-If-Unmodified-Since": expectedUpdatedAt }
+          : undefined,
+      },
     );
     return mapSummary(raw);
   }

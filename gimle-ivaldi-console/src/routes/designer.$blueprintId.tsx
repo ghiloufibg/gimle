@@ -567,9 +567,10 @@ function Designer() {
               Restore unsaved draft?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs">
-              A newer edit from a previous session was never saved to the server -- likely a tab or
-              process that closed before the save completed. Restore it, or discard it and keep
-              what's on the server.
+              This tab has an edit that was never saved to the server -- either a tab or process
+              that closed before the save completed, or the blueprint changed elsewhere (another tab
+              saved it) while this edit was in progress. Restore it, or discard it and keep what's
+              on the server.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

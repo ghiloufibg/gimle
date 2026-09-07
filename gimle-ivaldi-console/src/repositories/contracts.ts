@@ -224,8 +224,12 @@ export interface BlueprintsRepository {
   get(id: string): Promise<Blueprint | undefined>;
   /** Create: the id is minted by the server and returned in the summary. */
   create(blueprint: Blueprint): Promise<BlueprintSummary>;
-  /** Upsert at a known id. */
-  save(blueprint: Blueprint): Promise<BlueprintSummary>;
+  /**
+   * Upsert at a known id. `expectedUpdatedAt`, when given, is the updatedAt this caller last read
+   * -- an optimistic-concurrency precondition the real backend enforces with a 409 (see
+   * ApiError.status) when someone else's save landed in between.
+   */
+  save(blueprint: Blueprint, expectedUpdatedAt?: string): Promise<BlueprintSummary>;
   delete(id: string): Promise<void>;
 }
 

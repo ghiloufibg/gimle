@@ -78,6 +78,16 @@ class IvaldiServerTest {
         HttpResponse.BodyHandlers.ofString());
   }
 
+  private HttpResponse<String> putIfUnmodifiedSince(
+      String path, String body, String expectedUpdatedAt) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .header("X-Gimle-If-Unmodified-Since", expectedUpdatedAt)
+            .PUT(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
   private HttpResponse<String> delete(String path) throws Exception {
     return client.send(
         HttpRequest.newBuilder(URI.create(baseUrl + path)).DELETE().build(),
@@ -129,6 +139,48 @@ class IvaldiServerTest {
     assertEquals(
         "{\"name\":\"first cut\",\"nodes\":[],\"edges\":[],\"id\":\"my-cluster\"}",
         get("/api/blueprints/my-cluster").body());
+  }
+
+  /**
+   * Two tabs on the same blueprint: the second save's PUT still names the updatedAt it last read,
+   * which the first tab's own save has since moved past -- refused rather than silently overwriting
+   * the first tab's edit.
+   */
+  @Test
+  @Timeout(10)
+  void put_with_a_stale_if_unmodified_since_is_refused_as_a_conflict() throws Exception {
+    put(
+        "/api/blueprints/shared",
+        "{\"name\":\"tab-a\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"nodes\":[],\"edges\":[]}");
+    put(
+        "/api/blueprints/shared",
+        "{\"name\":\"tab-a-saved\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"nodes\":[],\"edges\":[]}");
+
+    HttpResponse<String> conflict =
+        putIfUnmodifiedSince(
+            "/api/blueprints/shared",
+            "{\"name\":\"tab-b-stale\",\"updatedAt\":\"2026-01-01T00:00:10Z\",\"nodes\":[],\"edges\":[]}",
+            "2026-01-01T00:00:00Z");
+
+    assertEquals(409, conflict.statusCode());
+    assertTrue(get("/api/blueprints/shared").body().contains("tab-a-saved"));
+  }
+
+  @Test
+  @Timeout(10)
+  void put_with_a_matching_if_unmodified_since_is_permitted() throws Exception {
+    put(
+        "/api/blueprints/shared",
+        "{\"name\":\"first\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"nodes\":[],\"edges\":[]}");
+
+    HttpResponse<String> response =
+        putIfUnmodifiedSince(
+            "/api/blueprints/shared",
+            "{\"name\":\"second\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"nodes\":[],\"edges\":[]}",
+            "2026-01-01T00:00:00Z");
+
+    assertEquals(200, response.statusCode());
+    assertTrue(get("/api/blueprints/shared").body().contains("second"));
   }
 
   @Test
