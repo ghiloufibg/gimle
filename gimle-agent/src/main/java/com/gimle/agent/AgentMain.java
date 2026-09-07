@@ -3100,22 +3100,16 @@ public final class AgentMain {
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());
-      // Real committed memory, not the tiny declared request tryAssign above tracks -- the
-      // check that actually catches a node overcommitting its real machine memory across
+      // Real committed memory and CPU, not the tiny declared request tryAssign above tracks --
+      // the check that actually catches a node overcommitting its real machine capacity across
       // accumulated shared-worker ceilings. Checked (and reserved) before supervisor.start()
       // below actually forks the process, so a refusal here never spawns anything to clean up.
       if (!committedWorkerCapacity.tryAssign(key, handle.limit())) {
+        // A failed tryAssign never mutates its own state, so this snapshot still reflects
+        // exactly what was compared against handle.limit() above -- safe to read after the fact
+        // rather than threading the rejected dimension back out of tryAssign itself.
         CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
-        String refusal =
-            "refusing to spawn worker "
-                + key
-                + ": committing its "
-                + ResourceSpec.formatMemory(handle.limit().memoryBytes())
-                + " ceiling would exceed this node's own real memory budget (already committed: "
-                + ResourceSpec.formatMemory(committed.assignedMemoryBytes())
-                + ", node total: "
-                + ResourceSpec.formatMemory(committed.totalMemoryBytes())
-                + ")";
+        String refusal = committedCapacityRefusalMessage(key, handle.limit(), committed);
         log.error(refusal);
         throw new IOException(refusal);
       }
@@ -3155,6 +3149,48 @@ public final class AgentMain {
                     volumeManager,
                     muninnEndpoint,
                     workerShippers));
+  }
+
+  /**
+   * Names whichever resource dimension actually failed a {@link CapacityTracker#tryAssign} call
+   * against {@code limit} -- {@code committed} must be the snapshot taken immediately after that
+   * failed call (a no-op on failure, so it still reflects the pre-assignment totals compared
+   * against {@code limit}). Memory is checked first: at least one of the two dimensions must have
+   * failed for this to be called at all, so a memory failure is reported even when CPU also happens
+   * to be over, rather than silently picking neither or reporting both.
+   */
+  static String committedCapacityRefusalMessage(
+      String key, ResourceSpec limit, CapacityTracker.Snapshot committed) {
+    boolean memoryExceeded =
+        committed.assignedMemoryBytes() + limit.memoryBytes() > committed.totalMemoryBytes();
+    String resource;
+    String limitFigure;
+    String committedFigure;
+    String totalFigure;
+    if (memoryExceeded) {
+      resource = "memory";
+      limitFigure = ResourceSpec.formatMemory(limit.memoryBytes());
+      committedFigure = ResourceSpec.formatMemory(committed.assignedMemoryBytes());
+      totalFigure = ResourceSpec.formatMemory(committed.totalMemoryBytes());
+    } else {
+      resource = "CPU";
+      limitFigure = ResourceSpec.formatCpu(limit.cpuMillicores());
+      committedFigure = ResourceSpec.formatCpu(committed.assignedCpuMillicores());
+      totalFigure = ResourceSpec.formatCpu(committed.totalCpuMillicores());
+    }
+    return "refusing to spawn worker "
+        + key
+        + ": committing its "
+        + limitFigure
+        + " "
+        + resource
+        + " ceiling would exceed this node's own real "
+        + resource
+        + " budget (already committed: "
+        + committedFigure
+        + ", node total: "
+        + totalFigure
+        + ")";
   }
 
   /**

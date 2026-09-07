@@ -131,6 +131,57 @@ class AgentMainTest {
     assertEquals(List.of(), exitCodes);
   }
 
+  // ---- committed-capacity refusal message: names whichever resource actually binds ----
+
+  @Test
+  void committed_capacity_refusal_names_cpu_when_cpu_is_the_binding_constraint() {
+    // Regression test: the refusal message used to hardcode "memory" regardless of which
+    // dimension actually failed tryAssign -- here CPU is nearly saturated (99.5% committed)
+    // while memory has ample headroom, so the message must name CPU with CPU's own
+    // committed/total figures rather than substituting memory's.
+    CapacityTracker.Snapshot committed =
+        new CapacityTracker.Snapshot(10_000_000_000L, 1_000_000_000L, 4000L, 3980L);
+    ResourceSpec limit = new ResourceSpec("100Mi", "500m");
+
+    String message =
+        AgentMain.committedCapacityRefusalMessage("consumer-deployment#0", limit, committed);
+
+    assertTrue(message.contains("CPU"), "expected the message to name CPU; message=" + message);
+    assertTrue(
+        message.contains(ResourceSpec.formatCpu(3980L)),
+        "expected CPU's own committed figure; message=" + message);
+    assertTrue(
+        message.contains(ResourceSpec.formatCpu(4000L)),
+        "expected CPU's own total figure; message=" + message);
+    assertFalse(
+        message.contains("memory"),
+        "expected no memory wording once CPU is the binding constraint; message=" + message);
+  }
+
+  @Test
+  void committed_capacity_refusal_names_memory_when_memory_is_the_binding_constraint() {
+    // The reverse direction, to guard against overcorrecting into always naming CPU: memory is
+    // nearly saturated here while CPU has ample headroom.
+    CapacityTracker.Snapshot committed =
+        new CapacityTracker.Snapshot(1_000_000_000L, 950_000_000L, 8000L, 500L);
+    ResourceSpec limit = new ResourceSpec("100Mi", "500m");
+
+    String message =
+        AgentMain.committedCapacityRefusalMessage("consumer-deployment#0", limit, committed);
+
+    assertTrue(
+        message.contains("memory"), "expected the message to name memory; message=" + message);
+    assertTrue(
+        message.contains(ResourceSpec.formatMemory(950_000_000L)),
+        "expected memory's own committed figure; message=" + message);
+    assertTrue(
+        message.contains(ResourceSpec.formatMemory(1_000_000_000L)),
+        "expected memory's own total figure; message=" + message);
+    assertFalse(
+        message.contains("CPU"),
+        "expected no CPU wording once memory is the binding constraint; message=" + message);
+  }
+
   private static final ResourceSpec REQUEST = new ResourceSpec("16Mi", "500m");
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
 
