@@ -132,13 +132,14 @@ final class WaitPoller {
     Duration timeout = timeout();
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (true) {
-      Object phase = api.getObject(path).get("phase");
+      Map<String, Object> status = api.getObject(path);
+      Object phase = status.get("phase");
       if ("SUCCEEDED".equals(phase)) {
         out.println(workload.kind() + " " + workload.name() + " succeeded");
         return;
       }
       if ("FAILED".equals(phase)) {
-        Object reason = api.getObject(path).get("reason");
+        Object reason = currentRunReason(status);
         throw new HilmirException(
             workload.kind()
                 + " "
@@ -158,6 +159,16 @@ final class WaitPoller {
       }
       sleep();
     }
+  }
+
+  /**
+   * The control plane's own {@code jobStatus} nests a failed run's reason under {@code
+   * currentRun.reason} rather than at the top level -- absent entirely once neither a live run nor
+   * a retained run summary carries one.
+   */
+  private static Object currentRunReason(Map<String, Object> status) {
+    Object currentRun = status.get("currentRun");
+    return currentRun == null ? null : Json.asObject(currentRun).get("reason");
   }
 
   private static void sleep() {

@@ -58,6 +58,7 @@ public final class FakeControlPlane implements AutoCloseable {
     String phase = "RUNNING";
     int pollsRemaining;
     List<Map<String, Object>> instancesWhenReady;
+    String currentRunReason;
 
     WorkloadRecord(String yaml) {
       this.yaml = yaml;
@@ -125,6 +126,17 @@ public final class FakeControlPlane implements AutoCloseable {
 
   void setJobPhase(String kind, String name, String phase) {
     workloadRecord(kind, name).phase = phase;
+  }
+
+  /**
+   * Shapes the {@code phase} GET response's {@code currentRun.reason} exactly the way the real
+   * control plane's own {@code ApiServer.jobStatus} nests it -- never a top-level {@code reason}
+   * field. Omit the call entirely to model a failure with no reason available at all (no {@code
+   * currentRun} object in the response), the same as a run whose {@code JobRunSummary} was never
+   * recorded.
+   */
+  void setJobFailureReason(String kind, String name, String reason) {
+    workloadRecord(kind, name).currentRunReason = reason;
   }
 
   /**
@@ -363,6 +375,9 @@ public final class FakeControlPlane implements AutoCloseable {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("instances", record.instances);
         status.put("phase", record.phase);
+        if (record.currentRunReason != null) {
+          status.put("currentRun", Map.of("reason", record.currentRunReason));
+        }
         respondJson(exchange, 200, status);
       }
       case "DELETE" -> {
