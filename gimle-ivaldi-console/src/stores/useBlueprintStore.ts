@@ -21,13 +21,6 @@ import { useValidationStore } from "./useValidationStore";
 const HISTORY_LIMIT = 50;
 
 /**
- * Nudges a drop position diagonally, in fixed steps, until it no longer lands exactly on an
- * existing node. Click-to-add (the palette's own "click it to drop one in the middle" path)
- * always requests the same canvas-center point, which otherwise stacked every successive add
- * exactly on top of the last one, silently hiding whatever was already there -- a real
- * drag-and-drop almost never lands on this exact same spot twice, so it is untouched by this.
- */
-/**
  * The plain-text node field a placedOn/belongsTo edge's own source node had copied into it at
  * connect time (see `connect` below) -- the field this edge's removal must clear, or it survives
  * as a stale value the moment the edge is gone: editable again, but still naming the machine/
@@ -63,14 +56,45 @@ function clearedFieldsFor(
   return cleared;
 }
 
+/**
+ * Rendered footprint big enough to detect real visual overlap, not just an identical coordinate --
+ * CanvasNodes.tsx's own MachineNode (a fixed 640x260 frame) and ResourceNode (190-230px wide,
+ * roughly 90px tall with a full set of label/fact/where lines) sizes.
+ */
+function footprintFor(kind: NodeKind): { width: number; height: number } {
+  return kind === "machine" ? { width: 640, height: 260 } : { width: 230, height: 90 };
+}
+
+function overlapsFootprint(
+  a: { x: number; y: number },
+  aKind: NodeKind,
+  b: { x: number; y: number },
+  bKind: NodeKind,
+): boolean {
+  const as = footprintFor(aKind);
+  const bs = footprintFor(bKind);
+  return (
+    a.x < b.x + bs.width && a.x + as.width > b.x && a.y < b.y + bs.height && a.y + as.height > b.y
+  );
+}
+
 function nextFreePosition(
   nodes: BlueprintNode[],
   requested: { x: number; y: number },
+  kind: NodeKind,
 ): { x: number; y: number } {
-  const STEP = 32;
+  // Sized to the new node's own real footprint (plus a visible gap), not the old fixed 32px --
+  // that step was far smaller than a node's actual rendered width, so successive click-to-adds
+  // (which all request the same canvas-center point) still landed almost entirely on top of each
+  // other even after being nudged clear of an *exact* coordinate match.
+  const step = Math.max(footprintFor(kind).width, footprintFor(kind).height) + 24;
   let candidate = requested;
-  while (nodes.some((n) => n.position.x === candidate.x && n.position.y === candidate.y)) {
-    candidate = { x: candidate.x + STEP, y: candidate.y + STEP };
+  let guard = 0;
+  while (
+    nodes.some((n) => overlapsFootprint(candidate, kind, n.position, n.kind)) &&
+    guard++ < 200
+  ) {
+    candidate = { x: candidate.x + step, y: candidate.y + step };
   }
   return candidate;
 }
@@ -382,7 +406,7 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       const bp = get().blueprint;
       if (!bp) return null;
       const seed = bp.nodes.filter((n) => n.kind === kind).length + 1;
-      const node = createNode(kind, nextFreePosition(bp.nodes, position), seed);
+      const node = createNode(kind, nextFreePosition(bp.nodes, position, kind), seed);
       const edges: BlueprintEdge[] = [];
       const machines = bp.nodes.filter((n) => n.kind === "machine");
       const tenants = bp.nodes.filter((n) => n.kind === "tenant");

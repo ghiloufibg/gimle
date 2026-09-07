@@ -293,6 +293,30 @@ describe("useBlueprintStore.addNode", () => {
     expect(added!.position).toEqual({ x: 500, y: 500 });
   });
 
+  it("lands several rapid click-to-adds at visibly distinct positions, not stacked on each other", () => {
+    // The palette's own click-to-add always requests this exact same canvas-center point.
+    const REQUESTED = { x: 400, y: 300 };
+    const bp = blueprintWith([], []);
+    useBlueprintStore.setState({ blueprint: bp });
+
+    const added = [
+      useBlueprintStore.getState().addNode("deployment", REQUESTED),
+      useBlueprintStore.getState().addNode("deployment", REQUESTED),
+      useBlueprintStore.getState().addNode("deployment", REQUESTED),
+    ];
+
+    // A ResourceNode is at most 230x90 -- any pair closer than that in both axes is still
+    // materially overlapping on screen, the exact symptom this bug describes.
+    for (let i = 0; i < added.length; i++) {
+      for (let j = i + 1; j < added.length; j++) {
+        const a = added[i]!.position;
+        const b = added[j]!.position;
+        const clear = Math.abs(a.x - b.x) >= 230 || Math.abs(a.y - b.y) >= 90;
+        expect(clear).toBe(true);
+      }
+    }
+  });
+
   it("gives a second and third machine their own distinct loopback host, not a collision", () => {
     const bp = blueprintWith([], []);
     useBlueprintStore.setState({ blueprint: bp });
