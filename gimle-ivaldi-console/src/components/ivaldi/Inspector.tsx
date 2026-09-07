@@ -1,8 +1,10 @@
-import { Link2Off, PanelRightClose, PanelRightOpen, Settings2, Trash2 } from "lucide-react";
+import { Link2, Link2Off, PanelRightClose, PanelRightOpen, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
   EDGE_LABELS,
+  edgeKindFor,
   isPlacedRole,
   isTenantScoped,
   isWorkload,
@@ -11,6 +13,7 @@ import {
   type Blueprint,
   type BlueprintNode,
   type ConfigEntryData,
+  type EdgeKind,
   type LimitRangeData,
   type MachineData,
   type NetworkPolicyData,
@@ -137,58 +140,127 @@ function TenantField({
   );
 }
 
-/** Every link the selected node takes part in, with a way to cut it. */
+function nodeLabel(blueprint: Blueprint, id: string): string {
+  const n = blueprint.nodes.find((x) => x.id === id);
+  if (!n) return id;
+  const d = n.data as unknown as Record<string, unknown>;
+  const named = [d.name, d.id, d.nodeId, d.key].find(
+    (v) => typeof v === "string" && v.trim() !== "",
+  ) as string | undefined;
+  return `${KIND_LABELS[n.kind]} ${named ?? ""}`.trim();
+}
+
+/** One other node this node could still legally link to, and which way the edge would run. */
+interface LinkCandidate {
+  source: string;
+  target: string;
+  kind: EdgeKind;
+  otherId: string;
+}
+
+/**
+ * Every other node this node doesn't already link to that a canvas drag could still connect it
+ * to, in either direction -- the same {@link edgeKindFor} a drag's own onConnect checks, so a link
+ * made here is indistinguishable from one dragged on the canvas. Checked both ways because which
+ * end a link is legally drawn *from* depends on the edge kind (a Service fronts a Deployment, never
+ * the other way around), and this node can be either end depending on what's selected.
+ */
+function linkCandidatesFor(blueprint: Blueprint, node: BlueprintNode): LinkCandidate[] {
+  const existing = new Set(blueprint.edges.map((e) => `${e.kind}|${e.source}|${e.target}`));
+  const candidates: LinkCandidate[] = [];
+  for (const other of blueprint.nodes) {
+    if (other.id === node.id) continue;
+    const asSource = edgeKindFor(node.kind, other.kind);
+    if (asSource && !existing.has(`${asSource}|${node.id}|${other.id}`))
+      candidates.push({ source: node.id, target: other.id, kind: asSource, otherId: other.id });
+    const asTarget = edgeKindFor(other.kind, node.kind);
+    if (asTarget && !existing.has(`${asTarget}|${other.id}|${node.id}`))
+      candidates.push({ source: other.id, target: node.id, kind: asTarget, otherId: other.id });
+  }
+  return candidates;
+}
+
+/** Keyboard/screen-reader path to create a link -- the only way to do it was a canvas drag. */
+function AddLinkControl({ blueprint, node }: { blueprint: Blueprint; node: BlueprintNode }) {
+  const connect = useBlueprintStore((s) => s.connect);
+  const candidates = linkCandidatesFor(blueprint, node);
+  const [choice, setChoice] = useState(0);
+  useEffect(() => {
+    if (choice >= candidates.length) setChoice(0);
+  }, [candidates.length, choice]);
+  if (candidates.length === 0) return null;
+  const picked = candidates[Math.min(choice, candidates.length - 1)];
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5">
+      <select
+        aria-label="Node to link to"
+        className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-[10px] text-foreground outline-none focus:border-primary"
+        value={choice}
+        onChange={(e) => setChoice(Number(e.target.value))}
+      >
+        {candidates.map((c, i) => (
+          <option key={`${c.kind}|${c.source}|${c.target}`} value={i}>
+            {c.source === node.id ? EDGE_LABELS[c.kind] : `${EDGE_LABELS[c.kind]} (from)`}
+            {" — "}
+            {nodeLabel(blueprint, c.otherId)}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => {
+          const result = connect(picked.source, picked.target);
+          if (!result.ok) toast.error("Link refused", { description: result.reason });
+        }}
+        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-sm border border-primary bg-primary px-2 font-mono text-[10px] text-primary-foreground"
+      >
+        <Link2 className="size-3" /> Add link
+      </button>
+    </div>
+  );
+}
+
+/** Every link the selected node takes part in, with a way to cut it -- and, below, a way to add
+ *  one without ever touching the canvas (see AddLinkControl). */
 function LinksSection({ blueprint, node }: { blueprint: Blueprint; node: BlueprintNode }) {
   const disconnect = useBlueprintStore((s) => s.disconnect);
   const select = useBlueprintStore((s) => s.select);
   const links = blueprint.edges.filter((e) => e.source === node.id || e.target === node.id);
-  if (links.length === 0)
-    return (
-      <div>
-        <div className="hud-label">Links</div>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          No links. Drag between two nodes on the canvas to make one.
-        </p>
-      </div>
-    );
-  const nameOf = (id: string) => {
-    const n = blueprint.nodes.find((x) => x.id === id);
-    if (!n) return id;
-    const d = n.data as unknown as Record<string, unknown>;
-    const named = [d.name, d.id, d.nodeId, d.key].find(
-      (v) => typeof v === "string" && v.trim() !== "",
-    ) as string | undefined;
-    return `${KIND_LABELS[n.kind]} ${named ?? ""}`.trim();
-  };
   return (
     <div>
       <div className="hud-label">Links</div>
-      <ul className="mt-1 space-y-1">
-        {links.map((e) => {
-          const otherId = e.source === node.id ? e.target : e.source;
-          return (
-            <li
-              key={e.id}
-              className="flex items-center justify-between gap-2 rounded-sm border border-border bg-card px-2 py-1"
-            >
-              <button
-                onClick={() => select(otherId)}
-                className="min-w-0 text-left font-mono text-[10px] text-foreground hover:text-primary"
+      {links.length === 0 ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          No links. Drag between two nodes on the canvas, or add one below.
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-1">
+          {links.map((e) => {
+            const otherId = e.source === node.id ? e.target : e.source;
+            return (
+              <li
+                key={e.id}
+                className="flex items-center justify-between gap-2 rounded-sm border border-border bg-card px-2 py-1"
               >
-                <span className="hud-label mr-1">{EDGE_LABELS[e.kind]}</span>
-                <span className="truncate">{nameOf(otherId)}</span>
-              </button>
-              <button
-                title="Remove this link"
-                onClick={() => disconnect(e.id)}
-                className="shrink-0 rounded-sm border border-border p-1 text-muted-foreground hover:border-destructive hover:text-destructive"
-              >
-                <Link2Off className="size-3" />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                <button
+                  onClick={() => select(otherId)}
+                  className="min-w-0 text-left font-mono text-[10px] text-foreground hover:text-primary"
+                >
+                  <span className="hud-label mr-1">{EDGE_LABELS[e.kind]}</span>
+                  <span className="truncate">{nodeLabel(blueprint, otherId)}</span>
+                </button>
+                <button
+                  title="Remove this link"
+                  onClick={() => disconnect(e.id)}
+                  className="shrink-0 rounded-sm border border-border p-1 text-muted-foreground hover:border-destructive hover:text-destructive"
+                >
+                  <Link2Off className="size-3" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <AddLinkControl blueprint={blueprint} node={node} />
     </div>
   );
 }
