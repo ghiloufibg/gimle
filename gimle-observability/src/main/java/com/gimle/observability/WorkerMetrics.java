@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -26,6 +27,7 @@ public final class WorkerMetrics {
   private static final String CIRCUIT_BREAKER_STATE = "gimle.fabric.circuitbreaker.state";
   private static final String CIRCUIT_BREAKER_TRANSITIONS =
       "gimle.fabric.circuitbreaker.transitions";
+  private static final String NETWORK_POLICY_DENIED = "gimle.fabric.networkpolicy.denied";
 
   private final MeterRegistry registry;
   private final TaggedRequestMetrics metrics;
@@ -175,6 +177,47 @@ public final class WorkerMetrics {
 
   private static Tags breakerTagsFor(String interfaceName, String endpoint) {
     return Tags.of("interface", interfaceName, "endpoint", endpoint);
+  }
+
+  /**
+   * A {@code NetworkPolicyRule} rejected an inbound or outbound fabric call -- the only
+   * operator-visible signal a policy denial produces anywhere in the system, since the calling
+   * module catches {@code GimleFabricAuthorizationException} internally and neither side's ordinary
+   * request-rate/error-rate counters move (the callee's {@link #recordRequest} and the caller's
+   * {@link #recordClientRequest} both fire only for a call that actually reaches invocation).
+   * Tagged by the target service interface, the caller's tenant (or {@code "none"} for an
+   * untenanted caller), and {@code direction} (the receiving worker's own {@code "ingress"} check
+   * vs. the caller-tenant {@code "egress"} check it also independently re-runs) -- the same
+   * dimensions Cilium/Calico-style CNI policy-drop counters key on.
+   */
+  public void recordNetworkPolicyDenied(
+      String interfaceName, Optional<String> callerTenantId, String direction) {
+    Counter.builder(NETWORK_POLICY_DENIED)
+        .tags(networkPolicyDeniedTagsFor(interfaceName, callerTenantId, direction))
+        .register(registry)
+        .increment();
+  }
+
+  /** Same "cumulative total, zero if never recorded" contract {@link #requestCount} documents. */
+  public double networkPolicyDeniedCount(
+      String interfaceName, Optional<String> callerTenantId, String direction) {
+    Counter counter =
+        registry
+            .find(NETWORK_POLICY_DENIED)
+            .tags(networkPolicyDeniedTagsFor(interfaceName, callerTenantId, direction))
+            .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  private static Tags networkPolicyDeniedTagsFor(
+      String interfaceName, Optional<String> callerTenantId, String direction) {
+    return Tags.of(
+        "interface",
+        interfaceName,
+        "callerTenant",
+        callerTenantId.orElse("none"),
+        "direction",
+        direction);
   }
 
   public void recordThreadCount(ModuleInstanceId id, long count) {

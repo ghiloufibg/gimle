@@ -750,6 +750,7 @@ public final class FabricServer implements AutoCloseable {
       }
       covered = true;
       if (!rule.permitsCallerTenant(request.callerTenantId())) {
+        recordNetworkPolicyDenied(request.interfaceName(), request.callerTenantId(), "ingress");
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
             request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
@@ -758,6 +759,7 @@ public final class FabricServer implements AutoCloseable {
     if (!covered
         && denyByDefaultTenantIds.contains(selfTenantId.get())
         && !isSameTenant(request.callerTenantId(), selfTenantId.get())) {
+      recordNetworkPolicyDenied(request.interfaceName(), request.callerTenantId(), "ingress");
       throw GimleFabricAuthorizationException.tenantNotPermitted(
           request.interfaceName(),
           request
@@ -799,6 +801,7 @@ public final class FabricServer implements AutoCloseable {
       }
       covered = true;
       if (!rule.permitsCalleeTenant(selfTenantId)) {
+        recordNetworkPolicyDenied(request.interfaceName(), callerTenantId, "egress");
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
             selfTenantId
@@ -811,12 +814,25 @@ public final class FabricServer implements AutoCloseable {
     if (!covered
         && denyByDefaultTenantIds.contains(callerTenantId.get())
         && !isSameTenant(selfTenantId, callerTenantId.get())) {
+      recordNetworkPolicyDenied(request.interfaceName(), callerTenantId, "egress");
       throw GimleFabricAuthorizationException.tenantNotPermitted(
           request.interfaceName(),
           selfTenantId
               .map(id -> "callee tenant " + id + " (caller tenant denies by default)")
               .orElse("an untenanted callee (caller tenant denies by default)"));
     }
+  }
+
+  /**
+   * Records a {@code NetworkPolicyRule} denial via {@link #metrics}, the only operator-visible
+   * signal of a blocked cross-tenant fabric call anywhere in the system -- see {@link
+   * WorkerMetrics#recordNetworkPolicyDenied}'s own javadoc for why. A no-op absent a real {@link
+   * WorkerMetrics}, the same "degrade, don't fail" posture every other optional-metrics call site
+   * in this class already takes.
+   */
+  private void recordNetworkPolicyDenied(
+      String interfaceName, Optional<String> callerTenantId, String direction) {
+    metrics.ifPresent(m -> m.recordNetworkPolicyDenied(interfaceName, callerTenantId, direction));
   }
 
   private static boolean isSameTenant(Optional<String> peerTenantId, String tenantId) {

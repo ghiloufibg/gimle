@@ -482,6 +482,50 @@ class FabricServerTest {
 
   @Test
   @Timeout(10)
+  void
+      a_network_policy_ingress_denial_is_recorded_in_the_targets_worker_metrics_since_neither_request_rate_nor_error_rate_moves()
+          throws Exception {
+    // The bug this proves fixed: a blocked cross-tenant call left zero operator-visible signal
+    // anywhere -- the target's own request-rate counter never moved (the call never reached
+    // invokeLocally's own recordRequest) and the caller-side error-rate counter doesn't live on
+    // this class at all. This metric is the only queryable trace of the denial.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    WorkerMetrics workerMetrics = new WorkerMetrics(meterRegistry);
+    server =
+        new FabricServer(
+            registry,
+            Greeter.class.getClassLoader(),
+            id -> Optional.empty(),
+            id -> Optional.empty(),
+            Optional.of(workerMetrics),
+            id -> List.of(),
+            Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())), Set.of());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    assertEquals(0.0, workerMetrics.requestCount(OWNER));
+    assertEquals(
+        1.0,
+        meterRegistry
+            .find("gimle.fabric.networkpolicy.denied")
+            .tag("interface", Greeter.class.getName())
+            .tag("callerTenant", "tenant-b")
+            .tag("direction", "ingress")
+            .counter()
+            .count());
+  }
+
+  @Test
+  @Timeout(10)
   void a_caller_on_the_network_policys_own_allow_list_is_permitted_through() throws Exception {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(OWNER, Greeter.class, name -> "hello:" + name);
