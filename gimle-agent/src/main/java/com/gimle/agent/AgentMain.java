@@ -1564,6 +1564,56 @@ public final class AgentMain {
   }
 
   /**
+   * Whether {@code assigned}'s own index still has its sticky node binding on {@code nodeId} --
+   * mirrors Kubernetes' own StatefulSet volume-retention default: an ordinary scale-down leaves
+   * that binding (and so this index's on-disk data) in place, and only a genuine spec deletion
+   * clears it (see {@code StatefulSetReconciler#scaleDownOneIndexIfNeeded}'s own javadoc). Called
+   * only for a key about to leave {@link #reconcileAssignments}'s supervised set with a real volume
+   * behind it -- an ordinary Deployment/DaemonSet/Job instance never has one, so this never needs
+   * asking about those. Fails closed (retained) on any unreachable-control-plane or non-200
+   * response: an uncertain answer must never be read as license to destroy an index's data.
+   */
+  static boolean statefulSetVolumeRetained(
+      HttpClient httpClient, URI baseUrl, String nodeId, AssignedInstance assigned) {
+    String tenantQuery =
+        assigned
+            .tenantId()
+            .map(t -> "&tenant=" + URLEncoder.encode(t, StandardCharsets.UTF_8))
+            .orElse("");
+    HttpRequest request =
+        HttpRequest.newBuilder(
+                baseUrl.resolve(
+                    "/nodes/"
+                        + nodeId
+                        + "/statefulset-volume-retained?statefulSet="
+                        + URLEncoder.encode(assigned.deploymentName(), StandardCharsets.UTF_8)
+                        + "&index="
+                        + assigned.instanceIndex()
+                        + tenantQuery))
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .GET()
+            .build();
+    try {
+      HttpResponse<String> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        return true;
+      }
+      return Boolean.TRUE.equals(Json.asObject(Json.parse(response.body())).get("attached"));
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      log.warn(
+          "could not confirm whether {}[{}]'s volume is still retained; leaving it in place: {}",
+          assigned.deploymentName(),
+          assigned.instanceIndex(),
+          e.getMessage());
+      return true;
+    }
+  }
+
+  /**
    * Names the offending workload in a durable timeline event as well as this node's own log: an
    * assignment the agent cannot even parse is otherwise invisible to an operator, who sees only a
    * deployment that never progresses and a node that looks healthy.
@@ -2095,9 +2145,18 @@ public final class AgentMain {
     reportedStartFailures.keySet().retainAll(currentKeys);
     for (String key : List.copyOf(supervised.keySet())) {
       if (!currentKeys.contains(key)) {
-        // true: genuinely no longer assigned anywhere -- a real scale-down or spec deletion, the
-        // one case a volume's data is actually meant to go away. See stopInstance's own
-        // releaseVolume javadoc.
+        // Genuinely no longer assigned anywhere on this node, but that alone doesn't mean the
+        // volume (if any) should go away too -- a StatefulSet index dropped purely by an ordinary
+        // scale-down keeps its sticky binding (see StatefulSetReconciler's own javadoc) and must
+        // keep its data; only a genuine spec deletion clears that binding. An instance with no
+        // volume at all (every other workload kind, or a StatefulSet index with none declared)
+        // skips the round trip entirely -- there's nothing for the answer to change. See
+        // stopInstance's own releaseVolume javadoc.
+        SupervisedInstance instance = supervised.get(key);
+        boolean releaseVolume =
+            instance == null
+                || instance.volumeHandles.isEmpty()
+                || !statefulSetVolumeRetained(httpClient, baseUrl, nodeId, instance.assigned);
         stopInstance(
             key,
             supervised,
@@ -2106,17 +2165,22 @@ public final class AgentMain {
             instanceShippers,
             workerShippers,
             volumeManager,
-            true,
+            releaseVolume,
             catalog,
             nodeId);
       }
     }
     for (String key : List.copyOf(supervisedVessels.keySet())) {
       if (!currentKeys.contains(key)) {
-        // Genuinely no longer assigned anywhere -- the same "only a real removal releases the
-        // volume" rule stopInstance's releaseVolume parameter documents for module hosting.
+        // Same volume-retention question as the module-hosting sweep just above -- a vessel-hosted
+        // StatefulSet index is just as capable of owning a volume as a hosted one.
+        SupervisedVessel vessel = supervisedVessels.get(key);
+        boolean releaseVolume =
+            vessel == null
+                || vessel.volumeHandles.isEmpty()
+                || !statefulSetVolumeRetained(httpClient, baseUrl, nodeId, vessel.assigned);
         stopVesselInstance(
-            key, supervisedVessels, resourceLimiter, capacityTracker, volumeManager, true);
+            key, supervisedVessels, resourceLimiter, capacityTracker, volumeManager, releaseVolume);
       }
     }
     // Probed once per tick (the same 5-second cadence every other agent-side reconciliation runs
@@ -4279,12 +4343,17 @@ public final class AgentMain {
   }
 
   /**
-   * {@code releaseVolume} distinguishes a genuinely permanent removal (real scale-down, or the
-   * whole spec deleted -- {@code true}, called from the "no longer in {@code currentKeys}" sweep)
-   * from a rolling-update teardown-then-immediate-replace at the very same key ({@code false},
-   * called from {@code requiresReplacement}'s branch) -- see {@code VolumeManager}'s own javadoc
-   * for why the latter must never release: the whole point of sticky placement is that the data at
-   * {@code volumeHandles}' host paths survive exactly that case.
+   * {@code releaseVolume} distinguishes a rolling-update teardown-then-immediate-replace at the
+   * very same key ({@code false}, called from {@code requiresReplacement}'s branch -- see {@code
+   * VolumeManager}'s own javadoc for why this must never release: the whole point of sticky
+   * placement is that the data at {@code volumeHandles}' host paths survives exactly this case)
+   * from the "no longer in {@code currentKeys}" sweep, where the index might be gone for either of
+   * two different reasons: an ordinary scale-down (its sticky node binding, and so its volume, is
+   * meant to survive -- Kubernetes' own StatefulSet volume-retention default) or the StatefulSet's
+   * entire spec being genuinely deleted (the one case a volume's data is actually meant to go
+   * away). That sweep computes {@code releaseVolume} per key via {@link #statefulSetVolumeRetained}
+   * rather than passing a constant, since only the control plane's own sticky-binding state can
+   * tell the two apart.
    */
   static void stopInstance(
       String key,

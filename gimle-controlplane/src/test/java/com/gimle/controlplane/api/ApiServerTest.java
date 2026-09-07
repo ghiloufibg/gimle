@@ -3055,6 +3055,70 @@ class ApiServerTest {
   }
 
   /**
+   * The self-service point query {@code AgentMain}'s own teardown sweep polls before deciding
+   * whether a disappearing StatefulSet index's volume may be destroyed: {@code attached} tracks the
+   * sticky binding exactly the way {@code isVolumeAttached} already does for the operator-facing
+   * {@code /volumes/*} surface -- present and pointing at this node while the spec still exists (an
+   * ordinary scale-down or crash-loop release), gone once the spec itself is deleted.
+   */
+  @Test
+  void statefulset_volume_retained_tracks_the_sticky_binding_and_spec_existence() throws Exception {
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a", new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2))));
+    store.putStatefulSetSpec(
+        new com.gimle.mimir.manifest.StatefulSetSpec(
+            "sessions",
+            new ModuleId("com.example.sessions", Version.parse("1.0.0")),
+            "/tmp/sessions.jar",
+            1,
+            com.gimle.mimir.manifest.PlacementConstraints.NONE,
+            Optional.of(Tenant.DEFAULT_TENANT_ID),
+            Optional.empty()));
+    store.putStatefulSetIndexNode(Optional.of(Tenant.DEFAULT_TENANT_ID), "sessions", 0, "node-a");
+
+    HttpResponse<String> stillBound =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        baseUrl
+                            + "/nodes/node-a/statefulset-volume-retained?statefulSet=sessions"
+                            + "&index=0&tenant=default"))
+                .GET()
+                .build());
+    assertEquals(200, stillBound.statusCode());
+    assertEquals(Boolean.TRUE, Json.asObject(Json.parse(stillBound.body())).get("attached"));
+
+    // No sticky binding was ever recorded for index 1 (e.g. it never existed, or was already
+    // explicitly destroyed) -- unattached even though the spec still exists.
+    HttpResponse<String> neverBound =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        baseUrl
+                            + "/nodes/node-a/statefulset-volume-retained?statefulSet=sessions"
+                            + "&index=1&tenant=default"))
+                .GET()
+                .build());
+    assertEquals(Boolean.FALSE, Json.asObject(Json.parse(neverBound.body())).get("attached"));
+
+    // The spec is genuinely deleted -- a real StatefulSetReconciler tick would clear the sticky
+    // binding too, but even before that happens the spec's own absence alone must report
+    // unattached, matching isVolumeAttached's own "spec gone" short-circuit.
+    store.removeStatefulSetSpec(Optional.of(Tenant.DEFAULT_TENANT_ID), "sessions");
+    HttpResponse<String> specGone =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        baseUrl
+                            + "/nodes/node-a/statefulset-volume-retained?statefulSet=sessions"
+                            + "&index=0&tenant=default"))
+                .GET()
+                .build());
+    assertEquals(Boolean.FALSE, Json.asObject(Json.parse(specGone.body())).get("attached"));
+  }
+
+  /**
    * A destroy that names no tenant addresses the untenanted namespace, never the {@code default}
    * tenant's identically-named volume at the same set and index. Silently resolving an omitted
    * tenant to {@code default} here -- correct for a workload route, whose manifest parser applies

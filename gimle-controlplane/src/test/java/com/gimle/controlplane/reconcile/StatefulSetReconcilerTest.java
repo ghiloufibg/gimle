@@ -366,6 +366,57 @@ class StatefulSetReconcilerTest {
     assertTrue(indexOf(afterTwoTicks, 0).isPresent());
   }
 
+  /**
+   * Mirrors Kubernetes' own StatefulSet volume-retention default: an ordinary replica-count
+   * decrease removes the assignment (stops running the index) but must never touch the sticky node
+   * binding its volume's data depends on -- only a genuine spec deletion may do that (see {@code
+   * deleting_a_statefulset_removes_its_orphaned_assignment_and_sticky_binding} below).
+   */
+  @Test
+  void scaling_down_retains_the_sticky_binding_for_the_removed_index(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    registerNode(store, "node-c");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 3));
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    for (int i = 0; i < 6; i++) {
+      clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+      reconciler.reconcileOnce();
+      store
+          .listStatefulSetAssignmentsFor(Optional.empty(), "orders")
+          .forEach(a -> reportReady(store, a));
+    }
+    assertEquals(3, store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").size());
+    String index1Node =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1)
+            .orElseThrow()
+            .nodeId();
+    String index2Node =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 2)
+            .orElseThrow()
+            .nodeId();
+
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    reconciler.reconcileOnce(); // removes index 2's assignment
+    reconciler.reconcileOnce(); // removes index 1's assignment
+
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty());
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 2).isEmpty());
+    assertEquals(
+        Optional.of(index1Node),
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 1),
+        "index 1's sticky binding -- and so its volume's data -- must survive a scale-down");
+    assertEquals(
+        Optional.of(index2Node),
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 2),
+        "index 2's sticky binding -- and so its volume's data -- must survive a scale-down");
+  }
+
   @Test
   void scaling_back_up_after_scale_down_reuses_the_same_sticky_node(TestClock clock) {
     StateStore store = new StateStore(clock);

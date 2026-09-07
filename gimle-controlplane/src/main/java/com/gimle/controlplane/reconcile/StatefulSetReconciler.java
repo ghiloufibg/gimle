@@ -64,9 +64,13 @@ import org.slf4j.LoggerFactory;
  * <p>Scale-down removes at most one index -- the highest one at or beyond {@code replicas} -- per
  * tick, then returns without attempting any other work that same tick: the same "wait a beat
  * between destructive steps" caution {@code OrderedReady} already applies to placement, extended to
- * teardown. {@link StateStore#removeStatefulSetIndexNode} (permanent) is called only here and on
- * spec deletion below -- never by an ordinary rolling-update or scale-up-triggered removal, which
- * must preserve the sticky binding so the index can find its way back to the same node.
+ * teardown. Only the {@link StatefulSetAssignment} is removed, never the sticky {@link
+ * StateStore#getStatefulSetIndexNode} binding -- mirroring Kubernetes' own volume-retention
+ * default, an ordinary replica-count decrease must never destroy an index's data, only stop running
+ * it, so a later scale-up finds its way back to the same node exactly the way a rolling update's
+ * own remove-then-replace already does. {@link StateStore#removeStatefulSetIndexNode} (permanent)
+ * is called only on genuine spec deletion below -- never by an ordinary rolling-update, scale-down,
+ * or scale-up-triggered removal.
  *
  * <p><b>Node-death eviction</b>: unlike {@link DeploymentReconciler}/{@link ReplicaCountReconciler}
  * (dedicated eviction pass) and {@link DaemonSetReconciler} (eligibility exclusion plus its own
@@ -387,9 +391,18 @@ public final class StatefulSetReconciler {
   }
 
   /**
-   * Removes the highest index at or beyond {@code spec.replicas()}, if any, along with its
-   * permanent sticky binding and (if it happened to be one mid-rollout) its now-meaningless rolling
-   * marker. Returns {@code true} if it did so -- the caller stops for this tick either way.
+   * Removes the highest index at or beyond {@code spec.replicas()}, if any, and (if it happened to
+   * be one mid-rollout) its now-meaningless rolling marker. Returns {@code true} if it did so --
+   * the caller stops for this tick either way.
+   *
+   * <p>Deliberately leaves the sticky {@link StateStore#getStatefulSetIndexNode} binding in place
+   * -- mirroring Kubernetes' own StatefulSet volume-retention default, an ordinary replica-count
+   * decrease must never destroy that index's data, only stop running it. The binding is what {@link
+   * #placeIndex} reads back if {@code replicas} later grows again, landing the regrown index on the
+   * exact same node its volume (if any) was left on -- the same reuse a rolling update's own
+   * remove-then-replace already relies on. Only a spec's own removal (the {@code staleRemovals}
+   * sweep in {@link #reconcileOnce}) ever clears this binding, since only that means the index is
+   * never coming back.
    */
   private boolean scaleDownOneIndexIfNeeded(StatefulSetSpec spec) {
     Optional<StatefulSetAssignment> toRemove =
@@ -403,9 +416,6 @@ public final class StatefulSetReconciler {
     List<StateMutation> removal = new ArrayList<>();
     removal.add(
         new StateMutation.RemoveStatefulSetAssignment(
-            spec.tenantId(), spec.name(), assignment.instanceIndex()));
-    removal.add(
-        new StateMutation.RemoveStatefulSetIndexNode(
             spec.tenantId(), spec.name(), assignment.instanceIndex()));
     if (store
         .getRollingStatefulSetIndices(spec.tenantId(), spec.name())

@@ -5045,7 +5045,10 @@ public final class ApiServer implements AutoCloseable {
       // it -- and nothing else. Labelling is deliberately excluded from that: a node that could
       // label itself could grant itself the very labels placement uses to keep workloads off it,
       // so this one action is withheld from the self-service path and needs a real grant.
-      Verb verb = "assignments".equals(action) ? Verb.READ : Verb.WRITE;
+      Verb verb =
+          ("assignments".equals(action) || "statefulset-volume-retained".equals(action))
+              ? Verb.READ
+              : Verb.WRITE;
       Optional<String> selfServiceTarget =
           "labels".equals(action) ? Optional.empty() : Optional.of(nodeId);
       if (!requireAuthorized(
@@ -5062,6 +5065,7 @@ public final class ApiServer implements AutoCloseable {
         case "untaint" -> handleTaint(exchange, nodeId, false);
         case "labels" -> handleNodeLabels(exchange, nodeId);
         case "events" -> handleAppendInstanceEvent(exchange);
+        case "statefulset-volume-retained" -> handleStatefulSetVolumeRetained(exchange, nodeId);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
     } catch (GimleRaftException e) {
@@ -5283,6 +5287,44 @@ public final class ApiServer implements AutoCloseable {
       assigned.add(assignedInstanceToJson(instance));
     }
     respondJson(exchange, 200, assigned);
+  }
+
+  /**
+   * Self-service ({@code gimle:nodes}, own node only -- same {@code ResourceKind#NODE} grant {@link
+   * #handleAssignments} itself uses) point query behind {@link AgentMain}'s own teardown sweep: "is
+   * this index's volume still meant to live on me." Reuses {@link #isVolumeAttached} exactly, the
+   * same check the operator-facing {@code DELETE /volumes/*} route already re-derives its 409 from
+   * -- {@code attached=true} means the spec still exists and the sticky binding still points at
+   * this node (an ordinary scale-down, crash-loop release, or rolling update leaves this true; only
+   * a genuine spec deletion clears it), telling the agent whether tearing down this instance may
+   * also destroy its on-disk data. {@code ResourceKind#STATEFULSET} RBAC (what the operator-facing
+   * {@code /volumes/*} route requires) deliberately isn't used here: a node has no standing grant
+   * for it and, unlike a tenant's config/secrets, there is no "currently assigned" carve-out that
+   * would even apply once the very index in question has already lost its assignment.
+   */
+  private void handleStatefulSetVolumeRetained(HttpExchange exchange, String nodeId)
+      throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Map<String, String> query = parseQuery(exchange);
+    String statefulSetName = query.get("statefulSet");
+    String indexParam = query.get("index");
+    if (statefulSetName == null || statefulSetName.isBlank() || indexParam == null) {
+      respond(exchange, 400, "expected ?statefulSet=<name>&index=<n> (optionally &tenant=<id>)");
+      return;
+    }
+    int instanceIndex;
+    try {
+      instanceIndex = Integer.parseInt(indexParam);
+    } catch (NumberFormatException e) {
+      respond(exchange, 400, "index must be an integer: " + indexParam);
+      return;
+    }
+    boolean attached =
+        isVolumeAttached(volumeTenant(exchange), statefulSetName, instanceIndex, nodeId);
+    respondJson(exchange, 200, Map.of("attached", attached));
   }
 
   /**
