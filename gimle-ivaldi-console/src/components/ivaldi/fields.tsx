@@ -433,7 +433,13 @@ export function MemoryBytesField({
           setText(formatMemory(bytes));
           setEditing(true);
         }}
-        onBlur={() => setEditing(false)}
+        // Only leaves "editing" (letting `shown` snap back to the last-committed, reformatted
+        // value) once what's on screen is valid -- otherwise blur used to silently discard an
+        // invalid value with no visible sign anything was wrong, unlike MemoryField/CpuField,
+        // which always keep showing exactly what was typed.
+        onBlur={() => {
+          if (isValidMemory(text)) setEditing(false);
+        }}
         onChange={(e) => {
           setText(e.target.value);
           const parsed = parseMemory(e.target.value);
@@ -476,7 +482,12 @@ export function MillicoresField({
           setText(formatCpu(value));
           setEditing(true);
         }}
-        onBlur={() => setEditing(false)}
+        // See MemoryBytesField's own comment -- only reformats on blur once the typed value is
+        // actually valid, so an invalid one stays visible with its error instead of silently
+        // reverting.
+        onBlur={() => {
+          if (isValidCpu(text)) setEditing(false);
+        }}
         onChange={(e) => {
           setText(e.target.value);
           const parsed = parseCpu(e.target.value);
