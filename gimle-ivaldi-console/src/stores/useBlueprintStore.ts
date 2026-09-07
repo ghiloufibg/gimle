@@ -496,7 +496,20 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
       };
       await blueprintsRepository.save(next);
       clearDraft(next.id);
-      set({ blueprint: next, dirty: false });
+      // Two saves can overlap (a debounced autosave still in flight when the user hits Save, or
+      // two autosaves back to back) and resolve out of order. Applying this call's own `next`
+      // wholesale would then clobber whatever nodes/edges a later edit -- or a later save's own
+      // completion -- already committed while this one was in flight. Re-reading the store here
+      // and only stamping version/updatedAt onto whatever is current preserves every edit
+      // regardless of resolution order; `dirty` only clears if nothing changed since this save's
+      // own snapshot was taken.
+      set((state) => {
+        if (!state.blueprint || state.blueprint.id !== next.id) return {};
+        return {
+          blueprint: { ...state.blueprint, version: next.version, updatedAt: next.updatedAt },
+          dirty: state.blueprint === bp ? false : state.dirty,
+        };
+      });
     },
 
     duplicate: async () => {

@@ -302,15 +302,13 @@ function Designer() {
       pendingSave.current = false;
       void saveRef.current();
     }, 600);
-    // Flush rather than cancel: unmounting inside the debounce window used to discard the edit
-    // outright, with "UNSAVED" looking identical whether a save was 50ms away or already gone.
-    return () => {
-      clearTimeout(t);
-      if (pendingSave.current) {
-        pendingSave.current = false;
-        void saveRef.current();
-      }
-    };
+    // Cancel only: this effect's own deps (blueprint, dirty) change on every single edit, so its
+    // cleanup runs after every keystroke, not just on a genuine unmount. A previous version of
+    // this cleanup flushed a real save right here, which turned every rapid edit into its own
+    // overlapping network save -- exactly the out-of-order-completion window `save()` now guards
+    // against, but needless regardless. Flushing a save that's still pending when the designer
+    // actually goes away is handled once, below, by an unmount-only effect.
+    return () => clearTimeout(t);
   }, [blueprint, dirty, persistDraftNow]);
 
   useEffect(() => {
@@ -320,7 +318,13 @@ function Designer() {
       void saveRef.current();
     };
     window.addEventListener("beforeunload", flush);
-    return () => window.removeEventListener("beforeunload", flush);
+    // Empty deps: this cleanup must run only when the designer itself unmounts (route change,
+    // tab close), not on every edit -- see the debounce effect above for why that distinction
+    // matters here.
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      flush();
+    };
   }, []);
 
   const tallies = useMemo(() => tally(rows), [rows]);
