@@ -368,7 +368,7 @@ function WorkloadForm({
           label="Jar path"
           value={d.artifact.path}
           onChange={(path) => update({ artifact: { source: "jar", path } } as Partial<NodeData>)}
-          problems={pick(problems, ["JAR_PATH_RELATIVE"])}
+          problems={pick(problems, ["JAR_PATH_BLANK", "JAR_PATH_RELATIVE"])}
         />
       )}
       {(kind === "deployment" || kind === "statefulSet") && (

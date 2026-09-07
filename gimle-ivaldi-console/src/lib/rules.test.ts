@@ -242,6 +242,28 @@ describe("application rules the two tiers used to disagree on", () => {
     expect(codesOf(bp)).toContain("NO_ANDVARI_FOR_JAR");
   });
 
+  it("flags a jar-sourced workload with a blank artifact path as a blocking error", () => {
+    const bp = clone(ordersPlatform!);
+    const workload = bp.nodes.find((n) => n.kind === "deployment")!;
+    workload.data = { ...workload.data, artifact: { source: "jar", path: "" } };
+    const problems = validate(bp).filter((p) => p.code === "JAR_PATH_BLANK");
+    expect(problems).toHaveLength(1);
+    expect(problems[0].severity).toBe("error");
+    // A blank path is a different, worse problem than a merely-relative one -- both must not fire
+    // for the same field value.
+    expect(codesOf(bp)).not.toContain("JAR_PATH_RELATIVE");
+  });
+
+  it("still flags a non-blank, non-absolute jar path as a warning", () => {
+    const bp = clone(ordersPlatform!);
+    const workload = bp.nodes.find((n) => n.kind === "deployment")!;
+    workload.data = { ...workload.data, artifact: { source: "jar", path: "relative/path.jar" } };
+    const problems = validate(bp).filter((p) => p.code === "JAR_PATH_RELATIVE");
+    expect(problems).toHaveLength(1);
+    expect(problems[0].severity).toBe("warning");
+    expect(codesOf(bp)).not.toContain("JAR_PATH_BLANK");
+  });
+
   it("refuses a second tenant under plaintext, where the control plane cannot tell them apart", () => {
     const bp = clone(ordersPlatform!);
     const tenant = structuredClone(bp.nodes.find((n) => n.kind === "tenant")!);

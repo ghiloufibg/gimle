@@ -545,8 +545,12 @@ function validateApplication(bp: Blueprint): Problem[] {
     const limCpu = parseCpu(d.resources?.limit.cpu);
     if (reqMem > limMem || reqCpu > limCpu)
       p.push(err("RESOURCES_REQUEST_OVER_LIMIT", "Resource request exceeds its limit.", w.id));
-    if (d.artifact?.source === "jar" && d.artifact.path && !d.artifact.path.startsWith("/"))
-      p.push(warn("JAR_PATH_RELATIVE", "Jar artifact path is not absolute.", w.id));
+    if (d.artifact?.source === "jar") {
+      if (!d.artifact.path?.trim())
+        p.push(err("JAR_PATH_BLANK", "Jar-sourced workload has no artifact path.", w.id));
+      else if (!d.artifact.path.startsWith("/"))
+        p.push(warn("JAR_PATH_RELATIVE", "Jar artifact path is not absolute.", w.id));
+    }
     if (d.placement?.requiredLabels?.length) {
       for (const label of d.placement.requiredLabels)
         if (!agentLabels.has(label))
