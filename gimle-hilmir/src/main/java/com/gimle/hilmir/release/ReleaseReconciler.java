@@ -1,11 +1,14 @@
 package com.gimle.hilmir.release;
 
+import com.gimle.hilmir.HilmirException;
 import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * The apply-to-control-plane core shared by {@code deploy}, {@code upgrade}, {@code undeploy}, and
@@ -181,13 +184,68 @@ public final class ReleaseReconciler {
     ReleaseLedger.deleteMeta(api, releaseName);
   }
 
+  /** One workload's wait outcome, when it didn't succeed. */
+  private record WaitFailure(RenderedWorkload workload, RuntimeException cause) {}
+
+  /**
+   * Waits on every workload concurrently, one virtual thread each (the same fan-out shape {@link
+   * com.gimle.hilmir.remote.RemoteDispatch#dispatch} already uses for its own per-machine
+   * dispatch), rather than sequentially: a Job can reach its own terminal state in seconds, and it
+   * must be reported the moment it does, not only after every workload ahead of it in the list has
+   * already finished waiting up to its own full timeout.
+   */
   private static void awaitIfRequested(
       ControlPlaneApi api, RenderedBundle rendered, boolean wait, PrintStream out) {
     if (!wait) {
       return;
     }
+    List<WaitFailure> failures = new CopyOnWriteArrayList<>();
+    List<Thread> threads = new ArrayList<>();
     for (RenderedWorkload workload : rendered.workloads()) {
-      WaitPoller.awaitReady(api, workload, out);
+      threads.add(
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    try {
+                      WaitPoller.awaitReady(api, workload, out);
+                    } catch (RuntimeException e) {
+                      failures.add(new WaitFailure(workload, e));
+                    }
+                  }));
+    }
+    awaitAll(threads);
+    if (failures.size() == 1) {
+      throw failures.get(0).cause();
+    }
+    if (!failures.isEmpty()) {
+      String detail =
+          failures.stream()
+              .map(
+                  f ->
+                      f.workload().kind()
+                          + " "
+                          + f.workload().name()
+                          + ": "
+                          + f.cause().getMessage())
+              .collect(Collectors.joining("; "));
+      throw new HilmirException(failures.size() + " workloads failed to become ready: " + detail);
+    }
+  }
+
+  private static void awaitAll(List<Thread> threads) {
+    boolean interrupted = false;
+    for (Thread thread : threads) {
+      while (true) {
+        try {
+          thread.join();
+          break;
+        } catch (InterruptedException e) {
+          interrupted = true;
+        }
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
     }
   }
 }
