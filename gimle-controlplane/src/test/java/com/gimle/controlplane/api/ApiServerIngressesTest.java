@@ -77,6 +77,12 @@ class ApiServerIngressesTest {
         HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
+  private HttpResponse<String> delete(String path) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path)).DELETE().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
   private static String fabricIngress(String name, String paramType) {
     return """
         {"name": "%s", "tenantId": "acme", "routes": [
@@ -168,5 +174,27 @@ class ApiServerIngressesTest {
     HttpResponse<String> named = get("/ingresses/public?tenant=acme");
     assertEquals(200, named.statusCode(), named.body());
     assertTrue(named.body().startsWith("{"), named.body());
+  }
+
+  /**
+   * An Ingress is always declared under an explicit, non-default tenant ({@link
+   * ApiServer#handlePostIngress} rejects an omitted one outright), so a bare {@code DELETE} with no
+   * {@code ?tenant=} must resolve against that real tenant rather than the default namespace nobody
+   * wrote to. Before the fix this always answered {@code 200 {"deleted": true}} while removing
+   * nothing -- the delete silently missed the real, tenant-scoped key -- so the load-bearing
+   * assertion is the follow-up listing, not the delete response's own status code.
+   */
+  @Test
+  @Timeout(10)
+  void a_bare_delete_resolves_the_real_tenant_and_actually_removes_it() throws Exception {
+    assertEquals(200, post(serviceIngress("public", null)).statusCode());
+
+    HttpResponse<String> deleted = delete("/ingresses/public");
+
+    assertEquals(200, deleted.statusCode(), deleted.body());
+    assertEquals(
+        "[]",
+        get("/ingresses").body(),
+        "a claimed-successful delete with no tenant hint must actually remove the ingress");
   }
 }
