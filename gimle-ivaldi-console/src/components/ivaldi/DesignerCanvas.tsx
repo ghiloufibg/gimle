@@ -58,7 +58,17 @@ function CanvasInner({ blueprint }: { blueprint: Blueprint }) {
   const removeNodesAndEdges = useBlueprintStore((s) => s.removeNodesAndEdges);
   const beginDrag = useBlueprintStore((s) => s.beginDrag);
   const endDrag = useBlueprintStore((s) => s.endDrag);
-  const problems = useValidationStore((s) => s.problems);
+  // The combined tier-1 (client-side rules) and tier-2 (Hilmir) findings -- a server-only finding
+  // used to never reach the canvas at all, since this read only the client-side array. Selected as
+  // the two raw (referentially stable) arrays and combined in a memo below, rather than through
+  // the store's own allProblems() helper, which builds a fresh array on every call and so is
+  // unsafe to call directly inside a zustand selector.
+  const ivaldiProblems = useValidationStore((s) => s.problems);
+  const serverProblems = useValidationStore((s) => s.serverProblems);
+  const problems = useMemo(
+    () => [...ivaldiProblems, ...serverProblems],
+    [ivaldiProblems, serverProblems],
+  );
 
   useEffect(() => {
     canvasBridge.fit = () => fitView({ padding: 0.2, duration: 200 });

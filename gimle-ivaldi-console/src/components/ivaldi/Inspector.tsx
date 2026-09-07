@@ -1,5 +1,5 @@
 import { Link2Off, PanelRightClose, PanelRightOpen, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   EDGE_LABELS,
@@ -929,9 +929,18 @@ export function Inspector({ blueprint }: { blueprint: Blueprint }) {
       window.removeEventListener("mouseup", onUp);
     };
   }, [dragging, setWidth]);
-  const allProblems = useValidationStore((s) => s.problems);
   const node = blueprint.nodes.find((n) => n.id === selectedId);
-  const problems = allProblems.filter((p) => p.nodeId === selectedId);
+  // The combined tier-1 (client-side rules) and tier-2 (Hilmir) findings -- reading only the
+  // client-side array here meant a server-only finding never got its own inline field error.
+  // Selected as the two raw (referentially stable) arrays and combined in a memo, rather than
+  // through the store's own problemsFor/allProblems helpers, which build a fresh array on every
+  // call and so are unsafe to call directly inside a zustand selector.
+  const ivaldiProblems = useValidationStore((s) => s.problems);
+  const serverProblems = useValidationStore((s) => s.serverProblems);
+  const problems = useMemo(
+    () => [...ivaldiProblems, ...serverProblems].filter((p) => p.nodeId === selectedId),
+    [ivaldiProblems, serverProblems, selectedId],
+  );
   const collapsed = useUiStore((s) => s.inspectorCollapsed);
   const toggle = useUiStore((s) => s.toggleInspector);
 
