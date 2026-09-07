@@ -751,6 +751,13 @@ function NodeForm({
             problems={pick(problems, ["POLICY_TENANT_WIDE"])}
           />
           <ListField
+            label="Service interface names"
+            values={d.serviceInterfaceNames ?? []}
+            onChange={(serviceInterfaceNames) =>
+              update({ serviceInterfaceNames } as Partial<NodeData>)
+            }
+          />
+          <ListField
             label="Allowed caller tenants"
             values={d.allowedCallerTenantIds ?? []}
             options={tenantOptions(blueprint)}
@@ -758,6 +765,15 @@ function NodeForm({
               update({ allowedCallerTenantIds } as Partial<NodeData>)
             }
             problems={pick(problems, ["POLICY_ALLOWED_TENANT_UNKNOWN"])}
+          />
+          <ListField
+            label="Allowed callee tenants"
+            values={d.allowedCalleeTenantIds ?? []}
+            options={tenantOptions(blueprint)}
+            onChange={(allowedCalleeTenantIds) =>
+              update({ allowedCalleeTenantIds } as Partial<NodeData>)
+            }
+            problems={pick(problems, ["POLICY_ALLOWED_CALLEE_UNKNOWN"])}
           />
         </>
       );

@@ -133,7 +133,9 @@ export interface NetworkPolicyData {
   name: string;
   tenantId: string;
   deploymentNames?: string[];
+  serviceInterfaceNames?: string[];
   allowedCallerTenantIds?: string[];
+  allowedCalleeTenantIds?: string[];
 }
 
 export interface ConfigEntryData {
@@ -305,7 +307,9 @@ export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
         name: `policy-${seed}`,
         tenantId: "",
         deploymentNames: [],
+        serviceInterfaceNames: [],
         allowedCallerTenantIds: [],
+        allowedCalleeTenantIds: [],
       } satisfies NetworkPolicyData;
     case "configEntry":
       return { tenantId: "", key: "some.key", value: "value" } satisfies ConfigEntryData;

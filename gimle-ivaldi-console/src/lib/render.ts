@@ -287,12 +287,20 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     };
     const deployments = [...new Set([...(d.deploymentNames ?? []), ...restricted])].sort();
     if (deployments.length) doc.deploymentNames = deployments;
+    if ((d.serviceInterfaceNames ?? []).length)
+      doc.serviceInterfaceNames = [...new Set(d.serviceInterfaceNames)].sort();
     // Always emitted, empty included: an empty allowed-caller list is the deny-every-cross-tenant
     // -caller policy, and the platform requires a policy to restrict at least one direction --
     // omitting the key turned that deliberate deny-all into a document the cluster refuses.
     doc.allowedCallerTenantIds = [
       ...new Set([...(d.allowedCallerTenantIds ?? []), ...callers]),
     ].sort();
+    // Egress, unlike ingress above, is left unrestricted (key omitted) when the user has set no
+    // callee at all -- the platform's own NetworkPolicySpec already treats an absent set as "no
+    // restriction in that direction," and the caller direction alone already satisfies its
+    // require-at-least-one-direction check.
+    if ((d.allowedCalleeTenantIds ?? []).length)
+      doc.allowedCalleeTenantIds = [...new Set(d.allowedCalleeTenantIds)].sort();
     files.push({ path, content: yml(doc) });
   }
 

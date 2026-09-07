@@ -345,6 +345,34 @@ describe("a DaemonSet's tolerateAllTaints", () => {
   });
 });
 
+describe("NetworkPolicy egress and interface scoping", () => {
+  it("emits serviceInterfaceNames and allowedCalleeTenantIds when set", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = {
+      ...policy.data,
+      serviceInterfaceNames: ["com.example.Greeter"],
+      allowedCalleeTenantIds: ["orders-platform"],
+    };
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as {
+      serviceInterfaceNames?: string[];
+      allowedCalleeTenantIds?: string[];
+    };
+
+    expect(doc.serviceInterfaceNames).toEqual(["com.example.Greeter"]);
+    expect(doc.allowedCalleeTenantIds).toEqual(["orders-platform"]);
+  });
+
+  it("omits both keys entirely when neither is set, leaving egress unrestricted", () => {
+    const manifest = renderFiles(ordersPlatform!).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as Record<string, unknown>;
+
+    expect(doc.serviceInterfaceNames).toBeUndefined();
+    expect(doc.allowedCalleeTenantIds).toBeUndefined();
+  });
+});
+
 describe("the release a blueprint deploys under", () => {
   it("is named after the blueprint's id, so a rename does not fork its history", () => {
     const bp = structuredClone(ordersPlatform!);

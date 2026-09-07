@@ -382,4 +382,25 @@ describe("faults the designer used to ship silently", () => {
     };
     expect(codesOf(bp)).toContain("DISRUPTION_RANGE");
   });
+
+  it("flags an allowed caller tenant that doesn't exist, mirroring the check for a callee tenant", () => {
+    const bp = clone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = { ...policy.data, allowedCallerTenantIds: ["no-such-tenant"] };
+    expect(codesOf(bp)).toContain("POLICY_ALLOWED_TENANT_UNKNOWN");
+  });
+
+  it("flags an allowed callee tenant that doesn't exist", () => {
+    const bp = clone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = { ...policy.data, allowedCalleeTenantIds: ["no-such-tenant"] };
+    expect(codesOf(bp)).toContain("POLICY_ALLOWED_CALLEE_UNKNOWN");
+  });
+
+  it("does not fault a callee tenant that is genuinely declared on the canvas", () => {
+    const bp = clone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = { ...policy.data, allowedCalleeTenantIds: ["orders-platform"] };
+    expect(codesOf(bp)).not.toContain("POLICY_ALLOWED_CALLEE_UNKNOWN");
+  });
 });

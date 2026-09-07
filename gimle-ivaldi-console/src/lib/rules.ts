@@ -414,6 +414,15 @@ function validateApplication(bp: Blueprint): Problem[] {
             np.id,
           ),
         );
+    for (const c of d.allowedCalleeTenantIds ?? [])
+      if (!declaredTenantIds.includes(c))
+        p.push(
+          err(
+            "POLICY_ALLOWED_CALLEE_UNKNOWN",
+            `Allowed callee tenant "${c}" does not exist.`,
+            np.id,
+          ),
+        );
     const restricts = bp.edges.filter((e) => e.kind === "restricts" && e.source === np.id);
     const policyTenant = tenantIdOf(bp, np);
     for (const edge of restricts) {
