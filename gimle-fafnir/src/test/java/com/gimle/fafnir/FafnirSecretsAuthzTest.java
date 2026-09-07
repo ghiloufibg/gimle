@@ -2,6 +2,8 @@ package com.gimle.fafnir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.core.authz.Account;
+import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Role;
@@ -1078,6 +1080,117 @@ class FafnirSecretsAuthzTest {
         assertEquals(401, response.statusCode());
       }
     }
+  }
+
+  /**
+   * {@code V3-B3}: a session cookie's own identity must be what authorizes a request, even when the
+   * same mTLS connection also carries a client certificate -- the normal case for any browser that
+   * has ever been issued one. A restricted account's cookie must not be silently upgraded to the
+   * connection's own far more privileged certificate.
+   */
+  @Test
+  @Timeout(10)
+  void a_restricted_session_cookie_is_not_upgraded_by_an_ambient_privileged_certificate()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // The connection's own certificate identity holds a broad SECRET grant.
+      grantSecretReadAndWrite(inProcessStore.store(), "privileged-cert-holder");
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+      // The cookie's own account holds none at all.
+      inProcessStore
+          .store()
+          .putAccount(new Account("restricted-user", PasswordHashes.hash("pw".toCharArray())));
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "privileged-cert-holder");
+        String baseUrl = "https://localhost:" + server.port();
+        String cookie = login(client, baseUrl, "restricted-user", "pw");
+
+        HttpResponse<String> response =
+            putSecretWithCookie(client, baseUrl + "/secrets/acme/db-password", cookie, "hunter2");
+
+        assertEquals(
+            403,
+            response.statusCode(),
+            "the ambient certificate's own grant must not upgrade this restricted cookie");
+        AuditEvent denied = onlyEventWithVerb(inProcessStore.store(), "SECRET", "WRITE");
+        assertEquals("restricted-user", denied.principal());
+        assertEquals(false, denied.allowed());
+      }
+    }
+  }
+
+  /**
+   * The symmetric half of {@code V3-B3}: an ambient certificate holding no grant of its own must
+   * not downgrade a privileged session cookie either.
+   */
+  @Test
+  @Timeout(10)
+  void a_privileged_session_cookie_is_not_downgraded_by_an_ambient_ungranted_certificate()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+      grantSecretReadAndWrite(inProcessStore.store(), "privileged-user");
+      inProcessStore
+          .store()
+          .putAccount(new Account("privileged-user", PasswordHashes.hash("pw".toCharArray())));
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        // No Role/RoleBinding granted to this certificate's own identity at all.
+        HttpClient client = tls.clientWithLeaf(ca, "unrelated-caller");
+        String baseUrl = "https://localhost:" + server.port();
+        String cookie = login(client, baseUrl, "privileged-user", "pw");
+
+        HttpResponse<String> response =
+            putSecretWithCookie(client, baseUrl + "/secrets/acme/db-password", cookie, "hunter2");
+
+        assertEquals(200, response.statusCode());
+        AuditEvent applied = onlyEventWithVerb(inProcessStore.store(), "SECRET", "WRITE");
+        assertEquals("privileged-user", applied.principal());
+        assertEquals(true, applied.allowed());
+      }
+    }
+  }
+
+  /** Logs in over {@code client} and returns the {@code Set-Cookie} value it receives. */
+  private static String login(HttpClient client, String baseUrl, String username, String password)
+      throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/auth/login"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, response.statusCode());
+    String setCookie = response.headers().firstValue("Set-Cookie").orElse("");
+    return setCookie.substring(0, setCookie.indexOf(';'));
+  }
+
+  /** {@link #putSecret}, authorizing with a session cookie instead of the connection's own cert. */
+  private static HttpResponse<String> putSecretWithCookie(
+      HttpClient client, String secretUrl, String cookie, String plaintext) throws Exception {
+    String body =
+        "{\"value\":\""
+            + Base64.getEncoder().encodeToString(plaintext.getBytes(StandardCharsets.UTF_8))
+            + "\"}";
+    return client.send(
+        HttpRequest.newBuilder(URI.create(secretUrl))
+            .header("Cookie", cookie)
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
   /** An {@link HttpClient} trusting {@code ca} but presenting no client certificate of its own. */
