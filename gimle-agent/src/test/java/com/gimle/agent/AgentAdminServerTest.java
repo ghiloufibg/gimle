@@ -73,6 +73,17 @@ final class AgentAdminServerTest {
 
   private SupervisedInstance startFakeWorker(String deploymentName, int instanceIndex)
       throws IOException {
+    return startFakeWorker(Optional.empty(), deploymentName, instanceIndex);
+  }
+
+  /**
+   * Seeds {@code supervised} the same way {@code AgentMain} really does: under {@link
+   * AgentMain#instanceKey(Optional, String, int)}'s tenant-scoped key, never the bare {@code
+   * deploymentName#instanceIndex} shortcut -- so this suite exercises the real supervision-map
+   * contract rather than one shaped to match a lookup bug.
+   */
+  private SupervisedInstance startFakeWorker(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) throws IOException {
     ModuleDescriptor descriptor =
         new ModuleDescriptor(
             "orders-module",
@@ -88,25 +99,23 @@ final class AgentAdminServerTest {
             Map.of());
     AssignedInstance assigned =
         new AssignedInstance(
-            deploymentName,
-            instanceIndex,
-            descriptor.id(),
-            "/does/not/matter.jar",
-            Optional.empty());
+            deploymentName, instanceIndex, descriptor.id(), "/does/not/matter.jar", tenantId);
+    String key = AgentMain.instanceKey(tenantId, deploymentName, instanceIndex);
     WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
-            deploymentName + "#" + instanceIndex,
+            key,
             // The trailing arg WorkerProcessSupervisor.spawn() appends (the control-socket path)
             // lands as sh's own $0, not consumed as sleep's own duration -- a real long-lived
             // process with no real worker JVM needed for this suite's own purposes.
             () -> List.of("sh", "-c", "sleep 300"),
-            tempDir.resolve(deploymentName + "-" + instanceIndex + ".sock"),
+            tempDir.resolve(
+                tenantId.orElse("notenant") + "-" + deploymentName + "-" + instanceIndex + ".sock"),
             new RestartTracker(
                 Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10)),
             exhaustedWorkerId -> {});
     supervisor.start();
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, null, descriptor);
-    supervised.put(deploymentName + "#" + instanceIndex, instance);
+    supervised.put(key, instance);
     return instance;
   }
 
@@ -198,5 +207,62 @@ final class AgentAdminServerTest {
         post("/admin/faults/workers/orders/0/kill", Map.of("pid", 12345));
 
     assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(30)
+  void kill_finds_and_kills_a_tenant_scoped_instance_by_name_and_index() throws Exception {
+    SupervisedInstance instance = startFakeWorker(Optional.of("acme"), "orders", 0);
+    long originalPid = instance.supervisor.process().pid();
+
+    HttpResponse<String> response =
+        post("/admin/faults/workers/orders/0/kill", Map.of("pid", originalPid));
+
+    assertEquals(200, response.statusCode());
+    assertEquals(true, Json.asObject(Json.parse(response.body())).get("killed"));
+    assertFalse(
+        ProcessHandle.of(originalPid).map(ProcessHandle::isAlive).orElse(false),
+        "the killed process should genuinely be dead");
+  }
+
+  @Test
+  @Timeout(30)
+  void kill_with_two_tenants_at_the_same_name_and_index_kills_only_the_named_targets_pid()
+      throws Exception {
+    SupervisedInstance acme = startFakeWorker(Optional.of("acme"), "orders", 0);
+    SupervisedInstance globex = startFakeWorker(Optional.of("globex"), "orders", 0);
+    long acmePid = acme.supervisor.process().pid();
+    long globexPid = globex.supervisor.process().pid();
+    assertTrue(acmePid != globexPid, "two distinct supervised processes are expected");
+
+    // Neither tenant's own pid is known to the caller up front -- an ambiguous name+index with
+    // two tenants supervised under it is answered by refusing rather than picking one silently.
+    HttpResponse<String> ambiguousStatus = get("/admin/faults/workers/orders/0");
+    assertEquals(200, ambiguousStatus.statusCode());
+    long resolvedPid =
+        ((Number) Json.asObject(Json.parse(ambiguousStatus.body())).get("pid")).longValue();
+    assertTrue(
+        resolvedPid == acmePid || resolvedPid == globexPid,
+        "the scan-based lookup must resolve to one of the two genuinely supervised instances, "
+            + "never neither");
+
+    HttpResponse<String> killOther =
+        post(
+            "/admin/faults/workers/orders/0/kill",
+            Map.of("pid", resolvedPid == acmePid ? globexPid : acmePid));
+    assertEquals(
+        409,
+        killOther.statusCode(),
+        "the pid the scan resolved to must be the one actually targeted, not whichever pid the "
+            + "caller happens to guess");
+
+    HttpResponse<String> killResolved =
+        post("/admin/faults/workers/orders/0/kill", Map.of("pid", resolvedPid));
+    assertEquals(200, killResolved.statusCode());
+    assertFalse(ProcessHandle.of(resolvedPid).map(ProcessHandle::isAlive).orElse(false));
+    long survivingPid = resolvedPid == acmePid ? globexPid : acmePid;
+    assertTrue(
+        ProcessHandle.of(survivingPid).map(ProcessHandle::isAlive).orElse(false),
+        "the other tenant's process must survive untouched");
   }
 }
