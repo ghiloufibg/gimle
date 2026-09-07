@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
+import { useSingleFlight } from "@/hooks/use-single-flight";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -114,12 +115,16 @@ function BlueprintsList() {
     return () => window.clearInterval(id);
   }, [refreshRuns]);
 
-  async function createAndOpen(clusterId?: string) {
+  // A fast double-click (or two buttons both wired to this function) used to fire both calls
+  // before either's async work -- or the re-render `blueprints.length` depends on -- had a chance
+  // to run, so both read the exact same length and minted the same `blueprint-N` name.
+  // useSingleFlight drops the second call rather than starting it.
+  const createAndOpen = useSingleFlight(async (clusterId?: string) => {
     setAskCluster(false);
     if (clusterId) selectCluster(clusterId);
     const bp = await create(`blueprint-${blueprints.length + 1}`, { empty: !clusterId });
     void navigate({ to: "/designer/$blueprintId", params: { blueprintId: bp.id } });
-  }
+  });
 
   return (
     <main className="min-h-screen bg-background">
