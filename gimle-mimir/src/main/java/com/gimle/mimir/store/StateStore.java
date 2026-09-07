@@ -1234,6 +1234,17 @@ public final class StateStore implements StoreReader {
     return configEntries.values().stream().filter(e -> e.tenantId().equals(tenantId)).toList();
   }
 
+  /**
+   * Every config entry regardless of {@code tenantId}, including one filed under a tenant no longer
+   * present in {@link #listTenants()} -- {@link #removeTenant} never cascades into deleting a
+   * tenant's own config entries, so a caller that must account for every entry still depending on
+   * something (rather than only entries reachable through a currently-registered tenant) needs this
+   * rather than a per-tenant walk over {@link #listTenants()}.
+   */
+  public List<ConfigEntry> listAllConfigEntries() {
+    return List.copyOf(configEntries.values());
+  }
+
   public void removeConfigEntry(String tenantId, String key) {
     configEntries.remove(configKey(tenantId, key));
   }

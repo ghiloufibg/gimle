@@ -3,7 +3,6 @@ package com.gimle.fafnir;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.protocol.Json;
-import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.secret.SecretCipher;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
@@ -397,14 +396,19 @@ public final class SecretStore {
    * <p>Counts every version, not only each secret's current one: an older version is still real
    * stored data a caller can ask for by number, and losing it silently would be the same accident
    * one version later.
+   *
+   * <p>Walks {@link StoreClient#listAllConfigEntries()} rather than {@link StoreClient#listTenants}
+   * plus a per-tenant lookup: deleting a tenant never cascades into deleting its own config entries
+   * (see {@code ApiServer#handleDeleteTenant}), so a version filed under a since-removed tenant id
+   * would otherwise be invisible to this count -- destroying the key it depends on regardless,
+   * since that version keeps decrypting fine right up until retirement actually removes the key
+   * material.
    */
   public int countVersionsEncryptedUnder(byte keyId) {
     int count = 0;
-    for (Tenant tenant : storeClient.listTenants()) {
-      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
-        if (isEncryptedUnder(entry, keyId)) {
-          count++;
-        }
+    for (ConfigEntry entry : storeClient.listAllConfigEntries()) {
+      if (isEncryptedUnder(entry, keyId)) {
+        count++;
       }
     }
     return count;
@@ -419,25 +423,32 @@ public final class SecretStore {
    * <p>Returns how many entries were rewritten. An entry whose own key material is already gone
    * cannot be recovered here and is left alone rather than aborting the run -- the rest of the
    * cluster's secrets are not hostage to one unreadable entry.
+   *
+   * <p>Walks {@link StoreClient#listAllConfigEntries()}, the same cluster-wide read {@link
+   * #countVersionsEncryptedUnder} uses, rather than a per-tenant walk over {@link
+   * StoreClient#listTenants}: a version {@code countVersionsEncryptedUnder} counts because its
+   * tenant was since removed must also be reachable here, or retirement would report it as blocking
+   * forever with no way to actually clear it.
    */
   public int rewrapAll() {
     int rewrapped = 0;
     byte activeKeyId = crypto.activeKeyId();
-    for (Tenant tenant : storeClient.listTenants()) {
-      for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenant.id())) {
-        if (!isSecretVersionEntry(entry) || isEncryptedUnder(entry, activeKeyId)) {
-          continue;
-        }
-        try {
-          byte[] reencrypted = crypto.encrypt(crypto.decrypt(entry.value()));
-          storeClient.propose(
-              new StateMutation.PutConfigEntry(
-                  new ConfigEntry(tenant.id(), entry.key(), reencrypted, true)));
-          rewrapped++;
-        } catch (RuntimeException e) {
-          log.warn(
-              "skipping secret {}/{} during rewrap: {}", tenant.id(), entry.key(), e.getMessage());
-        }
+    for (ConfigEntry entry : storeClient.listAllConfigEntries()) {
+      if (!isSecretVersionEntry(entry) || isEncryptedUnder(entry, activeKeyId)) {
+        continue;
+      }
+      try {
+        byte[] reencrypted = crypto.encrypt(crypto.decrypt(entry.value()));
+        storeClient.propose(
+            new StateMutation.PutConfigEntry(
+                new ConfigEntry(entry.tenantId(), entry.key(), reencrypted, true)));
+        rewrapped++;
+      } catch (RuntimeException e) {
+        log.warn(
+            "skipping secret {}/{} during rewrap: {}",
+            entry.tenantId(),
+            entry.key(),
+            e.getMessage());
       }
     }
     return rewrapped;

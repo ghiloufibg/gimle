@@ -605,6 +605,17 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
+  /**
+   * Every config entry cluster-wide, including one filed under a tenant id {@link #listTenants()}
+   * no longer names -- see {@link StoreRpc.ListAllConfigEntries}'s own javadoc for why a caller
+   * that must account for every entry still depending on something needs this rather than a
+   * per-tenant walk over {@link #listTenants()}.
+   */
+  public List<ConfigEntry> listAllConfigEntries() {
+    return ((StoreRpc.ConfigEntryListResult) sendRead(new StoreRpc.ListAllConfigEntries()))
+        .values();
+  }
+
   public List<Role> listRoles() {
     return ((StoreRpc.RoleListResult) sendRead(new StoreRpc.ListRoles())).values();
   }
