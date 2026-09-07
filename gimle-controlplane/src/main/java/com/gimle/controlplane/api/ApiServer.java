@@ -9886,15 +9886,29 @@ public final class ApiServer implements AutoCloseable {
     return qs.toString();
   }
 
-  /** Relays Muninn's response verbatim; no configured {@code muninnClient} is just a plain 404. */
+  /**
+   * Relays Muninn's response verbatim; no configured {@code muninnClient} is just a plain 404.
+   * Forwards the calling principal's identity the same {@code X-Gimle-Forwarded-Principal}/{@code
+   * X-Gimle-Forwarded-Groups} way {@link #handleSecretsProxy} already does for Fafnir -- without
+   * it, Muninn's own independent {@code Authorizer.authorize(...)} re-check falls back to this
+   * connection's peer certificate (this control plane's own leaf), which carries no {@code LOGS}
+   * grant, and denies every real caller regardless of that caller's actual entitlement.
+   */
   private void proxyToMuninn(HttpExchange exchange, String muninnPath) throws IOException {
     if (muninnClient == null) {
       respond(exchange, 404, "not found (no live agent, and no muninn endpoint configured)");
       return;
     }
+    Map<String, String> forwardHeaders = new LinkedHashMap<>();
+    resolvePrincipal(exchange)
+        .ifPresent(
+            principal -> {
+              forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+              forwardHeaders.put("X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+            });
     MuninnClient.RawResponse response;
     try {
-      response = muninnClient.get(muninnPath);
+      response = muninnClient.get(muninnPath, forwardHeaders);
     } catch (IOException e) {
       respond(
           exchange,

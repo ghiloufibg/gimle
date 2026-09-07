@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLContext;
@@ -70,20 +71,25 @@ public final class MuninnClient implements AutoCloseable {
    * replica. Throws {@link IOException} only once every configured endpoint has failed; the caller
    * decides what that means (typically: fall back to a plain 404, since neither the live agent nor
    * any Muninn replica had anything).
+   *
+   * <p>{@code headers} carries the calling principal's identity as an internal claim -- an {@code
+   * X-Gimle-Forwarded-Principal}/{@code X-Gimle-Forwarded-Groups} pair, the same shape {@code
+   * FafnirClient#forward} already forwards to Fafnir -- trusted by Muninn only because it arrives
+   * over this mTLS-authenticated connection, never treated by Muninn as itself proof of
+   * authorization: Muninn still independently re-runs its own {@code Authorizer.authorize(...)}
+   * against real RBAC data before answering.
    */
-  public RawResponse get(String pathAndQuery) throws IOException {
+  public RawResponse get(String pathAndQuery, Map<String, String> headers) throws IOException {
     int start = readCursor.getAndUpdate(i -> (i + 1) % baseUris.size());
     IOException lastFailure = null;
     for (int i = 0; i < baseUris.size(); i++) {
       URI baseUri = baseUris.get((start + i) % baseUris.size());
       try {
+        HttpRequest.Builder builder =
+            HttpRequest.newBuilder(baseUri.resolve(pathAndQuery)).timeout(REQUEST_TIMEOUT);
+        headers.forEach(builder::header);
         HttpResponse<byte[]> response =
-            httpClient.send(
-                HttpRequest.newBuilder(baseUri.resolve(pathAndQuery))
-                    .timeout(REQUEST_TIMEOUT)
-                    .GET()
-                    .build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+            httpClient.send(builder.GET().build(), HttpResponse.BodyHandlers.ofByteArray());
         String contentType =
             response.headers().firstValue("Content-Type").orElse("application/octet-stream");
         return new RawResponse(response.statusCode(), contentType, response.body());
