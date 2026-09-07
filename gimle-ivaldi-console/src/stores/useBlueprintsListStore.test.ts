@@ -6,6 +6,7 @@ import type { BlueprintsRepository } from "@/repositories/contracts";
 const listMock = vi.fn();
 const getMock = vi.fn();
 const createMock = vi.fn();
+const saveMock = vi.fn();
 const deleteMock = vi.fn();
 
 vi.mock("@/repositories", () => ({
@@ -14,7 +15,7 @@ vi.mock("@/repositories", () => ({
     list: (...args: unknown[]) => listMock(...args),
     get: (...args: unknown[]) => getMock(...args),
     create: (...args: unknown[]) => createMock(...args),
-    save: vi.fn(),
+    save: (...args: unknown[]) => saveMock(...args),
     delete: (...args: unknown[]) => deleteMock(...args),
   } satisfies BlueprintsRepository,
 }));
@@ -37,11 +38,13 @@ beforeEach(() => {
   listMock.mockReset();
   getMock.mockReset();
   createMock.mockReset();
+  saveMock.mockReset();
   deleteMock.mockReset();
   listMock.mockResolvedValue([]);
   createMock.mockImplementation((bp: Blueprint) =>
     Promise.resolve({ id: bp.id, name: bp.name, version: bp.version, updatedAt: bp.updatedAt }),
   );
+  saveMock.mockResolvedValue(undefined);
   useBlueprintsListStore.setState({
     blueprints: [],
     details: {},
@@ -121,6 +124,35 @@ describe("useBlueprintsListStore.remove", () => {
 // create() now refuses (409) a request naming an id already on disk instead of silently minting
 // a different one -- so a caller reusing the source's own id, as duplicate/importBlueprint did
 // before, would always collide with the very document it just read.
+describe("useBlueprintsListStore.rename", () => {
+  it("suffixes a rename that collides with another blueprint's own name", async () => {
+    getMock.mockResolvedValue(minimalBlueprint);
+    useBlueprintsListStore.setState({
+      blueprints: [
+        { id: "bp-source", name: "source", version: "1.0.0", updatedAt: "" },
+        { id: "bp-other", name: "orders-platform", version: "1.0.0", updatedAt: "" },
+      ],
+    });
+
+    await useBlueprintsListStore.getState().rename("bp-source", "orders-platform");
+
+    const sent = saveMock.mock.calls[0][0] as Blueprint;
+    expect(sent.name).toBe("orders-platform-2");
+  });
+
+  it("does not suffix a rename that collides only with the blueprint's own current name", async () => {
+    getMock.mockResolvedValue(minimalBlueprint);
+    useBlueprintsListStore.setState({
+      blueprints: [{ id: "bp-source", name: "source", version: "1.0.0", updatedAt: "" }],
+    });
+
+    await useBlueprintsListStore.getState().rename("bp-source", "source");
+
+    const sent = saveMock.mock.calls[0][0] as Blueprint;
+    expect(sent.name).toBe("source");
+  });
+});
+
 describe("useBlueprintsListStore.duplicate", () => {
   it("mints a fresh id rather than reusing the source's own", async () => {
     getMock.mockResolvedValue(minimalBlueprint);

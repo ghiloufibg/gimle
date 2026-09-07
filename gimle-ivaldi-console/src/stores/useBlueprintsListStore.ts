@@ -75,7 +75,13 @@ export const useBlueprintsListStore = create<ListState>((set, get) => ({
   rename: async (id, name) => {
     const source = await blueprintsRepository.get(id);
     if (!source) return;
-    await blueprintsRepository.save(stamped({ ...source, name }));
+    // Excludes this blueprint's own current entry: renaming it to the name it already has (a
+    // no-op edit) must not get suffixed against itself. duplicate()/importBlueprint() already
+    // apply this same uniqueName treatment; rename was the one write path that didn't.
+    const taken = get()
+      .blueprints.filter((b) => b.id !== id)
+      .map((b) => b.name);
+    await blueprintsRepository.save(stamped({ ...source, name: uniqueName(taken, name) }));
     await get().refresh();
   },
 
