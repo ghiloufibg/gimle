@@ -387,6 +387,7 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     };
   }
 
+  const id = uid("bp");
   const machine: BlueprintNode = {
     id: uid("machine"),
     kind: "machine",
@@ -409,7 +410,9 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     id: uid("fafnir"),
     kind: "fafnir",
     position: { x: 80, y: 280 },
-    data: { machine: "local", port: 9092, keyFile: "~/.gimle/fafnir.key" },
+    // Scoped to this blueprint's own id, the same way runtime.dataRoot is below -- two blueprints
+    // used to point at the exact same default key file.
+    data: { machine: "local", port: 9092, keyFile: `~/.gimle/data/${id}/fafnir.key` },
   };
   const agent: BlueprintNode = {
     id: uid("agent"),
@@ -424,7 +427,6 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     source: n.id,
     target: machine.id,
   }));
-  const id = uid("bp");
   return {
     id,
     name,

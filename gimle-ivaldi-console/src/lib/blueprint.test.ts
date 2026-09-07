@@ -37,3 +37,22 @@ describe("a new tenant's default isolation posture", () => {
     expect(tenant.isolationPosture).toBe("OPEN");
   });
 });
+
+function fafnirKeyFile(bp: ReturnType<typeof createBlueprint>): string | undefined {
+  return (bp.nodes.find((n) => n.kind === "fafnir")?.data as { keyFile?: string }).keyFile;
+}
+
+describe("createBlueprint's default fafnir keyFile", () => {
+  it("scopes the default key file to this blueprint's own id, like its data root", () => {
+    const bp = createBlueprint("test");
+
+    expect(fafnirKeyFile(bp)).toBe(`~/.gimle/data/${bp.id}/fafnir.key`);
+  });
+
+  it("gives two different blueprints distinct default key files", () => {
+    const a = createBlueprint("a");
+    const b = createBlueprint("b");
+
+    expect(fafnirKeyFile(a)).not.toBe(fafnirKeyFile(b));
+  });
+});
