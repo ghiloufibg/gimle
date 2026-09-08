@@ -161,6 +161,27 @@ class PkiInitTest {
     assertFalse(Files.exists(keyFile));
   }
 
+  /**
+   * Before the fix, {@code runTlsBootstrap} always spawned {@code PkiBootstrapMain} regardless of
+   * existing material -- here that spawn is a real {@code java} process whose {@code -cp} doesn't
+   * carry {@code com.gimle.pki.PkiBootstrapMain}, so it fails non-zero and {@code run} throws. With
+   * an existing {@code ca.crt} already present, the fixed code must skip the spawn entirely and
+   * return normally instead.
+   */
+  @Test
+  void an_existing_ca_certificate_is_never_regenerated() throws IOException {
+    final Path materialDir = tempDir.resolve("tls");
+    Files.createDirectories(materialDir);
+    final byte[] originalCert = new byte[] {5, 6, 7, 8};
+    Files.write(materialDir.resolve("ca.crt"), originalCert);
+    final Topology topology = mtlsTopology(materialDir, false);
+    final ResolvedRuntime runtime = new ResolvedRuntime("java", "cp", tempDir);
+
+    PkiInit.run(topology, runtime, discardingOut());
+
+    assertTrue(Arrays.equals(originalCert, Files.readAllBytes(materialDir.resolve("ca.crt"))));
+  }
+
   @Test
   void build_command_uses_runtime_java_executable_when_use_bundled_jre_is_false() {
     final Topology topology = mtlsTopology(tempDir.resolve("tls"), false);

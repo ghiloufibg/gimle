@@ -82,6 +82,10 @@ public final class PkiInit {
       final PrintStream out,
       final String gimleHomeEnv) {
     final Path materialDir = topology.tls().orElseThrow().materialDir();
+    if (Files.exists(caCertFile(materialDir))) {
+      out.println("CA material already exists at " + materialDir + "; leaving it untouched");
+      return;
+    }
     final String caCommonName = topology.name() + "-ca";
     final List<String> hostnames = distinctHostnames(topology);
     createDirectories(runtime.dataRoot());
@@ -95,6 +99,15 @@ public final class PkiInit {
         "bootstrap console password (username 'admin') written to "
             + bootstrapPasswordFile(materialDir)
             + "; read it, then delete that file");
+  }
+
+  /**
+   * Where {@code PkiBootstrapMain} writes the cluster CA certificate -- its existence is what marks
+   * a material directory as already bootstrapped, mirroring {@link #generateFafnirKeyIfNeeded}'s
+   * identical existence check on {@code fafnir.keyFile}.
+   */
+  private static Path caCertFile(final Path materialDir) {
+    return materialDir.resolve("ca.crt");
   }
 
   /**
