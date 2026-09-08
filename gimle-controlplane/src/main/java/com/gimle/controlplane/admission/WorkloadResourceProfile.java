@@ -51,7 +51,8 @@ public final class WorkloadResourceProfile {
           Optional.of(
               new Profile(s.artifactPath(), s.moduleId(), s.vessel(), s.maxCommittedInstances()));
       case StatefulSetSpec s ->
-          Optional.of(new Profile(s.artifactPath(), s.moduleId(), s.vessel(), s.replicas()));
+          Optional.of(
+              new Profile(s.artifactPath(), s.moduleId(), s.vessel(), s.maxCommittedInstances()));
       case JobSpec s ->
           // At most one non-terminal JobRun ever exists at a time per JobSpec -- see
           // JobReconciler's

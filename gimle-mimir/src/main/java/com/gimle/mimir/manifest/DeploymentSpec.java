@@ -260,14 +260,20 @@ public record DeploymentSpec(
   }
 
   /**
-   * The peak instance count this deployment may ever legitimately run at once: {@link #replicas}
-   * plus whatever surge headroom {@link #effectiveDisruptionBudget()} allows. {@code maxSurge} is
-   * accepted for a Deployment (rejected only for a DaemonSet, where one-instance-per-node already
-   * leaves no room for an "extra" instance -- see {@link DisruptionBudget}'s own javadoc), so this
-   * charges a tenant's quota for the peak {@code replicas + maxSurge} a rollout could transiently
-   * reach, not just the steady-state {@code replicas}.
+   * The peak instance count this deployment may ever legitimately run at once: the larger of {@link
+   * #replicas} and {@link AutoscalePolicy#maxReplicas()} (when {@link #autoscale} is present) --
+   * live instance count can be autoscaler-driven up to {@code maxReplicas}, which quota charging
+   * must account for even though {@link #replicas} itself is never overwritten by the autoscaler --
+   * plus whatever surge headroom {@link #effectiveDisruptionBudget()} allows on top. {@code
+   * maxSurge} is accepted for a Deployment (rejected only for a DaemonSet, where
+   * one-instance-per-node already leaves no room for an "extra" instance -- see {@link
+   * DisruptionBudget}'s own javadoc), so this charges a tenant's quota for the peak {@code
+   * max(replicas, maxReplicas) + maxSurge} a rollout could transiently reach, not just the
+   * steady-state {@code replicas}.
    */
   public int maxCommittedInstances() {
-    return replicas + effectiveDisruptionBudget().maxSurge();
+    int committedReplicas =
+        Math.max(replicas, autoscale.map(AutoscalePolicy::maxReplicas).orElse(replicas));
+    return committedReplicas + effectiveDisruptionBudget().maxSurge();
   }
 }
