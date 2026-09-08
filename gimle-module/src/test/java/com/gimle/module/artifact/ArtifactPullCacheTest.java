@@ -188,4 +188,26 @@ class ArtifactPullCacheTest {
         assertThrows(GimleManifestException.class, () -> cache.resolve(httpClient, baseUrl, APP));
     assertTrue(failure.getMessage().contains("com.example.app"));
   }
+
+  @Test
+  @Timeout(30)
+  void an_unresolvable_registry_host_is_reported_with_its_real_cause() {
+    // The .invalid TLD is reserved as never-resolvable, so this fails at name resolution rather
+    // than at connect -- the failure the JDK HTTP client reports as a ConnectException carrying no
+    // message of its own, which a bare getMessage() renders as the literal text "null".
+    URI unresolvable = URI.create("http://andvari-registry.invalid:9");
+
+    GimleManifestException failure =
+        assertThrows(
+            GimleManifestException.class, () -> cache.resolve(httpClient, unresolvable, APP));
+
+    assertFalse(
+        failure.getMessage().endsWith("null"),
+        "an unreachable registry must not report its cause as the literal text null: "
+            + failure.getMessage());
+    assertTrue(
+        failure.getMessage().contains("Exception"),
+        "the message should name the failure that made the registry unreachable: "
+            + failure.getMessage());
+  }
 }

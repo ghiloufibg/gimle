@@ -59,6 +59,9 @@ public final class ArtifactPullCache {
   private static final String BUNDLE_DIR = "bundle";
   private static final Duration DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
 
+  /** Bounds the rendered cause chain in {@link #describe} so one log line can never grow huge. */
+  private static final int MAX_CAUSE_DEPTH = 5;
+
   private final Path cacheRoot;
 
   public ArtifactPullCache(Path cacheRoot) {
@@ -206,7 +209,7 @@ public final class ArtifactPullCache {
               + " from the registry at "
               + andvariBaseUrl
               + ": "
-              + e.getMessage(),
+              + describe(e),
           e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -319,5 +322,37 @@ public final class ArtifactPullCache {
 
   private static MessageDigest sha256Digest() {
     return Sha256.sha256Digest();
+  }
+
+  /**
+   * Renders a failure as the one-line detail interpolated into a pull failure's message. {@link
+   * Throwable#getMessage()} alone is not enough: the JDK HTTP client reports an unresolvable or
+   * unreachable registry host as a {@code ConnectException} with no message at all, so
+   * interpolating the raw message renders the literal text {@code "null"} and the operator reading
+   * "failed to pull artifact ...: null" learns nothing. Falls back to the class name, and to the
+   * first cause that does carry a message, with the chain bounded so it can never grow unbounded.
+   */
+  private static String describe(Throwable failure) {
+    if (failure == null) {
+      return "unknown failure";
+    }
+    StringBuilder rendered = new StringBuilder();
+    Throwable current = failure;
+    for (int depth = 0; current != null && depth <= MAX_CAUSE_DEPTH; depth++) {
+      if (depth > 0) {
+        rendered.append(" caused by ");
+      }
+      String message = current.getMessage();
+      if (message != null && !message.isBlank()) {
+        return rendered
+            .append(depth == 0 ? "" : current.getClass().getName() + ": ")
+            .append(message)
+            .toString();
+      }
+      rendered.append(current.getClass().getName());
+      Throwable cause = current.getCause();
+      current = cause == current ? null : cause;
+    }
+    return rendered.toString();
   }
 }
