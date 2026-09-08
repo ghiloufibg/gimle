@@ -24,6 +24,11 @@ import { useValidationStore } from "./useValidationStore";
 /** Statuses during which a new run must not be started. */
 export const IN_FLIGHT: RunStatus[] = ["validating", "booting", "seeding", "deploying"];
 
+/** Caps how much of a long-lived run's log this store keeps, oldest lines dropped first -- a
+ * CronJob firing repeatedly over hours in a persistent local dev cluster must not grow this
+ * without bound. */
+const LOG_LINE_LIMIT = 5000;
+
 interface StartOptions {
   cluster?: ClusterConnection | null;
   /** Secret values for this request only. Never stored. */
@@ -103,7 +108,8 @@ export const useRunStore = create<RunState>((set, get) => {
   const listen = (client: RunnerClient, runId: string, blueprintId: string) => {
     unsubscribe?.();
     unsubscribe = client.subscribe(runId, blueprintId, (event) => {
-      if (event.type === "log") set((state) => ({ log: [...state.log, event.line] }));
+      if (event.type === "log")
+        set((state) => ({ log: [...state.log, event.line].slice(-LOG_LINE_LIMIT) }));
       else if (event.type === "snapshot") {
         set(applySnapshot(event.snapshot));
         // A stop finishes asynchronously, so the subscription is what carries the run to idle --

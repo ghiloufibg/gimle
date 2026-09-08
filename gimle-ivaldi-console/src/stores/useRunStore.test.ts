@@ -2,10 +2,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBlueprint } from "@/lib/blueprint";
-import type { ClusterConnection, RunnerClient, RunSnapshot } from "@/repositories/contracts";
+import type {
+  ClusterConnection,
+  RunnerClient,
+  RunnerEvent,
+  RunSnapshot,
+} from "@/repositories/contracts";
 
 const createRunMock = vi.fn();
 const healthMock = vi.fn();
+let capturedOnEvent: ((event: RunnerEvent) => void) | null = null;
 
 vi.mock("@/repositories", () => ({
   runnerClient: { mode: "http", baseUrl: null } as RunnerClient,
@@ -17,7 +23,10 @@ vi.mock("@/repositories", () => ({
       createRun: (...args: unknown[]) => createRunMock(...args),
       currentRun: vi.fn(),
       listRuns: vi.fn(),
-      subscribe: vi.fn(() => () => {}),
+      subscribe: (_runId: string, _blueprintId: string, onEvent: (event: RunnerEvent) => void) => {
+        capturedOnEvent = onEvent;
+        return () => {};
+      },
       stopRun: vi.fn(),
     }) satisfies RunnerClient,
   hilmirValidator: { mode: "http", baseUrl: null, validate: vi.fn() },
@@ -158,5 +167,58 @@ describe("useRunStore.checkHealth", () => {
     healthMock.mockResolvedValueOnce({ ok: false, mode: "http", version: null, message: "down" });
     await useRunStore.getState().checkHealth();
     expect(healthMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useRunStore log cap", () => {
+  const LOG_LINE_LIMIT = 5000;
+
+  beforeEach(async () => {
+    createRunMock.mockResolvedValue({
+      runId: "run-1",
+      status: "running",
+      steps: [],
+      endpoints: [],
+      machines: [],
+      artifacts: [],
+      cronJobs: [],
+      startedAt: "2026-01-01T00:00:00Z",
+      finishedAt: null,
+      error: null,
+      revision: null,
+    } satisfies RunSnapshot);
+    useRunStore.setState({ log: [], busy: false, status: "idle", cluster: cluster("c1") });
+    useClustersStore.setState({ clusters: [cluster("c1")], selectedId: "c1" });
+    useValidationStore.setState({ problems: [], serverProblems: [] });
+    await useRunStore.getState().start(createBlueprint("test"));
+  });
+
+  function push(seq: number) {
+    capturedOnEvent?.({
+      type: "log",
+      line: {
+        seq,
+        ts: "2026-01-01T00:00:00Z",
+        level: "info",
+        source: "ivaldi",
+        text: `line ${seq}`,
+      },
+    });
+  }
+
+  it("leaves a normal, short run's log untouched", () => {
+    for (let i = 0; i < 10; i++) push(i);
+
+    expect(useRunStore.getState().log).toHaveLength(10);
+    expect(useRunStore.getState().log[0].text).toBe("line 0");
+  });
+
+  it("trims the oldest lines once the cap is exceeded, keeping the most recent ones", () => {
+    for (let i = 0; i < LOG_LINE_LIMIT + 100; i++) push(i);
+
+    const log = useRunStore.getState().log;
+    expect(log).toHaveLength(LOG_LINE_LIMIT);
+    expect(log[0].text).toBe(`line ${100}`);
+    expect(log[log.length - 1].text).toBe(`line ${LOG_LINE_LIMIT + 99}`);
   });
 });
