@@ -2,8 +2,10 @@ package com.gimle.hilmir.extension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.hilmir.analyze.testsupport.HilmirTestJarBuilder;
 import com.gimle.hilmir.release.FakeControlPlane;
 import java.io.ByteArrayOutputStream;
@@ -48,15 +50,20 @@ class EnableGatewayCommandTest {
 
     int exitCode =
         EnableGatewayCommand.run(
-            List.of("--server", fake.address(), "--modules-dir", modulesDir.toString()),
+            List.of(
+                "--server",
+                fake.address(),
+                "--modules-dir",
+                modulesDir.toString(),
+                "--set",
+                "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
             capture(out));
 
     assertEquals(0, exitCode);
     assertTrue(fake.hasArtifact("com.gimle.gateway", "1.0.0"));
     assertTrue(fake.hasWorkload("DaemonSet", "gimle-gateway"));
     assertEquals("8090", fake.configValue("gimle-system", "gateway.port"));
-    assertEquals(
-        "127.0.0.1:8080", fake.configValue("gimle-system", "gateway.controlPlaneEndpoint"));
+    assertEquals("10.0.0.5:8080", fake.configValue("gimle-system", "gateway.controlPlaneEndpoint"));
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.gimle-gateway.meta") != null);
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.gimle-gateway.rev.1") != null);
 
@@ -70,6 +77,26 @@ class EnableGatewayCommandTest {
   }
 
   @Test
+  void
+      enable_without_an_explicit_control_plane_endpoint_fails_fast_instead_of_defaulting_to_loopback()
+          throws Exception {
+    fake = new FakeControlPlane();
+    Path modulesDir = modulesDirWithGatewayJar("1.0.0");
+
+    final GimleManifestException e =
+        assertThrows(
+            GimleManifestException.class,
+            () ->
+                EnableGatewayCommand.run(
+                    List.of("--server", fake.address(), "--modules-dir", modulesDir.toString()),
+                    capture(new ByteArrayOutputStream())));
+
+    assertTrue(e.getMessage().contains("gateway.controlPlaneEndpoint"));
+    assertFalse(fake.hasWorkload("DaemonSet", "gimle-gateway"));
+    assertFalse(fake.configValue("gimle-system", "gateway.controlPlaneEndpoint") != null);
+  }
+
+  @Test
   void skips_the_push_when_the_registry_already_has_the_identical_jar() throws Exception {
     fake = new FakeControlPlane();
     Path modulesDir = modulesDirWithGatewayJar("1.0.0");
@@ -77,7 +104,13 @@ class EnableGatewayCommandTest {
     fake.seedArtifact("com.gimle.gateway", "1.0.0", Files.readAllBytes(jar));
 
     EnableGatewayCommand.run(
-        List.of("--server", fake.address(), "--modules-dir", modulesDir.toString()),
+        List.of(
+            "--server",
+            fake.address(),
+            "--modules-dir",
+            modulesDir.toString(),
+            "--set",
+            "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
         capture(new ByteArrayOutputStream()));
 
     boolean pushed =
@@ -94,8 +127,12 @@ class EnableGatewayCommandTest {
     fake = new FakeControlPlane();
     EnableGatewayCommand.run(
         List.of(
-            "--server", fake.address(),
-            "--modules-dir", modulesDirWithGatewayJar("1.0.0").toString()),
+            "--server",
+            fake.address(),
+            "--modules-dir",
+            modulesDirWithGatewayJar("1.0.0").toString(),
+            "--set",
+            "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
         capture(new ByteArrayOutputStream()));
     assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.gimle-gateway.rev.1") != null);
 
@@ -103,8 +140,12 @@ class EnableGatewayCommandTest {
     int exitCode =
         EnableGatewayCommand.run(
             List.of(
-                "--server", fake.address(),
-                "--modules-dir", modulesDirWithGatewayJar("1.1.0").toString()),
+                "--server",
+                fake.address(),
+                "--modules-dir",
+                modulesDirWithGatewayJar("1.1.0").toString(),
+                "--set",
+                "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
             capture(out));
 
     assertEquals(0, exitCode);
@@ -149,7 +190,13 @@ class EnableGatewayCommandTest {
     int exitCode =
         EnableGatewayCommand.run(
             List.of(
-                "--server", fake.address(), "--modules-dir", modulesDir.toString(), "--dry-run"),
+                "--server",
+                fake.address(),
+                "--modules-dir",
+                modulesDir.toString(),
+                "--dry-run",
+                "--set",
+                "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
             capture(out));
 
     assertEquals(0, exitCode);
