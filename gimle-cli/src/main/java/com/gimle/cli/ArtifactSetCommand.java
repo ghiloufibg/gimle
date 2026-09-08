@@ -186,6 +186,7 @@ public final class ArtifactSetCommand {
     if (!Files.isRegularFile(vessel.artifact())) {
       throw new CliException("vessel artifact not found: " + vessel.artifact());
     }
+    VesselArtifacts.rejectIfRealModule(vessel.artifact());
     String sha256;
     try {
       sha256 = Sha256.sha256Hex(vessel.artifact());
