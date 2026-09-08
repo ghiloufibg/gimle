@@ -239,12 +239,19 @@ public final class MachineLauncher {
       final ResolvedRuntime newRuntime,
       final PrintStream out) {
     final MachinePlan myPlan = clusterPlan.requireMachine(machineName);
-    final ProcessCommand command = findRoleCommand(myPlan, role, machineName);
+    final ProcessCommand plannedCommand = findRoleCommand(myPlan, role, machineName);
     final RunRecord existing =
-        findExistingLedgerRecord(RunLedger.read(newRuntime.dataRoot()), command, machineName);
+        findExistingLedgerRecord(
+            RunLedger.read(newRuntime.dataRoot()), plannedCommand, machineName);
+    final ProcessCommand command = withExistingIdentity(plannedCommand, existing, newRuntime);
 
+    // Quorum accounting stays keyed off plannedCommand, not command: every other candidate in
+    // clusterPlan was computed by this exact same LaunchPlanner pass, so they share
+    // plannedCommand's positional id scheme, not existing's possibly-older real one -- comparing
+    // across those two schemes would either double-count this replica among "others" or fail to
+    // exclude it.
     if (role == ProcessRole.STORE) {
-      requireStoreQuorumMaintained(clusterPlan, command, "before");
+      requireStoreQuorumMaintained(clusterPlan, plannedCommand, "before");
     }
 
     out.println(
@@ -260,7 +267,7 @@ public final class MachineLauncher {
     awaitReadiness(command, spawned);
 
     if (role == ProcessRole.STORE) {
-      requireStoreQuorumMaintained(clusterPlan, command, "after");
+      requireStoreQuorumMaintained(clusterPlan, plannedCommand, "after");
       awaitStoreLeaderServing(clusterPlan, topology, command, out);
     }
 
@@ -283,21 +290,91 @@ public final class MachineLauncher {
                         + " in this topology"));
   }
 
+  /**
+   * The ledger entry to restart -- an exact {@code id} match first, since that is every role's
+   * ordinary case. A store replica's {@code id} is special: {@link LaunchPlanner} recomputes it
+   * fresh from this replica's own array position in {@code topology.store().replicas()} every time
+   * it plans, so a replica added via {@code hilmir store add} (or one simply reordered by a later
+   * topology edit) can leave the real, already-running replica's ledger id -- "store-3", say, from
+   * whatever position it held the last time this machine was actually brought up -- disagreeing
+   * with what gets recomputed today ("store-1"). Falling back to "the one STORE record this machine
+   * has" for that case alone finds the replica actually running here regardless of that positional
+   * drift; every other role keeps the exact-id match, since nothing here recomputes their ids off
+   * array position that a topology edit could ever move.
+   */
   private static RunRecord findExistingLedgerRecord(
       final List<RunRecord> ledger, final ProcessCommand command, final String machineName) {
-    return ledger.stream()
-        .filter(r -> r.id().equals(command.id()))
-        .findFirst()
-        .orElseThrow(
-            () ->
-                new HilmirException(
-                    "no running "
-                        + command.role()
-                        + " "
-                        + command.id()
-                        + " recorded on machine "
-                        + machineName
-                        + " -- nothing to restart; run 'hilmir up' first"));
+    final Optional<RunRecord> exact =
+        ledger.stream().filter(r -> r.id().equals(command.id())).findFirst();
+    if (exact.isPresent()) {
+      return exact.get();
+    }
+    if (command.role() == ProcessRole.STORE) {
+      final Optional<RunRecord> byMachineAndRole =
+          ledger.stream()
+              .filter(
+                  r -> r.machine().equals(machineName) && r.role().equals(command.role().name()))
+              .findFirst();
+      if (byMachineAndRole.isPresent()) {
+        return byMachineAndRole.get();
+      }
+    }
+    throw new HilmirException(
+        "no running "
+            + command.role()
+            + " "
+            + command.id()
+            + " recorded on machine "
+            + machineName
+            + " -- nothing to restart; run 'hilmir up' first");
+  }
+
+  /**
+   * Rewrites {@code planned} to restart under {@code existing}'s own recorded id instead of
+   * whatever {@code planned.id()} was freshly (and, for a store replica, sometimes wrongly -- see
+   * {@link #findExistingLedgerRecord}'s own fallback) recomputed to be. A restart must keep using
+   * the exact data directory and log file the replica already has on disk (its Raft log lives
+   * there; spawning under a fresh, empty positionally-named directory would silently start an
+   * amnesiac replica instead of restarting the real one), so every id-derived path literal in the
+   * command line is rewritten alongside the id itself -- every other argument (host, ports, peers,
+   * TLS material) comes straight from the topology's own replica fields, not from {@code id}, and
+   * passes through untouched. A no-op whenever the two ids already agree, which is always true
+   * except through that one fallback.
+   */
+  private static ProcessCommand withExistingIdentity(
+      final ProcessCommand planned, final RunRecord existing, final ResolvedRuntime newRuntime) {
+    if (planned.id().equals(existing.id())) {
+      return planned;
+    }
+    final Path oldDataDir = planned.dataDir();
+    final Path newDataDir = newRuntime.dataRoot().resolve(existing.id());
+    final String oldDataRootFlag = "-Dgimle.data.root=" + oldDataDir;
+    final String newDataRootFlag = "-Dgimle.data.root=" + newDataDir;
+    final String oldLogRootFlag =
+        "-Dgimle.log.root=" + newRuntime.dataRoot().resolve(planned.id() + "-logs");
+    final String newLogRootFlag =
+        "-Dgimle.log.root=" + newRuntime.dataRoot().resolve(existing.id() + "-logs");
+    final List<String> rewritten = new ArrayList<>();
+    for (final String arg : planned.command()) {
+      if (arg.equals(oldDataRootFlag)) {
+        rewritten.add(newDataRootFlag);
+      } else if (arg.equals(oldLogRootFlag)) {
+        rewritten.add(newLogRootFlag);
+      } else if (arg.equals(oldDataDir.toString())) {
+        rewritten.add(newDataDir.toString());
+      } else {
+        rewritten.add(arg);
+      }
+    }
+    return new ProcessCommand(
+        planned.role(),
+        existing.id(),
+        planned.machine(),
+        rewritten,
+        existing.id() + ".log",
+        newDataDir,
+        planned.readinessAddress(),
+        planned.needsBootstrapToken());
   }
 
   /**
