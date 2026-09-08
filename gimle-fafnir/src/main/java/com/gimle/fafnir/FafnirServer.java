@@ -1158,7 +1158,7 @@ public final class FafnirServer implements AutoCloseable {
       } catch (RuntimeException e) {
         failures.add(
             new SecretMapStore.SecretMapKeyResult(
-                key, OptionalInt.empty(), Optional.of(String.valueOf(e.getMessage()))));
+                key, OptionalInt.empty(), Optional.of(String.valueOf(e.getMessage())), false));
       }
     }
     List<SecretMapStore.SecretMapKeyResult> results = new ArrayList<>();
@@ -1195,6 +1195,7 @@ public final class FafnirServer implements AutoCloseable {
     map.put("key", result.key());
     result.version().ifPresent(version -> map.put("version", version));
     result.error().ifPresent(error -> map.put("error", error));
+    map.put("deleted", result.deleted());
     return map;
   }
 

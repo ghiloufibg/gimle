@@ -230,7 +230,7 @@ public final class SecretMapStore {
               if (!secretStore.softDelete(tenantId, rawKey)) {
                 throw new IllegalStateException("key no longer exists to remove");
               }
-              results.add(SecretMapKeyResult.ok(meta.key(), meta.latestVersion()));
+              results.add(SecretMapKeyResult.deleted(meta.key(), meta.latestVersion()));
             } catch (RuntimeException e) {
               results.add(SecretMapKeyResult.failed(meta.key(), String.valueOf(e.getMessage())));
             }
@@ -539,17 +539,26 @@ public final class SecretMapStore {
   }
 
   /**
-   * One member key's outcome from {@link #setMany} or {@link #rollback} -- exactly one of {@link
-   * #version} or {@link #error} is present.
+   * One member key's outcome from {@link #setMany}, {@link #replaceAll}, or {@link #rollback} --
+   * exactly one of {@link #version} or {@link #error} is present. {@code deleted} is {@code true}
+   * only for a key {@link #replaceAll} soft-deleted because the new payload dropped it -- every
+   * other successful outcome (a genuine write, or a key {@link #rollback} restored) is a kept key,
+   * not a dropped one, even though both shapes otherwise carry the same {@code key}/{@code version}
+   * pair.
    */
-  public record SecretMapKeyResult(String key, OptionalInt version, Optional<String> error) {
+  public record SecretMapKeyResult(
+      String key, OptionalInt version, Optional<String> error, boolean deleted) {
 
     static SecretMapKeyResult ok(String key, int version) {
-      return new SecretMapKeyResult(key, OptionalInt.of(version), Optional.empty());
+      return new SecretMapKeyResult(key, OptionalInt.of(version), Optional.empty(), false);
+    }
+
+    static SecretMapKeyResult deleted(String key, int version) {
+      return new SecretMapKeyResult(key, OptionalInt.of(version), Optional.empty(), true);
     }
 
     static SecretMapKeyResult failed(String key, String message) {
-      return new SecretMapKeyResult(key, OptionalInt.empty(), Optional.of(message));
+      return new SecretMapKeyResult(key, OptionalInt.empty(), Optional.of(message), false);
     }
   }
 
