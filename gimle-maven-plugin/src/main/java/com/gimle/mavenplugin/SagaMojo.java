@@ -33,6 +33,14 @@ public final class SagaMojo extends AbstractGimleRootMojo {
   @Parameter(property = "gimle.saga.serverVersion", defaultValue = "${plugin.version}")
   private String serverVersion;
 
+  /**
+   * Overrides {@code SagaMain}'s own default data directory ({@code ~/.gimle/saga}) -- unset by
+   * default, forwarded only when explicitly set, matching {@code ControlPlaneMojo}'s own
+   * conditional-forwarding convention for optional properties.
+   */
+  @Parameter(property = "gimle.saga.dataRoot")
+  private String dataRoot;
+
   @Parameter(
       defaultValue = "${project.remoteProjectRepositories}",
       readonly = true,
@@ -62,6 +70,7 @@ public final class SagaMojo extends AbstractGimleRootMojo {
             repositorySystemSession,
             repositorySystem);
     return SagaServer.spawnDetached(
-        SagaServer.spawnCommand(GimleProcesses.javaExecutable(), classpath, port), getLog());
+        SagaServer.spawnCommand(GimleProcesses.javaExecutable(), classpath, port, dataRoot),
+        getLog());
   }
 }

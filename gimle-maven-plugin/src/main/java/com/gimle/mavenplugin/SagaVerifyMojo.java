@@ -152,6 +152,6 @@ public final class SagaVerifyMojo extends AbstractGimleRootMojo {
             repositorySystemSession,
             repositorySystem);
     return SagaServer.spawnDetached(
-        SagaServer.spawnCommand(GimleProcesses.javaExecutable(), classpath, port), getLog());
+        SagaServer.spawnCommand(GimleProcesses.javaExecutable(), classpath, port, null), getLog());
   }
 }
