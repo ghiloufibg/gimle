@@ -9635,6 +9635,11 @@ public final class ApiServer implements AutoCloseable {
    * <p>Every replica is asked and their answers merged, rather than the first that responds:
    * shipping is best-effort per replica, so one replica's silence about a span is not evidence the
    * span was never recorded.
+   *
+   * <p>Forwards the calling principal's identity via {@code X-Gimle-Forwarded-Principal}/{@code
+   * X-Gimle-Forwarded-Groups} the same way {@link #proxyToMuninn} does -- without it, each
+   * replica's own independent {@code Authorizer.authorize(...)} re-check falls back to this
+   * connection's peer certificate, which carries no {@code LOGS} grant.
    */
   private void handleTraceSearch(HttpExchange exchange) {
     try {
@@ -9659,8 +9664,18 @@ public final class ApiServer implements AutoCloseable {
           "/traces-by-id/"
               + URLEncoder.encode(traceId, StandardCharsets.UTF_8)
               + (limit == null ? "" : "?limit=" + URLEncoder.encode(limit, StandardCharsets.UTF_8));
+      Map<String, String> forwardHeaders = new LinkedHashMap<>();
+      resolvePrincipal(exchange)
+          .ifPresent(
+              principal -> {
+                forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+                forwardHeaders.put(
+                    "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+              });
       respondJson(
-          exchange, 200, mergeTraceSearchAnswers(traceId, muninnClient.getFromEveryReplica(path)));
+          exchange,
+          200,
+          mergeTraceSearchAnswers(traceId, muninnClient.getFromEveryReplica(path, forwardHeaders)));
     } catch (IOException | RuntimeException e) {
       log.warn("trace search request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");

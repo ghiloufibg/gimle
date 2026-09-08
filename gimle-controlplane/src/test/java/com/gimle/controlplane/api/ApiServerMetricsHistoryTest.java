@@ -195,6 +195,96 @@ class ApiServerMetricsHistoryTest {
   }
 
   /**
+   * Bug 30 regression, the {@code handleTraceSearch} half: it called {@code
+   * muninnClient.getFromEveryReplica(...)} directly with no forwarded identity at all, so it would
+   * 403 under mTLS the same way the other Muninn routes did before being fixed. A caller who
+   * genuinely holds {@code LOGS} permission must have their real identity reach every replica as
+   * {@code X-Gimle-Forwarded-Principal}/{@code X-Gimle-Forwarded-Groups}.
+   */
+  @Test
+  @Timeout(10)
+  void a_caller_with_logs_permission_has_their_identity_forwarded_for_trace_search()
+      throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    muninnStub.createContext(
+        "/traces-by-id",
+        exchange -> {
+          // A fresh copy, not the live exchange.getRequestHeaders() reference -- the exchange
+          // itself is recycled once this handler returns.
+          com.sun.net.httpserver.Headers copy = new com.sun.net.httpserver.Headers();
+          copy.putAll(exchange.getRequestHeaders());
+          receivedHeaders.add(copy);
+          Map<String, Object> body = new LinkedHashMap<>();
+          body.put("traceId", "a".repeat(32));
+          body.put("spans", List.of());
+          body.put("truncated", false);
+          byte[] bytes = Json.write(body).getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, bytes.length);
+          try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+          }
+        });
+    muninnStub.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    muninnStub.start();
+    // Built plaintext, before configureServerTls below flips gimle.transport.protocol to "tls" for
+    // the control plane's own server socket -- MuninnClient reads that same system property at
+    // construction time too, and the muninnStub above is plain HTTP, not mTLS.
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(
+        new Account("logs-reader", PasswordHashes.hash("pw".toCharArray()), Set.of("operators")));
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("logs-reader"), "logs-only"));
+
+    inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    String tlsBaseUrl = "https://localhost:" + server.port();
+    HttpClient tlsClient =
+        HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+    Map<String, Object> loginBody = new LinkedHashMap<>();
+    loginBody.put("username", "logs-reader");
+    loginBody.put("password", "pw");
+    HttpResponse<String> loginResponse =
+        tlsClient.send(
+            HttpRequest.newBuilder(URI.create(tlsBaseUrl + "/auth/login"))
+                .header("Content-Type", "application/json")
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        Json.write(loginBody), StandardCharsets.UTF_8))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, loginResponse.statusCode());
+    String setCookie = loginResponse.headers().firstValue("Set-Cookie").orElse("");
+    String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+
+    HttpResponse<String> response =
+        tlsClient.send(
+            HttpRequest.newBuilder(URI.create(tlsBaseUrl + "/trace/" + "a".repeat(32)))
+                .header("Cookie", cookie)
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    com.sun.net.httpserver.Headers forwarded = receivedHeaders.get(0);
+    assertEquals("logs-reader", forwarded.getFirst("X-Gimle-Forwarded-Principal"));
+    assertEquals("operators", forwarded.getFirst("X-Gimle-Forwarded-Groups"));
+  }
+
+  /**
    * A backward page is `cursor` plus `limit`. Forwarding only `since` left Muninn serving its own
    * newest page for every request of a walk, so a caller paging back read the same page over and
    * over and could never reach anything older than that first window.

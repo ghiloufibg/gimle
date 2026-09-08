@@ -112,20 +112,23 @@ public final class MuninnClient implements AutoCloseable {
    * the record does not exist. Only transport failures are skipped; an HTTP answer, 404 included,
    * is a real answer and is returned for the caller to merge.
    *
+   * <p>{@code headers} carries the calling principal's identity the same way {@link #get} forwards
+   * it -- every replica independently re-runs its own {@code Authorizer.authorize(...)}, so each
+   * fanned-out request needs the same forwarded identity a single-replica read would carry.
+   *
    * @throws IOException only when no configured replica could be reached at all
    */
-  public List<RawResponse> getFromEveryReplica(String pathAndQuery) throws IOException {
+  public List<RawResponse> getFromEveryReplica(String pathAndQuery, Map<String, String> headers)
+      throws IOException {
     List<RawResponse> answers = new ArrayList<>();
     IOException lastFailure = null;
     for (URI baseUri : baseUris) {
       try {
+        HttpRequest.Builder builder =
+            HttpRequest.newBuilder(baseUri.resolve(pathAndQuery)).timeout(REQUEST_TIMEOUT);
+        headers.forEach(builder::header);
         HttpResponse<byte[]> response =
-            httpClient.send(
-                HttpRequest.newBuilder(baseUri.resolve(pathAndQuery))
-                    .timeout(REQUEST_TIMEOUT)
-                    .GET()
-                    .build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+            httpClient.send(builder.GET().build(), HttpResponse.BodyHandlers.ofByteArray());
         answers.add(
             new RawResponse(
                 response.statusCode(),
