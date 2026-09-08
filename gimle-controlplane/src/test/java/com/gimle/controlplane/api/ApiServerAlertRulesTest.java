@@ -105,6 +105,53 @@ class ApiServerAlertRulesTest {
 
   @Test
   @Timeout(10)
+  void an_invalid_metric_is_rejected_with_a_clean_message_not_a_raw_enum_fqcn() throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/alertrules"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"name": "bad-metric", "tenantId": "acme", "deploymentName": "checkout",
+                         "metric": "NOT_A_REAL_METRIC", "comparator": "GREATER_THAN",
+                         "threshold": 5, "webhookUrl": "https://hooks.example.com/alerts"}
+                        """))
+                .build());
+
+    assertEquals(400, post.statusCode());
+    assertTrue(post.body().contains("invalid metric"), post.body());
+    assertTrue(post.body().contains("NOT_A_REAL_METRIC"), post.body());
+    assertTrue(
+        !post.body().contains("AlertRuleSpec$Metric") && !post.body().contains("com.gimle."),
+        "response body must not leak a raw Java enum FQCN: " + post.body());
+  }
+
+  @Test
+  @Timeout(10)
+  void an_invalid_comparator_is_rejected_with_a_clean_message_not_a_raw_enum_fqcn()
+      throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/alertrules"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"name": "bad-comparator", "tenantId": "acme", "deploymentName": "checkout",
+                         "metric": "ERROR_RATE_PER_SECOND", "comparator": "NOT_A_REAL_COMPARATOR",
+                         "threshold": 5, "webhookUrl": "https://hooks.example.com/alerts"}
+                        """))
+                .build());
+
+    assertEquals(400, post.statusCode());
+    assertTrue(post.body().contains("invalid comparator"), post.body());
+    assertTrue(post.body().contains("NOT_A_REAL_COMPARATOR"), post.body());
+    assertTrue(
+        !post.body().contains("AlertRuleSpec$Comparator") && !post.body().contains("com.gimle."),
+        "response body must not leak a raw Java enum FQCN: " + post.body());
+  }
+
+  @Test
+  @Timeout(10)
   void a_disabled_rule_round_trips_enabled_false() throws Exception {
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/alertrules"))

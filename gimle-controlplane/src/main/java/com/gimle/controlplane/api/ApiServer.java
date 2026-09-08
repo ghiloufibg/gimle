@@ -2650,9 +2650,8 @@ public final class ApiServer implements AutoCloseable {
                 ? s
                 : Tenant.DEFAULT_TENANT_ID);
     String deploymentName = (String) body.get("deploymentName");
-    AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf((String) body.get("metric"));
-    AlertRuleSpec.Comparator comparator =
-        AlertRuleSpec.Comparator.valueOf((String) body.get("comparator"));
+    AlertRuleSpec.Metric metric = parseAlertRuleMetric((String) body.get("metric"));
+    AlertRuleSpec.Comparator comparator = parseAlertRuleComparator((String) body.get("comparator"));
     double threshold = ((Number) body.get("threshold")).doubleValue();
     String webhookUrl = (String) body.get("webhookUrl");
     boolean enabled = !Boolean.FALSE.equals(body.get("enabled"));
@@ -2664,6 +2663,39 @@ public final class ApiServer implements AutoCloseable {
               name, tenantId, deploymentName, metric, comparator, threshold, webhookUrl, enabled);
       alertRuleRegistry.put(spec);
       respond(exchange, 200, "ok");
+    }
+  }
+
+  /**
+   * @throws IllegalArgumentException naming the accepted values, rather than letting {@link
+   *     AlertRuleSpec.Metric#valueOf} leak its raw enum-constant-not-found message (including the
+   *     fully-qualified class name) straight into the response body -- the same reasoning {@link
+   *     com.gimle.core.logging.LogFilter#of} already applies to an invalid {@code --level}.
+   */
+  private static AlertRuleSpec.Metric parseAlertRuleMetric(String metric) {
+    try {
+      return AlertRuleSpec.Metric.valueOf(metric);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "invalid metric: "
+              + metric
+              + " (expected one of "
+              + Arrays.toString(AlertRuleSpec.Metric.values())
+              + ")");
+    }
+  }
+
+  /** Same reasoning as {@link #parseAlertRuleMetric}, for {@link AlertRuleSpec.Comparator}. */
+  private static AlertRuleSpec.Comparator parseAlertRuleComparator(String comparator) {
+    try {
+      return AlertRuleSpec.Comparator.valueOf(comparator);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "invalid comparator: "
+              + comparator
+              + " (expected one of "
+              + Arrays.toString(AlertRuleSpec.Comparator.values())
+              + ")");
     }
   }
 
