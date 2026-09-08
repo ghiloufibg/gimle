@@ -50,6 +50,13 @@ record WatchOptions(boolean enabled, Duration interval, int ticks, List<String> 
       } else if (arg.startsWith("--watch-ticks=")) {
         ticks = parseTicks(arg.substring("--watch-ticks=".length()));
         tuned = true;
+      } else if (arg.equals("--watch-interval") || arg.equals("--watch-ticks")) {
+        throw CliException.invalidInput(
+            arg
+                + " requires the "
+                + arg
+                + "=VALUE form (space-separated form is not supported"
+                + " here)");
       } else {
         remaining.add(arg);
       }

@@ -400,6 +400,17 @@ class ResourceWatchTest {
 
   @Test
   @Timeout(60)
+  void space_separated_watch_interval_fails_fast_with_a_specific_message() {
+    int exit = run("get", "deployments", "--watch-interval", "5s");
+
+    assertEquals(CliExitCode.INVALID_INPUT.code(), exit, stderr());
+    assertTrue(
+        stderr().contains("--watch-interval requires the --watch-interval=VALUE form"), stderr());
+    assertFalse(stderr().contains("unknown flag"), stderr());
+  }
+
+  @Test
+  @Timeout(60)
   void watch_tuning_flags_without_watch_are_rejected() {
     int exit = run("get", "deployments", "--watch-ticks=3");
 
