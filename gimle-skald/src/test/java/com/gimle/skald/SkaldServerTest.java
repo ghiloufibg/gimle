@@ -102,7 +102,9 @@ final class SkaldServerTest {
   @Test
   void an_a_query_answers_every_endpoint_address_at_once() throws IOException {
     directory.replaceAll(
-        Map.of("orders", List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
+        Map.of(
+            "orders.default",
+            List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
 
     byte[] response = query(0x1, "orders.svc.gimle.local", 1);
 
@@ -110,6 +112,21 @@ final class SkaldServerTest {
     List<byte[]> rdatas = answerRdatas(response, "orders.svc.gimle.local");
     assertArrayEquals(new byte[] {10, 0, 0, 5}, rdatas.get(0));
     assertArrayEquals(new byte[] {10, 0, 0, 6}, rdatas.get(1));
+  }
+
+  @Test
+  void a_short_form_query_omitting_the_tenant_label_resolves_a_default_tenant_service()
+      throws IOException {
+    // NET-fleet03: the documented-optional tenant label defaults to Tenant.DEFAULT_TENANT_ID the
+    // same way the control plane resolves an omitted tenantId -- so the short form must resolve
+    // exactly like the long form "svc.default.svc.gimle.local" would.
+    directory.replaceAll(Map.of("svc.default", List.of(new HostPort("10.0.0.5", 8080))));
+
+    byte[] response = query(0x2, "svc.svc.gimle.local", 1);
+
+    assertEquals(0, unsignedShort(response, 2) & 0xF); // RCODE: NOERROR, not NXDOMAIN
+    assertEquals(1, unsignedShort(response, 6)); // ANCOUNT
+    assertArrayEquals(new byte[] {10, 0, 0, 5}, answerRdata(response, "svc.svc.gimle.local"));
   }
 
   @Test
@@ -287,7 +304,9 @@ final class SkaldServerTest {
   @Test
   void serves_multiple_sequential_queries_on_one_tcp_connection() throws IOException {
     directory.replaceAll(
-        Map.of("orders", List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
+        Map.of(
+            "orders.default",
+            List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
 
     try (Socket tcp = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
       tcp.setSoTimeout(5_000);

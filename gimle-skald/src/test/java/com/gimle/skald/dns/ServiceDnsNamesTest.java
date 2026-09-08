@@ -16,15 +16,15 @@ final class ServiceDnsNamesTest {
   }
 
   @Test
-  void strips_the_zone_suffix_for_an_untenanted_name() {
+  void defaults_a_bare_short_form_name_missing_the_tenant_label_to_the_default_tenant() {
     Optional<String> qualified = ServiceDnsNames.qualifiedServiceName("orders.svc.gimle.local");
-    assertEquals(Optional.of("orders"), qualified);
+    assertEquals(Optional.of("orders.default"), qualified);
   }
 
   @Test
   void is_case_insensitive() {
     Optional<String> qualified = ServiceDnsNames.qualifiedServiceName("ORDERS.SVC.GIMLE.LOCAL");
-    assertEquals(Optional.of("orders"), qualified);
+    assertEquals(Optional.of("orders.default"), qualified);
   }
 
   @Test
