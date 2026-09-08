@@ -11,10 +11,9 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * {@code mvn gimle:tls-init} -- generates the cluster CA plus one leaf certificate each for the
  * control plane, the store, Fafnir, Muninn, Andvari, and the first human operator, via a real
  * {@code com.gimle.pki.PkiBootstrapMain} subprocess. Unlike {@code AgentMojo}, this needs no
- * cross-module Aether classpath resolution:
- * {@code PkiBootstrapMain} lives *in* {@code gimle-pki} itself, so this module's own {@code
- * ${project.runtimeClasspathElements}} is already everything the spawned process needs -- the same
- * simple shape {@code DeployMojo} uses for {@code gimle-cli}.
+ * cross-module Aether classpath resolution: {@code PkiBootstrapMain} lives *in* {@code gimle-pki}
+ * itself, so this module's own {@code ${project.runtimeClasspathElements}} is already everything
+ * the spawned process needs -- the same simple shape {@code DeployMojo} uses for {@code gimle-cli}.
  */
 @Mojo(name = "tls-init", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class TlsInitMojo extends AbstractGimleMojo {
