@@ -37,7 +37,8 @@ class BootstrapMojoTest {
             8080,
             9092,
             9093,
-            9094);
+            9094,
+            9090);
 
     assertTrue(
         command.contains("-Dgimle.data.root=" + base.resolve("agent-data")),
@@ -63,7 +64,8 @@ class BootstrapMojoTest {
             8080,
             9092,
             9093,
-            9094);
+            9094,
+            9090);
 
     assertTrue(command.contains("-Dgimle.data.root=" + base.resolve("agent-data")));
     assertFalse(
@@ -88,12 +90,16 @@ class BootstrapMojoTest {
             18080,
             19092,
             19093,
-            19094);
+            19094,
+            19090);
 
     assertTrue(command.contains("http://127.0.0.1:18080"));
     assertTrue(command.contains("-Dgimle.agent.fafnirEndpoint=127.0.0.1:19092"));
     assertTrue(command.contains("-Dgimle.agent.muninnEndpoint=127.0.0.1:19093"));
     assertTrue(command.contains("-Dgimle.agent.andvariEndpoint=127.0.0.1:19094"));
+    assertTrue(
+        command.contains("127.0.0.1:19090"),
+        "expected the overridden gossip port to be passed positionally, got: " + command);
   }
 
   @Test

@@ -59,14 +59,14 @@ import org.eclipse.aether.repository.RemoteRepository;
  * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link FafnirMojo}/{@link
  * MuninnMojo}/{@link ControlPlaneMojo}/{@link AgentMojo} already use by default, deliberately: this
  * goal and "those goals run by hand in separate terminals" are meant to be the same cluster, not
- * two topologies to keep in sync. Each of those six ports is independently overridable ({@code
+ * two topologies to keep in sync. Each of those seven ports is independently overridable ({@code
  * -Dgimle.bootstrap.storeRaftPort}, {@code storeClientPort}, {@code fafnirPort}, {@code
- * muninnPort}, {@code andvariPort}, {@code controlPlanePort}) for whenever it isn't meant to be the
- * same cluster -- e.g. something else (a shared Midgard container, a manually-started cluster)
- * already owns the defaults on this machine. Either way, before spawning anything this goal probes
- * every port it's about to bind and fails loudly if one is already listening, rather than silently
- * treating an unrelated already-running process as its own freshly-spawned one -- see {@link
- * #checkPortsAvailable()}.
+ * muninnPort}, {@code andvariPort}, {@code controlPlanePort}, {@code gossipPort}) for whenever it
+ * isn't meant to be the same cluster -- e.g. something else (a shared Midgard container, a
+ * manually-started cluster) already owns the defaults on this machine. Either way, before spawning
+ * anything this goal probes every port it's about to bind and fails loudly if one is already
+ * listening, rather than silently treating an unrelated already-running process as its own
+ * freshly-spawned one -- see {@link #checkPortsAvailable()}.
  *
  * <p>TLS-mode caveat, worth recording rather than hiding: {@code gimle-pki}'s {@code
  * PkiBootstrapMain} mints {@code controlplane}, {@code fafnir}, and {@code operator} leaf
@@ -87,7 +87,6 @@ import org.eclipse.aether.repository.RemoteRepository;
 public final class BootstrapMojo extends AbstractMojo {
 
   private static final String AGENT_NODE_ID = "node-1";
-  private static final String GOSSIP_BIND_ADDRESS = "127.0.0.1:9090";
   private static final String CA_COMMON_NAME = "gimle-cluster-ca";
   // Must match a SAN PkiBootstrapMain actually issues (its own javadoc: a bare IP literal fails
   // hostname verification even with a valid chain) -- every TLS-mode client here (this goal's own
@@ -160,6 +159,10 @@ public final class BootstrapMojo extends AbstractMojo {
   // Matches ControlPlaneMojo's own gimle.controlplane.port default.
   @Parameter(property = "gimle.bootstrap.controlPlanePort", defaultValue = "8080")
   private int controlPlanePort;
+
+  // Matches AgentMojo's own gimle.agent.gossipAddress default port (127.0.0.1:9090).
+  @Parameter(property = "gimle.bootstrap.gossipPort", defaultValue = "9090")
+  private int gossipPort;
 
   /**
    * Comma-separated console addon ids the bootstrapped control plane advertises ({@code none} for
@@ -309,6 +312,11 @@ public final class BootstrapMojo extends AbstractMojo {
     ports.put("muninn (gimle.bootstrap.muninnPort)", muninnPort);
     ports.put("andvari (gimle.bootstrap.andvariPort)", andvariPort);
     ports.put("control plane (gimle.bootstrap.controlPlanePort)", controlPlanePort);
+    // isPortOpen below is a TCP Socket.connect probe -- it cannot actually detect a UDP port
+    // already in use, so this entry can only ever catch a TCP listener squatting on the same
+    // number, not a genuine gossip-port collision. Included anyway for consistency with every
+    // other bootstrap-local port.
+    ports.put("agent gossip (gimle.bootstrap.gossipPort)", gossipPort);
     List<String> inUse = portsAlreadyInUse(ports, BootstrapMojo::isPortOpen);
     if (!inUse.isEmpty()) {
       throw new MojoExecutionException(
@@ -609,7 +617,8 @@ public final class BootstrapMojo extends AbstractMojo {
             controlPlanePort,
             fafnirPort,
             muninnPort,
-            andvariPort);
+            andvariPort,
+            gossipPort);
     getLog()
         .info(
             "starting agent "
@@ -638,7 +647,8 @@ public final class BootstrapMojo extends AbstractMojo {
       int controlPlanePort,
       int fafnirPort,
       int muninnPort,
-      int andvariPort) {
+      int andvariPort,
+      int gossipPort) {
     String controlPlaneUrl =
         (tls ? "https" : "http") + "://" + controlPlaneHost + ":" + controlPlanePort;
 
@@ -676,7 +686,7 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add("com.gimle.agent.AgentMain");
     command.add(AGENT_NODE_ID);
     command.add(controlPlaneUrl);
-    command.add(GOSSIP_BIND_ADDRESS);
+    command.add("127.0.0.1:" + gossipPort);
     command.add("-");
     command.add(javaExecutable);
     command.add("-cp");
