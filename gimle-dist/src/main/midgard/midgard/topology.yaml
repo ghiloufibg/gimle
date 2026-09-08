@@ -23,7 +23,15 @@ name: midgard
 machines:
   - {name: midgard, host: 127.0.0.1}
 runtime:
-  classpath: "/opt/gimle/lib/*"
+  # An explicit, enumerated jar list rather than the "/opt/gimle/lib/*" wildcard: Sleipnir's AOT
+  # worker cache (gimle-agent's SleipnirCache, mirroring JEP 483's own eligibility rule) requires
+  # every classpath entry to be an actual regular .jar file, and a wildcard token never qualifies --
+  # it disables AOT caching for every worker this topology launches. This list is exactly the lib/
+  # produced by the Midgard assembly (component-cluster-jars.xml's runtime dependency closure) for
+  # this project version; it must be regenerated (re-list /opt/gimle/lib/*.jar from a built Midgard
+  # image or archive) whenever a dependency version or the project version changes, or a stale entry
+  # here will point at a jar that no longer exists.
+  classpath: "/opt/gimle/lib/HdrHistogram-2.2.2.jar:/opt/gimle/lib/LatencyUtils-2.0.3.jar:/opt/gimle/lib/bcpkix-jdk18on-1.85.jar:/opt/gimle/lib/bcprov-jdk18on-1.85.jar:/opt/gimle/lib/bcutil-jdk18on-1.85.jar:/opt/gimle/lib/gimle-agent-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-andvari-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-andvari-console-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-cli-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-console-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-controlplane-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-core-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-fabric-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-fafnir-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-fafnir-console-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-hilmir-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-hugin-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-ivaldi-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-ivaldi-console-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-mimir-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-module-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-muninn-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-observability-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-os-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-pki-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-ragnarok-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-skald-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-testkit-0.1.0-alpha.2.jar:/opt/gimle/lib/gimle-worker-0.1.0-alpha.2.jar:/opt/gimle/lib/jline-terminal-3.30.4.jar:/opt/gimle/lib/jline-terminal-ffm-3.30.4.jar:/opt/gimle/lib/jspecify-1.0.0.jar:/opt/gimle/lib/logback-classic-1.5.18.jar:/opt/gimle/lib/logback-core-1.5.18.jar:/opt/gimle/lib/micrometer-commons-1.16.3.jar:/opt/gimle/lib/micrometer-core-1.16.3.jar:/opt/gimle/lib/micrometer-observation-1.16.3.jar:/opt/gimle/lib/opentelemetry-api-1.64.0.jar:/opt/gimle/lib/opentelemetry-common-1.64.0.jar:/opt/gimle/lib/opentelemetry-context-1.64.0.jar:/opt/gimle/lib/opentelemetry-exporter-logging-1.64.0.jar:/opt/gimle/lib/opentelemetry-sdk-1.64.0.jar:/opt/gimle/lib/opentelemetry-sdk-common-1.64.0.jar:/opt/gimle/lib/opentelemetry-sdk-logs-1.64.0.jar:/opt/gimle/lib/opentelemetry-sdk-metrics-1.64.0.jar:/opt/gimle/lib/opentelemetry-sdk-trace-1.64.0.jar:/opt/gimle/lib/slf4j-api-2.0.17.jar:/opt/gimle/lib/snakeyaml-2.3.jar"
   dataRoot: /var/lib/gimle
 store:
   replicas:
