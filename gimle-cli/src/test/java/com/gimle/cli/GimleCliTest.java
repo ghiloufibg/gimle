@@ -459,6 +459,20 @@ class GimleCliTest {
   }
 
   @Test
+  void delete_deployments_the_documented_plural_alias_behaves_identically_to_the_singular_form()
+      throws Exception {
+    Path manifest = writeManifest("plural-delete-service", 1);
+    run("apply", "-f", manifest.toString());
+
+    int deleteExit = run("delete", "deployments", "plural-delete-service");
+    assertEquals(0, deleteExit, this::stderr);
+
+    int getAfterDeleteExit = run("get", "deployment", "plural-delete-service");
+    assertEquals(3, getAfterDeleteExit);
+    assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
   void set_tenant_then_get_tenants_round_trips() throws Exception {
     int setExit =
         run(
@@ -2401,6 +2415,26 @@ class GimleCliTest {
       assertEquals(0, run("delete", noun, "-h"), stderr());
       assertTrue(stdout().contains("[--tenant <id>]"), noun + " delete help:\n" + stdout());
     }
+  }
+
+  @Test
+  void bare_delete_help_documents_the_plural_alias_the_same_way_bare_get_help_does() {
+    assertEquals(0, run("delete", "-h"), stderr());
+    String deleteHelp = stdout();
+    assertTrue(deleteHelp.contains("deployments"), deleteHelp);
+    assertTrue(deleteHelp.contains("jobs"), deleteHelp);
+    assertTrue(deleteHelp.contains("cronjobs"), deleteHelp);
+    assertTrue(deleteHelp.contains("daemonsets"), deleteHelp);
+    assertTrue(deleteHelp.contains("statefulsets"), deleteHelp);
+
+    reset();
+    assertEquals(0, run("-h"), stderr());
+    String topLevelHelp = stdout();
+    assertTrue(topLevelHelp.contains("delete deployments <name>"), topLevelHelp);
+    assertTrue(topLevelHelp.contains("delete jobs <name>"), topLevelHelp);
+    assertTrue(topLevelHelp.contains("delete cronjobs <name>"), topLevelHelp);
+    assertTrue(topLevelHelp.contains("delete daemonsets <name>"), topLevelHelp);
+    assertTrue(topLevelHelp.contains("delete statefulsets <name>"), topLevelHelp);
   }
 
   @Test

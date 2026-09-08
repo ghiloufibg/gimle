@@ -1000,21 +1000,21 @@ public final class GimleCli {
       usage: gimle delete <resource> <name/id>
 
       resources:
-        deployment
-        job
-        cronjob
-        daemonset
-        statefulset
-        service
-        networkpolicy
-        alertrule
-        tenant
-        limitrange
+        deployments
+        jobs
+        cronjobs
+        daemonsets
+        statefulsets
+        services
+        networkpolicies
+        alertrules
+        tenants
+        limitranges
         config
-        role
-        rolebinding
-        account
-        kinddefinition <kind>
+        roles
+        rolebindings
+        accounts
+        kinddefinitions <kind>
         <custom-kind|plural|shortName> <name> [--tenant <id>]""";
 
   private static final Map<String, String> DELETE_NOUN_USAGE =
@@ -1238,12 +1238,12 @@ public final class GimleCli {
           kinds
           get <custom-kind|plural|shortName> [name] [--tenant <id>]
           delete <custom-kind|plural|shortName> <name> [--tenant <id>]
-          delete kinddefinition <kind>
-          delete deployment <name>
-          delete job <name>
-          delete cronjob <name>
-          delete daemonset <name>
-          delete statefulset <name>
+          delete kinddefinitions <kind>
+          delete deployments <name>
+          delete jobs <name>
+          delete cronjobs <name>
+          delete daemonsets <name>
+          delete statefulsets <name>
           deployment revisions <name>
           deployment rollback <name> [--to-revision N]
           statefulset revisions <name>
