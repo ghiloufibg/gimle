@@ -257,6 +257,28 @@ class CliOutputContractTest {
   }
 
   /**
+   * {@code get nodes -o table} used to build its columns straight from {@code capabilities.taints}
+   * with no equivalent column for the {@code capabilities.operatorLabels} sitting right beside it,
+   * even though {@code label node} was fully implemented -- an operator using the default table
+   * output had no way to see a node's own labels at all.
+   */
+  @Test
+  void a_nodes_operator_labels_appear_in_the_table_output() throws Exception {
+    registerNode("node-a", null);
+    assertEquals(0, run("label", "node", "node-a", "zone=eu"), stderr());
+    outBuffer.reset();
+
+    assertEquals(0, run("get", "nodes"), stderr());
+    String table = stdout();
+
+    List<String> columns = List.of(table.lines().findFirst().orElseThrow().split("\t"));
+    int labelsColumn = columns.indexOf("labels");
+    assertTrue(labelsColumn >= 0, table);
+    String tableLabels = table.lines().skip(1).findFirst().orElseThrow().split("\t")[labelsColumn];
+    assertEquals("zone=eu", tableLabels, table);
+  }
+
+  /**
    * {@code label node} reads the node's current operator labels before folding its own edits into
    * them, so the read has to be answerable: addressing one node by name used to reach the
    * sub-resource dispatcher and come back a usage error, which failed the verb outright.
