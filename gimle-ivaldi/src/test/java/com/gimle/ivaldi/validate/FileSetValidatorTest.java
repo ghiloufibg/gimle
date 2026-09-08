@@ -320,6 +320,25 @@ class FileSetValidatorTest {
   }
 
   @Test
+  void validates_a_clean_egress_only_network_policy_manifest() {
+    String manifest =
+        """
+        kind: NetworkPolicy
+        name: web-ui-deny-cross-tenant
+        tenantId: orders-platform
+        deploymentNames:
+          - web-ui-deployment
+        allowedCalleeTenantIds: []
+        """;
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(file("manifests/50-networkpolicy-web-ui-deny-cross-tenant.yaml", manifest)));
+
+    assertEquals(List.of(), findings);
+  }
+
+  @Test
   void rejects_a_network_policy_that_restricts_no_direction() {
     String manifest =
         """

@@ -480,13 +480,15 @@ public final class FileSetValidator {
       Optional<Set<String>> deploymentNames = optionalStringSet(root, "deploymentNames");
       Optional<Set<String>> allowedCallerTenantIds =
           optionalStringSet(root, "allowedCallerTenantIds");
+      Optional<Set<String>> allowedCalleeTenantIds =
+          optionalStringSet(root, "allowedCalleeTenantIds");
       new NetworkPolicySpec(
           name,
           tenantId,
           deploymentNames,
           Optional.empty(),
           allowedCallerTenantIds,
-          Optional.empty());
+          allowedCalleeTenantIds);
     } catch (IllegalArgumentException e) {
       findings.add(Finding.error("NETWORKPOLICY_INVALID", messageOf(e), file.path()));
     }
