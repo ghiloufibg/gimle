@@ -178,16 +178,23 @@
         inherited=false and covers the whole reactor, not any one module's own jar set; see the
         root pom's own comment on cyclonedx-maven-plugin). cyclonedx-maven-plugin's makeBom has no
         artifact-level include/exclude filter of its own: it always describes the current
-        project's own full dependency graph, so a genuinely per-archive SBOM for the cli/hilmir/
-        ragnarok archives comes from gimle-cli/gimle-hilmir/gimle-ragnarok's own makeBom
-        executions instead (each of those modules already carries exactly the dependency graph its
-        own archive ships; see each module's own cyclonedx-maven-plugin comment): the
-        postprocess-archives antrun execution below copies THEIR target/bom.json rather than
-        generating a fourth copy here. What's left for this module to generate directly is the two
-        archives gimle-dist's own dependency graph genuinely does describe: the platform archive
-        (every runtime-scoped dependency below except the provided-scope example modules, which it
-        never ships) and the midgard archive (the same graph plus those example modules, which it
-        does ship, under examples/).
+        project's own full dependency graph, so a genuinely per-archive SBOM for the
+        cli/hilmir/ragnarok archives comes from a tool module's own makeBom execution instead of a
+        generic one here. For hilmir and ragnarok that source is the archive's own module
+        (gimle-hilmir/gimle-ragnarok's own dependency graph already equals what each archive
+        ships). The CLI archive is the exception: its own module, gimle-cli, never depends on
+        jline-terminal/jline-terminal-ffm or on gimle-hugin (gimle-hugin implements the
+        CliExtension gimle-cli defines, so the dependency runs the other way, and the reverse would
+        be circular), so gimle-cli's own graph structurally cannot describe the archive's real
+        jar set, and gimle-hugin's graph is the one that does (see gimle-hugin/pom.xml's own
+        cyclonedx-maven-plugin comment). The postprocess-archives antrun execution below copies
+        each of those three tool modules' own target/bom.json rather than generating a fourth copy
+        here, rewriting the CLI one's root component from gimle-hugin to gimle-cli the same way the
+        platform/midgard rewrites below correct theirs. What's left for this module to generate
+        directly is the two archives gimle-dist's own dependency graph genuinely does describe: the
+        platform archive (every runtime-scoped dependency below except the provided-scope example
+        modules, which it never ships) and the midgard archive (the same graph plus those example
+        modules, which it does ship, under examples/).
       -->
       <plugin>
         <groupId>org.cyclonedx</groupId>
@@ -317,35 +324,38 @@
       <!--
         Writes a sha256sum-compatible checksum file next to each archive and copies each archive's
         own genuinely-scoped SBOM (see the cyclonedx-maven-plugin executions above and in
-        gimle-cli/gimle-hilmir/gimle-ragnarok's own pom.xml) to that archive's -cyclonedx.json
+        gimle-hugin/gimle-hilmir/gimle-ragnarok's own pom.xml) to that archive's -cyclonedx.json
         name. Runs after both plugins above because Maven executes same-phase plugin executions in
         the order they're declared in this file, and this is declared last, in particular after
-        the sbom-platform/sbom-midgard executions above, and after gimle-cli/gimle-hilmir/
+        the sbom-platform/sbom-midgard executions above, and after gimle-hugin/gimle-hilmir/
         gimle-ragnarok have each already completed their own package phase (reactor build order:
         every module gimle-dist depends on finishes package before gimle-dist's own package phase
         starts), so every source file this copies already exists.
 
-        The platform and midgard SBOMs additionally get their root metadata.component rewritten to
-        name the archive they actually describe. cyclonedx-maven-plugin always writes the current
-        Maven project as that component and offers no way to override it, so both files would
-        otherwise arrive claiming to describe "gimle-dist", a module that ships nothing an operator
-        can install, and a name a consumer scanning gimle-platform-<version>.tar.gz has no way to
-        reconcile with the archive in front of them. Only that root component's own name,
-        description and coordinate are rewritten; the resolved dependency components below it,
-        which are what an SBOM is actually read for, are already correct and distinct per archive
-        and are left exactly as generated. The coordinate goes through a plain string replacement
-        because the identical string appears three times (the component's bom-ref, its purl, and
-        the dependency graph's own root ref) and all three must keep agreeing. Both rewrites happen
-        as filters on the copy rather than in place afterwards, so the generator's own bom-*.json
-        (which this module still attaches under its own coordinate) keeps describing gimle-dist
-        truthfully, and the shipped file is an ordinary freshly-created copy.
+        The platform/midgard SBOMs and the CLI archive's SBOM additionally get their root
+        metadata.component rewritten to name the archive they actually describe.
+        cyclonedx-maven-plugin always writes the current Maven project as that component and offers
+        no way to override it, so the platform/midgard files would otherwise arrive claiming to
+        describe "gimle-dist" (a module that ships nothing an operator can install), and the CLI
+        archive's file would arrive claiming to describe "gimle-hugin" (its actual generating
+        module: see gimle-hugin/pom.xml's own cyclonedx-maven-plugin comment for why that module,
+        not gimle-cli, is the one whose graph backs this SBOM) rather than the gimle-cli archive
+        sitting beside it. Only that root component's own name, description and coordinate are
+        rewritten; the resolved dependency components below it, which are what an SBOM is actually
+        read for, are already correct and distinct per archive and are left exactly as generated.
+        The coordinate goes through a plain string replacement because the identical string appears
+        three times (the component's bom-ref, its purl, and the dependency graph's own root ref)
+        and all three must keep agreeing. Every rewrite happens as a filter on the copy rather than
+        in place afterwards, so the generator's own bom-*.json/target/bom.json (which each source
+        module still attaches under its own coordinate) keeps describing that module truthfully,
+        and the shipped file is an ordinary freshly-created copy.
 
-        The <fail> after each copy is what keeps this honest: a rewrite that silently stopped
-        matching (a reworded module description, a formatting change in the generator) would leave
-        the wrong name in a shipped artifact, so it breaks the build instead of shipping quietly.
-        It checks for the literal un-rewritten "name" : "gimle-dist" field rather than a bare
-        "gimle-dist" substring, since some other component's own description can legitimately
-        mention gimle-dist in prose (e.g. a module documenting which distribution archive it ships
+        The <fail> after each rewritten copy is what keeps this honest: a rewrite that silently
+        stopped matching (a reworded module description, a formatting change in the generator)
+        would leave the wrong name in a shipped artifact, so it breaks the build instead of shipping
+        quietly. Each checks for the literal un-rewritten "name" : "<source module>" field rather
+        than a bare substring, since some other component's own description can legitimately
+        mention that module in prose (e.g. a module documenting which distribution archive it ships
         in) without that meaning the root-component rewrite failed.
 
         Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
@@ -415,8 +425,24 @@
                     <resourcecontains resource="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json" substring="&quot;name&quot; : &quot;gimle-dist&quot;"/>
                   </condition>
                 </fail>
-                <copy file="${project.basedir}/../gimle-cli/target/bom.json"
-                      tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
+                <copy file="${project.basedir}/../gimle-hugin/target/bom.json"
+                      tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"
+                      overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
+                  <filterchain>
+                    <tokenfilter>
+                      <filetokenizer/>
+                      <replaceregex pattern="&quot;name&quot; : &quot;gimle-hugin&quot;,(\s*&quot;version&quot; : &quot;[^&quot;]*&quot;,\s*)&quot;description&quot; : &quot;[^&quot;]*&quot;"
+                                    replace="&quot;name&quot; : &quot;gimle-cli&quot;,\1&quot;description&quot; : &quot;The Gimle standalone CLI archive: gimle-cli plus gimle-hugin's `top` extension and their shared runtime dependencies.&quot;"/>
+                      <replacestring from="pkg:maven/com.gimle/gimle-hugin@${project.version}?type=jar"
+                                     to="pkg:maven/com.gimle/gimle-cli@${project.version}?type=tar.gz"/>
+                    </tokenfilter>
+                  </filterchain>
+                </copy>
+                <fail message="gimle-cli's SBOM still names gimle-hugin: the rewrite above no longer matches what cyclonedx-maven-plugin writes">
+                  <condition>
+                    <resourcecontains resource="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json" substring="&quot;name&quot; : &quot;gimle-hugin&quot;"/>
+                  </condition>
+                </fail>
                 <copy file="${project.basedir}/../gimle-hilmir/target/bom.json"
                       tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
                 <copy file="${project.basedir}/../gimle-ragnarok/target/bom.json"
