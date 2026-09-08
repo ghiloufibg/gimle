@@ -105,6 +105,13 @@ function DesignerError({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+/** Exported only for its own test -- both call sites below are one-line `.catch` wiring. */
+export function notifySaveFailure() {
+  toast.error("Save failed", {
+    description: "Your edit is safe on this device; it will retry on the next change.",
+  });
+}
+
 function Counter({
   count,
   tone,
@@ -300,7 +307,11 @@ function Designer() {
     pendingSave.current = true;
     const t = setTimeout(() => {
       pendingSave.current = false;
-      void saveRef.current();
+      // A 409 never reaches this catch -- performSave resolves that itself into the draft-restore
+      // dialog above. Anything that does is a genuine failure (a dropped connection, a 500) with
+      // no other sign on screen besides the "unsaved" label, indistinguishable from "not yet
+      // saved" -- the edit itself is untouched and retries on the next change regardless.
+      void saveRef.current().catch(notifySaveFailure);
     }, 600);
     // Cancel only: this effect's own deps (blueprint, dirty) change on every single edit, so its
     // cleanup runs after every keystroke, not just on a genuine unmount. A previous version of
@@ -315,7 +326,10 @@ function Designer() {
     const flush = () => {
       if (!pendingSave.current) return;
       pendingSave.current = false;
-      void saveRef.current();
+      // The designer itself is going away (unmount or unload) right as this fires, so there is no
+      // screen left to show a toast on -- just avoid an unhandled rejection. The edit stays dirty
+      // in the store either way and retries on the next change, same as the debounced path above.
+      void saveRef.current().catch(() => {});
     };
     window.addEventListener("beforeunload", flush);
     // Empty deps: this cleanup must run only when the designer itself unmounts (route change,
@@ -493,7 +507,11 @@ function Designer() {
               void navigate({ to: "/runner/$blueprintId", params: { blueprintId: blueprint.id } });
             }}
           />
-          <ToolbarButton icon={Save} label="Save" onClick={save} />
+          <ToolbarButton
+            icon={Save}
+            label="Save"
+            onClick={() => void save().catch(notifySaveFailure)}
+          />
           <ToolbarButton icon={Crosshair} label="Fit" onClick={() => canvasBridge.fit()} />
           <ToolbarButton
             icon={isFullscreen ? Minimize2 : Maximize2}
