@@ -1,6 +1,7 @@
 package com.gimle.hilmir.release;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -59,6 +60,20 @@ class RollbackCommandTest {
             name: greeter-consumer
       """;
 
+  private static final String BUNDLE_V2_WITH_NEW_CONFIG_KEY =
+      """
+      kind: Bundle
+      name: greeter-suite
+      version: 2.0.0
+      config:
+        - {tenant: acme, key: greeting.prefix, value: "Goodbye"}
+        - {tenant: acme, key: greeting.suffix, value: "!!"}
+      workloads:
+        - manifest: |
+            kind: Deployment
+            name: greeter-provider
+      """;
+
   private Path writeBundle(String contents, String name) throws IOException {
     Path file = tempDir.resolve(name);
     Files.writeString(file, contents, StandardCharsets.UTF_8);
@@ -76,6 +91,34 @@ class RollbackCommandTest {
     UpgradeCommand.run(
         List.of("-f", writeBundle(BUNDLE_V2, "v2.yaml").toString(), "--server", fake.address()),
         capture(new ByteArrayOutputStream()));
+  }
+
+  @Test
+  void rollback_prunes_a_config_key_the_target_revision_never_declared() throws Exception {
+    fake = new FakeControlPlane();
+    DeployCommand.run(
+        List.of("-f", writeBundle(BUNDLE_V1, "v1.yaml").toString(), "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+    UpgradeCommand.run(
+        List.of(
+            "-f",
+            writeBundle(BUNDLE_V2_WITH_NEW_CONFIG_KEY, "v2.yaml").toString(),
+            "--server",
+            fake.address()),
+        capture(new ByteArrayOutputStream()));
+    assertEquals("!!", fake.configValue("acme", "greeting.suffix"));
+
+    RollbackCommand.run(
+        List.of(
+            "--release", "greeter-suite",
+            "--to-revision", "1",
+            "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+
+    assertNull(
+        fake.configValue("acme", "greeting.suffix"),
+        "a config key the rollback target never declared must be pruned");
+    assertEquals("Hello", fake.configValue("acme", "greeting.prefix"));
   }
 
   @Test
