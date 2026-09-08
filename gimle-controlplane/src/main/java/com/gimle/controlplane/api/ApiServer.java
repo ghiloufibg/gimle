@@ -11546,12 +11546,43 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private static String readBody(HttpExchange exchange) throws IOException {
+    // A declared Content-Length far over the cap is refused before the request body is ever
+    // touched -- the same fast path AndvariServer#handleUpload already established. Without this,
+    // SizeLimitedInputStream still catches the overage while streaming, but throwing from inside
+    // read() makes this try-with-resources close the underlying stream before EOF, which makes
+    // com.sun.net.httpserver synchronously drain the entire unread remainder off the socket before
+    // any response can be sent -- fast enough to still answer 413 for a body only moderately over
+    // the cap, but for one far over it the caller times out first and sees a raw connection reset
+    // instead of a response. A missing or lying Content-Length (chunked encoding, or a sender that
+    // understates it) still falls through to the streaming check below as a backstop.
+    Optional<Long> declaredContentLength = declaredContentLength(exchange);
+    if (declaredContentLength.isPresent() && declaredContentLength.get() > MAX_REQUEST_BODY_BYTES) {
+      throw new BodyTooLargeException(MAX_REQUEST_BODY_BYTES);
+    }
     try (InputStream body =
         new SizeLimitedInputStream(
             exchange.getRequestBody(),
             MAX_REQUEST_BODY_BYTES,
             exceeded -> new BodyTooLargeException(MAX_REQUEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  /**
+   * The request's own declared {@code Content-Length}, when present and well-formed -- absent for
+   * chunked transfer encoding (the header simply isn't sent) or a malformed value, in which case
+   * the caller falls back to whatever check doesn't depend on it, rather than treating either as an
+   * error in its own right.
+   */
+  private static Optional<Long> declaredContentLength(HttpExchange exchange) {
+    String value = exchange.getRequestHeaders().getFirst("Content-Length");
+    if (value == null) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Long.parseLong(value.trim()));
+    } catch (NumberFormatException e) {
+      return Optional.empty();
     }
   }
 

@@ -126,6 +126,48 @@ class ApiServerPayloadLimitTest {
   }
 
   @Test
+  @Timeout(15)
+  void
+      a_request_declaring_a_content_length_far_over_the_cap_is_refused_before_the_body_is_ever_sent()
+          throws Exception {
+    // Regression (SEC-05): a request far over the cap used to never get a response at all -- the
+    // streaming check (SizeLimitedInputStream) fires once enough bytes are read to exceed it, but
+    // throwing from inside its own read() made readBody's try-with-resources close the request-
+    // body stream before EOF, and com.sun.net.httpserver's own stream then drains the entire
+    // *unread* remainder off the socket synchronously on close so it can offer the connection back
+    // for reuse. For a body only moderately over the cap that drain finished fast enough to still
+    // answer 413 in time; for one far over it, the caller timed out first and saw a raw connection
+    // reset instead of a response. Mirrors AndvariServerTest's own regression test for the
+    // identical bug: driven over a raw Socket, sending only the request line and headers and never
+    // a single body byte, so this actually proves the upfront Content-Length check rejects before
+    // the body is ever opened -- not merely that the existing streaming check is fast.
+    try (java.net.Socket socket = new java.net.Socket("127.0.0.1", server.port())) {
+      socket.setSoTimeout(10_000);
+      java.io.OutputStream out = socket.getOutputStream();
+      long declaredContentLength = 600_000_000L;
+      String requestLine =
+          "PUT /config/acme/huge HTTP/1.1\r\n"
+              + "Host: 127.0.0.1\r\n"
+              + "Content-Length: "
+              + declaredContentLength
+              + "\r\n"
+              + "Connection: close\r\n"
+              + "\r\n";
+      out.write(requestLine.getBytes(StandardCharsets.UTF_8));
+      out.flush();
+
+      java.io.BufferedReader in =
+          new java.io.BufferedReader(
+              new java.io.InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+      String statusLine = in.readLine();
+
+      assertTrue(
+          statusLine != null && statusLine.contains("413"),
+          "expected a prompt 413 status line, got: " + statusLine);
+    }
+  }
+
+  @Test
   @Timeout(30)
   void a_secrets_proxy_request_body_past_the_cap_is_rejected_with_413() throws Exception {
     String oversized = "x".repeat(6 * 1024 * 1024);
