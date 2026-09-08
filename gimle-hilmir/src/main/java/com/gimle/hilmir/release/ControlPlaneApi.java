@@ -201,21 +201,23 @@ public final class ControlPlaneApi {
   }
 
   /**
-   * Names the cause a caller has no way to guess from the body alone. Every release verb records
-   * itself under the fixed {@code gimle-hilmir} bookkeeping tenant, creating that tenant on first
-   * use -- and a tenant creation is exactly what a plaintext control plane refuses once any other
-   * tenant already exists. The refusal therefore has nothing to do with the bundle being deployed
-   * or the tenant it targets, which is where an operator reading the bare message looks first.
+   * Adds context a caller has no way to guess from the body alone, without naming a specific tenant
+   * as the culprit: {@code ControlPlaneApi} is used both for hilmir's own bookkeeping-tenant calls
+   * and for a bundle's own tenant/workload puts, and the fixed bookkeeping tenant ({@code
+   * gimle-hilmir}) is platform-seeded and therefore exempt from this limit (see {@code
+   * Tenant#isPlatformSeeded}), so it can never itself be the tenant that trips it. Whichever tenant
+   * actually collided, the underlying limit and its remedy are the same, so both are named
+   * generically here rather than guessed at.
    */
   private static String describeForbidden(String body) {
     String detail = body == null || body.isBlank() ? "" : ": " + body;
     if (body != null && body.contains("only one real tenant may exist")) {
       return "forbidden"
           + detail
-          + "\n\nevery hilmir release verb records itself under the fixed gimle-hilmir"
-          + " bookkeeping tenant and creates it on first use, which a plaintext control plane"
-          + " refuses once another tenant already exists -- this is not about the bundle or the"
-          + " tenant it targets. Use mTLS (-Dgimle.transport.protocol=tls with operator"
+          + "\n\nplaintext control plane rejects a tenant creation once another real tenant"
+          + " already exists -- most likely the bundle's own target tenant colliding with one"
+          + " already there (gimle-hilmir's own bookkeeping tenant is exempt from this limit and"
+          + " cannot itself be the cause). Use mTLS (-Dgimle.transport.protocol=tls with operator"
           + " credentials) for a cluster that has more than one tenant.";
     }
     return "forbidden" + detail;
