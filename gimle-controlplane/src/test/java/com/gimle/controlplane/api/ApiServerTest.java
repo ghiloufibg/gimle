@@ -2722,14 +2722,89 @@ class ApiServerTest {
             .isEmpty());
   }
 
+  // ---- deterministic artifact defects fail synchronously at apply (DEV-Forge-04) ----
+
+  /**
+   * A structural, deterministic defect in the artifact's own bundled descriptor -- here, a resource
+   * request exceeding its own limit -- can never succeed on a future retry, so it must be rejected
+   * synchronously at apply time rather than silently admitted with no digest, the way a
+   * merely-unreadable (not yet synced) artifact tolerantly is. Mirrors the same "fail loudly at
+   * submit time" reasoning already covered for a mismatched module version.
+   */
+  @Test
+  void
+      a_deployment_whose_artifact_declares_a_resource_request_over_its_own_limit_is_rejected_synchronously()
+          throws Exception {
+    Path jar =
+        TestModuleBuilder.module("module com.gimle.fixture.badresources {\n}\n")
+            .withDescriptor(
+                """
+                name: com.gimle.fixture.badresources
+                version: 1.0.0
+                isolation:
+                  tier: TIER_1
+                resources:
+                  request:
+                    memory: 64Mi
+                    cpu: 50m
+                  limit:
+                    memory: 32Mi
+                    cpu: 10m
+                """)
+            .build(tempDir, "bad-resources.jar");
+
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/bad-resources"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "bad-resources",
+                            1,
+                            jar.toAbsolutePath().toString(),
+                            "com.gimle.fixture.badresources")))
+                .build());
+
+    assertTrue(
+        put.statusCode() >= 400 && put.statusCode() < 500,
+        "expected a synchronous 4xx rejection, got " + put.statusCode() + ": " + put.body());
+    assertTrue(
+        store.getDeployment(Optional.of(Tenant.DEFAULT_TENANT_ID), "bad-resources").isEmpty());
+  }
+
+  /**
+   * Regression guard for the tolerant case this fix must not touch: a genuinely unreadable artifact
+   * -- one that simply doesn't exist on this node's filesystem yet, most commonly because it hasn't
+   * finished syncing -- still admits with no recorded digest, exactly as {@link
+   * #put_then_get_a_deployment_round_trips} already proves for the default tenant's own deployment
+   * path; asserted again here, explicitly, alongside the new rejection case above.
+   */
+  @Test
+  void a_deployment_referencing_a_not_yet_synced_artifact_path_still_admits_tolerantly()
+      throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/not-yet-synced"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        defaultTenantDeploymentYaml(
+                            "not-yet-synced",
+                            1,
+                            tempDir.resolve("does-not-exist-yet.jar").toAbsolutePath().toString(),
+                            "com.gimle.fixture.notyetsynced")))
+                .build());
+
+    assertEquals(200, put.statusCode(), put.body());
+  }
+
   // ---- certificate bootstrap on a plaintext (no-CA) cluster ----
 
   /**
-   * {@code GOV-01}: on a plaintext-transport cluster {@code certificateAuthority} is never
-   * present, so {@code /bootstrap/csr} and its siblings are never registered at all -- without a
-   * catch-all, the JDK's own httpserver answers with a truly empty-bodied 404 that gives a CLI
-   * caller no clue why. This class's own {@code @BeforeEach} always builds a plaintext server (see
-   * its own javadoc), so every test here already runs against exactly that configuration.
+   * {@code GOV-01}: on a plaintext-transport cluster {@code certificateAuthority} is never present,
+   * so {@code /bootstrap/csr} and its siblings are never registered at all -- without a catch-all,
+   * the JDK's own httpserver answers with a truly empty-bodied 404 that gives a CLI caller no clue
+   * why. This class's own {@code @BeforeEach} always builds a plaintext server (see its own
+   * javadoc), so every test here already runs against exactly that configuration.
    */
   @Test
   void bootstrap_csr_on_a_plaintext_cluster_gives_an_informative_body_not_an_empty_404()
