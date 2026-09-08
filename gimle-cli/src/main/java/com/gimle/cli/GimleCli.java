@@ -444,14 +444,35 @@ public final class GimleCli {
     }
   }
 
+  /**
+   * Accepts both {@code events <deploymentName> <instanceIndex> ...} (every non-DaemonSet workload)
+   * and {@code events <daemonSetName> --node <nodeId> ...}: a DaemonSet's own {@code instanceIndex}
+   * is always {@code 0} (see {@code AssignedInstance}'s own javadoc), so {@code --node} is what
+   * actually addresses one specific node's own event history rather than every node's history
+   * merged together. The second positional argument is treated as {@code instanceIndex} only when
+   * it doesn't itself look like a flag; otherwise {@code --node} must be present among the
+   * remaining arguments, or this is rejected as a usage error rather than silently defaulting to
+   * index {@code 0} for a typo'd deployment name.
+   */
   private static void handleEvents(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
-    if (args.size() < 2) {
-      throw new CliException(
-          "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]");
+    if (args.isEmpty()) {
+      throw new CliException(EVENTS_USAGE);
     }
-    new EventsCommand(client, output, out)
-        .run(args.get(0), args.get(1), args.subList(2, args.size()));
+    String deploymentName = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    String instanceIndex;
+    List<String> extraArgs;
+    if (!rest.isEmpty() && !rest.get(0).startsWith("--")) {
+      instanceIndex = rest.get(0);
+      extraArgs = rest.subList(1, rest.size());
+    } else if (rest.contains("--node")) {
+      instanceIndex = "0";
+      extraArgs = rest;
+    } else {
+      throw new CliException(EVENTS_USAGE);
+    }
+    new EventsCommand(client, output, out).run(deploymentName, instanceIndex, extraArgs);
   }
 
   /**
@@ -1141,7 +1162,9 @@ public final class GimleCli {
           + " <name>";
 
   private static final String EVENTS_USAGE =
-      "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]";
+      "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--node <nodeId>]"
+          + " [--limit N]\n"
+          + "       gimle events <daemonSetName> --node <nodeId> [--tenant <id>] [--limit N]";
 
   private static String requireOne(List<String> args, String what) {
     if (args.isEmpty()) {

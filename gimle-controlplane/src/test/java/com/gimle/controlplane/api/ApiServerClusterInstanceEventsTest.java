@@ -81,6 +81,40 @@ class ApiServerClusterInstanceEventsTest {
                 occurredAtEpochMilli));
   }
 
+  /**
+   * A DaemonSet's own event, keyed by {@code nodeId} rather than a distinct {@code instanceIndex}
+   * (always {@code 0} for a DaemonSet -- see {@link InstanceEvent}'s own javadoc).
+   */
+  private void appendDaemonSetInstanceEvent(
+      Optional<String> tenantId,
+      String id,
+      String daemonSetName,
+      String nodeId,
+      long occurredAtEpochMilli) {
+    inProcessStore
+        .store()
+        .putInstanceEvent(
+            tenantId,
+            new InstanceEvent(
+                id,
+                daemonSetName,
+                0,
+                InstanceEventKind.ACTIVE,
+                "module active",
+                Optional.empty(),
+                Optional.of(nodeId),
+                occurredAtEpochMilli));
+  }
+
+  private List<Map<String, Object>> getSingleInstanceEvents(String query) throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/events" + query)).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, response.statusCode(), response.body());
+    return Json.asObjectList(Json.parse(response.body()));
+  }
+
   private Map<String, Object> getClusterEvents(String query) throws Exception {
     HttpResponse<String> response =
         client.send(
@@ -231,5 +265,38 @@ class ApiServerClusterInstanceEventsTest {
   void supplying_only_one_of_deployment_and_instance_is_still_rejected() throws Exception {
     assertEquals(400, statusOfClusterEvents("?deployment=orders-service"));
     assertEquals(400, statusOfClusterEvents("?instance=0"));
+  }
+
+  /**
+   * Two different nodes running the same DaemonSet both report their own events under the exact
+   * same {@code (deploymentName=log-agent, instanceIndex=0)} key -- a DaemonSet places at most one
+   * instance per node, so {@code instanceIndex} carries no per-node distinction at all. Without a
+   * {@code nodeId} on the event and a {@code ?node=} filter reading it, the single-instance query
+   * merges both nodes' histories into one indistinguishable stream.
+   */
+  @Test
+  void a_node_filter_isolates_one_daemonset_nodes_own_events_from_anothers() throws Exception {
+    appendDaemonSetInstanceEvent(Optional.empty(), "evt-node-a-1", "log-agent", "node-a", 1_000L);
+    appendDaemonSetInstanceEvent(Optional.empty(), "evt-node-b-1", "log-agent", "node-b", 2_000L);
+    appendDaemonSetInstanceEvent(Optional.empty(), "evt-node-a-2", "log-agent", "node-a", 3_000L);
+
+    List<Map<String, Object>> nodeAEvents =
+        getSingleInstanceEvents("?deployment=log-agent&instance=0&node=node-a");
+    List<Map<String, Object>> nodeBEvents =
+        getSingleInstanceEvents("?deployment=log-agent&instance=0&node=node-b");
+    List<Map<String, Object>> unfiltered =
+        getSingleInstanceEvents("?deployment=log-agent&instance=0");
+
+    assertEquals(List.of("evt-node-a-2", "evt-node-a-1"), idsOf(nodeAEvents));
+    assertEquals(List.of("evt-node-b-1"), idsOf(nodeBEvents));
+    assertEquals(3, unfiltered.size(), "no ?node= filter still returns every node's own events");
+  }
+
+  private static List<String> idsOf(List<Map<String, Object>> events) {
+    List<String> ids = new ArrayList<>();
+    for (Map<String, Object> event : events) {
+      ids.add((String) event.get("id"));
+    }
+    return ids;
   }
 }

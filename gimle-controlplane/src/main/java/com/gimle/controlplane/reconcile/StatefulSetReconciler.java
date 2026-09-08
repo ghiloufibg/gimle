@@ -314,7 +314,7 @@ public final class StatefulSetReconciler {
         return; // one destructive step per tick -- see class javadoc.
       }
       if (isCrashLooping(assignment.get())) {
-        handleCrashLoop(spec, index, slot, now);
+        handleCrashLoop(spec, index, slot, now, assignment.get().nodeId());
         return; // one destructive step per tick -- see class javadoc.
       }
       if (!isReady(assignment.get(), now, observingSince)) {
@@ -331,7 +331,8 @@ public final class StatefulSetReconciler {
    * to act now, either releases the stale assignment for re-placement or gives up on it permanently
    * -- mirrors {@link HealthReconciler#handleUnhealthy}'s own three outcomes exactly.
    */
-  private void handleCrashLoop(StatefulSetSpec spec, int index, String slot, Instant now) {
+  private void handleCrashLoop(
+      StatefulSetSpec spec, int index, String slot, Instant now, String nodeId) {
     WorkloadCrashLoopBackoff.Evaluation evaluation =
         crashLoopBackoff.handleFailureObserved(
             WORKLOAD_KIND, spec.name(), slot, spec.tenantId(), now);
@@ -352,6 +353,7 @@ public final class StatefulSetReconciler {
                   InstanceEventKind.TRANSITION_FAILED,
                   "exhausted its restart budget; giving up on rescheduling it",
                   Optional.empty(),
+                  Optional.of(nodeId),
                   clock.millis())));
     } else if (evaluation.shouldRemoveAssignmentNow()) {
       log.warn(

@@ -254,6 +254,7 @@ class GimleCliTest {
                 InstanceEventKind.ACTIVE,
                 "instance became active",
                 Optional.empty(),
+                Optional.empty(),
                 occurredAtEpochMilli)));
   }
 
@@ -279,6 +280,7 @@ class GimleCliTest {
                 InstanceEventKind.TRANSITION_FAILED,
                 "instance failed to transition",
                 Optional.of(causeSummary),
+                Optional.empty(),
                 occurredAtEpochMilli)));
   }
 

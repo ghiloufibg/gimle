@@ -1362,7 +1362,10 @@ public final class AgentMain {
    * Relays one worker-reported {@link InstanceEvent} to the control plane, the same
    * agent-forwards-what-a-worker-told-it shape {@link #sendHeartbeat} already has -- best-effort,
    * matching {@code WorkerMain}'s own {@code sendQuietly} posture for this same message: a lost
-   * event costs nothing more than an incomplete timeline entry, never a stalled agent.
+   * event costs nothing more than an incomplete timeline entry, never a stalled agent. {@code
+   * nodeId} is always this agent's own node -- every instance it supervises, and every event it
+   * relays on a worker's behalf, runs on this exact machine -- so it is stamped onto the posted
+   * body unconditionally rather than trusting whatever (if anything) the event already carries.
    */
   private static void postInstanceEvent(
       HttpClient httpClient, URI baseUrl, String nodeId, InstanceEvent event) {
@@ -1373,6 +1376,7 @@ public final class AgentMain {
     body.put("kind", event.kind().name());
     body.put("message", event.message());
     event.causeSummary().ifPresent(summary -> body.put("causeSummary", summary));
+    body.put("nodeId", nodeId);
     body.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
     try {
       HttpRequest request =
@@ -1641,6 +1645,7 @@ public final class AgentMain {
             InstanceEventKind.TRANSITION_FAILED,
             "assignment spec rejected by this node",
             Optional.of(String.valueOf(e.getMessage())),
+            Optional.empty(),
             System.currentTimeMillis()));
   }
 
@@ -1680,6 +1685,7 @@ public final class AgentMain {
             InstanceEventKind.TRANSITION_FAILED,
             "instance start refused by this node",
             Optional.of(cause),
+            Optional.empty(),
             System.currentTimeMillis()));
   }
 
@@ -2015,6 +2021,7 @@ public final class AgentMain {
                 InstanceEventKind.TRANSITION_FAILED,
                 "artifact resolution failed",
                 Optional.of(String.valueOf(e.getMessage())),
+                Optional.empty(),
                 System.currentTimeMillis()));
         continue;
       }
@@ -3023,6 +3030,7 @@ public final class AgentMain {
               InstanceEventKind.TRANSITION_FAILED,
               "timed out waiting for shared worker to connect",
               Optional.empty(),
+              Optional.empty(),
               System.currentTimeMillis()));
       return;
     }
@@ -3313,6 +3321,7 @@ public final class AgentMain {
               InstanceEventKind.TRANSITION_FAILED,
               "worker crashed",
               Optional.of(causeSummary),
+              Optional.empty(),
               Instant.now().toEpochMilli());
       postInstanceEvent(httpClient, baseUrl, nodeId, event);
     }
@@ -3683,6 +3692,7 @@ public final class AgentMain {
               InstanceEventKind.TRANSITION_FAILED,
               "failed to bring up instance",
               Optional.of(e.getClass().getSimpleName() + ": " + e.getMessage()),
+              Optional.empty(),
               System.currentTimeMillis()));
     }
   }
@@ -3940,6 +3950,7 @@ public final class AgentMain {
                     InstanceEventKind.TRANSITION_FAILED,
                     "install sequence nacked",
                     Optional.of(nack.reason()),
+                    Optional.empty(),
                     System.currentTimeMillis()));
           }
         } else if (message instanceof ControlMessage.InstanceEventOccurred occurred) {

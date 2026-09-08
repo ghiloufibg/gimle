@@ -560,6 +560,7 @@ class StateStoreTest {
             InstanceEventKind.TRANSITION_FAILED,
             "transition ACTIVE -> STOPPING failed",
             Optional.of("java.lang.IllegalStateException: boom"),
+            Optional.empty(),
             3_000L);
 
     store.putInstanceEvent(Optional.empty(), event);

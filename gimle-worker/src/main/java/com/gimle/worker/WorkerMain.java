@@ -939,6 +939,7 @@ public final class WorkerMain {
               // failed" for an instance that had in fact reached FAILED exactly as intended.
               "could not transition from " + failed.from() + " to " + failed.to(),
               Optional.of(transitionFailureDetail(failed.cause())),
+              Optional.empty(),
               occurredAtEpochMilli);
       case LifecycleEvent.Completed ignored ->
           new InstanceEvent(

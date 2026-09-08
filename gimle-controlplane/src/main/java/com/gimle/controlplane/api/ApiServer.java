@@ -5612,13 +5612,17 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Relays one worker-reported {@link InstanceEvent}, forwarded by its agent, into the durable
-   * per-instance event log -- the {@code nodeId} in the URL is only used for the {@code NODE:WRITE}
+   * per-instance event log -- the {@code nodeId} in the URL is used only for the {@code NODE:WRITE}
    * self-service authorization {@link #handleNode} already applied; the event itself carries its
-   * own deployment/instance identity, unrelated to which node happened to relay it. {@code
-   * InstanceEvent} carries no {@code tenantId} of its own (it predates per-tenant store scoping and
-   * crosses the agent/worker wire, neither of which otherwise needs to know about tenancy), so the
-   * tenant to key this event's timeline under is joined from whichever live assignment currently
-   * matches this (deploymentName, instanceIndex) pair, tried across all four kinds via {@link
+   * own deployment/instance identity, unrelated to which node happened to relay it. The posted
+   * body's own {@code nodeId} field -- the agent's real node, stamped on unconditionally by {@code
+   * AgentMain#postInstanceEvent} -- is what actually lands on the stored {@link InstanceEvent},
+   * since for a DaemonSet it is the only thing that distinguishes one node's own event history from
+   * another's ({@code instanceIndex} is always {@code 0} there). {@code InstanceEvent} carries no
+   * {@code tenantId} of its own (it predates per-tenant store scoping and crosses the agent/worker
+   * wire, neither of which otherwise needs to know about tenancy), so the tenant to key this
+   * event's timeline under is joined from whichever live assignment currently matches this
+   * (deploymentName, instanceIndex) pair, tried across all four kinds via {@link
    * #resolveInstanceEventTenant} -- the same cross-kind join {@link #resolveInstancePlacement}
    * already uses for {@code /instances/.../fabric-endpoint}. Checking only {@link
    * InstanceAssignment} (Deployment-kind bookkeeping alone) here left every StatefulSet/DaemonSet
@@ -5635,6 +5639,7 @@ public final class ApiServer implements AutoCloseable {
     }
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     Object causeSummary = body.get("causeSummary");
+    Object postedNodeId = body.get("nodeId");
     String deploymentName = (String) body.get("deploymentName");
     int instanceIndex = ((Number) body.get("instanceIndex")).intValue();
     InstanceEvent event =
@@ -5645,6 +5650,9 @@ public final class ApiServer implements AutoCloseable {
             InstanceEventKind.valueOf((String) body.get("kind")),
             (String) body.get("message"),
             causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
+            postedNodeId == null || ((String) postedNodeId).isBlank()
+                ? Optional.empty()
+                : Optional.of((String) postedNodeId),
             ((Number) body.get("occurredAtEpochMilli")).longValue());
     // A workload's removal wipes the instance timelines it owned, but its instances are only torn
     // down afterwards, so their last few lifecycle events arrive with nothing left to own them.
@@ -5806,6 +5814,12 @@ public final class ApiServer implements AutoCloseable {
    * other verb this class exposes. {@link #handleClusterInstanceEvents} instead matches every
    * tenant when {@code tenant} is omitted, since a cluster-wide read has no one instance's key to
    * address in the first place.
+   *
+   * <p>{@code ?node=<nodeId>}, when given, additionally filters the single-instance mode's own
+   * result down to events carrying that exact {@code nodeId} -- the only way to pull one DaemonSet
+   * replica's own history apart from its siblings', since a DaemonSet's {@code instanceIndex} is
+   * always {@code 0} for every node it runs on and {@code deployment}/{@code instance} alone
+   * therefore addresses every node's events at once.
    */
   private void handleEvents(HttpExchange exchange) {
     try {
@@ -5834,9 +5848,13 @@ public final class ApiServer implements AutoCloseable {
       if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
+      String nodeFilter = query.get("node");
       List<Map<String, Object>> events = new ArrayList<>();
       for (InstanceEvent event :
           storeClient.listInstanceEvents(tenant, deploymentName, instanceIndex)) {
+        if (nodeFilter != null && !nodeFilter.equals(event.nodeId().orElse(null))) {
+          continue;
+        }
         events.add(instanceEventToJson(event));
       }
       respondJson(exchange, 200, events);
@@ -5907,6 +5925,7 @@ public final class ApiServer implements AutoCloseable {
     map.put("kind", event.kind().name());
     map.put("message", event.message());
     event.causeSummary().ifPresent(summary -> map.put("causeSummary", summary));
+    event.nodeId().ifPresent(nodeId -> map.put("nodeId", nodeId));
     map.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
     return map;
   }
