@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The real {@link RemoteExec}: shells out to the operator's own already-installed {@code ssh}/
@@ -90,24 +91,35 @@ public final class SshProcessExec implements RemoteExec {
     scanCommand.add("ssh-keyscan");
     target.port().ifPresent(p -> scanCommand.addAll(List.of("-p", String.valueOf(p))));
     scanCommand.add(target.host());
-    final String scanned =
+    final CapturedOutput scanned =
         runCapturingOutput(scanCommand, "scanning SSH host key for " + target.machineName());
     final List<String> keyLines =
-        scanned.lines().filter(line -> !line.isBlank() && !line.startsWith("#")).toList();
+        scanned.stdout().lines().filter(line -> !line.isBlank() && !line.startsWith("#")).toList();
     if (keyLines.isEmpty()) {
-      throw new HilmirException(
-          "could not scan an SSH host key for "
-              + target.machineName()
-              + " ("
-              + target.host()
-              + ") -- is it reachable on port "
-              + target.port().map(String::valueOf).orElse("22")
-              + "?");
+      throw new HilmirException(unreachableMessage(target, scanned));
     }
     target
         .hostKeyFingerprint()
         .ifPresent(expected -> verifyFingerprint(target, keyLines, expected));
     appendKnownHosts(knownHostsFile, keyLines);
+  }
+
+  /**
+   * The generic reachability guess, with {@code ssh-keyscan}'s own captured stderr folded in when
+   * there is any -- without it, a real negotiation failure (e.g. "no matching key exchange method
+   * found", written to stderr rather than stdout) was previously discarded outright, leaving only a
+   * misleading "is it reachable?" guess in its place.
+   */
+  static String unreachableMessage(final ResolvedSshTarget target, final CapturedOutput scanned) {
+    final String stderr = scanned.stderr().strip();
+    return "could not scan an SSH host key for "
+        + target.machineName()
+        + " ("
+        + target.host()
+        + ") -- is it reachable on port "
+        + target.port().map(String::valueOf).orElse("22")
+        + "?"
+        + (stderr.isEmpty() ? "" : " ssh-keyscan reported: " + stderr);
   }
 
   private static void verifyFingerprint(
@@ -303,23 +315,46 @@ public final class SshProcessExec implements RemoteExec {
     }
   }
 
+  /** A process's stdout and stderr, captured in full rather than relayed live. */
+  record CapturedOutput(String stdout, String stderr) {}
+
   /**
    * Like {@link #runCapturing}, but returns the captured output instead of throwing on a nonzero
    * exit -- {@code ssh-keyscan}'s own exit-code semantics aren't as strict as {@code scp}/{@code
-   * ssh}'s, so an empty-vs-nonempty result is the more reliable success signal.
+   * ssh}'s, so an empty-vs-nonempty result is the more reliable success signal. Captures stdout and
+   * stderr separately (never merged: {@code ssh-keyscan}'s own key-line/comment-line format on
+   * stdout is parsed elsewhere, and merging a diagnostic line from stderr into it could be mistaken
+   * for a scanned key) -- stderr is drained on its own virtual thread, concurrently with this
+   * thread reading stdout, so a chatty child that fills one pipe's OS buffer before the other is
+   * drained can never deadlock this method.
    */
-  private static String runCapturingOutput(final List<String> command, final String description) {
+  static CapturedOutput runCapturingOutput(final List<String> command, final String description) {
     final ProcessBuilder processBuilder = new ProcessBuilder(command);
     processBuilder.redirectErrorStream(false);
     try {
       final Process process = processBuilder.start();
-      final String output =
+      final AtomicReference<String> stderr = new AtomicReference<>("");
+      final Thread stderrDrain =
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    try {
+                      stderr.set(
+                          new String(
+                              process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8));
+                    } catch (final IOException ignored) {
+                      // The stream closes when the process exits -- nothing worth surfacing beyond
+                      // whatever partial stderr was already captured.
+                    }
+                  });
+      final String stdout =
           new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
       if (!process.waitFor(FINGERPRINT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         process.destroyForcibly();
         throw new HilmirException(description + " timed out after " + FINGERPRINT_TIMEOUT);
       }
-      return output;
+      stderrDrain.join();
+      return new CapturedOutput(stdout, stderr.get());
     } catch (final IOException e) {
       throw new HilmirException(description + " could not start", e);
     } catch (final InterruptedException e) {
