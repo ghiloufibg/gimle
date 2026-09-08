@@ -95,6 +95,32 @@ describe("useRunStore.start", () => {
 
     expect(useClustersStore.getState().selectedFor(blueprint.id)?.id).toBe(clusterB.id);
   });
+
+  it("still reports a just-succeeded run as running even when remembering its cluster throws", async () => {
+    const setItemSpy = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    createRunMock.mockResolvedValue({
+      runId: "run-1",
+      status: "running",
+      steps: [],
+      endpoints: [],
+      machines: [],
+      artifacts: [],
+      cronJobs: [],
+      startedAt: "2026-01-01T00:00:00Z",
+      finishedAt: null,
+      error: null,
+      revision: null,
+    } satisfies RunSnapshot);
+    const blueprint = createBlueprint("test");
+
+    await useRunStore.getState().start(blueprint);
+
+    expect(useRunStore.getState().status).toBe("running");
+    expect(useRunStore.getState().busy).toBe(false);
+    setItemSpy.mockRestore();
+  });
 });
 
 describe("useRunStore.checkHealth", () => {

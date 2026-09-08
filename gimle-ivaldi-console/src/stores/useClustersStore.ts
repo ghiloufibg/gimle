@@ -22,7 +22,11 @@ const PER_BLUEPRINT_KEY = "ivaldi.clusters.byBlueprint";
 
 function storedSelection(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(SELECTED_KEY);
+  try {
+    return window.localStorage.getItem(SELECTED_KEY);
+  } catch {
+    return null;
+  }
 }
 
 function storedTargets(): Record<string, string> {
@@ -143,7 +147,14 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
   },
 
   select: (id) => {
-    if (typeof window !== "undefined" && id) window.localStorage.setItem(SELECTED_KEY, id);
+    if (typeof window !== "undefined" && id) {
+      try {
+        window.localStorage.setItem(SELECTED_KEY, id);
+      } catch {
+        // Best-effort only: a private window, cleared site data, or a full quota must never block
+        // choosing a cluster.
+      }
+    }
     set({ selectedId: id });
   },
 
@@ -157,8 +168,12 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
 
   selectFor: (blueprintId, clusterId) => {
     if (typeof window !== "undefined") {
-      const targets = { ...storedTargets(), [blueprintId]: clusterId };
-      window.localStorage.setItem(PER_BLUEPRINT_KEY, JSON.stringify(targets));
+      try {
+        const targets = { ...storedTargets(), [blueprintId]: clusterId };
+        window.localStorage.setItem(PER_BLUEPRINT_KEY, JSON.stringify(targets));
+      } catch {
+        // See select.
+      }
     }
     // The most recent choice also becomes the default a blueprint with none of its own inherits.
     get().select(clusterId);

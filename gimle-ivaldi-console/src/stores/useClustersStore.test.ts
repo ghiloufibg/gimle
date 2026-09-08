@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ClusterConnection } from "@/repositories/contracts";
 
@@ -98,5 +99,42 @@ describe("useClustersStore error titles", () => {
 
     expect(useClustersStore.getState().error).toBeNull();
     expect(useClustersStore.getState().errorTitle).toBeNull();
+  });
+});
+
+// A private window, blocked storage, or a full quota must never stop a cluster choice from
+// working -- persisting it is best-effort only.
+describe("useClustersStore localStorage resilience", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("select still updates the selected cluster even when persisting it throws", () => {
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    useClustersStore.getState().select("c1");
+
+    expect(useClustersStore.getState().selectedId).toBe("c1");
+  });
+
+  it("selectFor still updates the selected cluster even when persisting it throws", () => {
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    useClustersStore.getState().selectFor("bp-1", "c1");
+
+    expect(useClustersStore.getState().selectedId).toBe("c1");
+  });
+
+  it("refresh still loads the cluster list even when reading the stored selection throws", async () => {
+    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    await useClustersStore.getState().refresh();
+
+    expect(useClustersStore.getState().clusters).toEqual([cluster]);
+    expect(useClustersStore.getState().error).toBeNull();
   });
 });
