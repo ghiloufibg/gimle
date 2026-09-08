@@ -150,6 +150,7 @@ function ordersPlatform(): Blueprint {
         name: "web-ui-deny-cross-tenant",
         tenantId: "orders-platform",
         deploymentNames: ["web-ui-deployment"],
+        restrictIngress: true,
         allowedCallerTenantIds: [],
       },
     },

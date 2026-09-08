@@ -377,6 +377,7 @@ describe("NetworkPolicy egress and interface scoping", () => {
     const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
     policy.data = {
       ...policy.data,
+      restrictIngress: false,
       allowedCallerTenantIds: [],
       allowedCalleeTenantIds: ["orders-platform"],
     };
@@ -429,6 +430,17 @@ describe("NetworkPolicy restrictIngress intent", () => {
     const doc = parse(manifest.content) as { allowedCallerTenantIds?: string[] };
 
     expect(doc.allowedCallerTenantIds).toEqual(["billing", "orders-platform"]);
+  });
+
+  it("restricts ingress to a caller connected only by a drawn allowsCaller edge, with no flag or list set", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = { ...policy.data, restrictIngress: undefined, allowedCallerTenantIds: [] };
+    bp.edges.push({ id: "e-allows", kind: "allowsCaller", source: policy.id, target: "t-orders" });
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as { allowedCallerTenantIds?: string[] };
+
+    expect(doc.allowedCallerTenantIds).toEqual(["orders-platform"]);
   });
 });
 
