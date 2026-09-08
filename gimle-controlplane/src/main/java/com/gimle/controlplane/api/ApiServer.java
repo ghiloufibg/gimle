@@ -206,6 +206,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
@@ -5461,47 +5462,62 @@ public final class ApiServer implements AutoCloseable {
    * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
    * since the whole point here is discovering which tenant owns the name in the first place. With
    * no matching assignment left, {@code owners} -- the workload specs currently carrying this name
-   * -- answers instead, and only a name genuinely claimed by no tenant, or by more than one, falls
-   * through to {@link Optional#empty()} (the untenanted namespace).
+   * -- answers instead, and only a name genuinely claimed by no tenant falls through to {@link
+   * Optional#empty()} (the untenanted namespace). Two tenants each genuinely holding a live
+   * assignment for the exact same {@code (deploymentName, instanceIndex)} -- a real cross-tenant
+   * collision, not a hash-order artifact -- throws {@link AmbiguousTenantException} at whichever
+   * tier the collision is found in, rather than silently returning whichever assignment happened to
+   * come first in an unordered backing collection, exactly as {@link #findTenantByName} already
+   * refuses to guess for a bare workload-name collision.
    */
   private Optional<String> resolveInstanceEventTenant(
       String deploymentName, int instanceIndex, List<WorkloadSpec> owners) {
     Optional<Optional<String>> deployment =
-        storeClient.listAssignments().stream()
-            .filter(
-                a ->
-                    a.deploymentName().equals(deploymentName) && a.instanceIndex() == instanceIndex)
-            .map(InstanceAssignment::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listAssignments().stream()
+                .filter(
+                    a ->
+                        a.deploymentName().equals(deploymentName)
+                            && a.instanceIndex() == instanceIndex)
+                .toList(),
+            InstanceAssignment::tenantId,
+            deploymentName);
     if (deployment.isPresent()) {
       return deployment.get();
     }
     Optional<Optional<String>> statefulSet =
-        storeClient.listStatefulSetAssignments().stream()
-            .filter(
-                a ->
-                    a.statefulSetName().equals(deploymentName)
-                        && a.instanceIndex() == instanceIndex)
-            .map(StatefulSetAssignment::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listStatefulSetAssignments().stream()
+                .filter(
+                    a ->
+                        a.statefulSetName().equals(deploymentName)
+                            && a.instanceIndex() == instanceIndex)
+                .toList(),
+            StatefulSetAssignment::tenantId,
+            deploymentName);
     if (statefulSet.isPresent()) {
       return statefulSet.get();
     }
     if (instanceIndex == 0) {
       Optional<Optional<String>> daemonSet =
-          storeClient.listDaemonSetAssignments().stream()
-              .filter(a -> a.daemonSetName().equals(deploymentName))
-              .map(DaemonSetAssignment::tenantId)
-              .findFirst();
+          resolveAssignmentTenant(
+              storeClient.listDaemonSetAssignments().stream()
+                  .filter(a -> a.daemonSetName().equals(deploymentName))
+                  .toList(),
+              DaemonSetAssignment::tenantId,
+              deploymentName);
       if (daemonSet.isPresent()) {
         return daemonSet.get();
       }
     }
     Optional<Optional<String>> jobRun =
-        storeClient.listJobRuns().stream()
-            .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
-            .map(JobRun::tenantId)
-            .findFirst();
+        resolveAssignmentTenant(
+            storeClient.listJobRuns().stream()
+                .filter(
+                    run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+                .toList(),
+            JobRun::tenantId,
+            deploymentName);
     if (jobRun.isPresent()) {
       return jobRun.get();
     }
@@ -5512,6 +5528,30 @@ public final class ApiServer implements AutoCloseable {
     List<String> ownerTenants =
         owners.stream().flatMap(spec -> spec.tenantId().stream()).distinct().toList();
     return ownerTenants.size() == 1 ? Optional.of(ownerTenants.get(0)) : Optional.empty();
+  }
+
+  /**
+   * Whether any of {@code matches} -- one assignment kind's own rows already filtered down to the
+   * ones matching a single {@code (deploymentName, instanceIndex)} -- exist at all, and if so which
+   * tenant they belong to: {@link Optional#empty()} when {@code matches} itself is empty (this tier
+   * found nothing, so {@link #resolveInstanceEventTenant} should keep trying the next one),
+   * otherwise a present {@link Optional} wrapping the resolved tenant (itself possibly empty, for a
+   * genuinely untenanted assignment). Mirrors {@link #findTenantByName}'s own collect-then-check
+   * shape: every present {@code tenantId()} among the matches is collected and deduplicated, and
+   * more than one distinct tenant throws {@link AmbiguousTenantException} instead of picking
+   * whichever matching assignment happened to come first.
+   */
+  private static <T> Optional<Optional<String>> resolveAssignmentTenant(
+      List<T> matches, Function<T, Optional<String>> tenantIdOf, String name) {
+    if (matches.isEmpty()) {
+      return Optional.empty();
+    }
+    List<String> tenantIds =
+        matches.stream().flatMap(match -> tenantIdOf.apply(match).stream()).distinct().toList();
+    if (tenantIds.size() > 1) {
+      throw new AmbiguousTenantException("instance", name, tenantIds);
+    }
+    return Optional.of(tenantIds.stream().findFirst());
   }
 
   /**
