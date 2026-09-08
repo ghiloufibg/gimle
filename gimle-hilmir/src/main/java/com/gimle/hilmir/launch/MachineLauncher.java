@@ -20,12 +20,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -722,6 +724,15 @@ public final class MachineLauncher {
         .collect(Collectors.joining(", "));
   }
 
+  /**
+   * How many descendant-snapshot passes {@link #killDescendants} takes before giving up on a
+   * process tree that keeps producing new descendants. {@link ProcessHandle#descendants()} only
+   * ever reflects one instant, so a single pass can miss a descendant spawned in the gap between
+   * that snapshot and the parent's own death; a handful of passes catches that gap without risking
+   * an unbounded loop against a tree that (pathologically) never stops respawning.
+   */
+  private static final int DESCENDANT_KILL_PASSES = 3;
+
   private static void killWithDescendants(
       final Path dataRoot, final RunRecord record, final PrintStream out) {
     final Optional<ProcessHandle> maybeHandle = ProcessHandle.of(record.pid());
@@ -730,12 +741,16 @@ public final class MachineLauncher {
       return;
     }
     final ProcessHandle handle = maybeHandle.get();
-    handle.descendants().forEach(ProcessHandle::destroy);
+    killDescendants(handle);
     handle.destroy();
     if (!awaitExit(handle, KILL_GRACE_PERIOD)) {
       handle.destroyForcibly();
       awaitExit(handle, KILL_GRACE_PERIOD);
     }
+    // The parent may have spawned one last descendant between the snapshot above and its own
+    // death, so it gets one more pass rather than trusting a single snapshot taken before the
+    // parent was even signaled.
+    killDescendants(handle);
     // Both files a subsequent spawn() for this same command id will immediately rewrite: the log
     // file (restartRole's replacement process redirects to the identical path) and the @argfile
     // JavaArgFile.rewrite truncates-and-overwrites -- restartRole reuses the killed record's own
@@ -743,6 +758,33 @@ public final class MachineLauncher {
     awaitFileReleased(dataRoot.resolve(record.logFile()));
     awaitFileReleased(dataRoot.resolve(record.id() + ".args"));
     out.println("stopped " + record.role() + " " + record.id() + " (pid " + record.pid() + ")");
+  }
+
+  /**
+   * Gives every current descendant of {@code handle} the same destroy-then-await-then-
+   * destroyForcibly escalation the named process itself already gets in {@link
+   * #killWithDescendants} -- a descendant that ignores SIGTERM (mid-GC, a hung native call, a large
+   * in-flight drain) must not survive as an untracked orphan just because it wasn't the process
+   * this launcher was told to stop. Re-snapshots across {@link #DESCENDANT_KILL_PASSES} passes so a
+   * descendant spawned in the gap between one pass's snapshot and its signal is still caught rather
+   * than never signaled at all, but a pass that finds no descendants left returns immediately --
+   * the common cooperative case, where everything already died from the first signal, is not made
+   * to pay for a fixed multi-pass wait.
+   */
+  private static void killDescendants(final ProcessHandle handle) {
+    for (int pass = 0; pass < DESCENDANT_KILL_PASSES; pass++) {
+      final List<ProcessHandle> descendants = handle.descendants().toList();
+      if (descendants.isEmpty()) {
+        return;
+      }
+      descendants.forEach(ProcessHandle::destroy);
+      if (!awaitExit(descendants, KILL_GRACE_PERIOD)) {
+        final List<ProcessHandle> stillAlive =
+            descendants.stream().filter(ProcessHandle::isAlive).toList();
+        stillAlive.forEach(ProcessHandle::destroyForcibly);
+        awaitExit(stillAlive, KILL_GRACE_PERIOD);
+      }
+    }
   }
 
   /**
@@ -780,14 +822,29 @@ public final class MachineLauncher {
 
   /** Returns {@code true} once {@code handle} has exited, or {@code false} on timeout. */
   private static boolean awaitExit(final ProcessHandle handle, final Duration timeout) {
+    return awaitExit(List.of(handle), timeout);
+  }
+
+  /**
+   * Returns {@code true} once every handle in {@code handles} has exited, or {@code false} if any
+   * of them still hasn't by {@code timeout} -- the same wait {@link #awaitExit(ProcessHandle,
+   * Duration)} does for one process, generalized so a whole descendant set can be waited on
+   * together instead of serially (which would let an early descendant's own wait eat into the time
+   * budget meant for a later one).
+   */
+  private static boolean awaitExit(
+      final Collection<ProcessHandle> handles, final Duration timeout) {
+    final List<CompletableFuture<ProcessHandle>> exits =
+        handles.stream().map(ProcessHandle::onExit).toList();
     try {
-      handle.onExit().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+      CompletableFuture.allOf(exits.toArray(new CompletableFuture[0]))
+          .get(timeout.toMillis(), TimeUnit.MILLISECONDS);
       return true;
     } catch (final TimeoutException e) {
       return false;
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new HilmirException("interrupted while stopping pid " + handle.pid(), e);
+      throw new HilmirException("interrupted while stopping a process", e);
     } catch (final ExecutionException e) {
       return true;
     }
