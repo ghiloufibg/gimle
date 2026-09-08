@@ -344,15 +344,20 @@ public final class DaemonSetReconciler {
   }
 
   /**
-   * Direct duplicate of {@link DeploymentReconciler#handleRollingUpdate}, keyed by {@code nodeId}
-   * instead of {@code instanceIndex} -- see this class's own javadoc for why duplicated rather than
-   * shared. Tops up the in-flight node set to the DaemonSet's effective {@code maxUnavailable}
-   * every tick: checks every already-in-flight node for readiness (clearing it once its replacement
-   * has landed and reported ready), then, if budget remains, starts new migrations for the
-   * lowest-{@code nodeId} (lexicographic -- there is no natural ordering across nodes the way there
-   * is across integer indices, so this is simply a stable, deterministic tie-break) mismatches not
-   * already in flight, removing each one's stale assignment so the caller's ordinary missing-node
-   * placement logic above re-places it with the current spec's {@code moduleId}.
+   * Adapted from {@link DeploymentReconciler#handleRollingUpdate}, keyed by {@code nodeId} instead
+   * of {@code instanceIndex} -- see this class's own javadoc for why duplicated rather than shared.
+   * Tops up the in-flight node set to the DaemonSet's effective {@code maxUnavailable} every tick:
+   * checks every already-in-flight node for readiness (clearing it once its replacement has landed
+   * and reported ready), then, if budget remains, starts new migrations for the lowest-{@code
+   * nodeId} (lexicographic -- there is no natural ordering across nodes the way there is across
+   * integer indices, so this is simply a stable, deterministic tie-break) mismatches not already in
+   * flight, removing each one's stale assignment so the caller's ordinary missing-node placement
+   * logic above re-places it with the current spec's {@code moduleId}. Deliberately diverges from
+   * {@code DeploymentReconciler}'s (and {@code StatefulSetReconciler}'s) budget accounting in one
+   * respect: a permanently-failed node stays in the in-flight set but is excluded from the {@code
+   * maxUnavailable} count, since DaemonSet's nodes are independent of one another (no ordered scan
+   * halts on the first broken one the way StatefulSet's does), so one stuck node must not consume
+   * every other, perfectly healthy node's own rollout slot.
    */
   private void handleRollingUpdate(
       DaemonSetSpec spec,
@@ -391,7 +396,19 @@ public final class DaemonSetReconciler {
       }
     }
 
-    if (inFlight.size() >= maxUnavailable) {
+    // A permanently-failed node stays in-flight (it is still mid-rollout and still tracked) but
+    // does not count against the budget: unlike StatefulSet's ordered scan, which legitimately
+    // halts everything at the first broken index, DaemonSet's nodes are independent -- one stuck
+    // node has no business consuming every other, perfectly healthy node's own rollout slot.
+    long budgetConsumed =
+        inFlight.stream()
+            .filter(
+                nodeId ->
+                    !crashLoopBackoff.isPermanentlyFailed(
+                        WORKLOAD_KIND, spec.name(), nodeId, spec.tenantId()))
+            .count();
+
+    if (budgetConsumed >= maxUnavailable) {
       mutations.proposeAll(changes);
       return;
     }
@@ -400,7 +417,7 @@ public final class DaemonSetReconciler {
         .filter(assignment -> isStale(assignment, spec))
         .filter(assignment -> !inFlight.contains(assignment.nodeId()))
         .sorted(Comparator.comparing(DaemonSetAssignment::nodeId))
-        .limit(maxUnavailable - inFlight.size())
+        .limit(maxUnavailable - budgetConsumed)
         .forEach(
             mismatched -> {
               changes.add(

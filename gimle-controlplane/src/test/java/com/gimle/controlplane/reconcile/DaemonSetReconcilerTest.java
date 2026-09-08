@@ -681,6 +681,102 @@ class DaemonSetReconcilerTest {
     assertEquals("node-a", afterFreshRecovery.get(0).nodeId());
   }
 
+  @Test
+  void a_node_permanently_stuck_mid_rollout_does_not_block_the_rollout_to_other_nodes(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    store.putDaemonSetSpec(daemonSet("node-exporter", jarV1, PlacementConstraints.NONE));
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            Duration.ofMinutes(10),
+            Duration.ofMinutes(10),
+            clock);
+    reconciler.reconcileOnce();
+    for (DaemonSetAssignment a :
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter")) {
+      reportReady(store, a);
+    }
+
+    // node-a sorts first lexicographically, so it is the one the rollout below picks up first.
+    Path jarV2 = buildFixtureJar();
+    DaemonSetSpec v2 = daemonSet("node-exporter", jarV2, PlacementConstraints.NONE);
+    store.putDaemonSetSpec(v2);
+    reconciler.reconcileOnce();
+    assertEquals(
+        "node-a",
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+            .filter(a -> a.moduleId().equals(v2.moduleId()))
+            .findFirst()
+            .orElseThrow()
+            .nodeId(),
+        "sanity check: node-a is the one rolled first");
+
+    // node-a's own new version never comes up healthy and exhausts its crash-loop budget --
+    // mirrors the sibling exhausted-budget/recovery tests' own driving loop exactly.
+    Duration initialDelay = Duration.ofSeconds(2);
+    int maxAttemptsPerWindow = 5;
+    for (int attempt = 1; attempt <= maxAttemptsPerWindow + 1; attempt++) {
+      DaemonSetAssignment current =
+          store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+              .filter(a -> a.nodeId().equals("node-a"))
+              .findFirst()
+              .orElseThrow();
+      reportFailed(store, current);
+      reconciler.reconcileOnce();
+      Duration delay =
+          initialDelay.multipliedBy(
+              (long) Math.pow(2.0, Math.min(attempt, maxAttemptsPerWindow) - 1));
+      clock.advance(delay.compareTo(Duration.ofMinutes(1)) > 0 ? Duration.ofMinutes(1) : delay);
+      reconciler.reconcileOnce();
+    }
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "DaemonSet", "node-exporter", "node-a")
+            .orElseThrow()
+            .permanentlyFailed(),
+        "sanity check: node-a must actually be stuck before exercising the fix");
+
+    // The bug: node-a's own stuck migration used to consume the DaemonSet's entire
+    // maxUnavailable=1 budget forever, so node-b -- still on the stale v1 module, perfectly
+    // healthy, and owing nothing to node-a's own failure -- never got its own turn to roll
+    // forward. Several further ticks (well past any transient settling) must now start and
+    // finish node-b's own rollout regardless.
+    for (int i = 0; i < 5; i++) {
+      reconciler.reconcileOnce();
+    }
+    DaemonSetAssignment nodeB =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+            .filter(a -> a.nodeId().equals("node-b"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        v2.moduleId(),
+        nodeB.moduleId(),
+        "a permanently-stuck node-a must not block node-b's own rollout");
+
+    // node-a's own stuck assignment is left exactly as it was -- not silently torn down or
+    // reset as a side effect of unblocking node-b.
+    DaemonSetAssignment nodeA =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+            .filter(a -> a.nodeId().equals("node-a"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(v2.moduleId(), nodeA.moduleId());
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "DaemonSet", "node-exporter", "node-a")
+            .orElseThrow()
+            .permanentlyFailed(),
+        "node-a's own stuck state is untouched by unblocking node-b");
+  }
+
   // ---- desired-count publication (GIMLE-15 sub-item 2) ----
 
   @Test
