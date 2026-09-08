@@ -10260,7 +10260,7 @@ public final class ApiServer implements AutoCloseable {
       respond(
           exchange,
           404,
-          "not found (no live agent, and muninn unreachable: " + e.getMessage() + ")");
+          "not found (no live agent, and muninn unreachable: " + describeMuninnFailure(e) + ")");
       return;
     }
     exchange.getResponseHeaders().add("Content-Type", response.contentType());
@@ -10268,6 +10268,46 @@ public final class ApiServer implements AutoCloseable {
     try (OutputStream out = exchange.getResponseBody()) {
       out.write(response.body());
     }
+  }
+
+  /**
+   * Bounds the rendered cause chain in {@link #describeMuninnFailure} so one log line can never
+   * grow huge.
+   */
+  private static final int MUNINN_FAILURE_MAX_CAUSE_DEPTH = 5;
+
+  /**
+   * {@link Throwable#getMessage()} alone is not enough here: the JDK HTTP client raises a genuinely
+   * unreachable Muninn replica as a {@code ConnectException} with no message at all (and a
+   * mid-response connection drop as a similarly message-less {@code IOException}), so interpolating
+   * the raw message renders the literal text {@code "null"} and the operator reading "muninn
+   * unreachable: null" learns nothing about which failure actually happened. Falls back to the
+   * class name, and to the first cause that does carry a message, with the chain bounded so it can
+   * never grow unbounded -- the same pattern {@code AndvariClient#describe} already established for
+   * the identical complaint against a different registry client.
+   */
+  static String describeMuninnFailure(Throwable failure) {
+    if (failure == null) {
+      return "unknown failure";
+    }
+    StringBuilder rendered = new StringBuilder();
+    Throwable current = failure;
+    for (int depth = 0; current != null && depth <= MUNINN_FAILURE_MAX_CAUSE_DEPTH; depth++) {
+      if (depth > 0) {
+        rendered.append(" caused by ");
+      }
+      String message = current.getMessage();
+      if (message != null && !message.isBlank()) {
+        return rendered
+            .append(depth == 0 ? "" : current.getClass().getName() + ": ")
+            .append(message)
+            .toString();
+      }
+      rendered.append(current.getClass().getName());
+      Throwable cause = current.getCause();
+      current = cause == current ? null : cause;
+    }
+    return rendered.toString();
   }
 
   /**

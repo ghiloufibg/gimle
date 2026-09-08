@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.muninn.MuninnClient;
@@ -37,6 +38,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -241,6 +243,33 @@ class ApiServerLogsFallbackTest {
     assertEquals(200, response.statusCode());
     assertEquals(1, muninnReceivedPaths.size());
     assertTrue(muninnReceivedPaths.get(0).startsWith("/logs/nodes/ghost/PLATFORM"));
+  }
+
+  /**
+   * A {@code ConnectException} for a genuinely refused connection carries a real message on every
+   * JVM/OS this runs on, so the fallback-endpoint tests above never actually exercise a
+   * message-less failure. This exercises {@link ApiServer#describeMuninnFailure} directly instead
+   * -- a class of failure the JDK HTTP client really does raise with no message at all (a dropped
+   * connection mid-response, a bare {@code ClosedChannelException}), which the un-fixed code
+   * rendered as the literal, meaningless text "muninn unreachable: null".
+   */
+  @Test
+  void a_message_less_failure_falls_back_to_the_exception_class_name_not_the_word_null() {
+    String described = ApiServer.describeMuninnFailure(new ClosedChannelException());
+
+    assertFalse(described.contains("null"), described);
+    assertTrue(described.contains("ClosedChannelException"), described);
+  }
+
+  @Test
+  void a_message_less_failure_falls_through_to_the_first_cause_that_has_one() {
+    Exception withMessage = new IOException("connection reset by peer");
+    Exception wrapper = new ClosedChannelException();
+    wrapper.initCause(withMessage);
+
+    String described = ApiServer.describeMuninnFailure(wrapper);
+
+    assertTrue(described.contains("connection reset by peer"), described);
   }
 
   @Test
