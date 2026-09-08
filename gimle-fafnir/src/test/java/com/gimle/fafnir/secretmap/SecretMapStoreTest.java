@@ -249,6 +249,20 @@ class SecretMapStoreTest {
   }
 
   @Test
+  void replace_all_marks_a_dropped_key_deleted_and_a_kept_key_not_deleted() {
+    secretMaps.setMany(
+        "acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
+
+    List<SecretMapStore.SecretMapKeyResult> results =
+        secretMaps.replaceAll("acme", "db-creds", values("username", "root"), WRITE);
+
+    Map<String, SecretMapStore.SecretMapKeyResult> byKey =
+        results.stream().collect(Collectors.toMap(SecretMapStore.SecretMapKeyResult::key, r -> r));
+    assertFalse(byKey.get("username").deleted());
+    assertTrue(byKey.get("password").deleted());
+  }
+
+  @Test
   void delete_all_stamps_a_group_version_recording_every_key_as_deleted() {
     secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
 

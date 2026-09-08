@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -160,6 +161,29 @@ class FafnirServerSecretMapTest {
             .findFirst()
             .orElseThrow();
     assertEquals("username", live.get("key"));
+  }
+
+  @Test
+  @Timeout(10)
+  void replace_marks_a_dropped_key_deleted_in_its_own_response_and_a_kept_key_not_deleted()
+      throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin", "password", "hunter2"));
+
+    HttpResponse<String> response =
+        send(
+            "POST",
+            "/secretmaps/acme/db-creds/replace",
+            Json.write(Map.of("data", Map.of("username", encode("root")))));
+
+    assertEquals(200, response.statusCode());
+    List<Object> results = Json.asArray(Json.asObject(Json.parse(response.body())).get("results"));
+    Map<String, Map<String, Object>> byKey = new LinkedHashMap<>();
+    for (Object raw : results) {
+      Map<String, Object> row = Json.asObject(raw);
+      byKey.put((String) row.get("key"), row);
+    }
+    assertEquals(false, byKey.get("username").get("deleted"));
+    assertEquals(true, byKey.get("password").get("deleted"));
   }
 
   @Test
