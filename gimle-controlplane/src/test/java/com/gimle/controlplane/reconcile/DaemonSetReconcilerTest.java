@@ -604,6 +604,83 @@ class DaemonSetReconcilerTest {
         "a permanently-failed node's stale assignment is left in place, not torn down");
   }
 
+  @Test
+  void a_permanently_failed_node_resumes_scheduling_once_genuinely_healthy_again(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    // A generous, non-default node-dark timeout keeps every attempt's backoff (up to a capped
+    // 60s) from ever being mistaken for the node itself going dark -- mirrors the sibling
+    // exhausted-budget test this one drives the node into the same stuck state via.
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            Duration.ofMinutes(10),
+            Duration.ofMinutes(10),
+            clock);
+
+    Duration initialDelay = Duration.ofSeconds(2);
+    int maxAttemptsPerWindow = 5;
+
+    reconciler.reconcileOnce(); // places the assignment
+    for (int attempt = 1; attempt <= maxAttemptsPerWindow + 1; attempt++) {
+      DaemonSetAssignment current =
+          store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+              .filter(a -> a.nodeId().equals("node-a"))
+              .findFirst()
+              .orElseThrow();
+      reportFailed(store, current);
+      reconciler.reconcileOnce();
+      Duration delay =
+          initialDelay.multipliedBy(
+              (long) Math.pow(2.0, Math.min(attempt, maxAttemptsPerWindow) - 1));
+      clock.advance(delay.compareTo(Duration.ofMinutes(1)) > 0 ? Duration.ofMinutes(1) : delay);
+      reconciler.reconcileOnce();
+    }
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "DaemonSet", "node-exporter", "node-a")
+            .orElseThrow()
+            .permanentlyFailed(),
+        "sanity check: the node must actually be stuck before exercising the fix");
+
+    DaemonSetAssignment stale =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+            .filter(a -> a.nodeId().equals("node-a"))
+            .findFirst()
+            .orElseThrow();
+    reportReady(store, stale);
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "DaemonSet", "node-exporter", "node-a")
+            .map(state -> !state.permanentlyFailed())
+            .orElse(true),
+        "a genuinely healthy observation must clear the permanently-failed flag");
+
+    // Proves scheduling actually resumed, not merely that the flag flipped: a fresh failure is
+    // once again treated as a brand-new crash loop (small backoff, then released and
+    // re-placed) rather than silently skipped forever the way the bug left it.
+    reportFailed(store, stale);
+    reconciler.reconcileOnce();
+    assertEquals(
+        1,
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size(),
+        "a single fresh failure must not be mistaken for still permanently failed");
+
+    clock.advance(Duration.ofSeconds(2));
+    reconciler.reconcileOnce();
+    List<DaemonSetAssignment> afterFreshRecovery =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
+    assertEquals(1, afterFreshRecovery.size());
+    assertEquals("node-a", afterFreshRecovery.get(0).nodeId());
+  }
+
   // ---- desired-count publication (GIMLE-15 sub-item 2) ----
 
   @Test

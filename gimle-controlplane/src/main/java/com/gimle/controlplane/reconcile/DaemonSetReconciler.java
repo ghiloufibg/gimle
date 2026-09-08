@@ -279,7 +279,16 @@ public final class DaemonSetReconciler {
       // Still eligible: see class javadoc's "Crash-loop backoff" note.
       if (crashLoopBackoff.isPermanentlyFailed(
           WORKLOAD_KIND, spec.name(), assignment.nodeId(), spec.tenantId())) {
-        continue; // stuck here forever; nothing left to attempt.
+        // Not a one-way gate: give isReady a chance to report genuine, stabilized recovery (e.g.
+        // a redeploy that fixed the underlying cause) before leaving this node stuck -- mirrors
+        // StatefulSetReconciler's own identical re-check exactly.
+        if (isReady(assignment)) {
+          crashLoopBackoff
+              .handleHealthyObserved(
+                  WORKLOAD_KIND, spec.name(), assignment.nodeId(), spec.tenantId())
+              .ifPresent(evictions::add);
+        }
+        continue;
       }
       if (isCrashLooping(assignment)) {
         handleCrashLoop(spec, assignment, now, evictions);
