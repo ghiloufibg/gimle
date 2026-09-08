@@ -46,8 +46,12 @@ class DisableGatewayCommandTest {
     fake = new FakeControlPlane();
     EnableGatewayCommand.run(
         List.of(
-            "--server", fake.address(),
-            "--modules-dir", modulesDirWithGatewayJar().toString()),
+            "--server",
+            fake.address(),
+            "--modules-dir",
+            modulesDirWithGatewayJar().toString(),
+            "--set",
+            "gateway.controlPlaneEndpoint=10.0.0.5:8080"),
         capture(new ByteArrayOutputStream()));
     assertTrue(fake.hasWorkload("DaemonSet", "gimle-gateway"));
 

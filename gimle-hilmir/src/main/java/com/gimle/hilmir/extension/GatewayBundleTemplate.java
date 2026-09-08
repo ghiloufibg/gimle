@@ -8,7 +8,15 @@ import com.gimle.core.module.Version;
  * gimle-system}, {@code placement.requiredLabels: [edge]}, no {@code artifactPath} so admission
  * resolves the module through the registry coordinate it was just pushed to) plus the two {@code
  * gimle-system/gateway.port}/{@code gateway.controlPlaneEndpoint} config entries {@code
- * GatewayHooks} reads at startup, with sensible defaults. There is no routes entry: a gateway's
+ * GatewayHooks} reads at startup. {@code gateway.port} gets a sensible default; {@code
+ * gateway.controlPlaneEndpoint} deliberately does not -- the gateway is a DaemonSet placed only on
+ * {@code edge}-labeled nodes, so the control plane it needs to reach is very often a different
+ * machine entirely, and a loopback default would silently misconfigure any real multi-machine
+ * topology instead of failing where the mistake is easy to see. Its {@code values:} entry is
+ * omitted from the bundle's own defaults for exactly that reason, so an operator who runs {@code
+ * enable gateway} without {@code --set gateway.controlPlaneEndpoint=<host:port>} (or an equivalent
+ * {@code --values} entry) gets {@code BundleRenderer}'s own clear "unresolved value reference"
+ * error instead of a cluster silently pointed at itself. There is no routes entry: a gateway's
  * route table is declared as {@code Ingress} resources, which are validated where they are
  * submitted rather than accepted as opaque text and rejected seconds later by whichever gateway
  * happened to parse them.
@@ -34,7 +42,6 @@ final class GatewayBundleTemplate {
   static final String TENANT_ID = "gimle-system";
 
   private static final String DEFAULT_PORT = "8090";
-  private static final String DEFAULT_CONTROL_PLANE_ENDPOINT = "127.0.0.1:8080";
 
   private GatewayBundleTemplate() {}
 
@@ -44,16 +51,14 @@ final class GatewayBundleTemplate {
     yaml.append("name: ").append(RELEASE_NAME).append('\n');
     yaml.append("version: ").append(moduleVersion).append('\n');
     yaml.append("values:\n");
-    // The values keys are named identically to the config keys they feed -- "gateway.port"/
-    // "gateway.controlPlaneEndpoint", not a shorter internal alias -- so `--set gateway.port=...`,
-    // the name an operator actually knows (it's the same key GatewayHooks reads and the one this
-    // command's own usage text names), lands in the merged values map under the exact key
-    // ${values.*} looks up, rather than being silently absorbed as an unrelated, never-referenced
-    // values entry.
+    // The values key is named identically to the config key it feeds -- "gateway.port", not a
+    // shorter internal alias -- so `--set gateway.port=...`, the name an operator actually knows
+    // (it's the same key GatewayHooks reads and the one this command's own usage text names),
+    // lands in the merged values map under the exact key ${values.*} looks up, rather than being
+    // silently absorbed as an unrelated, never-referenced values entry.
+    // gateway.controlPlaneEndpoint
+    // deliberately gets no entry here -- see the class javadoc for why.
     yaml.append("  gateway.port: \"").append(DEFAULT_PORT).append("\"\n");
-    yaml.append("  gateway.controlPlaneEndpoint: \"")
-        .append(DEFAULT_CONTROL_PLANE_ENDPOINT)
-        .append("\"\n");
     yaml.append("config:\n");
     appendConfigEntry(yaml, "gateway.port", "${values.gateway.port}");
     appendConfigEntry(
