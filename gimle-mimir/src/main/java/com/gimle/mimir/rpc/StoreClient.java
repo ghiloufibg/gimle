@@ -81,12 +81,23 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   private final Map<SocketAddress, StoreConnection> connections = new ConcurrentHashMap<>();
   private final AtomicInteger readCursor = new AtomicInteger();
   private final AtomicReference<SocketAddress> preferredLeader = new AtomicReference<>();
+  private final Duration leaderSearchTimeout;
 
   public StoreClient(List<SocketAddress> endpoints) {
+    this(endpoints, LEADER_SEARCH_TIMEOUT);
+  }
+
+  /**
+   * Test-only: injects a short {@code leaderSearchTimeout} so a test exercising the per-pass
+   * deadline-enforcement path (a genuinely stalling endpoint) doesn't have to wait out the real
+   * ~10s production bound.
+   */
+  StoreClient(List<SocketAddress> endpoints, Duration leaderSearchTimeout) {
     if (endpoints.isEmpty()) {
       throw new IllegalArgumentException("StoreClient requires at least one store endpoint");
     }
     this.endpoints = List.copyOf(endpoints);
+    this.leaderSearchTimeout = leaderSearchTimeout;
   }
 
   // ---- MutationSink / leader-only writes ----
@@ -807,17 +818,20 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   private static final Duration LEADER_SEARCH_RETRY_INTERVAL = Duration.ofMillis(100);
 
   /**
-   * Keeps trying every endpoint until one answers as leader or {@link #LEADER_SEARCH_TIMEOUT}
-   * expires. Each pass is {@link #sendLeaderOnlyOnce}.
+   * Keeps trying every endpoint until one answers as leader or {@link #leaderSearchTimeout}
+   * expires. Each pass is {@link #sendLeaderOnlyOnce}, which itself now honors the same deadline
+   * between individual endpoint attempts -- not just between passes -- so a node that stalls before
+   * answering (see {@link #sendLeaderOnlyOnce}'s own javadoc) can no longer make one
+   * nominally-bounded call run for several multiples of {@link #leaderSearchTimeout}.
    */
   private StoreRpc.Response sendLeaderOnly(String operationName, StoreRpc.Request request) {
-    long deadlineNanos = System.nanoTime() + LEADER_SEARCH_TIMEOUT.toNanos();
+    long deadlineNanos = System.nanoTime() + leaderSearchTimeout.toNanos();
     while (true) {
-      StoreRpc.Response response = sendLeaderOnlyOnce(request);
+      StoreRpc.Response response = sendLeaderOnlyOnce(request, deadlineNanos);
       if (response != null) {
         return response;
       }
-      if (System.nanoTime() - deadlineNanos >= 0) {
+      if (deadlineExceeded(deadlineNanos)) {
         throw GimleRaftException.storeUnreachable(operationName);
       }
       try {
@@ -835,22 +849,32 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
    * exact address before moving on. The first endpoint to answer with anything other than {@code
    * NotLeader} becomes the new cached preferred leader. {@code null} means no endpoint answered as
    * leader this pass -- either unreachable or all still followers.
+   *
+   * <p>{@code deadlineNanos} is checked before every individual attempt below (cached leader, its
+   * follow-up hint, and each configured endpoint plus its own hint), not just once between passes
+   * -- a node that just lost leadership can block for several seconds inside its own read-index
+   * confirmation before it even answers {@code NotLeader} (see {@code RaftNode#awaitReadIndex}),
+   * and without this check a pass could keep starting fresh multi-second attempts long after the
+   * overall deadline had already passed.
    */
-  private StoreRpc.Response sendLeaderOnlyOnce(StoreRpc.Request request) {
+  private StoreRpc.Response sendLeaderOnlyOnce(StoreRpc.Request request, long deadlineNanos) {
     SocketAddress cached = preferredLeader.get();
-    if (cached != null) {
+    if (cached != null && !deadlineExceeded(deadlineNanos)) {
       StoreRpc.Response response = tryOnce(cached, request);
       if (response != null) {
         if (!(response instanceof StoreRpc.NotLeader notLeader)) {
           return response;
         }
-        StoreRpc.Response followed = followLeaderHint(notLeader, request);
+        StoreRpc.Response followed = followLeaderHint(notLeader, request, deadlineNanos);
         if (followed != null) {
           return followed;
         }
       }
     }
     for (SocketAddress address : endpoints) {
+      if (deadlineExceeded(deadlineNanos)) {
+        break;
+      }
       if (address.equals(cached)) {
         continue; // already tried above
       }
@@ -862,7 +886,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         preferredLeader.set(address);
         return response;
       }
-      StoreRpc.Response followed = followLeaderHint(notLeader, request);
+      StoreRpc.Response followed = followLeaderHint(notLeader, request, deadlineNanos);
       if (followed != null) {
         return followed;
       }
@@ -872,8 +896,8 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /** One direct retry against a {@link StoreRpc.NotLeader} hint's address. */
   private StoreRpc.Response followLeaderHint(
-      StoreRpc.NotLeader notLeader, StoreRpc.Request request) {
-    if (notLeader.leaderClientAddress().isBlank()) {
+      StoreRpc.NotLeader notLeader, StoreRpc.Request request, long deadlineNanos) {
+    if (notLeader.leaderClientAddress().isBlank() || deadlineExceeded(deadlineNanos)) {
       return null;
     }
     SocketAddress hinted = parseAddress(notLeader.leaderClientAddress());
@@ -883,6 +907,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
       return response;
     }
     return null;
+  }
+
+  private static boolean deadlineExceeded(long deadlineNanos) {
+    return System.nanoTime() - deadlineNanos >= 0;
   }
 
   /**
