@@ -57,10 +57,14 @@ directory (so `../lib` / `..\lib` is found regardless of the caller's working di
 classpath from every jar under that `lib/`, and launches `java -cp "$CLASSPATH"
 com.gimle.hilmir.HilmirMain "$@"` (`com.gimle.cli.GimleCli` for the `gimle`/`gimle.cmd` pair,
 `com.gimle.ragnarok.RagnarokMain` for the `ragnarok`/`ragnarok.cmd` pair). `bin/ivaldi`/`bin/ivaldi.cmd`
-differ in one respect: `IvaldiMain` reads no positional arguments at all, only `-D` system
-properties (`gimle.ivaldi.port`/`dataRoot`/`host`), so those two scripts place `"$@"`/`%*` *before*
-`com.gimle.ivaldi.IvaldiMain` on the `java` command line rather than after it — a `-D` flag is a
-JVM option, not a program argument, and only ever takes effect there. The `java` each script
+differ in one respect: `IvaldiMain` parses real program arguments of its own (`--port`,
+`--data-root`, `--host`, each also settable via the equivalent `-Dgimle.ivaldi.port`/`dataRoot`/`host`
+system property, with the flag winning when both are given), so those two scripts route each
+argument individually by its own leading token instead of placing the whole list on one side: a
+`-D`/`-X`/other JVM-option-shaped argument goes *before* `com.gimle.ivaldi.IvaldiMain` on the `java`
+command line, everything else — including `--port`, `--host`, and `-h`/`--help` — goes *after* it,
+so `ivaldi -h` reaches `IvaldiMain` as a real program argument and prints its own scoped usage text.
+The `java` each script
 launches itself with follows this precedence: an explicit `JAVA_HOME` environment variable always
 wins (a deliberate operator override); otherwise, if the archive was built with `-P dist-with-jre`,
 each script prefers its own bundled JRE (`jre/hilmir/bin/java`(`.exe`) for the `hilmir` pair,
