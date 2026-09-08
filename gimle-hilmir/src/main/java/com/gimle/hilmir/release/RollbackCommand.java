@@ -98,6 +98,20 @@ public final class RollbackCommand {
             target.workloads());
     List<ResourceRef> toPrune =
         current.resources().stream().filter(r -> !target.resources().contains(r)).toList();
+    // computeKeyPrune never reads a secret entry's value, only its (tenant, key) -- so target's
+    // own digest-only SecretRef list is enough to compare against current's here, without fetching
+    // or restoring any secret value.
+    RenderedBundle targetForKeyPrune =
+        new RenderedBundle(
+            releaseName,
+            meta.bundleVersion(),
+            target.tenants(),
+            target.config(),
+            target.secrets().stream()
+                .map(s -> new RenderedSecretEntry(s.tenant(), s.key(), s.valueDigest()))
+                .toList(),
+            target.workloads());
+    List<KeyRef> keysToPrune = ReleaseReconciler.computeKeyPrune(targetForKeyPrune, current);
 
     if (flags.isSet("--dry-run")) {
       ReleasePlan.printWithPrune(asBundle, toPrune, json, out);
@@ -108,6 +122,8 @@ public final class RollbackCommand {
     BundleApplier.applyConfig(api, target.config(), c -> {});
     BundleApplier.applyWorkloads(api, target.workloads(), w -> {});
     BundleApplier.deleteWorkloads(api, toPrune);
+    BundleApplier.deleteConfig(api, keysToPrune);
+    BundleApplier.deleteSecrets(api, keysToPrune);
     if (flags.isSet("--wait")) {
       for (RenderedWorkload workload : target.workloads()) {
         WaitPoller.awaitReady(api, workload, out);
