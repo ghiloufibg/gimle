@@ -88,7 +88,7 @@ describe("Inspector", () => {
       problems: [
         {
           code: "SERVICE_TARGET_PORT_MISMATCH",
-          severity: "warn",
+          severity: "warning",
           message: 'Service "a" and service "b" declare different target ports.',
           nodeId: service.id,
         },
