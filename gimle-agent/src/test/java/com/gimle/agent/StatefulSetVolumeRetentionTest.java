@@ -177,7 +177,7 @@ class StatefulSetVolumeRetentionTest {
   }
 
   @Test
-  void statefulSetVolumeRetained_reports_true_when_the_control_plane_says_attached()
+  void statefulset_volume_retained_reports_true_when_the_control_plane_says_attached()
       throws IOException {
     HttpServer server = respondingWithAttached("true");
     try {
@@ -191,7 +191,7 @@ class StatefulSetVolumeRetentionTest {
   }
 
   @Test
-  void statefulSetVolumeRetained_reports_false_when_the_control_plane_says_unattached()
+  void statefulset_volume_retained_reports_false_when_the_control_plane_says_unattached()
       throws IOException {
     HttpServer server = respondingWithAttached("false");
     try {
@@ -205,7 +205,7 @@ class StatefulSetVolumeRetentionTest {
   }
 
   @Test
-  void statefulSetVolumeRetained_fails_closed_toward_retention_when_unreachable() {
+  void statefulset_volume_retained_fails_closed_toward_retention_when_unreachable() {
     URI unreachable = URI.create("http://127.0.0.1:1/");
     assertTrue(
         AgentMain.statefulSetVolumeRetained(
