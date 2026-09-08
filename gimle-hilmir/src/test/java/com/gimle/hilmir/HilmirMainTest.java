@@ -365,6 +365,84 @@ class HilmirMainTest {
     assertTrue(result.err().contains("--remote requires -f"));
   }
 
+  /**
+   * {@code RemoteDispatch} re-invokes exactly this local, non-{@code --remote} form of {@code
+   * down}/{@code stop}/{@code status} on a target machine (with {@code -f <topology>} always
+   * shipped and {@code --data-root} shipped only when the operator gave an explicit override) -- so
+   * this is what actually runs on the remote machine. Before the fix, an omitted {@code
+   * --data-root} always fell back to the hardcoded {@code "gimle-data"} default here, ignoring a
+   * topology's own {@code runtime.dataRoot}.
+   */
+  @Test
+  void down_with_a_file_flag_but_no_data_root_resolves_the_topologys_own_data_root()
+      throws IOException {
+    final Path customDataRoot = tempDir.resolve("custom-data-root");
+    final Path file =
+        writeTopology(
+            "name: healthy\n"
+                + "runtime:\n"
+                + "  dataRoot: "
+                + customDataRoot
+                + "\n"
+                + HEALTHY_TOPOLOGY.substring(HEALTHY_TOPOLOGY.indexOf("machines:")));
+
+    final Result result = run("down", "--machine", "m1", "-f", file.toString());
+
+    assertEquals(1, result.exitCode());
+    assertTrue(
+        result.err().contains(customDataRoot.toString()),
+        "expected the topology's own dataRoot in: " + result.err());
+  }
+
+  @Test
+  void status_with_a_file_flag_but_no_data_root_resolves_the_topologys_own_data_root()
+      throws IOException {
+    final Path customDataRoot = tempDir.resolve("custom-data-root");
+    final Path file =
+        writeTopology(
+            "name: healthy\n"
+                + "runtime:\n"
+                + "  dataRoot: "
+                + customDataRoot
+                + "\n"
+                + HEALTHY_TOPOLOGY.substring(HEALTHY_TOPOLOGY.indexOf("machines:")));
+
+    final Result result = run("status", "--machine", "m1", "-f", file.toString());
+
+    assertEquals(1, result.exitCode());
+    assertTrue(
+        result.err().contains(customDataRoot.toString()),
+        "expected the topology's own dataRoot in: " + result.err());
+  }
+
+  @Test
+  void an_explicit_data_root_still_wins_over_a_file_flags_topology() throws IOException {
+    final Path customDataRoot = tempDir.resolve("custom-data-root");
+    final Path explicitDataRoot = tempDir.resolve("explicit-data-root");
+    final Path file =
+        writeTopology(
+            "name: healthy\n"
+                + "runtime:\n"
+                + "  dataRoot: "
+                + customDataRoot
+                + "\n"
+                + HEALTHY_TOPOLOGY.substring(HEALTHY_TOPOLOGY.indexOf("machines:")));
+
+    final Result result =
+        run(
+            "down",
+            "--machine",
+            "m1",
+            "-f",
+            file.toString(),
+            "--data-root",
+            explicitDataRoot.toString());
+
+    assertEquals(1, result.exitCode());
+    assertTrue(result.err().contains(explicitDataRoot.toString()));
+    assertTrue(!result.err().contains(customDataRoot.toString()));
+  }
+
   @Test
   void pki_requires_the_init_subcommand() {
     final Result result = run("pki", "status");

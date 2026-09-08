@@ -51,15 +51,15 @@ import java.util.Optional;
  *   hilmir up -f &lt;topology.yaml&gt; --machine &lt;name&gt;
  *   hilmir up -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--ssh-user &lt;user&gt;]
  *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
- *   hilmir down --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir down --machine &lt;name&gt; [-f &lt;topology.yaml&gt;] [--data-root &lt;path&gt;]
  *   hilmir stop --machine &lt;name&gt; (--role &lt;ROLE&gt; | --id &lt;process-id&gt;)
- *       [--data-root &lt;path&gt;]
+ *       [-f &lt;topology.yaml&gt;] [--data-root &lt;path&gt;]
  *   hilmir stop -f &lt;topology.yaml&gt; --remote --machine &lt;name&gt;
  *       (--role &lt;ROLE&gt; | --id &lt;process-id&gt;) [--data-root &lt;path&gt;] [--ssh-user &lt;user&gt;]
  *       [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir down -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
  *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
- *   hilmir status --machine &lt;name&gt; [--data-root &lt;path&gt;]
+ *   hilmir status --machine &lt;name&gt; [-f &lt;topology.yaml&gt;] [--data-root &lt;path&gt;]
  *   hilmir status -f &lt;topology.yaml&gt; --remote [--machine &lt;name&gt;] [--data-root &lt;path&gt;]
  *       [--ssh-user &lt;user&gt;] [--ssh-key &lt;path&gt;] [--ssh-port &lt;port&gt;] [--install-dir &lt;path&gt;]
  *   hilmir pki init -f &lt;topology.yaml&gt;
@@ -85,17 +85,20 @@ import java.util.Optional;
  *   hilmir disable gateway --server &lt;host:port&gt; [-o json]
  * </pre>
  *
- * {@code down}/{@code status} take {@code --data-root} rather than {@code -f} for local dispatch:
- * the run ledger {@code up} writes lives under a resolved runtime's own data root, and neither verb
- * needs the topology document again to find it (it defaults the same way {@link
- * ResolvedRuntime#resolve}'s own default does when omitted). {@code --remote} dispatch is the one
- * exception: {@code down}/{@code status --remote} do require {@code -f}, since resolving each
- * target machine's host and SSH settings needs the topology document.
+ * {@code down}/{@code status} take an explicit {@code --data-root} in preference to everything
+ * else; absent that, a {@code -f <topology.yaml>} resolves the same {@code runtime.dataRoot} {@code
+ * up} itself would resolve for that topology (the same default {@link ResolvedRuntime#resolve}
+ * uses); with neither, the run ledger is assumed to live at the same hardcoded default. {@code
+ * --remote} dispatch always supplies {@code -f} on the operator's behalf -- required there to
+ * resolve each target machine's host and SSH settings in the first place -- and ships it on to the
+ * re-invocation that actually runs on the target, so a remote {@code down}/{@code status} resolves
+ * that machine's own topology-declared data root even when the operator gave no {@code --data-root}
+ * override.
  *
  * <p>{@code stop} is {@code down} narrowed to a single process: it kills the one role (or, where a
  * machine hosts two of the same role, the one process id) it is given and drops that entry alone
- * from the run ledger, leaving every other process the machine hosts running and recorded. It takes
- * {@code --data-root} rather than {@code -f} for the same reason {@code down}/{@code status} do.
+ * from the run ledger, leaving every other process the machine hosts running and recorded. It
+ * resolves its data root the same way {@code down}/{@code status} do.
  *
  * <p>{@code --remote} re-invokes this exact same local {@code up}/{@code down}/{@code stop}/{@code
  * status}/{@code upgrade-cluster} verb over SSH on every machine the topology declares (or just the
@@ -107,7 +110,11 @@ import java.util.Optional;
  * never the operator's own global known-hosts), self-provisions a missing install from a configured
  * {@code archive} before {@code up} runs, and distributes exactly the TLS/Fafnir-key material each
  * machine needs -- but still no credential handling of its own; authentication is entirely the
- * operator's own {@code ssh} identity.
+ * operator's own {@code ssh} identity. A {@code --data-root} override given on the operator's own
+ * command line is carried through to the target as an opaque string, never parsed into a {@link
+ * Path} on the operator's own (possibly non-Linux) JVM, which would otherwise risk corrupting a
+ * path meant for the target's own filesystem before it is re-embedded as a literal token in the SSH
+ * command.
  *
  * <p>The six release verbs are a separate, Helm-equivalent concern layered on top of the same
  * dispatch shape: they talk to an already-running control plane over {@code --server host:port} (or
@@ -267,9 +274,15 @@ public final class HilmirMain {
 
   private static int runDown(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
+      final Path topologyFile = requireFileFlagForRemote(args);
+      final Topology topology = TopologyParser.parseFile(topologyFile);
       return RemoteDispatch.down(
-          topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
+          topology,
+          topologyFile,
+          machineFlag(args),
+          dataRootFlagOptional(args),
+          sshCliFlags(args),
+          out);
     }
     requireMachineFlag(args);
     MachineLauncher.down(dataRootFlag(args), out);
@@ -286,9 +299,11 @@ public final class HilmirMain {
     }
     final String machine = requireMachineFlag(args);
     if (remoteFlag(args)) {
-      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
+      final Path topologyFile = requireFileFlagForRemote(args);
+      final Topology topology = TopologyParser.parseFile(topologyFile);
       return RemoteDispatch.stop(
           topology,
+          topologyFile,
           Optional.of(machine),
           role,
           id,
@@ -318,9 +333,15 @@ public final class HilmirMain {
 
   private static int runStatus(final List<String> args, final PrintStream out) {
     if (remoteFlag(args)) {
-      final Topology topology = TopologyParser.parseFile(requireFileFlagForRemote(args));
+      final Path topologyFile = requireFileFlagForRemote(args);
+      final Topology topology = TopologyParser.parseFile(topologyFile);
       return RemoteDispatch.status(
-          topology, machineFlag(args), dataRootFlagOptional(args), sshCliFlags(args), out);
+          topology,
+          topologyFile,
+          machineFlag(args),
+          dataRootFlagOptional(args),
+          sshCliFlags(args),
+          out);
     }
     requireMachineFlag(args);
     MachineLauncher.status(dataRootFlag(args), out);
@@ -510,11 +531,24 @@ public final class HilmirMain {
         .orElseThrow(() -> new HilmirException("missing required flag: --machine <name>"));
   }
 
+  /**
+   * Resolves the data root a machine-local command (an operator's direct invocation, or the
+   * re-invocation {@code RemoteDispatch} ships to a target machine over SSH) should use. An
+   * explicit {@code --data-root} always wins; parsing it into a {@link Path} here is safe because
+   * this method only ever runs on the machine whose own filesystem it names, never on the
+   * operator's machine on behalf of a different one. Otherwise, a topology named via {@code -f}
+   * supplies its own {@code runtime.dataRoot} (the same value {@link #resolveRuntime} would resolve
+   * for {@code up}); with neither, the same hardcoded fallback {@link #resolveRuntime} itself uses.
+   */
   private static Path dataRootFlag(final List<String> args) {
-    for (int i = 0; i < args.size(); i++) {
-      if (args.get(i).equals("--data-root") && i + 1 < args.size()) {
-        return Path.of(args.get(i + 1));
-      }
+    final Optional<String> explicit = optionalFlag(args, "--data-root");
+    if (explicit.isPresent()) {
+      return Path.of(explicit.get());
+    }
+    final Optional<String> topologyFile = optionalFlag(args, "-f");
+    if (topologyFile.isPresent()) {
+      final Topology topology = TopologyParser.parseFile(Path.of(topologyFile.get()));
+      return resolveRuntime(topology).dataRoot();
     }
     return Path.of("gimle-data");
   }
@@ -524,11 +558,11 @@ public final class HilmirMain {
   }
 
   /**
-   * {@code --remote}'s own {@code -f}: {@code down}/{@code status} normally never need the topology
-   * document (see the class javadoc), but resolving a target machine's host/SSH settings under
-   * {@code --remote} does -- a dedicated message explains why, rather than reusing {@link
-   * #requireFileFlag}'s generic one, which would otherwise read as if {@code -f} were always
-   * required for these two verbs.
+   * {@code --remote}'s own {@code -f}: needed to resolve each target machine's host/SSH settings,
+   * and now also shipped on to the target so its own re-invocation can resolve {@code
+   * runtime.dataRoot} from the same topology when {@code --data-root} is omitted (see {@link
+   * #dataRootFlag}) -- a dedicated message explains why it's required here rather than reusing
+   * {@link #requireFileFlag}'s generic one.
    */
   private static Path requireFileFlagForRemote(final List<String> args) {
     return optionalFlag(args, "-f")
@@ -548,8 +582,15 @@ public final class HilmirMain {
         optionalFlag(args, "--install-dir"));
   }
 
-  private static Optional<Path> dataRootFlagOptional(final List<String> args) {
-    return optionalFlag(args, "--data-root").map(Path::of);
+  /**
+   * The raw {@code --data-root} token for {@code --remote} dispatch, kept as an opaque string end
+   * to end -- like {@code --install-dir} ({@link SshCliFlags}), never parsed into a {@link Path} on
+   * the operator's own (possibly non-Linux) JVM, which would otherwise corrupt a value meant for
+   * the (Linux) target's filesystem before {@code RemoteDispatch} re-embeds it as a literal token
+   * in the SSH command.
+   */
+  private static Optional<String> dataRootFlagOptional(final List<String> args) {
+    return optionalFlag(args, "--data-root");
   }
 
   private static Optional<String> optionalFlag(final List<String> args, final String flag) {

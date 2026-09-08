@@ -53,7 +53,7 @@ public final class RemoteDispatch {
       final Topology topology,
       final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final ResolvedRuntime runtime,
       final PrintStream out) {
@@ -72,7 +72,7 @@ public final class RemoteDispatch {
       final Topology topology,
       final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final ResolvedRuntime runtime,
       final RemoteExec exec,
@@ -87,31 +87,20 @@ public final class RemoteDispatch {
         (target, transport) -> {
           provisionIfMissing(target, transport, out);
           distributeMaterial(topology, clusterPlan, target, transport);
-          final String remoteTopologyPath =
-              target.installDir() + "/hilmir-remote-topology-" + target.machineName() + ".yaml";
-          transport.putFile(target, topologyFile, remoteTopologyPath);
-          final List<String> command =
-              new ArrayList<>(
-                  List.of(
-                      target.remoteHilmirBinary(),
-                      "up",
-                      "-f",
-                      remoteTopologyPath,
-                      "--machine",
-                      target.machineName()));
-          dataRootOverride.ifPresent(p -> command.addAll(List.of("--data-root", p.toString())));
-          return command;
+          return machineVerbCommand(target, transport, topologyFile, "up", dataRootOverride);
         });
   }
 
   public static int down(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final PrintStream out) {
     return down(
         topology,
+        topologyFile,
         machineFilter,
         dataRootOverride,
         cliFlags,
@@ -121,8 +110,9 @@ public final class RemoteDispatch {
 
   static int down(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final RemoteExec exec,
       final PrintStream out) {
@@ -132,19 +122,22 @@ public final class RemoteDispatch {
         cliFlags,
         exec,
         out,
-        (target, transport) -> machineVerbCommand(target, "down", dataRootOverride));
+        (target, transport) ->
+            machineVerbCommand(target, transport, topologyFile, "down", dataRootOverride));
   }
 
   public static int stop(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
       final Optional<String> role,
       final Optional<String> id,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final PrintStream out) {
     return stop(
         topology,
+        topologyFile,
         machineFilter,
         role,
         id,
@@ -156,10 +149,11 @@ public final class RemoteDispatch {
 
   static int stop(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
       final Optional<String> role,
       final Optional<String> id,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final RemoteExec exec,
       final PrintStream out) {
@@ -170,7 +164,8 @@ public final class RemoteDispatch {
         exec,
         out,
         (target, transport) -> {
-          final List<String> command = machineVerbCommand(target, "stop", dataRootOverride);
+          final List<String> command =
+              machineVerbCommand(target, transport, topologyFile, "stop", dataRootOverride);
           role.ifPresent(r -> command.addAll(List.of("--role", r)));
           id.ifPresent(i -> command.addAll(List.of("--id", i)));
           return command;
@@ -179,12 +174,14 @@ public final class RemoteDispatch {
 
   public static int status(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final PrintStream out) {
     return status(
         topology,
+        topologyFile,
         machineFilter,
         dataRootOverride,
         cliFlags,
@@ -194,8 +191,9 @@ public final class RemoteDispatch {
 
   static int status(
       final Topology topology,
+      final Path topologyFile,
       final Optional<String> machineFilter,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final SshCliFlags cliFlags,
       final RemoteExec exec,
       final PrintStream out) {
@@ -205,7 +203,8 @@ public final class RemoteDispatch {
         cliFlags,
         exec,
         out,
-        (target, transport) -> machineVerbCommand(target, "status", dataRootOverride));
+        (target, transport) ->
+            machineVerbCommand(target, transport, topologyFile, "status", dataRootOverride));
   }
 
   public static int upgradeCluster(
@@ -214,7 +213,7 @@ public final class RemoteDispatch {
       final Optional<String> machineFilter,
       final String newClasspath,
       final Optional<String> newJavaExecutable,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final List<String> roles,
       final SshCliFlags cliFlags,
       final PrintStream out) {
@@ -237,7 +236,7 @@ public final class RemoteDispatch {
       final Optional<String> machineFilter,
       final String newClasspath,
       final Optional<String> newJavaExecutable,
-      final Optional<Path> dataRootOverride,
+      final Optional<String> dataRootOverride,
       final List<String> roles,
       final SshCliFlags cliFlags,
       final RemoteExec exec,
@@ -264,7 +263,7 @@ public final class RemoteDispatch {
                       "--new-classpath",
                       newClasspath));
           newJavaExecutable.ifPresent(j -> command.addAll(List.of("--new-java-executable", j)));
-          dataRootOverride.ifPresent(p -> command.addAll(List.of("--data-root", p.toString())));
+          dataRootOverride.ifPresent(p -> command.addAll(List.of("--data-root", p)));
           for (final String role : roles) {
             command.addAll(List.of("--role", role));
           }
@@ -272,12 +271,35 @@ public final class RemoteDispatch {
         });
   }
 
+  /**
+   * Builds the re-invoked {@code hilmir <verb> --machine <name>} command shared by {@code up},
+   * {@code down}, {@code stop}, and {@code status} -- every verb ships {@code -f <topology>} to the
+   * target the same way {@code upgrade-cluster} always has, so the target's own re-invocation can
+   * resolve {@code runtime.dataRoot} from that topology when {@code --data-root} is omitted (see
+   * {@code HilmirMain#dataRootFlag}) instead of falling back to a hardcoded default that ignores
+   * what the topology actually declares. {@code dataRootOverride} is carried as an opaque string,
+   * never parsed into a {@link Path} here -- it names a path on the target's own filesystem, not
+   * the operator's, and the operator's JVM may not even share the target's path conventions.
+   */
   private static List<String> machineVerbCommand(
-      final ResolvedSshTarget target, final String verb, final Optional<Path> dataRootOverride) {
+      final ResolvedSshTarget target,
+      final RemoteExec transport,
+      final Path topologyFile,
+      final String verb,
+      final Optional<String> dataRootOverride) {
+    final String remoteTopologyPath =
+        target.installDir() + "/hilmir-remote-topology-" + target.machineName() + ".yaml";
+    transport.putFile(target, topologyFile, remoteTopologyPath);
     final List<String> command =
         new ArrayList<>(
-            List.of(target.remoteHilmirBinary(), verb, "--machine", target.machineName()));
-    dataRootOverride.ifPresent(p -> command.addAll(List.of("--data-root", p.toString())));
+            List.of(
+                target.remoteHilmirBinary(),
+                verb,
+                "-f",
+                remoteTopologyPath,
+                "--machine",
+                target.machineName()));
+    dataRootOverride.ifPresent(p -> command.addAll(List.of("--data-root", p)));
     return command;
   }
 

@@ -190,25 +190,38 @@ class RemoteDispatchTest {
   }
 
   @Test
-  void down_and_status_never_copy_a_file() {
+  void down_and_status_both_ship_the_topology_file_so_the_remote_side_can_resolve_its_data_root() {
     final Topology topology = topologyOf(List.of(bareMachine("m1", "h1")));
     final FakeRemoteExec downExec = new FakeRemoteExec();
     final FakeRemoteExec statusExec = new FakeRemoteExec();
 
     RemoteDispatch.down(
-        topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, downExec, discardingOut());
+        topology,
+        Path.of("topology.yaml"),
+        Optional.empty(),
+        Optional.empty(),
+        SshCliFlags.NONE,
+        downExec,
+        discardingOut());
     RemoteDispatch.status(
         topology,
+        Path.of("topology.yaml"),
         Optional.empty(),
         Optional.empty(),
         SshCliFlags.NONE,
         statusExec,
         discardingOut());
 
-    assertTrue(downExec.putFileCalls().isEmpty());
-    assertTrue(statusExec.putFileCalls().isEmpty());
-    assertTrue(downExec.execCalls().get(0).command().contains("down"));
-    assertTrue(statusExec.execCalls().get(0).command().contains("status"));
+    assertEquals(1, downExec.putFileCalls().size());
+    assertEquals(Path.of("topology.yaml"), downExec.putFileCalls().get(0).localFile());
+    assertEquals(1, statusExec.putFileCalls().size());
+    assertEquals(Path.of("topology.yaml"), statusExec.putFileCalls().get(0).localFile());
+    final List<String> downCommand = downExec.execCalls().get(0).command();
+    assertTrue(downCommand.contains("down"));
+    assertTrue(downCommand.contains("-f"));
+    final List<String> statusCommand = statusExec.execCalls().get(0).command();
+    assertTrue(statusCommand.contains("status"));
+    assertTrue(statusCommand.contains("-f"));
   }
 
   @Test
@@ -219,6 +232,7 @@ class RemoteDispatchTest {
 
     RemoteDispatch.stop(
         topology,
+        Path.of("topology.yaml"),
         Optional.of("m1"),
         Optional.of("STORE"),
         Optional.empty(),
@@ -228,6 +242,7 @@ class RemoteDispatchTest {
         discardingOut());
     RemoteDispatch.stop(
         topology,
+        Path.of("topology.yaml"),
         Optional.of("m1"),
         Optional.empty(),
         Optional.of("store-1"),
@@ -247,14 +262,15 @@ class RemoteDispatchTest {
   }
 
   @Test
-  void a_data_root_override_is_passed_through_to_every_verb() {
+  void a_data_root_override_is_passed_through_to_every_verb_as_a_raw_string() {
     final Topology topology = topologyOf(List.of(bareMachine("m1", "h1")));
     final FakeRemoteExec exec = new FakeRemoteExec();
 
     RemoteDispatch.status(
         topology,
+        Path.of("topology.yaml"),
         Optional.empty(),
-        Optional.of(Path.of("/custom/data-root")),
+        Optional.of("/custom/data-root"),
         SshCliFlags.NONE,
         exec,
         discardingOut());
@@ -272,7 +288,13 @@ class RemoteDispatchTest {
 
     final int exitCode =
         RemoteDispatch.status(
-            topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, exec, discardingOut());
+            topology,
+            Path.of("topology.yaml"),
+            Optional.empty(),
+            Optional.empty(),
+            SshCliFlags.NONE,
+            exec,
+            discardingOut());
 
     assertEquals(1, exitCode);
     assertEquals(2, exec.execCalls().size());
@@ -286,7 +308,13 @@ class RemoteDispatchTest {
 
     final int exitCode =
         RemoteDispatch.status(
-            topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, exec, discardingOut());
+            topology,
+            Path.of("topology.yaml"),
+            Optional.empty(),
+            Optional.empty(),
+            SshCliFlags.NONE,
+            exec,
+            discardingOut());
 
     assertEquals(1, exitCode);
     assertEquals(2, exec.execCalls().size());
@@ -299,7 +327,13 @@ class RemoteDispatchTest {
 
     final int exitCode =
         RemoteDispatch.status(
-            topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, exec, discardingOut());
+            topology,
+            Path.of("topology.yaml"),
+            Optional.empty(),
+            Optional.empty(),
+            SshCliFlags.NONE,
+            exec,
+            discardingOut());
 
     assertEquals(0, exitCode);
   }
@@ -310,7 +344,13 @@ class RemoteDispatchTest {
     final FakeRemoteExec exec = new FakeRemoteExec();
 
     RemoteDispatch.status(
-        topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, exec, discardingOut());
+        topology,
+        Path.of("topology.yaml"),
+        Optional.empty(),
+        Optional.empty(),
+        SshCliFlags.NONE,
+        exec,
+        discardingOut());
 
     assertEquals(Set.of("m1", "m2"), Set.copyOf(exec.pinHostKeyCalls()));
   }
@@ -323,7 +363,13 @@ class RemoteDispatchTest {
 
     final int exitCode =
         RemoteDispatch.status(
-            topology, Optional.empty(), Optional.empty(), SshCliFlags.NONE, exec, discardingOut());
+            topology,
+            Path.of("topology.yaml"),
+            Optional.empty(),
+            Optional.empty(),
+            SshCliFlags.NONE,
+            exec,
+            discardingOut());
 
     assertEquals(1, exitCode);
     assertEquals(1, exec.execCalls().size());
