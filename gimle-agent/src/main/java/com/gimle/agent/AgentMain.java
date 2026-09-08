@@ -4698,7 +4698,7 @@ public final class AgentMain {
    * tenant-scoped and its shape is this class's own business, so a caller composing one by hand
    * silently stops matching the moment that shape changes.
    */
-  private static SupervisedInstance findSupervised(
+  static SupervisedInstance findSupervised(
       Map<String, SupervisedInstance> supervised,
       Optional<String> tenantId,
       String deploymentName,
