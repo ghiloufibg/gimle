@@ -335,6 +335,11 @@ class SecretCommandTest {
     assertFalse(outBuffer.toString(StandardCharsets.UTF_8).contains("xxxx"));
   }
 
+  @Test
+  void the_fallback_usage_listing_names_the_rewrap_verb() {
+    assertTrue(SecretCommand.usage().contains("rewrap"), SecretCommand.usage());
+  }
+
   private int setSecret(String tenantId, String key, String value) {
     return run("secret", "set", tenantId, key, "--value", value, "--server", serverAddress);
   }

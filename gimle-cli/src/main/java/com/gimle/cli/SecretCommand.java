@@ -507,6 +507,7 @@ public final class SecretCommand {
           export <tenantId> --out <file>
           import <tenantId> --in <file>
           rotate-key
+          rewrap
           retire-key <keyId>
 
         secret types (--type, default opaque):
