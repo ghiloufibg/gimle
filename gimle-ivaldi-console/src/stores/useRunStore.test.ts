@@ -1,7 +1,8 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBlueprint } from "@/lib/blueprint";
-import type { RunnerClient } from "@/repositories/contracts";
+import type { ClusterConnection, RunnerClient, RunSnapshot } from "@/repositories/contracts";
 
 const createRunMock = vi.fn();
 
@@ -24,29 +25,36 @@ vi.mock("@/repositories", () => ({
 // Imported after the mock so the store picks up the mocked repository module.
 const { useRunStore } = await import("./useRunStore");
 const { useValidationStore } = await import("./useValidationStore");
+const { useClustersStore } = await import("./useClustersStore");
+
+function cluster(id: string): ClusterConnection {
+  return {
+    id,
+    name: id,
+    environment: "local",
+    controlPlaneUrl: "http://127.0.0.1:8080",
+    runnerUrl: null,
+    clientCertPath: "",
+    clientKeyPath: "",
+    description: "",
+    createdAt: "",
+    updatedAt: "",
+  };
+}
 
 describe("useRunStore.start", () => {
   beforeEach(() => {
     createRunMock.mockReset();
+    localStorage.clear();
     useRunStore.setState({
       runId: null,
       blueprintId: null,
       status: "idle",
       busy: false,
       reason: null,
-      cluster: {
-        id: "c1",
-        name: "local",
-        environment: "local",
-        controlPlaneUrl: "http://127.0.0.1:8080",
-        runnerUrl: null,
-        clientCertPath: "",
-        clientKeyPath: "",
-        description: "",
-        createdAt: "",
-        updatedAt: "",
-      },
+      cluster: cluster("c1"),
     });
+    useClustersStore.setState({ clusters: [cluster("c1")], selectedId: "c1" });
     useValidationStore.setState({ problems: [], serverProblems: [] });
   });
 
@@ -59,5 +67,31 @@ describe("useRunStore.start", () => {
     expect(useRunStore.getState().busy).toBe(false);
     expect(useRunStore.getState().status).toBe("failed");
     expect(useRunStore.getState().reason).toContain("timed out");
+  });
+
+  it("remembers the cluster a run actually started against, keyed by blueprint id, for the picker to default to next time", async () => {
+    const clusterA = cluster("c1");
+    const clusterB = cluster("c2");
+    useClustersStore.setState({ clusters: [clusterA, clusterB], selectedId: clusterA.id });
+    createRunMock.mockResolvedValue({
+      runId: "run-1",
+      status: "running",
+      steps: [],
+      endpoints: [],
+      machines: [],
+      artifacts: [],
+      cronJobs: [],
+      startedAt: "2026-01-01T00:00:00Z",
+      finishedAt: null,
+      error: null,
+      revision: null,
+    } satisfies RunSnapshot);
+    const blueprint = createBlueprint("test");
+
+    // Run against clusterB, not the global default (clusterA) -- the same shape as the Designer's
+    // own "Run locally" button, which never touches the picker at all.
+    await useRunStore.getState().start(blueprint, { cluster: clusterB });
+
+    expect(useClustersStore.getState().selectedFor(blueprint.id)?.id).toBe(clusterB.id);
   });
 });

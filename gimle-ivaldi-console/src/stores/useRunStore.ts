@@ -231,6 +231,11 @@ export const useRunStore = create<RunState>((set, get) => {
         const snapshot = await client.createRun(request);
         set({ ...applySnapshot(snapshot), busy: false });
         listen(client, snapshot.runId, blueprint.id);
+        // Sticks regardless of how this cluster was arrived at -- an explicit picker choice
+        // already persists itself (see ClusterPicker), but a run started against a lone or
+        // still-ambient default cluster never touched that picker at all, and would otherwise
+        // lose the association the moment the global default cluster later changes.
+        useClustersStore.getState().selectFor(blueprint.id, cluster.id);
       } catch (error) {
         set({
           busy: false,
