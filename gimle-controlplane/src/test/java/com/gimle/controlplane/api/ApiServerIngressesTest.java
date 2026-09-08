@@ -137,6 +137,22 @@ class ApiServerIngressesTest {
 
   @Test
   @Timeout(10)
+  void a_fabric_route_naming_a_wildcard_suffixed_path_is_refused_at_admission() throws Exception {
+    HttpResponse<String> response =
+        post(
+            """
+            {"name": "greeter", "tenantId": "acme", "routes": [
+              {"kind": "FABRIC", "path": "/greet/*", "interfaceName": "com.acme.Greeter",
+               "majorVersion": 1, "methodName": "greet", "paramType": "STRING"}]}
+            """);
+
+    assertEquals(400, response.statusCode(), response.body());
+    assertTrue(response.body().contains("path"), response.body());
+    assertEquals("[]", get("/ingresses").body());
+  }
+
+  @Test
+  @Timeout(10)
   void a_fabric_route_naming_a_supported_param_type_is_stored() throws Exception {
     HttpResponse<String> response = post(fabricIngress("greeter", "STRING"));
 

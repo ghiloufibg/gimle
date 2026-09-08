@@ -66,6 +66,10 @@ public record IngressRule(
       throw new IllegalArgumentException(
           "a FABRIC route is exact-path-only and must not declare a prefix: " + path);
     }
+    if (kind == Kind.FABRIC && path.endsWith("/*")) {
+      throw new IllegalArgumentException(
+          "a FABRIC route is exact-path-only and must not end with a wildcard suffix: " + path);
+    }
     switch (kind) {
       case SERVICE -> requirePresent(serviceName, "serviceName", kind);
       case VESSEL -> {
