@@ -3147,7 +3147,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "PATCH must change at least one field");
       return;
     }
-    if (rejectUnknownAllowListTenants(exchange, patch.addedTenantIds())) {
+    if (rejectUnknownAddedTenants(exchange, patch.addedTenantIds())) {
       return;
     }
     respondNetworkPolicyWrite(
@@ -3209,6 +3209,24 @@ public final class ApiServer implements AutoCloseable {
 
   private boolean rejectUnknownAllowListTenants(HttpExchange exchange, Set<String> referenced)
       throws IOException {
+    return rejectUnknownTenants(
+        exchange, referenced, "no such tenant(s) in this policy's allow list: ");
+  }
+
+  /**
+   * {@code PATCH}'s own sibling of {@link #rejectUnknownAllowListTenants}: the same unknown-tenant
+   * check, but phrased for the operation PATCH actually performs -- adding a tenant id to an allow
+   * list -- rather than {@code rejectUnknownAllowListTenants}'s "in this policy's allow list"
+   * framing, which reads as a failed removal lookup for a tenant id that was never in the policy to
+   * begin with.
+   */
+  private boolean rejectUnknownAddedTenants(HttpExchange exchange, Set<String> added)
+      throws IOException {
+    return rejectUnknownTenants(exchange, added, "no such tenant(s) to add: ");
+  }
+
+  private boolean rejectUnknownTenants(
+      HttpExchange exchange, Set<String> referenced, String messagePrefix) throws IOException {
     if (referenced.isEmpty()) {
       return false;
     }
@@ -3217,7 +3235,7 @@ public final class ApiServer implements AutoCloseable {
     if (unknown.isEmpty()) {
       return false;
     }
-    respond(exchange, 400, "no such tenant(s) in this policy's allow list: " + unknown);
+    respond(exchange, 400, messagePrefix + unknown);
     return true;
   }
 
