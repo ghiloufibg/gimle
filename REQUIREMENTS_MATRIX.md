@@ -2340,14 +2340,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-078 — Cluster PKI bootstrap CLI (`mvn gimle:tls-init`)
 
 - **Category**: PKI / Internal-Infra
-- **User story**: As a cluster operator standing up a brand-new TLS-mode cluster, I want one command generating the cluster CA plus leaf certificates for the control plane, Fafnir, Muninn, Andvari, and the first human operator, plus a bootstrap console account.
+- **User story**: As a cluster operator standing up a brand-new TLS-mode cluster, I want one command generating the cluster CA plus leaf certificates for the control plane, the store, Fafnir, Muninn, Andvari, and the first human operator, plus a bootstrap console account.
 - **Status**: Complete. Extended: `pki init` now also issues a `store-<hostname>` leaf. Previously no per-store leaf existed in the generated material at all and every launcher started store replicas with the control-plane certificate for their machine -- so a store replica claimed on the wire to be the very process that authenticates to it, a peer could not tell the two apart, and the store inherited that role's group grants. The store's Subject deliberately carries no `O=`: it authorizes nothing on group membership and only needs to be identifiable as itself.
 - **Confidence**: Medium
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (store `tlsFlags`)
 - **Test coverage**: The constituent pieces -- CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem -- are each independently tested, and `PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes` now covers the store leaf directly.
 - **Gherkin scenario**:
   ```gherkin
-  Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.
+  Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/store/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.
   ```
 
 #### GIMLE-702 — A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify

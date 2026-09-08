@@ -859,7 +859,7 @@
       "module": "gimle-pki",
       "category": "PKI / Internal-Infra",
       "feature": "Cluster PKI bootstrap CLI (`mvn gimle:tls-init`)",
-      "step": "Given an empty output directory, When PkiBootstrapMain.main([\"outDir\",\"MyClusterCA\",\"localhost\"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.",
+      "step": "Given an empty output directory, When PkiBootstrapMain.main([\"outDir\",\"MyClusterCA\",\"localhost\"]) runs, Then outDir contains ca.crt/.key, controlplane/store/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
