@@ -453,6 +453,39 @@ class RunControllerTest {
   }
 
   /**
+   * An in-flight async stop's own spawned teardown thread can race the JVM shutdown hook's own
+   * separate teardown call for the same run -- {@code stopBlueprint} spawns one and returns
+   * immediately, and the very next call ({@code stopAll}, the shutdown hook's own) runs its own
+   * teardown for the same still-non-idle run synchronously, right behind it. Without mutual
+   * exclusion both would run the (possibly slow) kill sequence concurrently against the same
+   * process tree. This cluster has no applied topology at all (validation failed before ever
+   * reaching one) and no other deployment sharing it, so {@code teardown}'s own body
+   * deterministically takes its one no-op branch either way -- the real assertion, that the body
+   * only ever actually ran once regardless of which caller's own invocation won the race, is then a
+   * simple log-line count rather than a process-kill spy.
+   */
+  @Test
+  void concurrent_teardown_of_the_same_run_only_actually_tears_down_once() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    Map<String, Object> started =
+        controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+    String runId = String.valueOf(started.get("id"));
+    awaitSettled("bp-one");
+
+    controller.stopBlueprint("bp-one");
+    controller.stopAll();
+
+    assertEquals("idle", awaitSettled("bp-one").get("status"));
+    List<String> lines = controller.log(runId, 0).orElseThrow().lines();
+    long tornDownCount =
+        lines.stream()
+            .filter(
+                l -> l.contains("nothing recorded as applied to this cluster -- nothing to stop"))
+            .count();
+    assertEquals(1, tornDownCount, lines.toString());
+  }
+
+  /**
    * A manifest edited to a new module version with no matching jar rebuild used to validate clean
    * and push successfully under the jar's own real (unchanged) version, only to fail two steps
    * later at deploy time with an opaque "not in the artifact registry" message naming a coordinate

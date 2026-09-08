@@ -836,8 +836,19 @@ public final class RunController {
    * live deployment on it -- while another blueprint's own deployment still shares the infra, this
    * only undeploys this run's own release (see {@link #undeployReleaseQuietly}), leaving the shared
    * process tree, and every other deployment on it, running.
+   *
+   * <p>Guarded by {@link ActiveRun#tearingDown} so this actually runs at most once per run: a
+   * {@link #stopRun}-spawned thread and the JVM shutdown hook's own {@link #stopAll} can each reach
+   * this for the same run when a stop races a process exit, and running the (potentially slow, up
+   * to about a minute) sequence below twice concurrently is worse than pointless, it's actively
+   * unsafe against the same process tree. The guard is a lock-free compare-and-set rather than a
+   * {@code synchronized} block around the whole method, so the loser returns immediately instead of
+   * blocking behind the winner's own slow teardown.
    */
   private void teardown(ActiveRun run) {
+    if (!run.tearingDown.compareAndSet(false, true)) {
+      return;
+    }
     try {
       if (!otherLiveDeploymentBlueprintIds(run).isEmpty()) {
         undeployReleaseQuietly(run);
@@ -1831,6 +1842,9 @@ public final class RunController {
     volatile Instant updatedAt = Instant.now();
     volatile boolean cancelRequested;
     volatile Thread worker;
+    // Guards #teardown against running twice for the same run -- see its own javadoc.
+    final java.util.concurrent.atomic.AtomicBoolean tearingDown =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
 
     ActiveRun(String id, String clusterId, Optional<String> blueprintId) {
       this.id = id;
