@@ -195,6 +195,100 @@ port your fleet's own network policy is willing to expose. `validate` counts it 
 claim on its machine, so a `healthPort` colliding with any other process on the same machine is
 reported as `PORT_CONFLICT` exactly like any other collision.
 
+### Topology `controlPlane:` block
+
+Each entry under `controlPlane.replicas` places one control-plane replica and names its port. Only
+`machine` is required — the same `{ replicas: [{ machine, port }] }` shape `muninn:`/`andvari:` below
+also use.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `machine` | *(required)* | The `machines[]` entry this replica runs on. |
+| `port` | `8080` | The control plane's HTTP API port. |
+
+```yaml
+controlPlane:
+  replicas:
+    - {machine: m1, port: 8080}
+```
+
+### Topology `fafnir:` block
+
+Fafnir's own section adds one field, `keyFile`, ahead of the shared `replicas` shape.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `keyFile` | *(unset)* | Path to Fafnir's AES-256 master key file, resolved the same way `runtime.dataRoot` is (a leading `~` expands to the user's home). Required whenever `pki init`/a multi-machine plaintext Fafnir needs to generate and distribute one shared key — see [Machine bootstrap verbs](#machine-bootstrap-verbs) above. |
+| `replicas[].machine` | *(required if any replica is declared)* | The `machines[]` entry this replica runs on. |
+| `replicas[].port` | `9092` | Fafnir's own client-facing port. |
+
+```yaml
+fafnir:
+  keyFile: /var/lib/gimle/fafnir-secret.key
+  replicas:
+    - {machine: m1, port: 9092}
+```
+
+A topology with no `fafnir:` section at all is equivalent to `{keyFile: unset, replicas: []}` — a
+single-machine deployment where `FafnirMain` generates its own key at first start, needing no shared
+material.
+
+### Topology `muninn:` block
+
+Same shared `{ replicas: [{ machine, port }] }` shape as `controlPlane:`, default port `9093`.
+
+```yaml
+muninn:
+  replicas:
+    - {machine: m1, port: 9093}
+```
+
+### Topology `andvari:` block
+
+Same shared `{ replicas: [{ machine, port }] }` shape again, default port `9094`.
+
+```yaml
+andvari:
+  replicas:
+    - {machine: m1, port: 9094}
+```
+
+### Topology `agents:` block
+
+Unlike `store:`/`controlPlane:`/`fafnir:`/`muninn:`/`andvari:`, `agents:` is a bare top-level list,
+not a mapping with its own nested `replicas:` key — every node agent this topology spawns is its own
+entry.
+
+| Field | Default when omitted | Purpose |
+|---|---|---|
+| `machine` | *(required)* | The `machines[]` entry this agent runs on. |
+| `nodeId` | *(required)* | This agent's own node identity — what it registers with the control plane as, and the identity a worker it supervises inherits. |
+| `gossipPort` | `9090` | The SWIM-style membership gossip port node agents use to talk to each other, off the control plane's critical path. |
+| `labels` | `[]` | Placement labels the scheduler matches against a workload's `placement.requiredLabels` — an `edge`-labeled agent is how `gimle-gateway`'s own DaemonSet targets edge machines only (see [Extensions](#extensions-hilmir-enablehilmir-disable) below). |
+
+```yaml
+agents:
+  - {machine: m1, nodeId: node-a, gossipPort: 9090, labels: [edge]}
+  - {machine: m2, nodeId: node-b}
+```
+
+### Topology `jvm:` block
+
+Also a departure from the replica-list shape: `jvm:` is a mapping keyed by role name, each value a
+list of extra flags inserted into that role's own spawned `java` command line ahead of `-cp`/the main
+class, so they're read as real JVM options (`-Xmx…`, `-XX:…`, `-D…`) rather than silently becoming
+program arguments. Every key is one of `store`, `controlPlane`, `fafnir`, `muninn`, `andvari`,
+`agent`, or `worker` (matching each spawned process kind one-for-one; `worker` flags apply to the
+worker command tail a node agent itself spawns, not to the agent's own JVM). All keys are optional,
+and a role this topology never places is simply never consulted, even if `jvm:` names it.
+
+```yaml
+jvm:
+  store: ["-Xmx512m"]
+  controlPlane: ["-Xmx1g", "-XX:+UseZGC"]
+  worker: ["-Xmx256m"]
+```
+
 ## Remote (SSH) fleet bootstrap
 
 `--remote` on `up`/`down`/`stop`/`status`/`upgrade-cluster` dispatches that exact same local verb
@@ -295,6 +389,14 @@ hilmir upgrade-cluster -f <topology.yaml> --remote [--machine <name>]
 respawn against the new classpath, wait for readiness, repeat for the next role — never `hilmir
 upgrade`, which is a completely different, bundle-workload-rollout concern (see
 [Release verbs](#release-verbs) below).
+
+**There is no `hilmir rollback` equivalent for `upgrade-cluster`.** `rollback` (below) only ever rolls
+back a release *bundle* — it has nothing to do with a platform-binary rollout, and `hilmir rollback
+--release <name>` against a name that was never deployed as a bundle fails clearly, naming this same
+limitation. Undoing an `upgrade-cluster` run means re-running `upgrade-cluster` again with
+`--new-classpath` pointed at the *previous* classpath: hilmir keeps no history of what a machine's
+classpath was before the last `upgrade-cluster`, so the operator must name it explicitly, the same way
+`--new-classpath` is always named going forward.
 
 **Scope: this command itself is strictly per-machine, with `--remote` layered on top exactly like
 `up`/`down`/`status`'s own.** `UpgradeClusterCommand` itself only ever touches OS processes on the
