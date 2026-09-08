@@ -8,6 +8,10 @@ export type RunStepStatus = "pending" | "running" | "ok" | "failed" | "skipped";
 export interface RunEndpoint {
   label: string;
   url: string;
+  /** False when the backend's own processes[] reports the process backing this endpoint's role as
+   * not ready. True when no process is reported for it yet -- a deploy-only run leaves processes[]
+   * empty, which means "nothing fresher to report," not "confirmed dead". */
+  ready: boolean;
 }
 
 /** One machine a run's processes are placed on, and which roles it hosts there. */
@@ -15,6 +19,9 @@ export interface RunMachine {
   name: string;
   host: string;
   roles: string[];
+  /** False when the backend's own processes[] reports at least one process on this machine as not
+   * ready -- same "no data yet" caveat as RunEndpoint.ready above. */
+  ready: boolean;
 }
 
 /** One planned unit of work the runner reports on (boot store, deploy bundle, ...). */

@@ -32,15 +32,26 @@ interface RawCronJob {
   jobs?: RawCronJobFiring[];
 }
 
-/** The exact shape gimle-ivaldi's RunController.snapshotOf/toJsonMap emits. `processes` exists
- * on the wire but nothing here reads it yet -- steps are derived from the log instead (see
- * lib/runPhases.ts), the finer-grained per-process readiness has no UI consumer today. */
+/** One process gimle-ivaldi's own launcher started, re-probed for liveness on every poll -- see
+ * RunController.refreshedProcesses. `machine` and `role` are what let a client cross-reference this
+ * against the topology-derived machine/endpoint lists below; `role` is the launcher's own
+ * SCREAMING_SNAKE ProcessRole name (`CONTROL_PLANE`), not the manifest's camelCase field. */
+interface RawProcessInfo {
+  role?: string;
+  machine?: string;
+  ready?: boolean;
+}
+
+/** The exact shape gimle-ivaldi's RunController.snapshotOf/toJsonMap emits. Steps are still
+ * derived from the log (see lib/runPhases.ts) -- `processes` only backs the machines/endpoints
+ * readiness cross-reference below, not the step timeline. */
 interface RawRunSnapshot {
   id?: string | null;
   clusterId?: string | null;
   blueprintId?: string | null;
   status?: string;
   rebooted?: boolean;
+  processes?: RawProcessInfo[];
   cronJobs?: RawCronJob[];
   revision?: number;
   error?: string | null;
@@ -84,6 +95,28 @@ const ROLE_LABEL: Record<string, string> = {
   agent: "agent",
 };
 
+/** Maps a process's own SCREAMING_SNAKE ProcessRole name (the wire form of `processes[].role`)
+ * onto the camelCase kind keys the topology's own manifest fields (and ROLE_LABEL above) use. */
+const ROLE_KIND_BY_WIRE: Record<string, string> = {
+  STORE: "store",
+  CONTROL_PLANE: "controlPlane",
+  FAFNIR: "fafnir",
+  MUNINN: "muninn",
+  ANDVARI: "andvari",
+  AGENT: "agent",
+};
+
+/** True unless `processes` actually reports a not-ready process for this kind/machine -- a
+ * deploy-only run leaves `processes` empty, which must read as "nothing fresher to report," not
+ * as every role suddenly dead. */
+function readinessOf(
+  processes: RawProcessInfo[] | undefined,
+  matches: (p: RawProcessInfo) => boolean,
+): boolean {
+  const own = (processes ?? []).filter(matches);
+  return own.length === 0 || own.every((p) => p.ready !== false);
+}
+
 function safeParseTopology(content: string | undefined): Topology {
   if (!content) return {};
   try {
@@ -94,39 +127,61 @@ function safeParseTopology(content: string | undefined): Topology {
 }
 
 /** Endpoints are static once a topology is known -- derived here rather than reported by the
- * backend, which tracks process readiness, not link labels. */
-function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
+ * backend, which tracks process readiness (folded in via `processes` below), not link labels. */
+function endpointsFromTopologyText(
+  content: string | undefined,
+  processes?: RawProcessInfo[],
+): RunEndpoint[] {
   const topology = safeParseTopology(content);
   const host = topology.machines?.[0]?.host ?? "127.0.0.1";
   // An mTLS cluster's listeners speak TLS only, so an http:// link to one is dead rather than
   // merely unencrypted.
   const scheme = topology.transport === "mtls" ? "https" : "http";
+  const readyFor = (kind: string) =>
+    readinessOf(processes, (p) => ROLE_KIND_BY_WIRE[p.role ?? ""] === kind);
   const endpoints: RunEndpoint[] = [];
   const cpPort = topology.controlPlane?.replicas?.[0]?.port ?? DEFAULT_PORTS.controlPlane;
   if (topology.controlPlane?.replicas?.length) {
-    endpoints.push({ label: "Console", url: `${scheme}://${host}:${cpPort}/console` });
+    const ready = readyFor("controlPlane");
+    endpoints.push({ label: "Console", url: `${scheme}://${host}:${cpPort}/console`, ready });
     // The control plane's resources sit at the server root -- /deployments, /nodes, /tenants --
     // with no /api prefix, so /healthz is the one path that is both stable and meaningful.
-    endpoints.push({ label: "Control plane health", url: `${scheme}://${host}:${cpPort}/healthz` });
+    endpoints.push({
+      label: "Control plane health",
+      url: `${scheme}://${host}:${cpPort}/healthz`,
+      ready,
+    });
   }
   const fafnirPort = topology.fafnir?.replicas?.[0]?.port ?? DEFAULT_PORTS.fafnir;
   if (topology.fafnir?.replicas?.length)
-    endpoints.push({ label: "Fafnir vault", url: `${scheme}://${host}:${fafnirPort}/console` });
+    endpoints.push({
+      label: "Fafnir vault",
+      url: `${scheme}://${host}:${fafnirPort}/console`,
+      ready: readyFor("fafnir"),
+    });
   const muninnPort = topology.muninn?.replicas?.[0]?.port ?? DEFAULT_PORTS.muninn;
   if (topology.muninn?.replicas?.length)
-    endpoints.push({ label: "Muninn", url: `${scheme}://${host}:${muninnPort}/status` });
+    endpoints.push({
+      label: "Muninn",
+      url: `${scheme}://${host}:${muninnPort}/status`,
+      ready: readyFor("muninn"),
+    });
   const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORTS.andvari;
   if (topology.andvari?.replicas?.length)
     endpoints.push({
       label: "Andvari registry",
       url: `${scheme}://${host}:${andvariPort}/console`,
+      ready: readyFor("andvari"),
     });
   return endpoints;
 }
 
 /** Groups the topology's own machines with the roles placed on each -- a run's process groups, as
  * the wire-level RunSnapshot itself doesn't report placement. */
-function machinesFromTopologyText(content: string | undefined): RunMachine[] {
+function machinesFromTopologyText(
+  content: string | undefined,
+  processes?: RawProcessInfo[],
+): RunMachine[] {
   const topology = safeParseTopology(content);
   const roleEntries: { kind: string; machine?: string }[] = [
     ...(topology.store?.replicas ?? []).map((r) => ({ kind: "store", machine: r.machine })),
@@ -147,6 +202,7 @@ function machinesFromTopologyText(content: string | undefined): RunMachine[] {
       roles: roleEntries
         .filter((r) => r.machine === m.name)
         .map((r) => ROLE_LABEL[r.kind] ?? r.kind),
+      ready: readinessOf(processes, (p) => p.machine === m.name),
     }));
 }
 
@@ -235,8 +291,8 @@ export class HttpRunnerClient implements RunnerClient {
     if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
     const raw = (await res.json()) as RawRunSnapshot;
     const topologyText = request.files.find((f) => f.path === "topology.yaml")?.content;
-    const endpoints = endpointsFromTopologyText(topologyText);
-    const machines = machinesFromTopologyText(topologyText);
+    const endpoints = endpointsFromTopologyText(topologyText, raw.processes);
+    const machines = machinesFromTopologyText(topologyText, raw.processes);
     return this.toSnapshot(raw, initialSteps(), endpoints, machines);
   }
 
@@ -262,8 +318,8 @@ export class HttpRunnerClient implements RunnerClient {
       const raw = (await res.json()) as RawRunSnapshot;
       if (!raw.id || mapStatus(raw.status) === "idle") return null;
       const topologyText = raw.clusterId ? await this.fetchTopologyText(raw.clusterId) : undefined;
-      const endpoints = endpointsFromTopologyText(topologyText);
-      const machines = machinesFromTopologyText(topologyText);
+      const endpoints = endpointsFromTopologyText(topologyText, raw.processes);
+      const machines = machinesFromTopologyText(topologyText, raw.processes);
       return this.toSnapshot(raw, initialSteps(), endpoints, machines);
     } catch {
       return null;
@@ -295,6 +351,10 @@ export class HttpRunnerClient implements RunnerClient {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];
     let machines: RunMachine[] = [];
+    // Cached separately from endpoints/machines themselves: the topology text only needs
+    // re-fetching until it settles (see below), but readiness must be recomputed from every
+    // poll's own fresh `processes`, even once the topology fetch has stopped.
+    let topologyText: string | undefined;
     let endpointsSettled = false;
     let cursor = 0;
     let seq = 0;
@@ -339,12 +399,12 @@ export class HttpRunnerClient implements RunnerClient {
         // lands during the boot, when the cluster still holds its *previous* applied topology, so
         // caching then pinned the old scheme and host -- every link dead after a
         // plaintext-to-mTLS switch.
-        if (raw.clusterId && (endpoints.length === 0 || !endpointsSettled)) {
-          const topologyText = await this.fetchTopologyText(raw.clusterId);
-          endpoints = endpointsFromTopologyText(topologyText);
-          machines = machinesFromTopologyText(topologyText);
+        if (raw.clusterId && (topologyText === undefined || !endpointsSettled)) {
+          topologyText = await this.fetchTopologyText(raw.clusterId);
           endpointsSettled = status === "running" || status === "failed";
         }
+        endpoints = endpointsFromTopologyText(topologyText, raw.processes);
+        machines = machinesFromTopologyText(topologyText, raw.processes);
         const phase = currentPhaseFor(status);
         if (phase) steps = markCurrentPhase(steps, phase);
         if (status === "running" || status === "failed") steps = finalizeSteps(steps, status);

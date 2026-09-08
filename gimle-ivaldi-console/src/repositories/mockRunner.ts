@@ -133,6 +133,8 @@ function machinesOf(
       roles: placements
         .filter((p) => p.machine === m.name)
         .map((p) => ROLE_LABEL[p.kind] ?? p.kind),
+      // A simulated run starts no real process to ever report unready.
+      ready: true,
     }));
 }
 
@@ -328,17 +330,26 @@ function buildScript(request: CreateRunRequest): {
 
   const endpoints: RunEndpoint[] = [];
   if (topology.controlPlane?.replicas?.length) {
-    endpoints.push({ label: "Console", url: `http://${host}:${cpPort}/console` });
-    endpoints.push({ label: "Control plane API", url: `http://${host}:${cpPort}/api` });
+    endpoints.push({ label: "Console", url: `http://${host}:${cpPort}/console`, ready: true });
+    endpoints.push({
+      label: "Control plane API",
+      url: `http://${host}:${cpPort}/api`,
+      ready: true,
+    });
   }
   const muninnPort = topology.muninn?.replicas?.[0]?.port;
   if (topology.muninn?.replicas?.length)
-    endpoints.push({ label: "Muninn", url: `http://${host}:${muninnPort ?? DEFAULT_PORT.muninn}` });
+    endpoints.push({
+      label: "Muninn",
+      url: `http://${host}:${muninnPort ?? DEFAULT_PORT.muninn}`,
+      ready: true,
+    });
   const andvariPort = topology.andvari?.replicas?.[0]?.port;
   if (topology.andvari?.replicas?.length)
     endpoints.push({
       label: "Andvari registry",
       url: `http://${host}:${andvariPort ?? DEFAULT_PORT.andvari}`,
+      ready: true,
     });
 
   script.push({

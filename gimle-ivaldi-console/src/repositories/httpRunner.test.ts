@@ -71,6 +71,74 @@ describe("HttpRunnerClient.currentRun", () => {
     expect(snapshot?.status).toBe("running");
   });
 
+  it("reflects a process the backend reports not ready as a dead machine and endpoint, not a live one", async () => {
+    const topology = [
+      "machines:",
+      "  - name: m1",
+      "    host: 127.0.0.1",
+      "controlPlane:",
+      "  replicas:",
+      "    - machine: m1",
+      "",
+    ].join("\n");
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/topology")
+          ? jsonResponse({ topology })
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [{ role: "CONTROL_PLANE", machine: "m1", ready: false }],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.machines).toEqual([
+      { name: "m1", host: "127.0.0.1", roles: ["control plane"], ready: false },
+    ]);
+    expect(snapshot?.endpoints.find((e) => e.label === "Console")).toMatchObject({ ready: false });
+  });
+
+  it("leaves a machine/endpoint ready when the backend reports no processes for it yet", async () => {
+    const topology = [
+      "machines:",
+      "  - name: m1",
+      "    host: 127.0.0.1",
+      "controlPlane:",
+      "  replicas:",
+      "    - machine: m1",
+      "",
+    ].join("\n");
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/topology")
+          ? jsonResponse({ topology })
+          : jsonResponse({
+              id: "run-1",
+              clusterId: "c1",
+              blueprintId: "bp-orders",
+              status: "running",
+              processes: [],
+              error: null,
+              startedAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            }),
+      ),
+    );
+
+    const snapshot = await client.currentRun("bp-orders");
+
+    expect(snapshot?.machines[0]?.ready).toBe(true);
+    expect(snapshot?.endpoints.find((e) => e.label === "Console")?.ready).toBe(true);
+  });
+
   it("reads the backend's own revision through onto the mapped snapshot", async () => {
     fetchMock.mockImplementation((url: string) =>
       Promise.resolve(
@@ -255,8 +323,8 @@ describe("HttpRunnerClient.createRun", () => {
     });
 
     expect(snapshot.machines).toEqual([
-      { name: "m1", host: "127.0.0.1", roles: ["store", "control plane"] },
-      { name: "m2", host: "127.0.0.2", roles: ["andvari"] },
+      { name: "m1", host: "127.0.0.1", roles: ["store", "control plane"], ready: true },
+      { name: "m2", host: "127.0.0.2", roles: ["andvari"], ready: true },
     ]);
   });
 

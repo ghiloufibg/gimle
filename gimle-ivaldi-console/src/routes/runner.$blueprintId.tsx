@@ -271,7 +271,10 @@ function RunnerPage() {
                 {machines.map((m) => (
                   <li key={m.name}>
                     <div className="flex justify-between gap-2 font-mono text-[11px]">
-                      <span className="text-foreground">{m.name}</span>
+                      <span className={m.ready ? "text-foreground" : "text-status-bad"}>
+                        {m.name}
+                        {!m.ready && " (dead)"}
+                      </span>
                       <span className="num text-muted-foreground">{m.host}</span>
                     </div>
                     {m.roles.length > 0 && (
@@ -347,9 +350,13 @@ function RunnerPage() {
                       href={e.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-mono text-[11px] text-primary underline-offset-2 hover:underline"
+                      className={cn(
+                        "font-mono text-[11px] underline-offset-2 hover:underline",
+                        e.ready ? "text-primary" : "text-status-bad",
+                      )}
                     >
                       {e.label}: {e.url}
+                      {!e.ready && " (dead)"}
                     </a>
                   </li>
                 ))}

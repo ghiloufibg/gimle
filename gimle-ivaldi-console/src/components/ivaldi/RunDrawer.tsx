@@ -104,9 +104,13 @@ export function RunDrawer({ blueprint }: { blueprint: Blueprint }) {
                     href={e.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-mono text-[11px] text-primary underline-offset-2 hover:underline"
+                    className={cn(
+                      "font-mono text-[11px] underline-offset-2 hover:underline",
+                      e.ready ? "text-primary" : "text-status-bad",
+                    )}
                   >
                     {e.label}: {e.url}
+                    {!e.ready && " (dead)"}
                   </a>
                 </li>
               ))}
