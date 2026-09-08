@@ -130,4 +130,19 @@ public record StatefulSetSpec(
   public DisruptionBudget effectiveDisruptionBudget() {
     return disruption.orElse(DisruptionBudget.DEFAULT);
   }
+
+  /**
+   * The peak instance count this StatefulSet may ever legitimately run at once: the larger of
+   * {@link #replicas} and {@link AutoscalePolicy#maxReplicas()} (when {@link #autoscale} is
+   * present) -- live instance count can be autoscaler-driven up to {@code maxReplicas}, which quota
+   * charging must account for even though {@link #replicas} itself is never overwritten by the
+   * autoscaler -- mirrors {@link DeploymentSpec#maxCommittedInstances()} exactly, except {@code
+   * maxSurge} is always zero here since {@link StatefulSetManifestParser} rejects a nonzero value
+   * outright.
+   */
+  public int maxCommittedInstances() {
+    int committedReplicas =
+        Math.max(replicas, autoscale.map(AutoscalePolicy::maxReplicas).orElse(replicas));
+    return committedReplicas + effectiveDisruptionBudget().maxSurge();
+  }
 }
