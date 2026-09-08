@@ -153,25 +153,31 @@ public final class ReleaseReconciler {
    * applied: a caller that withholds a secret whose value it does not currently hold (leaving what
    * the vault already stores) must still pass the declaring bundle here, or the key it deliberately
    * left alone would read as one the release dropped.
+   *
+   * <p>Config and secret keys are compared within their own kind, never across: a new revision's
+   * config entry does not make an old secret of the same (tenant, key) "still present," and vice
+   * versa -- {@code KeyRef} carries no kind of its own, so mixing the two into one set would let a
+   * same-named replacement mask the old entry's own removal.
    */
   public static List<KeyRef> computeKeyPrune(RenderedBundle rendered, ReleaseRevision previous) {
-    List<KeyRef> current = new ArrayList<>();
+    List<KeyRef> currentConfig = new ArrayList<>();
     for (RenderedConfigEntry entry : rendered.config()) {
-      current.add(new KeyRef(entry.tenant(), entry.key()));
+      currentConfig.add(new KeyRef(entry.tenant(), entry.key()));
     }
+    List<KeyRef> currentSecrets = new ArrayList<>();
     for (RenderedSecretEntry entry : rendered.secrets()) {
-      current.add(new KeyRef(entry.tenant(), entry.key()));
+      currentSecrets.add(new KeyRef(entry.tenant(), entry.key()));
     }
     List<KeyRef> stale = new ArrayList<>();
     for (RenderedConfigEntry entry : previous.config()) {
       KeyRef ref = new KeyRef(entry.tenant(), entry.key());
-      if (!current.contains(ref)) {
+      if (!currentConfig.contains(ref)) {
         stale.add(ref);
       }
     }
     for (SecretRef entry : previous.secrets()) {
       KeyRef ref = new KeyRef(entry.tenant(), entry.key());
-      if (!current.contains(ref) && !stale.contains(ref)) {
+      if (!currentSecrets.contains(ref) && !stale.contains(ref)) {
         stale.add(ref);
       }
     }
