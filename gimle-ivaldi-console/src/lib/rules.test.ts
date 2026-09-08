@@ -355,6 +355,44 @@ describe("faults the designer used to ship silently", () => {
     expect(overlaps.map((p) => p.nodeId).sort()).toEqual([service.id, twin.id].sort());
   });
 
+  it("warns when two Services fronting the same deployment declare different target ports", () => {
+    const bp = clone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    service.data = { ...service.data, port: 80, targetPort: 8080 };
+    const twin = structuredClone(service);
+    twin.id = "s-twin";
+    twin.data = { ...twin.data, name: "twin-service", port: 80, targetPort: 9090 };
+    bp.nodes.push(twin);
+    bp.edges = [
+      ...bp.edges,
+      ...bp.edges
+        .filter((e) => e.source === service.id)
+        .map((e) => ({ ...e, id: "e-twin", source: twin.id })),
+    ];
+
+    const mismatches = validate(bp).filter((p) => p.code === "SERVICE_TARGET_PORT_MISMATCH");
+    expect(mismatches).toHaveLength(2); // one attributed to each service node
+    expect(mismatches.map((p) => p.nodeId).sort()).toEqual([service.id, twin.id].sort());
+  });
+
+  it("stays silent when two Services fronting the same deployment agree on the target port", () => {
+    const bp = clone(ordersPlatform!);
+    const service = bp.nodes.find((n) => n.kind === "service")!;
+    service.data = { ...service.data, port: 80, targetPort: 8080 };
+    const twin = structuredClone(service);
+    twin.id = "s-twin";
+    twin.data = { ...twin.data, name: "twin-service", port: 8080, targetPort: 8080 };
+    bp.nodes.push(twin);
+    bp.edges = [
+      ...bp.edges,
+      ...bp.edges
+        .filter((e) => e.source === service.id)
+        .map((e) => ({ ...e, id: "e-twin", source: twin.id })),
+    ];
+
+    expect(codesOf(bp)).not.toContain("SERVICE_TARGET_PORT_MISMATCH");
+  });
+
   it("does not warn about two Services in different tenants fronting a same-named deployment", () => {
     const bp = clone(ordersPlatform!);
     const service = bp.nodes.find((n) => n.kind === "service")!;

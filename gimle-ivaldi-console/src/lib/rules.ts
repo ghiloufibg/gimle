@@ -378,6 +378,9 @@ function validateApplication(bp: Blueprint): Problem[] {
       name: d.name,
       tenantId: tenantIdOf(bp, s),
       deploymentNames: new Set([...(d.deploymentNames ?? []), ...edgeNames]),
+      // What a caller actually dials for this Service -- unset targetPort defaults to `port`,
+      // the same fallback ServiceSpec itself applies server-side.
+      targetPort: d.targetPort ?? d.port,
     };
   });
   for (let i = 0; i < serviceOverlapInputs.length; i++) {
@@ -401,6 +404,29 @@ function validateApplication(bp: Blueprint): Problem[] {
           a.node.id,
         ),
       );
+      // Which port the target's own backing instance actually listens on is genuinely runtime-
+      // only data (ModuleContext.reportPort) -- nothing in a workload node's own static fields
+      // says it, so that comparison can't be made here. Two Services both claiming to front the
+      // exact same instances is the one case where a static contradiction IS visible though: they
+      // cannot both be dialing the right port unless they agree, so a disagreement here is a real,
+      // catchable-before-deploy authoring mistake even though "which one (if either) is actually
+      // right" still isn't knowable until the instance itself reports in.
+      if (a.targetPort !== b.targetPort) {
+        p.push(
+          warn(
+            "SERVICE_TARGET_PORT_MISMATCH",
+            `Service "${a.name}" (port ${a.targetPort}) and service "${b.name}" (port ${b.targetPort}) front the same instance(s) (${shared.join(", ")}) but declare different target ports.`,
+            a.node.id,
+          ),
+        );
+        p.push(
+          warn(
+            "SERVICE_TARGET_PORT_MISMATCH",
+            `Service "${b.name}" (port ${b.targetPort}) and service "${a.name}" (port ${a.targetPort}) front the same instance(s) (${shared.join(", ")}) but declare different target ports.`,
+            b.node.id,
+          ),
+        );
+      }
     }
   }
 
