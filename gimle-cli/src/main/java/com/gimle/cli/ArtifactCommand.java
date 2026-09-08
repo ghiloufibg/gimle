@@ -25,8 +25,9 @@ import java.util.Set;
  * coordinate-only deployment manifest's {@code module: {name, version}} reference trustworthy. A
  * vessel jar has no {@code gimle-module.yaml} of its own to read a coordinate from, so {@code
  * --vessel --name <moduleId> --version <version>} pushes it under an explicitly given coordinate
- * instead, with no attempt to validate the jar's contents (there is no descriptor to validate
- * against).
+ * instead -- but only after confirming the jar really has no descriptor of its own ({@link
+ * VesselArtifacts#rejectIfRealModule}): a jar that does carry one is refused rather than silently
+ * pushed under whatever coordinate {@code --name}/{@code --version} happen to claim.
  */
 public final class ArtifactCommand {
 
@@ -66,6 +67,7 @@ public final class ArtifactCommand {
     String moduleId;
     String version;
     if (flags.isSet("--vessel")) {
+      VesselArtifacts.rejectIfRealModule(jar);
       moduleId = flags.get("--name");
       version = flags.get("--version");
     } else {
@@ -176,7 +178,8 @@ public final class ArtifactCommand {
         verbs:
           push <jar> [--tenant <id>]       (coordinate read from the jar's own gimle-module.yaml)
           push <jar> [--tenant <id>] --vessel --name <moduleId> --version <version>
-                                            (vessel jars have no gimle-module.yaml to read)
+                                            (vessel jars have no gimle-module.yaml to read;
+                                             refused if the jar actually has one)
           list [moduleId]
           get <moduleId> <version> [--to <path>]
           delete <moduleId> <version>

@@ -375,6 +375,31 @@ class ArtifactSetCommandTest {
   }
 
   @Test
+  void a_vessel_entry_with_a_real_module_descriptor_is_rejected() throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path realModuleJar = buildModule("com.example.spoofed", "1.0.0", jarsDir);
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        modules:
+          - artifact: %s
+            kind: vessel
+            name: com.example.spoofed-coordinate
+            version: 9.9.9
+        """
+            .formatted(realModuleJar));
+
+    int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
+
+    assertEquals(2, exitCode);
+    assertTrue(errBuffer.toString(StandardCharsets.UTF_8).contains("module descriptor"));
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    assertEquals(404, client.head("/artifacts/com.example.spoofed-coordinate/9.9.9").statusCode());
+  }
+
+  @Test
   void a_bundle_entry_zips_the_directory_and_pushes_it_as_a_bundle() throws Exception {
     Path appDir = tempDir.resolve("quarkus-app");
     Files.createDirectories(appDir.resolve("lib"));
@@ -483,5 +508,53 @@ class ArtifactSetCommandTest {
     assertTrue(err.contains("is a directory"), err);
     assertTrue(err.contains("bundle"), err);
     assertTrue(!err.contains("could not reach control plane"), err);
+  }
+
+  @Test
+  void pushing_a_real_module_jar_under_vessel_is_refused() throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path realModuleJar = buildModule("com.example.spoofedpush", "1.0.0", jarsDir);
+
+    int exitCode =
+        run(
+            "artifact",
+            "push",
+            realModuleJar.toString(),
+            "--vessel",
+            "--name",
+            "com.example.spoofed-push-coordinate",
+            "--version",
+            "9.9.9",
+            "--server",
+            serverAddress);
+
+    assertEquals(1, exitCode);
+    assertTrue(errBuffer.toString(StandardCharsets.UTF_8).contains("module descriptor"));
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    assertEquals(
+        404, client.head("/artifacts/com.example.spoofed-push-coordinate/9.9.9").statusCode());
+  }
+
+  @Test
+  void pushing_a_genuinely_descriptorless_jar_under_vessel_still_succeeds() throws Exception {
+    Path vesselJar = tempDir.resolve("plain-vessel.jar");
+    Files.writeString(vesselJar, "pretend-plain-runnable-jar");
+
+    int exitCode =
+        run(
+            "artifact",
+            "push",
+            vesselJar.toString(),
+            "--vessel",
+            "--name",
+            "com.example.plain-vessel",
+            "--version",
+            "1.0.0",
+            "--server",
+            serverAddress);
+
+    assertEquals(0, exitCode, errBuffer.toString(StandardCharsets.UTF_8));
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    assertEquals(200, client.head("/artifacts/com.example.plain-vessel/1.0.0").statusCode());
   }
 }
