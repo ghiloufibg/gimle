@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBlueprint, createNode, type Blueprint } from "@/lib/blueprint";
@@ -72,5 +72,22 @@ describe("DesignerCanvas", () => {
     const { container } = render(<DesignerCanvas blueprint={blueprint} />);
 
     expect(container.querySelector('[role="img"]')).toBeNull();
+  });
+});
+
+describe("DesignerCanvas's empty-canvas starter cluster", () => {
+  it("scopes the copied Fafnir node's keyFile to the real, already-persisted blueprint's own id", () => {
+    const blueprint = createBlueprint("real", { empty: true });
+    useBlueprintStore.setState({ blueprint, selectedId: null, selectedIds: [] });
+
+    render(<DesignerCanvas blueprint={blueprint} />);
+    fireEvent.click(screen.getByText("Add a minimal local cluster"));
+
+    const fafnirNode = useBlueprintStore
+      .getState()
+      .blueprint!.nodes.find((n) => n.kind === "fafnir")!;
+    expect((fafnirNode.data as { keyFile?: string }).keyFile).toBe(
+      `~/.gimle/data/${blueprint.id}/fafnir.key`,
+    );
   });
 });

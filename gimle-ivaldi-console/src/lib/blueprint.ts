@@ -384,6 +384,50 @@ export function edgeKindFor(sourceKind: NodeKind, targetKind: NodeKind): EdgeKin
   return null;
 }
 
+/** The one place a Fafnir node's default key-file path is derived from a blueprint id -- both
+ * createBlueprint below and rescopeStarterNodes call this rather than each templating their own
+ * copy of the path. */
+function fafnirKeyFileFor(id: string): string {
+  return `~/.gimle/data/${id}/fafnir.key`;
+}
+
+/**
+ * Every node-level default known to be derived from a blueprint id, keyed by the node kind and
+ * data field it lives on. Adding another such default later (a new kind, or a second field on an
+ * existing one) means adding one entry here -- rescopeStarterNodes itself needs no change.
+ */
+const ID_SCOPED_DEFAULTS: { kind: NodeKind; field: string; valueFor: (id: string) => string }[] = [
+  { kind: "fafnir", field: "keyFile", valueFor: fafnirKeyFileFor },
+];
+
+/**
+ * Re-derives a copied node's own id-scoped defaults (a Fafnir node's keyFile, say) against a
+ * different blueprint id than the one they were originally built for -- what a starter cluster
+ * built only to copy its nodes' shape onto an already-real blueprint needs, so the copy doesn't
+ * silently keep pointing at the throwaway blueprint that produced it. A field the user has already
+ * edited away from its default is left untouched: only an exact match against `fromId`'s own
+ * derived value is rewritten.
+ */
+export function rescopeStarterNodes(
+  nodes: BlueprintNode[],
+  fromId: string,
+  toId: string,
+): BlueprintNode[] {
+  return nodes.map((node) => {
+    // NodeData is a closed union keyed by node kind, but this table deliberately reaches across
+    // every kind at once -- an untyped record is the honest shape for that, not a mistake to cast
+    // around.
+    const data = node.data as unknown as Record<string, unknown>;
+    let rescoped: Record<string, unknown> | null = null;
+    for (const { kind, field, valueFor } of ID_SCOPED_DEFAULTS) {
+      if (node.kind === kind && data[field] === valueFor(fromId)) {
+        rescoped = { ...(rescoped ?? data), [field]: valueFor(toId) };
+      }
+    }
+    return rescoped ? { ...node, data: rescoped as unknown as NodeData } : node;
+  });
+}
+
 export function createBlueprint(name: string, options?: { empty?: boolean }): Blueprint {
   if (options?.empty) {
     const id = uid("bp");
@@ -428,7 +472,7 @@ export function createBlueprint(name: string, options?: { empty?: boolean }): Bl
     position: { x: 80, y: 280 },
     // Scoped to this blueprint's own id, the same way runtime.dataRoot is below -- two blueprints
     // used to point at the exact same default key file.
-    data: { machine: "local", port: 9092, keyFile: `~/.gimle/data/${id}/fafnir.key` },
+    data: { machine: "local", port: 9092, keyFile: fafnirKeyFileFor(id) },
   };
   const agent: BlueprintNode = {
     id: uid("agent"),

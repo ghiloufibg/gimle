@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { canvasBridge } from "@/lib/canvasBridge";
 import {
   createBlueprint,
+  rescopeStarterNodes,
   EDGE_LABELS,
   KIND_LABELS,
   type Blueprint,
@@ -280,7 +281,10 @@ export function DesignerCanvas({ blueprint }: { blueprint: Blueprint }) {
             onClick={() => {
               const starter = createBlueprint(blueprint.name);
               useBlueprintStore.getState().patchBlueprint({
-                nodes: starter.nodes,
+                // The starter is only ever built to copy its nodes' shape onto this already-real
+                // blueprint -- its own id is discarded right after, so any default derived from it
+                // (a Fafnir node's keyFile) must be re-derived against the real one instead.
+                nodes: rescopeStarterNodes(starter.nodes, starter.id, blueprint.id),
                 edges: starter.edges,
               });
             }}

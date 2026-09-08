@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createBlueprint,
   defaultDataFor,
+  rescopeStarterNodes,
   restrictsIngress,
   type NetworkPolicyData,
   type TenantData,
@@ -60,6 +61,40 @@ describe("createBlueprint's default fafnir keyFile", () => {
     const b = createBlueprint("b");
 
     expect(fafnirKeyFile(a)).not.toBe(fafnirKeyFile(b));
+  });
+});
+
+describe("rescopeStarterNodes", () => {
+  it("re-derives a copied Fafnir node's keyFile against the real blueprint's own id, not the throwaway starter's", () => {
+    const starter = createBlueprint("starter");
+    const real = createBlueprint("real", { empty: true });
+
+    const rescoped = rescopeStarterNodes(starter.nodes, starter.id, real.id);
+
+    const keyFile = (rescoped.find((n) => n.kind === "fafnir")?.data as { keyFile?: string })
+      .keyFile;
+    expect(keyFile).toBe(`~/.gimle/data/${real.id}/fafnir.key`);
+    expect(keyFile).not.toBe(fafnirKeyFile(starter));
+  });
+
+  it("leaves every other field on the rescoped node untouched", () => {
+    const starter = createBlueprint("starter");
+    const real = createBlueprint("real", { empty: true });
+
+    const rescoped = rescopeStarterNodes(starter.nodes, starter.id, real.id);
+
+    const fafnirNode = rescoped.find((n) => n.kind === "fafnir")!;
+    expect(fafnirNode.data).toMatchObject({ machine: "local", port: 9092 });
+  });
+
+  it("leaves a node with no id-scoped default at all completely untouched", () => {
+    const starter = createBlueprint("starter");
+    const real = createBlueprint("real", { empty: true });
+
+    const rescoped = rescopeStarterNodes(starter.nodes, starter.id, real.id);
+
+    const machineNode = rescoped.find((n) => n.kind === "machine")!;
+    expect(machineNode).toBe(starter.nodes.find((n) => n.kind === "machine"));
   });
 });
 
