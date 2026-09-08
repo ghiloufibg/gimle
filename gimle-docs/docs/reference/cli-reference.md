@@ -973,6 +973,12 @@ gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --m
 gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m --max-limit-memory 512Mi --max-limit-cpu 500m
 ```
 
+On a plaintext cluster, `set tenant` for a second real tenant name is refused (`403`) once one
+already exists — deliberate, not a bug: plaintext gives every caller the same unauthenticated
+identity, so there is no way to keep two tenants' data apart. See [Multi-tenancy → Plaintext
+transport is explicitly single-tenant](../architecture/multi-tenancy.md) for why, and use mTLS for
+a genuinely multi-tenant cluster.
+
 `GIMLE_SERVER=127.0.0.1:8080` in your shell's environment removes the need to repeat `--server` on
 every call above — see [Getting started](../tutorials/getting-started.md) for the one-time
 `~/.m2/settings.xml` setup that also makes `mvn gimle:deploy` (a thin wrapper around `apply`)
