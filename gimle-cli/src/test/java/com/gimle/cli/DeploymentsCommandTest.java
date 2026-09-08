@@ -275,6 +275,7 @@ class DeploymentsCommandTest {
             InstanceEventKind.TRANSITION_FAILED,
             "instance start refused by this node",
             Optional.of("committing its 1Gi ceiling would exceed this node's own memory budget"),
+            Optional.empty(),
             System.currentTimeMillis()));
 
     outBuffer.reset();

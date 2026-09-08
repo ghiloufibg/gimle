@@ -637,6 +637,7 @@ class RaftCodecTest {
             InstanceEventKind.TRANSITION_FAILED,
             "transition ACTIVE -> STOPPING failed",
             Optional.of("java.lang.IllegalStateException: boom"),
+            Optional.of("node-1"),
             2_000L);
     LogEntry failed =
         logEntry(2L, new StateMutation.AppendInstanceEvent(Optional.empty(), withCause));

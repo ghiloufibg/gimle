@@ -503,6 +503,7 @@ public final class DaemonSetReconciler {
                       + assignment.nodeId()
                       + " exhausted its restart budget; giving up on rescheduling it",
                   Optional.empty(),
+                  Optional.of(assignment.nodeId()),
                   clock.millis())));
     } else if (evaluation.shouldRemoveAssignmentNow()) {
       log.warn(

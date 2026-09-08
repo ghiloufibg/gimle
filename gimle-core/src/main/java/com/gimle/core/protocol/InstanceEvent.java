@@ -8,9 +8,13 @@ import java.util.Optional;
  * AuditEvent} (this is per-instance timeline data, not a cross-resource audit trail). {@code
  * causeSummary} is populated only for a {@code TRANSITION_FAILED} event, and deliberately holds an
  * exception's class name plus message rather than a full stack trace, to keep each event's
- * persisted footprint small. {@code id} is generated once at the point of occurrence (a worker, via
- * {@link InstanceEventKind}'s owning transition) and travels unchanged through every hop after
- * that, giving callers a stable identity for pagination independent of storage order.
+ * persisted footprint small. {@code nodeId} is populated whenever the reconciler already knows the
+ * real node an instance is assigned to; for a DaemonSet it is the only thing that distinguishes one
+ * node's own event history from another's, since {@code instanceIndex} is always {@code 0} there (a
+ * DaemonSet places at most one instance per node). {@code id} is generated once at the point of
+ * occurrence (a worker, via {@link InstanceEventKind}'s owning transition) and travels unchanged
+ * through every hop after that, giving callers a stable identity for pagination independent of
+ * storage order.
  */
 public record InstanceEvent(
     String id,
@@ -19,6 +23,7 @@ public record InstanceEvent(
     InstanceEventKind kind,
     String message,
     Optional<String> causeSummary,
+    Optional<String> nodeId,
     long occurredAtEpochMilli) {
 
   public InstanceEvent {
@@ -40,6 +45,9 @@ public record InstanceEvent(
     if (causeSummary == null) {
       throw new IllegalArgumentException("causeSummary must be Optional.empty(), not null");
     }
+    if (nodeId == null) {
+      throw new IllegalArgumentException("nodeId must be Optional.empty(), not null");
+    }
   }
 
   public InstanceEvent(
@@ -49,6 +57,14 @@ public record InstanceEvent(
       InstanceEventKind kind,
       String message,
       long occurredAtEpochMilli) {
-    this(id, deploymentName, instanceIndex, kind, message, Optional.empty(), occurredAtEpochMilli);
+    this(
+        id,
+        deploymentName,
+        instanceIndex,
+        kind,
+        message,
+        Optional.empty(),
+        Optional.empty(),
+        occurredAtEpochMilli);
   }
 }

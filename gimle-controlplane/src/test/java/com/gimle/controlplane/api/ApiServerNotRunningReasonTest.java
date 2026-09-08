@@ -115,6 +115,7 @@ class ApiServerNotRunningReasonTest {
                 InstanceEventKind.TRANSITION_FAILED,
                 "instance start refused by this node",
                 Optional.of(cause),
+                Optional.empty(),
                 1_000L));
   }
 

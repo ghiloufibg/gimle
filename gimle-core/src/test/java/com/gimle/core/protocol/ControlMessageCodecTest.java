@@ -110,6 +110,7 @@ class ControlMessageCodecTest {
                 InstanceEventKind.TRANSITION_FAILED,
                 "transition ACTIVE -> STOPPING failed",
                 Optional.of("java.lang.IllegalStateException: boom with spaces"),
+                Optional.of("node-1"),
                 2_000L)));
   }
 

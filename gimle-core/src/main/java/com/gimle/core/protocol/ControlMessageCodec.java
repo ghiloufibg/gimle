@@ -63,6 +63,8 @@ public final class ControlMessageCodec {
               escape(m.event().message()),
               Boolean.toString(m.event().causeSummary().isPresent()),
               escape(m.event().causeSummary().orElse("")),
+              Boolean.toString(m.event().nodeId().isPresent()),
+              escape(m.event().nodeId().orElse("")),
               Long.toString(m.event().occurredAtEpochMilli()));
       case ControlMessage.ServiceRegistered m ->
           line("SERVICE_REGISTERED", encodeId(m.moduleId()), encodeExport(m.export()));
@@ -173,6 +175,8 @@ public final class ControlMessageCodec {
       case "INSTANCE_EVENT" -> {
         boolean causePresent = Boolean.parseBoolean(field(fields, 6));
         String causeSummary = unescape(field(fields, 7));
+        boolean nodeIdPresent = Boolean.parseBoolean(field(fields, 8));
+        String nodeId = unescape(field(fields, 9));
         yield new ControlMessage.InstanceEventOccurred(
             new InstanceEvent(
                 unescape(field(fields, 1)),
@@ -181,7 +185,8 @@ public final class ControlMessageCodec {
                 InstanceEventKind.valueOf(field(fields, 4)),
                 unescape(field(fields, 5)),
                 causePresent ? Optional.of(causeSummary) : Optional.empty(),
-                Long.parseLong(field(fields, 8))));
+                nodeIdPresent ? Optional.of(nodeId) : Optional.empty(),
+                Long.parseLong(field(fields, 10))));
       }
       case "SERVICE_REGISTERED" ->
           new ControlMessage.ServiceRegistered(

@@ -1417,6 +1417,7 @@ public final class DomainCodec {
     out.writeUTF(event.kind().name());
     out.writeUTF(event.message());
     out.writeUTF(event.causeSummary().orElse(""));
+    out.writeUTF(event.nodeId().orElse(""));
     out.writeLong(event.occurredAtEpochMilli());
   }
 
@@ -1427,6 +1428,7 @@ public final class DomainCodec {
     InstanceEventKind kind = InstanceEventKind.valueOf(in.readUTF());
     String message = in.readUTF();
     String causeSummary = in.readUTF();
+    String nodeId = in.readUTF();
     long occurredAtEpochMilli = in.readLong();
     return new InstanceEvent(
         id,
@@ -1435,6 +1437,7 @@ public final class DomainCodec {
         kind,
         message,
         causeSummary.isEmpty() ? Optional.empty() : Optional.of(causeSummary),
+        nodeId.isEmpty() ? Optional.empty() : Optional.of(nodeId),
         occurredAtEpochMilli);
   }
 

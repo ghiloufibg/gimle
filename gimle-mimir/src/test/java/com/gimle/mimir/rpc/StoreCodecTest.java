@@ -148,6 +148,7 @@ class StoreCodecTest {
         InstanceEventKind.TRANSITION_FAILED,
         "transition ACTIVE -> STOPPING failed",
         Optional.of("java.lang.IllegalStateException: boom"),
+        Optional.empty(),
         1_700_000_000_000L);
   }
 

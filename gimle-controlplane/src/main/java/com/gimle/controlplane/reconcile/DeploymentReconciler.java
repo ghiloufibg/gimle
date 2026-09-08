@@ -318,6 +318,7 @@ public final class DeploymentReconciler {
                 InstanceEventKind.TRANSITION_FAILED,
                 message,
                 cause,
+                Optional.empty(),
                 clock.millis())));
   }
 

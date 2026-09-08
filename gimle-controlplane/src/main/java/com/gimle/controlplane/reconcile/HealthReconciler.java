@@ -205,6 +205,7 @@ public final class HealthReconciler {
                     InstanceEventKind.TRANSITION_FAILED,
                     "exhausted its restart budget; giving up on rescheduling it",
                     Optional.empty(),
+                    Optional.of(assignment.nodeId()),
                     clock.millis())));
         persistTracker(assignment, persisted, tracker, false, true);
         return;
