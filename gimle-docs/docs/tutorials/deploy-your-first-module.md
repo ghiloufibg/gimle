@@ -75,6 +75,27 @@ and reconciler; step 7 is the [node topology](../architecture/node-topology.md)'
 whether an existing shared worker will do or a new one is needed, per
 [tiered isolation](../architecture/tiered-isolation.md).
 
+:::danger Only against a freshly-started cluster
+The commands below name `artifactPath` as a repo-root-relative path. That path is resolved by the
+**control plane process's own working directory**, not the machine or directory you run `mvn
+gimle:deploy` from — see the [CLI reference](../reference/cli-reference.md#examples). This tutorial
+assumes [the local cluster](./local-dev-cluster.md) was just started fresh, from the repo root, so
+that assumption happens to hold.
+
+Re-running these exact commands against an existing, long-lived, or differently-launched cluster is
+**unsafe**: a working directory mismatch or a stale/rebuilt jar at that path can send the deployment
+into a rolling update that replaces an already-healthy instance with one that never reaches
+`ACTIVE` — and today nothing rolls that back automatically. Don't practice these commands a second
+time against a cluster you or anyone else depends on.
+
+For a long-lived cluster, push the jar to the artifact registry instead of naming a local path:
+`gimle artifact push` it once, then deploy (or redeploy) with `artifactPath` left blank and the
+module's `(name, version)` naming the pushed coordinate instead — see
+[`gimle artifact push`](../reference/cli-reference.md) and
+[Andvari](../architecture/node-topology.md#andvari). That form resolves and caches the jar through
+the registry on every node that needs it, regardless of any process's working directory.
+:::
+
 ## 1. Deploy `greeter-provider`
 
 With [a local cluster running](./local-dev-cluster.md):
