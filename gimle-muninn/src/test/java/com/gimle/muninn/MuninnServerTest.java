@@ -1,6 +1,7 @@
 package com.gimle.muninn;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.muninn.testsupport.InProcessStore;
@@ -62,6 +63,20 @@ class MuninnServerTest {
     assertEquals(200, response.statusCode());
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     assertEquals("PLAINTEXT", body.get("transportProtocol"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_bare_logs_request_gets_a_400_naming_both_real_route_shapes() throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/logs")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(
+        response.body().contains("/logs/nodes/") && response.body().contains("/logs/instances/"),
+        response.body());
   }
 
   @Test

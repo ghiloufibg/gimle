@@ -160,6 +160,7 @@ public final class MuninnServer implements AutoCloseable {
     target.createContext("/ingest/logs/instances/", this::handleIngestInstanceLogs);
     target.createContext("/logs/nodes/", this::handleReadNodeLogs);
     target.createContext("/logs/instances/", this::handleReadInstanceLogs);
+    target.createContext("/logs", this::handleReadLogsRoot);
     target.createContext("/ingest/metrics/", this::handleIngestMetrics);
     target.createContext("/metrics/", this::handleReadMetrics);
     target.createContext("/ingest/traces/", this::handleIngestTraces);
@@ -391,6 +392,29 @@ public final class MuninnServer implements AutoCloseable {
           }
           ingest(ex, "traces/" + parts[0] + "/" + parts[1]);
         });
+  }
+
+  // ---- GET /logs (root) ----
+
+  /**
+   * Catches every request under {@code /logs} that doesn't match one of the two real, more
+   * specific routes below -- most commonly the bare {@code /logs} or {@code /logs/} a caller who
+   * doesn't already know the exact shape would try first. Answers with a {@code 400} naming both
+   * valid shapes, the same "say what's missing" pattern {@code ApiServer}'s own routes already
+   * follow, rather than falling through to the JDK's default context-less {@code 404} with no body
+   * at all.
+   */
+  private void handleReadLogsRoot(HttpExchange exchange) {
+    handle(
+        exchange,
+        "GET",
+        "logs root",
+        ex ->
+            respond(
+                ex,
+                400,
+                "expected /logs/nodes/{nodeId}/{category} or"
+                    + " /logs/instances/{deploymentName}/{instanceIndex}/{category}"));
   }
 
   // ---- GET /logs/nodes/{nodeId}/{category} ----
