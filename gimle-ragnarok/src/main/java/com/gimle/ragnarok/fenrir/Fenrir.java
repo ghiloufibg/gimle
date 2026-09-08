@@ -445,9 +445,23 @@ public final class Fenrir {
         .await(plan.gateTimeout());
   }
 
-  /** Skips a store/leader bounce when taking one member down would break quorum. */
+  /**
+   * Skips a store/leader bounce when taking one member down would break quorum -- but only when
+   * this target can actually see store process health at all. An HTTP-only target (or an SSH target
+   * with no {@code agents:} block for OS-pid resolution) reports every {@link #store}-index empty
+   * regardless of true store health, exactly like {@link #faults()} reports empty for a target with
+   * no boot-time network interposition; treating that as "zero members live" would report a store
+   * outage that may not exist. {@link #hasStoreProcessVisibility} distinguishes the two the same
+   * way {@code linkCut}/{@code storePartition} already distinguish "no fault-proxy visibility" from
+   * a genuine partition, via their own {@link #faults()} check.
+   */
   private Optional<String> quorumGuard() {
     final int total = cluster.storeCount();
+    if (total > 0 && !hasStoreProcessVisibility(total)) {
+      return Optional.of(
+          "quorum guard: this target has no process-control visibility into store replicas,"
+              + " skipping");
+    }
     int live = 0;
     for (int i = 0; i < total; i++) {
       if (isAlive(cluster.store(i))) {
@@ -459,6 +473,16 @@ public final class Fenrir {
       return Optional.of("quorum floor: " + live + " of " + total + " members live");
     }
     return Optional.empty();
+  }
+
+  /** True once at least one store index resolves to a real process handle. */
+  private boolean hasStoreProcessVisibility(final int total) {
+    for (int i = 0; i < total; i++) {
+      if (cluster.store(i).isPresent()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private HeimdallCondition probe(
