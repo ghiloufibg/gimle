@@ -774,6 +774,14 @@ public final class ApiServer implements AutoCloseable {
           "/bootstrap/csr/", instrument("bootstrap-csr", this::handleBootstrapCsrSubResource));
       target.createContext(
           "/bootstrap/tokens", instrument("bootstrap-tokens", this::handleBootstrapTokens));
+    } else {
+      // No CA configured (plaintext transport, see loadCertificateAuthorityIfConfigured): the
+      // three routes above are never registered at all, so without this catch-all the JDK's own
+      // httpserver answers every /bootstrap/* call with an empty-bodied 404 that gives a CLI
+      // caller no clue why. This claims the whole /bootstrap/ prefix instead, one level short of
+      // those three exact contexts, so it never conflicts with them when a CA is present.
+      target.createContext(
+          "/bootstrap/", instrument("bootstrap-disabled", this::handleBootstrapDisabled));
     }
     if (consoleStaticRoot.isPresent()) {
       registerConsole(target, consoleStaticRoot.get(), consoleAddons.orElseThrow());
@@ -10402,6 +10410,25 @@ public final class ApiServer implements AutoCloseable {
   }
 
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
+
+  /**
+   * Registered in place of the three routes above only when {@link #certificateAuthority} is
+   * absent -- a plaintext-transport cluster genuinely has no certificate-signing capability to
+   * offer, so this answers with a real explanation rather than the JDK httpserver's own empty-
+   * bodied 404 for a path nothing claimed.
+   */
+  private void handleBootstrapDisabled(HttpExchange exchange) throws IOException {
+    try {
+      respond(
+          exchange,
+          404,
+          "certificate bootstrap is unavailable: this cluster is running in plaintext mode ("
+              + CaKeyMaterial.CA_KEY_FILE_PROPERTY
+              + " is not configured)");
+    } finally {
+      exchange.close();
+    }
+  }
 
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   // How many submissions one address may spend at once, and how fast it earns another.

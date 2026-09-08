@@ -2722,6 +2722,29 @@ class ApiServerTest {
             .isEmpty());
   }
 
+  // ---- certificate bootstrap on a plaintext (no-CA) cluster ----
+
+  /**
+   * {@code GOV-01}: on a plaintext-transport cluster {@code certificateAuthority} is never
+   * present, so {@code /bootstrap/csr} and its siblings are never registered at all -- without a
+   * catch-all, the JDK's own httpserver answers with a truly empty-bodied 404 that gives a CLI
+   * caller no clue why. This class's own {@code @BeforeEach} always builds a plaintext server (see
+   * its own javadoc), so every test here already runs against exactly that configuration.
+   */
+  @Test
+  void bootstrap_csr_on_a_plaintext_cluster_gives_an_informative_body_not_an_empty_404()
+      throws Exception {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/bootstrap/csr"))
+                .POST(HttpRequest.BodyPublishers.ofString(""))
+                .build());
+
+    assertEquals(404, response.statusCode());
+    assertFalse(response.body().isBlank(), "must not be the JDK's own empty-bodied 404");
+    assertTrue(response.body().contains("plaintext"), response.body());
+  }
+
   // ---- config/secrets distribution ----
 
   /**
