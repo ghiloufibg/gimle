@@ -62,10 +62,12 @@ import org.slf4j.LoggerFactory;
  * says the store has not yet had the opportunity to hear from it: heartbeats live only on whichever
  * store replica is currently leader and are never replicated, so an election leaves the new leader
  * holding nothing for any node, and reading that emptiness as a fact about the nodes would tear
- * every DaemonSet in the cluster down the moment leadership moved. Any other ineligibility reason
- * (cordon, relabeling, a tier/label mismatch) still evicts immediately -- those are deliberate
- * operator actions, not an ambiguous "is the node even still there" signal, so there's nothing to
- * wait out.
+ * every DaemonSet in the cluster down the moment leadership moved. A cordoned or tainted-against
+ * node is held the same way, indefinitely -- see {@link #isCordonedOrTainted} -- matching the
+ * platform's own documented invariant that cordon/taint only ever affect future scheduling and
+ * never evict an instance already running. Only a genuinely stale/gone node or one that no longer
+ * matches this daemonset's own placement requirements (relabeling, a tier change) still evicts
+ * immediately -- those are the only cases with no live node identity left to wait on.
  *
  * <p><b>The published desired count</b> is the number of nodes this DaemonSet should currently
  * occupy: the eligible ones plus the ones held above. Counting only the eligible ones made it
@@ -248,19 +250,21 @@ public final class DaemonSetReconciler {
             .map(NodeCandidate::nodeId)
             .collect(Collectors.toSet());
 
-    // Scale-down: an assignment on a node that fell out of eligibility (cordoned, removed,
-    // relabeled) is removed immediately -- a desired-state edit only, mirroring
-    // DeploymentReconciler's own scale-down pass exactly. The agent's own stop()/StopModule drain
-    // timing owns teardown, not this reconciler. The one exception is a node that fell out of
-    // eligibility purely because the store cannot currently vouch for it: see
-    // isUnconfirmedRatherThanGone and the class javadoc's own "Placement safety" note for why that
-    // case waits instead.
+    // Scale-down: an assignment on a node that fell out of eligibility for a reason with no live
+    // node identity left to wait on (removed, relabeled, a tier change) is removed immediately --
+    // a desired-state edit only. The agent's own stop()/StopModule drain timing owns teardown, not
+    // this reconciler. Two exceptions hold the assignment instead of evicting it: a node the store
+    // cannot currently vouch for (isUnconfirmedRatherThanGone, see the class javadoc's own
+    // "Placement safety" note) and a cordoned or tainted-against node (isCordonedOrTainted) -- the
+    // platform's own documented invariant is that cordon/taint never evict an already-running
+    // instance, only keep new placements off the node.
     Set<String> heldNodeIds = new HashSet<>();
     List<StateMutation> evictions = new ArrayList<>();
     for (DaemonSetAssignment assignment :
         store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       if (!eligibleNodeIds.contains(assignment.nodeId())) {
-        if (isUnconfirmedRatherThanGone(assignment.nodeId(), now, observingSince)) {
+        if (isUnconfirmedRatherThanGone(assignment.nodeId(), now, observingSince)
+            || isCordonedOrTainted(assignment.nodeId(), spec)) {
           heldNodeIds.add(assignment.nodeId());
           continue;
         }
@@ -592,5 +596,27 @@ public final class DaemonSetReconciler {
         && Duration.between(heartbeat.get().receivedAt(), now)
                 .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
             <= 0;
+  }
+
+  /**
+   * True when {@code nodeId}'s absence from {@code eligibleNodeIds} is explained entirely by a
+   * cordon or a taint this daemonset doesn't tolerate -- a deliberate operator action against
+   * future scheduling, never a claim that the node or its already-running instance is gone. Held
+   * indefinitely rather than evicted, matching the platform's own documented invariant (see the
+   * class javadoc's own "Placement safety" note) and mirroring {@link Scheduler#eligibleNodes}'s
+   * own cordon/taint filter stages exactly, since a node this method says "no" for must be one
+   * those same filters would also reject, or the assignment wouldn't have fallen out of {@code
+   * eligibleNodeIds} in the first place.
+   */
+  private boolean isCordonedOrTainted(String nodeId, DaemonSetSpec spec) {
+    if (store.isNodeCordoned(nodeId)) {
+      return true;
+    }
+    if (spec.tolerateAllTaints()) {
+      return false;
+    }
+    Set<String> taints = store.getNodeTaints(nodeId);
+    return !taints.isEmpty()
+        && !(spec.tenantId().isPresent() && taints.contains(spec.tenantId().get()));
   }
 }

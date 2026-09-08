@@ -199,8 +199,12 @@ class DaemonSetReconcilerTest {
     assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
   }
 
+  /**
+   * Matches the platform's own documented invariant (control-plane.md, web-console.md): cordoning
+   * only ever affects future scheduling, it never evicts an instance already running.
+   */
   @Test
-  void cordoning_a_node_removes_its_assignment_on_the_next_tick() {
+  void cordoning_a_node_never_evicts_its_already_running_assignment() {
     StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
@@ -216,8 +220,30 @@ class DaemonSetReconcilerTest {
 
     List<DaemonSetAssignment> assignments =
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
-    assertEquals(1, assignments.size());
-    assertEquals("node-b", assignments.get(0).nodeId());
+    assertEquals(2, assignments.size());
+    assertTrue(assignments.stream().anyMatch(a -> a.nodeId().equals("node-a")));
+  }
+
+  /** Same invariant as cordon (see above), for the other operator-driven ineligibility cause. */
+  @Test
+  void tainting_a_node_never_evicts_its_already_running_assignment() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    DaemonSetReconciler reconciler = new DaemonSetReconciler(store, scheduler);
+    reconciler.reconcileOnce();
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+
+    store.putNodeTaint("node-a", "some-other-tenant", true);
+    reconciler.reconcileOnce();
+
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
+    assertEquals(2, assignments.size());
+    assertTrue(assignments.stream().anyMatch(a -> a.nodeId().equals("node-a")));
   }
 
   @Test
@@ -259,12 +285,12 @@ class DaemonSetReconcilerTest {
   }
 
   @Test
-  void
-      an_arbitrary_starting_snapshot_converges_by_dropping_ineligible_and_filling_eligible_nodes() {
+  void an_arbitrary_starting_snapshot_converges_by_holding_cordoned_and_filling_eligible_nodes() {
     // Simulates a stale snapshot: an assignment lingering on a now-cordoned node, and an eligible
-    // node with no assignment at all yet. A from-scratch reconcile must fix both without any
-    // history beyond this snapshot -- the level-triggered convergence property every reconciler
-    // in this codebase is held to.
+    // node with no assignment at all yet. A from-scratch reconcile must fill the eligible node
+    // without any history beyond this snapshot -- the level-triggered convergence property every
+    // reconciler in this codebase is held to -- while leaving the cordoned node's own assignment
+    // untouched, per the platform's own never-evicts-on-cordon invariant.
     StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
@@ -281,8 +307,10 @@ class DaemonSetReconcilerTest {
 
     List<DaemonSetAssignment> assignments =
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
-    assertEquals(1, assignments.size());
-    assertEquals("node-fresh", assignments.get(0).nodeId());
+    assertEquals(2, assignments.size());
+    assertEquals(
+        Set.of("node-stale", "node-fresh"),
+        assignments.stream().map(DaemonSetAssignment::nodeId).collect(Collectors.toSet()));
   }
 
   @Test
@@ -431,10 +459,11 @@ class DaemonSetReconcilerTest {
   }
 
   @Test
-  void cordoning_a_dark_node_still_removes_its_assignment_immediately(TestClock clock) {
-    // A cordon is a deliberate operator action, not an ambiguous "is the node still there"
-    // signal -- it must not wait out the darkness grace period even when the node also happens to
-    // be unreachable.
+  void cordoning_a_dark_node_still_never_evicts_its_assignment(TestClock clock) {
+    // A cordon never evicts an already-running instance, the same platform invariant as an
+    // ordinary reachable node -- being also unreachable doesn't change that; it only means the
+    // held assignment is doubly explained (isUnconfirmedRatherThanGone and isCordonedOrTainted
+    // both hold), not doubly evicted.
     StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
@@ -459,8 +488,8 @@ class DaemonSetReconcilerTest {
 
     List<DaemonSetAssignment> assignments =
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
-    assertEquals(1, assignments.size());
-    assertEquals("node-b", assignments.get(0).nodeId());
+    assertEquals(2, assignments.size());
+    assertTrue(assignments.stream().anyMatch(a -> a.nodeId().equals("node-a")));
   }
 
   @Test
@@ -824,7 +853,7 @@ class DaemonSetReconcilerTest {
   }
 
   @Test
-  void desired_count_drops_when_a_node_becomes_ineligible_and_recovers_once_it_is_eligible_again() {
+  void desired_count_stays_put_when_a_node_is_cordoned_since_its_assignment_is_held_not_evicted() {
     StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
@@ -838,16 +867,14 @@ class DaemonSetReconcilerTest {
     store.putNodeCordon("node-a", true);
     reconciler.reconcileOnce();
     assertEquals(
-        Optional.of(1),
+        Optional.of(2),
         store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
-        "a cordoned node must drop out of the desired count on the very next tick");
+        "a cordoned node's already-placed assignment is held, not evicted, so it still counts"
+            + " toward desired");
 
     store.putNodeCordon("node-a", false);
     reconciler.reconcileOnce();
-    assertEquals(
-        Optional.of(2),
-        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
-        "an uncordoned node must count toward desired again once it's eligible");
+    assertEquals(Optional.of(2), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
   }
 
   @Test
@@ -871,9 +898,10 @@ class DaemonSetReconcilerTest {
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
     assertEquals(
-        Optional.of(1),
+        Optional.of(2),
         store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
-        "only node-fresh is eligible; the cordoned node-stale must not count toward desired");
+        "node-fresh is eligible and node-stale's already-placed assignment is held (cordoned, not"
+            + " evicted); both count toward desired");
   }
 
   // ---- an unreadable node is not a node that is gone ----
@@ -1043,8 +1071,10 @@ class DaemonSetReconcilerTest {
     storeUnreachable.set(false);
     reconciler.reconcileOnce();
 
-    assertEquals(Optional.of(0), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
-    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
+    // Both nodes are cordoned, not gone -- their assignments are held, not evicted, so the count
+    // this now-successful tick recomputes is unchanged from before the aborted one.
+    assertEquals(Optional.of(2), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
   }
 
   @Test
