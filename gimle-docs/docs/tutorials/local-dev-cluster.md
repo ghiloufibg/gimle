@@ -25,5 +25,7 @@ is exactly one copy to keep in sync as commands or defaults change. It covers:
   cluster up without doing each step by hand.
 
 See [Deploy your first module](./deploy-your-first-module.md) for the `greeter-provider`/
-`greeter-consumer` pair once a cluster is running, and
-[CLI reference](../reference/cli-reference.md) for every `gimle` verb beyond `apply`.
+`greeter-consumer` pair once a cluster is running (its own warning callout covers why those
+commands are safe only against a cluster just started this way — fresh, from the repo root — and
+not against a long-lived one), and [CLI reference](../reference/cli-reference.md) for every `gimle`
+verb beyond `apply`.
