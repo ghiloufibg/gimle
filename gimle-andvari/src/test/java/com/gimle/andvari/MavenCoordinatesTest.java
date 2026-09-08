@@ -82,6 +82,15 @@ class MavenCoordinatesTest {
   }
 
   @Test
+  void a_metadata_md5_sidecar_is_recognized_as_metadata_too() {
+    MetadataFile metadata = MavenCoordinates.parseMetadataPath("hello/maven-metadata.xml.md5");
+
+    assertEquals("hello", metadata.moduleId());
+    assertEquals("", metadata.groupId());
+    assertEquals("maven-metadata.xml.md5", metadata.fileName());
+  }
+
+  @Test
   void a_non_metadata_last_segment_is_not_a_metadata_path() {
     assertNull(MavenCoordinates.parseMetadataPath("com/gimle/app/1.0.0/app-1.0.0.jar"));
     assertNull(MavenCoordinates.parseMetadataPath("onlyonesegment"));
