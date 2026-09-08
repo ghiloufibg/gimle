@@ -159,6 +159,49 @@ class ApiServerTlsTest {
     System.setProperty(CA_FILE_PROPERTY, serverSettings.caFile().toString());
   }
 
+  @Test
+  void a_client_certificate_with_no_grants_gets_403_from_deployments_list_not_an_empty_200()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings clientSettings = issueUnprivilegedLeaf(ca, "zero-perm");
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
+      HttpClient client = HttpClient.newBuilder().sslContext(clientContext).build();
+      HttpRequest request =
+          HttpRequest.newBuilder(URI.create("https://localhost:" + server.port() + "/deployments"))
+              .GET()
+              .build();
+
+      HttpResponse<String> response =
+          client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(403, response.statusCode(), response.body());
+    }
+  }
+
+  /** {@link #issueLeaf}'s unprivileged counterpart: a bare {@code CN=}, no {@code O=} at all. */
+  private TlsSettings issueUnprivilegedLeaf(CertificateAuthority ca, String commonName)
+      throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
+
+    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
+    Path keyFile =
+        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
+    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+
+    return new TlsSettings(certFile, keyFile, caFile);
+  }
+
   private TlsSettings issueLeaf(CertificateAuthority ca, String commonName) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
     // O=gimle:operators: this is what resolves to the built-in cluster-admin role via the
