@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import java.io.IOException;
 import java.net.URI;
@@ -218,6 +219,9 @@ class ApiServerConsoleContractTest {
 
   @Test
   void config_entry_has_every_field_the_console_needs() throws Exception {
+    inProcessStore
+        .store()
+        .putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/db.password"))
             .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"secret\",\"encrypted\":true}"))
