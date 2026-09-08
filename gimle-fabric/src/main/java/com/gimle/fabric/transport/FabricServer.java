@@ -83,6 +83,14 @@ public final class FabricServer implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(FabricServer.class);
 
   /**
+   * The synthetic rule identity named in a log line and thrown exception when a {@code
+   * NetworkPolicyRule} denial comes from a tenant's own closed-by-default posture rather than an
+   * explicit rule -- mirroring {@code BifrostProxy}'s identical literal so the two enforcement
+   * points name the same thing for the same situation.
+   */
+  private static final String DENY_BY_DEFAULT_RULE_NAME = "gimle:deny-by-default";
+
+  /**
    * Default ceiling on how many fabric connections (same-machine UDS and cross-machine TCP combined
    * -- both accept loops share this one listener's {@link #connectionLimiter}) this listener will
    * serve at once, absent an explicit value from the constructor that takes one. Generous enough
@@ -751,21 +759,37 @@ public final class FabricServer implements AutoCloseable {
       covered = true;
       if (!rule.permitsCallerTenant(request.callerTenantId())) {
         recordNetworkPolicyDenied(request.interfaceName(), request.callerTenantId(), "ingress");
+        log.warn(
+            "fabric refuses call to {}: network policy {} does not permit caller tenant {}"
+                + " to reach callee tenant {}",
+            request.interfaceName(),
+            rule.name(),
+            request.callerTenantId().orElse("<untenanted>"),
+            selfTenantId.get());
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
-            request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
+            request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"),
+            rule.name());
       }
     }
     if (!covered
         && denyByDefaultTenantIds.contains(selfTenantId.get())
         && !isSameTenant(request.callerTenantId(), selfTenantId.get())) {
       recordNetworkPolicyDenied(request.interfaceName(), request.callerTenantId(), "ingress");
+      log.warn(
+          "fabric refuses call to {}: network policy {} does not permit caller tenant {}"
+              + " to reach callee tenant {}",
+          request.interfaceName(),
+          DENY_BY_DEFAULT_RULE_NAME,
+          request.callerTenantId().orElse("<untenanted>"),
+          selfTenantId.get());
       throw GimleFabricAuthorizationException.tenantNotPermitted(
           request.interfaceName(),
           request
               .callerTenantId()
               .map(id -> "tenant " + id + " (callee tenant denies by default)")
-              .orElse("an untenanted caller (callee tenant denies by default)"));
+              .orElse("an untenanted caller (callee tenant denies by default)"),
+          DENY_BY_DEFAULT_RULE_NAME);
     }
   }
 
@@ -802,11 +826,19 @@ public final class FabricServer implements AutoCloseable {
       covered = true;
       if (!rule.permitsCalleeTenant(selfTenantId)) {
         recordNetworkPolicyDenied(request.interfaceName(), callerTenantId, "egress");
+        log.warn(
+            "fabric refuses call to {}: network policy {} does not permit caller tenant {}"
+                + " to reach callee tenant {}",
+            request.interfaceName(),
+            rule.name(),
+            callerTenantId.get(),
+            selfTenantId.map(Object::toString).orElse("<untenanted>"));
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
             selfTenantId
                 .map(id -> "callee tenant " + id + " (egress restricted)")
-                .orElse("an untenanted callee (egress restricted)"));
+                .orElse("an untenanted callee (egress restricted)"),
+            rule.name());
       }
     }
     // The posture's egress half, mirroring the ingress one: a closed tenant's own workloads may
@@ -815,11 +847,19 @@ public final class FabricServer implements AutoCloseable {
         && denyByDefaultTenantIds.contains(callerTenantId.get())
         && !isSameTenant(selfTenantId, callerTenantId.get())) {
       recordNetworkPolicyDenied(request.interfaceName(), callerTenantId, "egress");
+      log.warn(
+          "fabric refuses call to {}: network policy {} does not permit caller tenant {}"
+              + " to reach callee tenant {}",
+          request.interfaceName(),
+          DENY_BY_DEFAULT_RULE_NAME,
+          callerTenantId.get(),
+          selfTenantId.map(Object::toString).orElse("<untenanted>"));
       throw GimleFabricAuthorizationException.tenantNotPermitted(
           request.interfaceName(),
           selfTenantId
               .map(id -> "callee tenant " + id + " (caller tenant denies by default)")
-              .orElse("an untenanted callee (caller tenant denies by default)"));
+              .orElse("an untenanted callee (caller tenant denies by default)"),
+          DENY_BY_DEFAULT_RULE_NAME);
     }
   }
 

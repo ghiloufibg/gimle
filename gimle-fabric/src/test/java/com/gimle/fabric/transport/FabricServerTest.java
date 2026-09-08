@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ModuleInstanceId;
@@ -856,6 +858,103 @@ class FabricServerTest {
         FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
 
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  /**
+   * The bug this proves fixed: before naming the denying rule, an explicit network-policy refusal
+   * was silent (no log line at all) and its exception read identically to "nobody exports this
+   * interface," leaving an operator unable to tell a policy denial apart from a missing provider.
+   */
+  @Test
+  @Timeout(10)
+  void
+      an_explicit_network_policy_denial_names_the_denying_rule_in_the_log_and_the_thrown_exception()
+          throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("only-tenant-c", "tenant-a", Set.of("tenant-c"))), Set.of());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(FabricServer.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    FabricFrame response;
+    try {
+      response = FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+    } finally {
+      logger.detachAppender(appender);
+    }
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    Object thrown =
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader());
+    assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
+    String message = ((Throwable) thrown).getMessage();
+    assertTrue(
+        message.contains("only-tenant-c"),
+        "exception message must name the denying rule: " + message);
+    assertTrue(
+        appender.list.stream()
+            .anyMatch(event -> event.getFormattedMessage().contains("only-tenant-c")),
+        "log line must name the denying rule: " + formattedMessages(appender));
+  }
+
+  /**
+   * The synthetic-default-deny counterpart: a tenant closed by default with no explicit policy at
+   * all must still name something concrete -- {@code gimle:deny-by-default}, mirroring {@code
+   * BifrostProxy}'s identical literal -- rather than a generic message indistinguishable from any
+   * other rejection.
+   */
+  @Test
+  @Timeout(10)
+  void a_default_deny_network_policy_denial_names_the_synthetic_deny_by_default_rule()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of("tenant-a"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(FabricServer.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    FabricFrame response;
+    try {
+      response = FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+    } finally {
+      logger.detachAppender(appender);
+    }
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    Object thrown =
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader());
+    assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
+    String message = ((Throwable) thrown).getMessage();
+    assertTrue(
+        message.contains("gimle:deny-by-default"),
+        "exception message must name the synthetic default-deny rule: " + message);
+    assertTrue(
+        appender.list.stream()
+            .anyMatch(event -> event.getFormattedMessage().contains("gimle:deny-by-default")),
+        "log line must name the synthetic default-deny rule: " + formattedMessages(appender));
+  }
+
+  private static List<String> formattedMessages(ListAppender<ILoggingEvent> appender) {
+    return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
   }
 
   /**

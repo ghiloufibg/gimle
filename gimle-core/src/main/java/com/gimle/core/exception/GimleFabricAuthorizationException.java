@@ -27,6 +27,24 @@ public class GimleFabricAuthorizationException extends RuntimeException {
   }
 
   /**
+   * The {@code NetworkPolicyRule} variant of {@link #tenantNotPermitted(String, String)}: also
+   * names the specific rule (an explicit rule's own name, or the synthetic default-deny identity a
+   * closed tenant with no explicit policy is refused under) that produced the denial, so the
+   * exception itself -- not just whatever log line happened alongside it -- tells an operator which
+   * policy to go look at rather than reading identically to a call with no provider at all.
+   */
+  public static GimleFabricAuthorizationException tenantNotPermitted(
+      String interfaceName, String callerTenantDescription, String networkPolicyRuleName) {
+    return new GimleFabricAuthorizationException(
+        callerTenantDescription
+            + " is not permitted to invoke "
+            + interfaceName
+            + " -- rejected by the receiving worker's own tenant re-check (network policy "
+            + networkPolicyRuleName
+            + ")");
+  }
+
+  /**
    * The request's own written tenant claim disagrees with the tenant the connection's verified
    * client certificate carries: a caller that both holds a real worker identity and writes a
    * different tenant into the frame is forging, not confused, so the receiving worker refuses the
