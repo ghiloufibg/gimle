@@ -4,8 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.schedule.Scheduler;
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceObservation;
+import com.gimle.core.protocol.NodeCapabilities;
+import com.gimle.core.protocol.NodeHeartbeat;
+import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.time.TestClock;
@@ -15,6 +22,8 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
@@ -263,7 +272,7 @@ class CronJobReconcilerTest {
   }
 
   @Test
-  void concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one() {
+  void concurrency_policy_replace_terminates_the_still_running_job_before_placing_the_new_one() {
     TestClock clock = new TestClock();
     StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
@@ -278,12 +287,21 @@ class CronJobReconcilerTest {
     clock.advance(Duration.ofMinutes(1));
     reconciler.reconcileOnce();
 
-    List<JobSpec> generated = generatedJobsFor(store, "nightly-cleanup");
-    assertEquals(1, generated.size(), "REPLACE keeps exactly one non-terminal Job at a time");
+    List<JobSpec> nonTerminal =
+        generatedJobsFor(store, "nightly-cleanup").stream()
+            .filter(s -> store.getJobPhase(s.tenantId(), s.name()).isEmpty())
+            .toList();
+    assertEquals(1, nonTerminal.size(), "REPLACE keeps exactly one non-terminal Job at a time");
     assertFalse(
-        generated.get(0).name().equals(firstFiring.name()),
+        nonTerminal.get(0).name().equals(firstFiring.name()),
         "the new firing replaces the old one, not the other way around");
-    assertTrue(store.getJobSpec(Optional.empty(), firstFiring.name()).isEmpty());
+    // The superseded firing survives as a terminal record rather than vanishing -- see
+    // CronJobReconciler#supersedeForReplace's own javadoc for why.
+    assertTrue(
+        store.getJobSpec(Optional.empty(), firstFiring.name()).isPresent(),
+        "the superseded firing must remain in job history, not disappear");
+    assertEquals(
+        Optional.of(JobPhase.FAILED), store.getJobPhase(Optional.empty(), firstFiring.name()));
   }
 
   @Test
@@ -326,10 +344,10 @@ class CronJobReconcilerTest {
 
   @Test
   void an_arbitrary_starting_snapshot_with_two_stray_non_terminal_runs_converges_under_replace() {
-    // Simulates a control-plane restart landing mid-way through materializeFiring's own REPLACE
-    // branch (see CronJobReconciler#materializeFiring): cronJobLastSchedule was already advanced
-    // for a prior firing, but the removal of the still-non-terminal Job(s) that firing was meant
-    // to replace never completed, and a second stray firing also survived from before that -- two
+    // Simulates a control-plane restart landing mid-way through planFiring's own REPLACE branch
+    // (see CronJobReconciler#supersedeForReplace): cronJobLastSchedule was already advanced for a
+    // prior firing, but the termination of the still-non-terminal Job(s) that firing was meant to
+    // replace never completed, and a second stray firing also survived from before that -- two
     // non-terminal generated Jobs on record for one REPLACE cronjob at once, a state a from-scratch
     // reconcile would never itself produce. A tick with a fresh firing due must still enforce
     // REPLACE's own invariant -- exactly one non-terminal Job survives -- using nothing but this
@@ -337,7 +355,11 @@ class CronJobReconcilerTest {
     TestClock clock = new TestClock();
     StateStore store = new StateStore(clock);
     Path jar = buildFixtureJar();
-    CronJobSpec spec = cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE);
+    // A generous failedJobsHistoryLimit -- this test is about REPLACE's own convergence, not
+    // history pruning, so both terminated stray firings below must survive the tick to be
+    // inspected, not be immediately pruned back down to the default limit of 1.
+    CronJobSpec spec =
+        cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE, 3, 5);
     store.putCronJobSpec(spec);
     store.putCronJobLastSchedule(Optional.empty(), "nightly-cleanup", clock.instant());
     JobSpec stray1 =
@@ -366,18 +388,119 @@ class CronJobReconcilerTest {
     clock.advance(Duration.ofMinutes(1));
     new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock).reconcileOnce();
 
-    List<JobSpec> generated = generatedJobsFor(store, "nightly-cleanup");
+    List<JobSpec> nonTerminal =
+        generatedJobsFor(store, "nightly-cleanup").stream()
+            .filter(s -> store.getJobPhase(s.tenantId(), s.name()).isEmpty())
+            .toList();
     assertEquals(
-        1, generated.size(), "REPLACE must converge to exactly one non-terminal Job, not two");
+        1, nonTerminal.size(), "REPLACE must converge to exactly one non-terminal Job, not two");
     assertTrue(
-        store.getJobSpec(Optional.empty(), "nightly-cleanup-1").isEmpty(),
-        "the first stray firing must be cleaned up");
+        store.getJobSpec(Optional.empty(), "nightly-cleanup-1").isPresent(),
+        "the first stray firing must survive as a terminal record, not disappear");
+    assertEquals(
+        Optional.of(JobPhase.FAILED), store.getJobPhase(Optional.empty(), "nightly-cleanup-1"));
     assertTrue(
-        store.getJobSpec(Optional.empty(), "nightly-cleanup-2").isEmpty(),
-        "the second stray firing must be cleaned up");
+        store.getJobSpec(Optional.empty(), "nightly-cleanup-2").isPresent(),
+        "the second stray firing must survive as a terminal record, not disappear");
+    assertEquals(
+        Optional.of(JobPhase.FAILED), store.getJobPhase(Optional.empty(), "nightly-cleanup-2"));
     assertEquals(
         Instant.parse("2026-01-01T00:01:00Z"),
         store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
+  }
+
+  private static void registerNode(StateStore store, String nodeId) {
+    store.putNodeRegistration(
+        new NodeRegistration(
+            nodeId, new NodeCapabilities(Set.of(IsolationTier.TIER_1, IsolationTier.TIER_2))));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            nodeId, new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0), List.of()));
+  }
+
+  /** Mirrors {@code JobReconcilerTest}'s own identical helper. */
+  private static void reportRunState(StateStore store, JobRun run, String state) {
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            run.nodeId(),
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            List.of(
+                InstanceObservation.builder(
+                        run.jobName(),
+                        run.attempt(),
+                        run.moduleId(),
+                        state,
+                        !"FAILED".equals(state),
+                        "ACTIVE".equals(state))
+                    .build())));
+  }
+
+  @Test
+  void a_replaced_firing_leaves_a_terminal_record_while_the_new_firing_tracks_normally() {
+    // GIMLE-54: a Replace-superseded firing must appear in job history with its own terminal
+    // record instead of silently vanishing, and the firing that replaced it must still be tracked
+    // through to its own outcome exactly like any other Job.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE));
+    CronJobReconciler cronJobReconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    // Threads the same TestClock through as the store -- a JobReconciler defaulted to
+    // Clock.systemUTC() would see the store's TestClock-stamped heartbeat as impossibly stale and
+    // never place the run this test needs.
+    JobReconciler jobReconciler =
+        new JobReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            JobReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            JobReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            clock);
+
+    cronJobReconciler.reconcileOnce(); // baseline
+    clock.advance(Duration.ofMinutes(1));
+    cronJobReconciler.reconcileOnce(); // first firing
+    JobSpec firstFiring = generatedJobsFor(store, "nightly-cleanup").get(0);
+    // Refreshed right before each JobReconciler tick -- registerNode's own heartbeat would
+    // otherwise go stale past DEFAULT_NODE_DARK_TIMEOUT (15s) the moment the clock advances a
+    // full minute between cron firings, excluding the node from placement entirely.
+    registerNode(store, "node-a");
+    jobReconciler.reconcileOnce(); // places the first firing's own run, still RUNNING
+
+    clock.advance(Duration.ofMinutes(1));
+    cronJobReconciler.reconcileOnce(); // second firing supersedes the still-running first one
+
+    assertEquals(
+        Optional.of(JobPhase.FAILED),
+        store.getJobPhase(Optional.empty(), firstFiring.name()),
+        "the superseded firing must be marked terminal, not simply removed");
+    JobRunSummary summary =
+        store.getJobRunSummary(Optional.empty(), firstFiring.name()).orElseThrow();
+    assertEquals("node-a", summary.nodeId());
+    assertTrue(
+        summary.reason().contains("Replace"),
+        "the terminal record must say why the firing ended: " + summary.reason());
+    assertTrue(
+        store.listJobRunsFor(Optional.empty(), firstFiring.name()).isEmpty(),
+        "the superseded firing's own run must not linger once it's terminal");
+
+    JobSpec secondFiring =
+        generatedJobsFor(store, "nightly-cleanup").stream()
+            .filter(s -> store.getJobPhase(s.tenantId(), s.name()).isEmpty())
+            .findFirst()
+            .orElseThrow();
+    registerNode(store, "node-a");
+    jobReconciler.reconcileOnce(); // places the replacement's own run
+    JobRun secondRun = store.listJobRunsFor(Optional.empty(), secondFiring.name()).get(0);
+    reportRunState(store, secondRun, "COMPLETED");
+    jobReconciler.reconcileOnce();
+
+    assertEquals(
+        Optional.of(JobPhase.SUCCEEDED),
+        store.getJobPhase(Optional.empty(), secondFiring.name()),
+        "the firing that replaced the superseded one must still be tracked normally");
   }
 
   private JobSpec terminalJob(String cronJobName, CronJobSpec ownerSpec, long epochSecond) {

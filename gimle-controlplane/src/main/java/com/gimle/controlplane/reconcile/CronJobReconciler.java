@@ -17,6 +17,8 @@ import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
@@ -254,7 +256,9 @@ public final class CronJobReconciler {
             });
   }
 
-  /** What one honored firing commits, as a single batch: any REPLACE removals, then the JobSpec. */
+  /**
+   * What one honored firing commits, as a single batch: any REPLACE terminations, then the JobSpec.
+   */
   private record Firing(String jobName, List<StateMutation> mutations) {}
 
   /**
@@ -285,9 +289,7 @@ public final class CronJobReconciler {
               nonTerminal.get(0).name());
           return Optional.empty();
         }
-        case REPLACE ->
-            nonTerminal.forEach(
-                s -> planned.add(new StateMutation.RemoveJobSpec(s.tenantId(), s.name())));
+        case REPLACE -> nonTerminal.forEach(s -> planned.addAll(supersedeForReplace(s)));
         case ALLOW -> {
           // Nothing extra -- the new firing runs alongside whatever is still non-terminal.
         }
@@ -323,6 +325,43 @@ public final class CronJobReconciler {
         yield Optional.of(new Firing(jobName, List.copyOf(planned)));
       }
     };
+  }
+
+  /**
+   * Terminates a firing {@link com.gimle.mimir.manifest.ConcurrencyPolicy#REPLACE} is superseding,
+   * the same shape every other termination path in {@code JobReconciler} already uses (a terminal
+   * {@link JobPhase} paired with a {@link JobRunSummary} before the {@link JobRun} is removed)
+   * rather than the bare {@code RemoveJobSpec} this used to do -- that left nothing behind for
+   * {@code JobReconciler}'s own stale-run sweep to find once the {@link JobSpec} itself was gone,
+   * so the superseded firing simply vanished from job history instead of surviving as a terminal
+   * record. The {@link JobSpec} itself is deliberately left in place (never removed here) --
+   * exactly like every other terminal transition, it survives until {@link #pruneJobHistory} ages
+   * it out under the CronJob's own {@code failedJobsHistoryLimit}.
+   */
+  private List<StateMutation> supersedeForReplace(JobSpec superseded) {
+    Optional<JobRun> current =
+        store.listJobRunsFor(superseded.tenantId(), superseded.name()).stream()
+            .max(Comparator.comparingInt(JobRun::attempt));
+    // A firing replaced before JobReconciler ever placed an attempt for it has no run to report a
+    // node/attempt from -- "unplaced" says exactly that rather than fabricating one.
+    String nodeId = current.map(JobRun::nodeId).orElse("unplaced");
+    int attempt = current.map(JobRun::attempt).orElse(0);
+    List<StateMutation> mutations = new ArrayList<>();
+    mutations.add(
+        new StateMutation.PutJobPhase(superseded.tenantId(), superseded.name(), JobPhase.FAILED));
+    mutations.add(
+        new StateMutation.PutJobRunSummary(
+            new JobRunSummary(
+                superseded.name(),
+                attempt,
+                nodeId,
+                "superseded by a newer scheduled firing under concurrencyPolicy: Replace",
+                superseded.tenantId())));
+    current.ifPresent(
+        run ->
+            mutations.add(
+                new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt())));
+    return mutations;
   }
 
   /**
