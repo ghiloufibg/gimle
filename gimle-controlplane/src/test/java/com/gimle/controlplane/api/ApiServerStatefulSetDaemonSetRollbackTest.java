@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -160,6 +163,27 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
     assertEquals(404, rollback("/statefulsets/never-deployed", "").statusCode());
   }
 
+  /**
+   * {@code CHAOS-Fleet-05}: mirrors {@code
+   * ApiServerDeploymentRollbackTest#rollback_with_no_earlier_revision_is_audited_as_rejected_not_applied}
+   * for StatefulSet -- a rollback the handler itself goes on to 404 must record {@link
+   * AuditOutcome#REJECTED}, not default to {@link AuditOutcome#APPLIED}.
+   */
+  @Test
+  void rollback_of_an_unknown_statefulset_is_audited_as_rejected_not_applied() throws Exception {
+    assertEquals(404, rollback("/statefulsets/never-deployed", "").statusCode());
+
+    List<AuditEvent> statefulSetWriteAudits =
+        inProcessStore
+            .client()
+            .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+            .stream()
+            .filter(e -> e.resourceKind().equals("STATEFULSET") && e.verb().equals("WRITE"))
+            .toList();
+    assertEquals(1, statefulSetWriteAudits.size());
+    assertEquals(AuditOutcome.REJECTED, statefulSetWriteAudits.get(0).outcome());
+  }
+
   @Test
   void deleting_then_recreating_a_statefulset_starts_revision_history_fresh() throws Exception {
     put("/statefulsets/orders", statefulSetYaml("orders", "1.0.0"));
@@ -238,6 +262,22 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
   @Test
   void rollback_of_an_unknown_daemonset_is_404() throws Exception {
     assertEquals(404, rollback("/daemonsets/never-deployed", "").statusCode());
+  }
+
+  /** Same reasoning as the StatefulSet sibling above, for DaemonSet. */
+  @Test
+  void rollback_of_an_unknown_daemonset_is_audited_as_rejected_not_applied() throws Exception {
+    assertEquals(404, rollback("/daemonsets/never-deployed", "").statusCode());
+
+    List<AuditEvent> daemonSetWriteAudits =
+        inProcessStore
+            .client()
+            .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+            .stream()
+            .filter(e -> e.resourceKind().equals("DAEMONSET") && e.verb().equals("WRITE"))
+            .toList();
+    assertEquals(1, daemonSetWriteAudits.size());
+    assertEquals(AuditOutcome.REJECTED, daemonSetWriteAudits.get(0).outcome());
   }
 
   @Test

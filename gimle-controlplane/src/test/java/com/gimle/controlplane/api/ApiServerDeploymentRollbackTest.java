@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.net.URI;
@@ -16,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -226,6 +229,38 @@ class ApiServerDeploymentRollbackTest {
     putDeployment("orders-service", "1.0.0", 1);
 
     assertEquals(404, rollback("orders-service", "").statusCode());
+  }
+
+  /**
+   * {@code CHAOS-Fleet-05}: a rollback the handler itself goes on to 404 must record {@link
+   * AuditOutcome#REJECTED} in its own audit entry, not default to {@link AuditOutcome#APPLIED} the
+   * way the immediate-audit {@code requireAuthorized} convenience constructor would have recorded
+   * it before the handler ever ran -- the same class of bug {@link ApiServerAuditOutcomeTest}
+   * already covers for a plain deployment PUT.
+   */
+  @Test
+  void rollback_with_no_earlier_revision_is_audited_as_rejected_not_applied() throws Exception {
+    assertEquals(200, putDeployment("orders-service", "1.0.0", 1).statusCode());
+
+    assertEquals(404, rollback("orders-service", "").statusCode());
+
+    List<AuditEvent> deploymentWriteAudits =
+        inProcessStore
+            .client()
+            .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+            .stream()
+            .filter(e -> e.resourceKind().equals("DEPLOYMENT") && e.verb().equals("WRITE"))
+            .toList();
+    // The PUT above recorded its own APPLIED entry; the rejected rollback attempt must add a
+    // second, distinct entry of its own recording REJECTED, rather than there being only the one
+    // (misrecorded) entry, or the rollback's own entry claiming APPLIED. Order-independent: the
+    // store's own listing order is newest-first, not insertion order.
+    assertEquals(2, deploymentWriteAudits.size());
+    assertEquals(
+        1, deploymentWriteAudits.stream().filter(e -> e.outcome() == AuditOutcome.APPLIED).count());
+    assertEquals(
+        1,
+        deploymentWriteAudits.stream().filter(e -> e.outcome() == AuditOutcome.REJECTED).count());
   }
 
   @Test

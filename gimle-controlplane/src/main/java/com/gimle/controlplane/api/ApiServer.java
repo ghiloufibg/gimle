@@ -1155,10 +1155,34 @@ public final class ApiServer implements AutoCloseable {
         }
       }
       case "rollback" -> {
-        if (requireAuthorized(
-                exchange, ResourceKind.DEPLOYMENT, Verb.WRITE, tenant, Optional.of(name))
-            && !rejectIfReservedSystemTenant(exchange, tenant)) {
-          handleRollbackDeployment(exchange, tenant, name);
+        // Deferred audit, the same reasoning dispatchResourceRequest's own PUT branch already
+        // gives: authorization alone doesn't yet know whether a revision to roll back to exists,
+        // so recording the outcome here (rather than requireAuthorized's own immediate-APPLIED
+        // convenience constructor) is what keeps a 404 "no earlier revision" from landing in the
+        // audit trail as a successful write that never happened.
+        Optional<Principal> auditPrincipal =
+            requireAuthorizedForWrite(exchange, ResourceKind.DEPLOYMENT, tenant, Optional.of(name));
+        if (auditPrincipal.isPresent()) {
+          if (rejectIfReservedSystemTenant(exchange, tenant)) {
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.DEPLOYMENT,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                AuditOutcome.REJECTED);
+          } else {
+            AuditOutcome outcome = handleRollbackDeployment(exchange, tenant, name);
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.DEPLOYMENT,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                outcome);
+          }
         }
       }
       default -> respond(exchange, 404, "unknown deployment endpoint: " + action);
@@ -2143,18 +2167,18 @@ public final class ApiServer implements AutoCloseable {
    * fresh PUT runs (artifact resolution, tenant quota): a rollback is not a bypass of checks that
    * may have tightened since this content last ran successfully.
    */
-  private void handleRollbackDeployment(
+  private AuditOutcome handleRollbackDeployment(
       HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
-      return;
+      return AuditOutcome.REJECTED;
     }
     // Every rollback mints a fresh revision, so a blind retry mints a second one -- which is why
     // this endpoint accepts a caller-supplied request id and answers a repeat of it with the
     // revision the first attempt already created.
     KeyedWrite keyed = beginKeyedWrite(exchange);
     if (keyed.answered()) {
-      return;
+      return keyed.answeredAs().orElseThrow();
     }
     // Read before any other store interaction below (revision listing, admissionArtifact,
     // deploymentAdmissionChain) for the same reason handlePutDeployment reads it first thing: a
@@ -2166,7 +2190,7 @@ public final class ApiServer implements AutoCloseable {
         storeClient.listControllerRevisions("Deployment", tenantHint, name);
     if (revisions.isEmpty()) {
       respond(exchange, 404, "no revision history for deployment: " + name);
-      return;
+      return AuditOutcome.REJECTED;
     }
     OptionalInt targetRevision =
         resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
@@ -2181,7 +2205,7 @@ public final class ApiServer implements AutoCloseable {
           targetRevision.isEmpty()
               ? "deployment " + name + " has no earlier revision to roll back to"
               : "no such revision of deployment " + name + ": " + targetRevision.getAsInt());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DeploymentSpec restored = (DeploymentSpec) target.get().spec();
     AdmissionArtifact admitted =
@@ -2189,15 +2213,17 @@ public final class ApiServer implements AutoCloseable {
             restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 409, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DeploymentSpec resolved = withArtifactSha256(restored, admitted.sha256());
     AdmissionDecision<DeploymentSpec> decision =
         deploymentAdmissionChain.admit(
             ResourceKind.DEPLOYMENT, Verb.WRITE, resolved, storeClient, admitted.artifact());
     switch (decision) {
-      case AdmissionDecision.Reject<DeploymentSpec> reject ->
-          respond(exchange, 409, reject.reason());
+      case AdmissionDecision.Reject<DeploymentSpec> reject -> {
+        respond(exchange, 409, reject.reason());
+        return AuditOutcome.REJECTED;
+      }
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
         ControllerRevision newRevision =
             nextRevisionFor("Deployment", allow.spec(), targetRevision);
@@ -2211,10 +2237,12 @@ public final class ApiServer implements AutoCloseable {
                     alsoCommit.add(
                         RequestIdempotency.receipt(
                             id, recordedPrincipalNameOf(exchange), 200, Json.write(body))));
-        if (proposePutDeploymentOrConflict(
+        if (!proposePutDeploymentOrConflict(
             exchange, allow.spec(), expectedGeneration, alsoCommit)) {
-          respondJson(exchange, 200, body);
+          return AuditOutcome.REJECTED;
         }
+        respondJson(exchange, 200, body);
+        return AuditOutcome.APPLIED;
       }
     }
   }
@@ -3923,10 +3951,31 @@ public final class ApiServer implements AutoCloseable {
         }
       }
       case "rollback" -> {
-        if (requireAuthorized(
-                exchange, ResourceKind.DAEMONSET, Verb.WRITE, tenant, Optional.of(name))
-            && !rejectIfReservedSystemTenant(exchange, tenant)) {
-          handleRollbackDaemonSet(exchange, tenant, name);
+        // Deferred audit -- see resolveDeploymentNameOrHandleSubRoute's own "rollback" case for
+        // why a 404 "no earlier revision" must never be recorded as an APPLIED write.
+        Optional<Principal> auditPrincipal =
+            requireAuthorizedForWrite(exchange, ResourceKind.DAEMONSET, tenant, Optional.of(name));
+        if (auditPrincipal.isPresent()) {
+          if (rejectIfReservedSystemTenant(exchange, tenant)) {
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.DAEMONSET,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                AuditOutcome.REJECTED);
+          } else {
+            AuditOutcome outcome = handleRollbackDaemonSet(exchange, tenant, name);
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.DAEMONSET,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                outcome);
+          }
         }
       }
       default -> respond(exchange, 404, "unknown daemonset endpoint: " + action);
@@ -3993,23 +4042,23 @@ public final class ApiServer implements AutoCloseable {
    * #handlePutDaemonSet}'s own "No tenant-quota check here" comment): re-validation is artifact
    * resolution only.
    */
-  private void handleRollbackDaemonSet(
+  private AuditOutcome handleRollbackDaemonSet(
       HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
-      return;
+      return AuditOutcome.REJECTED;
     }
     // Same reasoning as the Deployment rollback: a rollback is forward-only, so a retry that
     // cannot be recognised mints a second revision restoring the same content.
     KeyedWrite keyed = beginKeyedWrite(exchange);
     if (keyed.answered()) {
-      return;
+      return keyed.answeredAs().orElseThrow();
     }
     List<ControllerRevision> revisions =
         storeClient.listControllerRevisions("DaemonSet", tenantHint, name);
     if (revisions.isEmpty()) {
       respond(exchange, 404, "no revision history for daemonset: " + name);
-      return;
+      return AuditOutcome.REJECTED;
     }
     OptionalInt targetRevision =
         resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
@@ -4024,7 +4073,7 @@ public final class ApiServer implements AutoCloseable {
           targetRevision.isEmpty()
               ? "daemonset " + name + " has no earlier revision to roll back to"
               : "no such revision of daemonset " + name + ": " + targetRevision.getAsInt());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DaemonSetSpec restored = (DaemonSetSpec) target.get().spec();
     AdmissionArtifact admitted =
@@ -4032,7 +4081,7 @@ public final class ApiServer implements AutoCloseable {
             restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 409, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DaemonSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
     ControllerRevision newRevision = nextRevisionFor("DaemonSet", resolved, targetRevision);
@@ -4047,6 +4096,7 @@ public final class ApiServer implements AutoCloseable {
             200,
             Json.write(body)));
     respondJson(exchange, 200, body);
+    return AuditOutcome.APPLIED;
   }
 
   private static DaemonSetSpec withArtifactSha256(DaemonSetSpec spec, Optional<String> sha256) {
@@ -4207,10 +4257,32 @@ public final class ApiServer implements AutoCloseable {
         }
       }
       case "rollback" -> {
-        if (requireAuthorized(
-                exchange, ResourceKind.STATEFULSET, Verb.WRITE, tenant, Optional.of(name))
-            && !rejectIfReservedSystemTenant(exchange, tenant)) {
-          handleRollbackStatefulSet(exchange, tenant, name);
+        // Deferred audit -- see resolveDeploymentNameOrHandleSubRoute's own "rollback" case for
+        // why a 404 "no earlier revision" must never be recorded as an APPLIED write.
+        Optional<Principal> auditPrincipal =
+            requireAuthorizedForWrite(
+                exchange, ResourceKind.STATEFULSET, tenant, Optional.of(name));
+        if (auditPrincipal.isPresent()) {
+          if (rejectIfReservedSystemTenant(exchange, tenant)) {
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.STATEFULSET,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                AuditOutcome.REJECTED);
+          } else {
+            AuditOutcome outcome = handleRollbackStatefulSet(exchange, tenant, name);
+            recordAuditEventBestEffort(
+                auditPrincipal.get(),
+                ResourceKind.STATEFULSET,
+                Verb.WRITE,
+                tenant,
+                Optional.of(name),
+                true,
+                outcome);
+          }
         }
       }
       default -> respond(exchange, 404, "unknown statefulset endpoint: " + action);
@@ -4278,23 +4350,23 @@ public final class ApiServer implements AutoCloseable {
    * #handlePutStatefulSet}'s own "No tenant-quota check here" comment): re-validation is artifact
    * resolution only.
    */
-  private void handleRollbackStatefulSet(
+  private AuditOutcome handleRollbackStatefulSet(
       HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
-      return;
+      return AuditOutcome.REJECTED;
     }
     // Same reasoning as the Deployment rollback: a rollback is forward-only, so a retry that
     // cannot be recognised mints a second revision restoring the same content.
     KeyedWrite keyed = beginKeyedWrite(exchange);
     if (keyed.answered()) {
-      return;
+      return keyed.answeredAs().orElseThrow();
     }
     List<ControllerRevision> revisions =
         storeClient.listControllerRevisions("StatefulSet", tenantHint, name);
     if (revisions.isEmpty()) {
       respond(exchange, 404, "no revision history for statefulset: " + name);
-      return;
+      return AuditOutcome.REJECTED;
     }
     OptionalInt targetRevision =
         resolveRollbackTarget(revisions, parseToRevision(readBody(exchange)));
@@ -4309,7 +4381,7 @@ public final class ApiServer implements AutoCloseable {
           targetRevision.isEmpty()
               ? "statefulset " + name + " has no earlier revision to roll back to"
               : "no such revision of statefulset " + name + ": " + targetRevision.getAsInt());
-      return;
+      return AuditOutcome.REJECTED;
     }
     StatefulSetSpec restored = (StatefulSetSpec) target.get().spec();
     AdmissionArtifact admitted =
@@ -4317,7 +4389,7 @@ public final class ApiServer implements AutoCloseable {
             restored.artifactPath(), restored.moduleId(), restored.vessel(), restored.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 409, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     StatefulSetSpec resolved = withArtifactSha256(restored, admitted.sha256());
     ControllerRevision newRevision = nextRevisionFor("StatefulSet", resolved, targetRevision);
@@ -4332,6 +4404,7 @@ public final class ApiServer implements AutoCloseable {
             200,
             Json.write(body)));
     respondJson(exchange, 200, body);
+    return AuditOutcome.APPLIED;
   }
 
   private static StatefulSetSpec withArtifactSha256(StatefulSetSpec spec, Optional<String> sha256) {
@@ -10430,10 +10503,10 @@ public final class ApiServer implements AutoCloseable {
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
 
   /**
-   * Registered in place of the three routes above only when {@link #certificateAuthority} is
-   * absent -- a plaintext-transport cluster genuinely has no certificate-signing capability to
-   * offer, so this answers with a real explanation rather than the JDK httpserver's own empty-
-   * bodied 404 for a path nothing claimed.
+   * Registered in place of the three routes above only when {@link #certificateAuthority} is absent
+   * -- a plaintext-transport cluster genuinely has no certificate-signing capability to offer, so
+   * this answers with a real explanation rather than the JDK httpserver's own empty- bodied 404 for
+   * a path nothing claimed.
    */
   private void handleBootstrapDisabled(HttpExchange exchange) throws IOException {
     try {
@@ -11209,6 +11282,20 @@ public final class ApiServer implements AutoCloseable {
    */
   private Optional<Principal> requireAuthorizedForWrite(
       HttpExchange exchange, ResourceKind resource, Optional<String> tenant) {
+    return requireAuthorizedForWrite(exchange, resource, tenant, Optional.empty());
+  }
+
+  /**
+   * The {@code targetId}-carrying sibling of the three-argument overload above, for a deferred-
+   * audit write against one specific named resource (a rollback) rather than a whole-collection
+   * submission (a manifest PUT, which has no target identity to check until it parses one out of
+   * its own body).
+   */
+  private Optional<Principal> requireAuthorizedForWrite(
+      HttpExchange exchange,
+      ResourceKind resource,
+      Optional<String> tenant,
+      Optional<String> targetId) {
     if (!(exchange instanceof HttpsExchange)) {
       return Optional.of(ANONYMOUS_PRINCIPAL);
     }
@@ -11218,9 +11305,9 @@ public final class ApiServer implements AutoCloseable {
       return Optional.empty();
     }
     boolean authorized =
-        authorizer.authorize(principal.get(), resource, Verb.WRITE, tenant, Optional.empty());
+        authorizer.authorize(principal.get(), resource, Verb.WRITE, tenant, targetId);
     if (!authorized) {
-      recordAuditEvent(principal.get(), resource, Verb.WRITE, tenant, Optional.empty(), false);
+      recordAuditEvent(principal.get(), resource, Verb.WRITE, tenant, targetId, false);
       respondQuietly(exchange, 403, "forbidden");
       return Optional.empty();
     }
