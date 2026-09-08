@@ -147,6 +147,15 @@ public final class RunController {
    */
   private final Map<String, ActiveRun> runsByDeployment = new ConcurrentHashMap<>();
 
+  /**
+   * Every run this process has ever created, keyed by its own id -- immutable history, independent
+   * of whichever run {@link #runsByDeployment} currently points a deployment key at. A rejected
+   * redeploy attempt is evicted from its deployment slot the moment a previous good deployment is
+   * restored over it (see {@link #restorePreviousDeploymentOnRejection}), but its own id must stay
+   * resolvable forever after -- this is what {@link #byId} actually reads.
+   */
+  private final Map<String, ActiveRun> runsById = new ConcurrentHashMap<>();
+
   public RunController(ClusterStore clusters, Path dataRoot) {
     this.clusters = clusters;
     this.workspaceRoot = dataRoot.resolve("runs");
@@ -215,6 +224,7 @@ public final class RunController {
                   + owner.map(o -> " (deployment " + o + ")").orElse("")
                   + " from a previous Ivaldi process");
           runsByDeployment.put(deploymentKey(clusterId, owner), adopted);
+          runsById.put(adopted.id, adopted);
         }
       } catch (RuntimeException e) {
         log.warn("could not adopt a running cluster for {}: {}", clusterId, e.getMessage());
@@ -338,6 +348,7 @@ public final class RunController {
     }
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
     runsByDeployment.put(key, run);
+    runsById.put(run.id, run);
     blueprintId.ifPresent(id -> clusters.recordDeployment(clusterId, id));
     run.worker = Thread.ofVirtual().start(() -> execute(run, files, values, existing));
     return snapshotOf(run).toJsonMap();
@@ -418,7 +429,7 @@ public final class RunController {
   }
 
   private Optional<ActiveRun> byId(String runId) {
-    return runsByDeployment.values().stream().filter(run -> run.id.equals(runId)).findFirst();
+    return Optional.ofNullable(runsById.get(runId));
   }
 
   /**
@@ -1327,6 +1338,12 @@ public final class RunController {
    * there was nothing running before, or something else already replaced this slot -- a concurrent
    * stop, or a second attempt racing this one) since none of those has a previous good state worth
    * restoring, or safely can be.
+   *
+   * <p>Evicting {@code run} from {@link #runsByDeployment} here does not make it unreachable:
+   * {@code run} was already registered in {@link #runsById} back in {@link #start}, and {@link
+   * #fail} has already recorded its own terminal status and log line onto it by the time this is
+   * called -- so its own id stays resolvable (see {@link #byId}), showing the real failure,
+   * independently of which run this deployment's key currently points at.
    */
   private void restorePreviousDeploymentOnRejection(
       ActiveRun run, ActiveRun previousDeployment, boolean touchedRealState) {

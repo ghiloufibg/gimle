@@ -777,6 +777,201 @@ class RunControllerTest {
     assertTrue(!RunController.shouldRestorePreviousDeployment(RunStatus.IDLE, false));
   }
 
+  /**
+   * The end-to-end regression behind {@link #shouldRestorePreviousDeployment}/{@link
+   * #restorePreviousDeploymentOnRejection}: a redeploy that fails pure file validation while the
+   * previous attempt against the same deployment key is genuinely {@code RUNNING} used to replace
+   * the deployment's own map slot back with the previous run, but leave the new (already-failed)
+   * run's own id permanently unresolvable -- {@code GET /api/runs/{id}/log} 404ing on it forever,
+   * with the real failure reason recorded only in the log of a run nothing was still polling. The
+   * previous deployment reaches {@code RUNNING} here against a real, minimal control-plane stub
+   * (rather than a genuine multi-process cluster) by taking the deploy-only path: its topology is
+   * pre-recorded as already applied, so {@code execute} never reboots anything, and its bundle
+   * declares no tenants/config/secrets/workloads at all, so the only calls the real release-deploy
+   * machinery makes are the handful this stub answers.
+   */
+  @Test
+  void
+      a_redeploy_that_fails_validation_leaves_its_own_id_inspectable_and_restores_the_previous_run()
+          throws Exception {
+    try (FakeReleaseControlPlane fake = new FakeReleaseControlPlane()) {
+      Path dataRoot = tempDir.resolve("cluster-data");
+      Files.createDirectories(dataRoot);
+      // The deploy-only path re-reads whatever process ledger this data root already carries (see
+      // RunController#execute's "topology unchanged" branch) -- an empty one, written directly
+      // rather than through a real MachineLauncher.up, stands in for "this machine is up with
+      // nothing running," letting the deploy step proceed with zero real processes.
+      Files.writeString(dataRoot.resolve("hilmir-run-local.json"), "[]", StandardCharsets.UTF_8);
+      String topologyYaml = topologyWithControlPlanePort(fake.port(), dataRoot);
+      clusters.save(
+          "c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://" + fake.address() + "\"}");
+      // Pre-recorded as already applied so this run's own topology compares equal to it and takes
+      // the deploy-only path (see RunController#execute's "Deploy-only vs. reboot" javadoc) --
+      // never calling the real MachineLauncher at all.
+      clusters.recordAppliedTopology("c1", topologyYaml);
+      List<RenderedFile> goodFiles =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile(
+                  "bundle.yaml",
+                  BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+
+      Map<String, Object> firstStarted =
+          controller.start("c1", Optional.of("bp-one"), goodFiles, Map.of());
+      String previousRunId = String.valueOf(firstStarted.get("id"));
+      Map<String, Object> firstSettled = awaitSettled("bp-one");
+      assertEquals("running", firstSettled.get("status"), firstSettled.toString());
+
+      Map<String, Object> secondStarted =
+          controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+      String newRunId = String.valueOf(secondStarted.get("id"));
+      assertTrue(!newRunId.equals(previousRunId));
+
+      // the cluster's own currently-live deployment settles back onto the previous, still-good run
+      Map<String, Object> restored = awaitBlueprintRestoredTo(previousRunId);
+      assertEquals("running", restored.get("status"), restored.toString());
+
+      // the rejected attempt's own id stays independently resolvable, showing its real failure
+      RunController.LogPage page = controller.log(newRunId, 0).orElseThrow();
+      assertTrue(
+          page.lines().stream().anyMatch(l -> l.contains("does-not-exist.jar")),
+          page.lines().toString());
+    }
+  }
+
+  private Map<String, Object> awaitBlueprintRestoredTo(String expectedRunId) {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      Map<String, Object> snapshot = controller.blueprintSnapshotJson("bp-one");
+      if (expectedRunId.equals(snapshot.get("id"))) {
+        return snapshot;
+      }
+      try {
+        Thread.sleep(25);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("interrupted waiting for restoration", e);
+      }
+    }
+    throw new IllegalStateException(
+        "deployment never settled back onto "
+            + expectedRunId
+            + ": "
+            + controller.blueprintSnapshotJson("bp-one"));
+  }
+
+  private static String topologyWithControlPlanePort(int port, Path dataRoot) {
+    return """
+        name: t
+        machines:
+          - name: local
+            host: 127.0.0.1
+        runtime:
+          dataRoot: %s
+        store:
+          replicas:
+            - machine: local
+        controlPlane:
+          replicas:
+            - machine: local
+              port: %d
+        fafnir:
+          keyFile: %s
+          replicas:
+            - machine: local
+        andvari:
+          replicas:
+            - machine: local
+        """
+        .formatted(dataRoot, port, dataRoot.resolve("fafnir.key"));
+  }
+
+  /**
+   * The minimal control-plane HTTP surface a zero-tenant, zero-workload release deploy actually
+   * calls: {@code /tenants/*} always answers present (so {@code ReleaseLedger} never needs to
+   * create the bookkeeping tenant), and a plain in-memory map behind {@code /config/gimle-hilmir/*}
+   * stands in for the ledger rows a real deploy reads and writes -- just enough surface for a real
+   * {@code deployFresh} call to genuinely reach {@code RUNNING} without a real multi-process
+   * cluster.
+   */
+  private static final class FakeReleaseControlPlane implements AutoCloseable {
+    private final com.sun.net.httpserver.HttpServer server;
+    private final Map<String, String> config = new java.util.LinkedHashMap<>();
+    private static final String CONFIG_PATH =
+        "/config/" + com.gimle.core.tenant.Tenant.HILMIR_BOOKKEEPING_TENANT_ID;
+
+    FakeReleaseControlPlane() throws IOException {
+      server =
+          com.sun.net.httpserver.HttpServer.create(
+              new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+      server.createContext("/", this::dispatch);
+      server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+      server.start();
+    }
+
+    int port() {
+      return server.getAddress().getPort();
+    }
+
+    String address() {
+      return "127.0.0.1:" + port();
+    }
+
+    @Override
+    public void close() {
+      server.stop(0);
+    }
+
+    private void dispatch(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+      try {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String body;
+        try (java.io.InputStream in = exchange.getRequestBody()) {
+          body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        if (path.startsWith("/tenants/")) {
+          respond(exchange, 200, "ok");
+        } else if (path.equals(CONFIG_PATH) && "GET".equals(method)) {
+          respondJson(exchange);
+        } else if (path.startsWith(CONFIG_PATH + "/") && "PUT".equals(method)) {
+          synchronized (config) {
+            config.put(path.substring(CONFIG_PATH.length() + 1), configValueOf(body));
+          }
+          respond(exchange, 200, "ok");
+        } else {
+          respond(exchange, 404, "not found: " + path);
+        }
+      } finally {
+        exchange.close();
+      }
+    }
+
+    private static String configValueOf(String body) {
+      return String.valueOf(Json.asObject(Json.parse(body)).get("value"));
+    }
+
+    private void respondJson(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+      List<Map<String, Object>> rows = new ArrayList<>();
+      synchronized (config) {
+        for (Map.Entry<String, String> entry : config.entrySet()) {
+          Map<String, Object> row = new java.util.LinkedHashMap<>();
+          row.put("key", entry.getKey());
+          row.put("value", entry.getValue());
+          row.put("encrypted", false);
+          rows.add(row);
+        }
+      }
+      respond(exchange, 200, Json.write(rows));
+    }
+
+    private static void respond(
+        com.sun.net.httpserver.HttpExchange exchange, int status, String body) throws IOException {
+      byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+      exchange.sendResponseHeaders(status, bytes.length);
+      exchange.getResponseBody().write(bytes);
+    }
+  }
+
   @Test
   void cron_job_manifest_names_picks_out_only_the_cronjob_kind() {
     List<RenderedFile> files =
