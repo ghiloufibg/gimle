@@ -12,10 +12,11 @@ Cucumber suite:
 
 - **`EndpointClusterTarget`** (the default, no `inventory:` block in the target document) reaches a
   cluster purely over the network: HTTP for the control plane, a direct `StoreClient` RPC for the
-  store's own read-only status. No boot-time interposition, no process control. Only network faults
-  (`LINK_CUT`, `STORE_PARTITION`) can ever fire through it — every other Fenrir fault kind
-  (worker/store/leader/control-plane/Fafnir/Muninn/Andvari bounce, all of which need process
-  control this target doesn't have) always records `SKIPPED`, never throws.
+  store's own read-only status. No boot-time interposition, no process control — every Fenrir fault
+  kind always records `SKIPPED` through it, never throws. `LINK_CUT`/`STORE_PARTITION` need the same
+  `inventory:` block (`SshInventoryClusterTarget`, below) as every other bounce fault to ever
+  actually fire; the only thing that sets them apart from a bounce kind is not additionally needing
+  a matching `agents:` entry for OS-pid resolution.
 - **`SshInventoryClusterTarget`** (opt in via the target document's `inventory:` block) additionally
   controls the machines/processes a cluster runs on over SSH — real `kill -9`/respawn against each
   machine's own store/control-plane/Fafnir/Muninn/Andvari process and, given a matching `agents:`
