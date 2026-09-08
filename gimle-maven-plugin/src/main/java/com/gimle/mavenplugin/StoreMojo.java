@@ -42,6 +42,24 @@ public final class StoreMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.store.transportProtocol")
   private String transportProtocol;
 
+  /**
+   * The store's own TLS leaf certificate/key and the cluster CA certificate, forwarded verbatim as
+   * {@code -Dgimle.tls.certFile}/{@code keyFile}/{@code caFile} -- the exact system properties
+   * {@code StoreMain} itself reads, and the same plain (not {@code gimle.store}-namespaced)
+   * property names {@link BootstrapMojo#addTlsFlags} uses, so a bare {@code
+   * -Dgimle.tls.certFile=...} on the {@code mvn} command line binds straight into this parameter
+   * with no separate flag to learn. Unset by default like {@link #transportProtocol}: only
+   * meaningful once {@code gimle.store.transportProtocol=tls} is also set.
+   */
+  @Parameter(property = "gimle.tls.certFile")
+  private String certFile;
+
+  @Parameter(property = "gimle.tls.keyFile")
+  private String keyFile;
+
+  @Parameter(property = "gimle.tls.caFile")
+  private String caFile;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -52,13 +70,53 @@ public final class StoreMojo extends AbstractGimleMojo {
 
   @Override
   protected List<String> buildCommand() {
+    return buildCommand(
+        javaExecutable(),
+        String.join(File.pathSeparator, runtimeClasspathElements),
+        stateDir,
+        raftPort,
+        clientPort,
+        peers,
+        csrEndpoint,
+        transportProtocol,
+        certFile,
+        keyFile,
+        caFile);
+  }
+
+  /**
+   * Pure command construction, split out from {@link #buildCommand()} so it's unit-testable without
+   * Maven's own parameter-injection machinery -- the same seam {@link InitMojo#buildCommand}
+   * establishes.
+   */
+  static List<String> buildCommand(
+      String javaExecutable,
+      String classpath,
+      String stateDir,
+      String raftPort,
+      String clientPort,
+      String peers,
+      String csrEndpoint,
+      String transportProtocol,
+      String certFile,
+      String keyFile,
+      String caFile) {
     List<String> command = new ArrayList<>();
-    command.add(javaExecutable());
+    command.add(javaExecutable);
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
     }
+    if (certFile != null && !certFile.isBlank()) {
+      command.add("-Dgimle.tls.certFile=" + certFile);
+    }
+    if (keyFile != null && !keyFile.isBlank()) {
+      command.add("-Dgimle.tls.keyFile=" + keyFile);
+    }
+    if (caFile != null && !caFile.isBlank()) {
+      command.add("-Dgimle.tls.caFile=" + caFile);
+    }
     command.add("-cp");
-    command.add(String.join(File.pathSeparator, runtimeClasspathElements));
+    command.add(classpath);
     command.add("com.gimle.mimir.StoreMain");
     command.add(stateDir);
     command.add(raftPort);

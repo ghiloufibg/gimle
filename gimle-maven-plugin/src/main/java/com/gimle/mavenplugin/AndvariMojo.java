@@ -53,6 +53,24 @@ public final class AndvariMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.andvari.transportProtocol")
   private String transportProtocol;
 
+  /**
+   * Andvari's own TLS leaf certificate/key and the cluster CA certificate, forwarded verbatim as
+   * {@code -Dgimle.tls.certFile}/{@code keyFile}/{@code caFile} -- the exact system properties
+   * {@code AndvariMain} itself reads, and the same plain (not {@code gimle.andvari}-namespaced)
+   * property names {@link BootstrapMojo#addTlsFlags} uses, so a bare {@code
+   * -Dgimle.tls.certFile=...} on the {@code mvn} command line binds straight into this parameter
+   * with no separate flag to learn. Unset by default like {@link #transportProtocol}: only
+   * meaningful once {@code gimle.andvari.transportProtocol=tls} is also set.
+   */
+  @Parameter(property = "gimle.tls.certFile")
+  private String certFile;
+
+  @Parameter(property = "gimle.tls.keyFile")
+  private String keyFile;
+
+  @Parameter(property = "gimle.tls.caFile")
+  private String caFile;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -67,6 +85,15 @@ public final class AndvariMojo extends AbstractGimleMojo {
     command.add(javaExecutable());
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
+    }
+    if (certFile != null && !certFile.isBlank()) {
+      command.add("-Dgimle.tls.certFile=" + certFile);
+    }
+    if (keyFile != null && !keyFile.isBlank()) {
+      command.add("-Dgimle.tls.keyFile=" + keyFile);
+    }
+    if (caFile != null && !caFile.isBlank()) {
+      command.add("-Dgimle.tls.caFile=" + caFile);
     }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));

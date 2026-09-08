@@ -72,6 +72,24 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   private String transportProtocol;
 
   /**
+   * The control plane's own TLS leaf certificate/key and the cluster CA certificate, forwarded
+   * verbatim as {@code -Dgimle.tls.certFile}/{@code keyFile}/{@code caFile} -- the exact system
+   * properties {@code ControlPlaneMain} itself reads, and the same plain (not {@code
+   * gimle.controlplane}-namespaced) property names {@link BootstrapMojo#addTlsFlags} uses, so a
+   * bare {@code -Dgimle.tls.certFile=...} on the {@code mvn} command line binds straight into this
+   * parameter with no separate flag to learn. Unset by default like {@link #transportProtocol}:
+   * only meaningful once {@code gimle.controlplane.transportProtocol=tls} is also set.
+   */
+  @Parameter(property = "gimle.tls.certFile")
+  private String certFile;
+
+  @Parameter(property = "gimle.tls.keyFile")
+  private String keyFile;
+
+  @Parameter(property = "gimle.tls.caFile")
+  private String caFile;
+
+  /**
    * Comma-separated {@code ResourceKind} names to opt into READ-decision audit-trail coverage --
    * unset by default, matching {@code ApiServer}'s own pre-existing behavior of only auditing
    * {@code WRITE}/{@code DELETE}. See {@code gimle-docs/docs/architecture/authn-authz.md}'s Audit
@@ -110,7 +128,10 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
         muninnEndpoint,
         transportProtocol,
         auditReadResourceKinds,
-        consoleAddons);
+        consoleAddons,
+        certFile,
+        keyFile,
+        caFile);
   }
 
   /**
@@ -129,11 +150,23 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
       String muninnEndpoint,
       String transportProtocol,
       String auditReadResourceKinds,
-      String consoleAddons) {
+      String consoleAddons,
+      String certFile,
+      String keyFile,
+      String caFile) {
     List<String> command = new ArrayList<>();
     command.add(javaExecutable);
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
+    }
+    if (certFile != null && !certFile.isBlank()) {
+      command.add("-Dgimle.tls.certFile=" + certFile);
+    }
+    if (keyFile != null && !keyFile.isBlank()) {
+      command.add("-Dgimle.tls.keyFile=" + keyFile);
+    }
+    if (caFile != null && !caFile.isBlank()) {
+      command.add("-Dgimle.tls.caFile=" + caFile);
     }
     if (auditReadResourceKinds != null && !auditReadResourceKinds.isBlank()) {
       command.add("-Dgimle.controlplane.audit.readResourceKinds=" + auditReadResourceKinds);
