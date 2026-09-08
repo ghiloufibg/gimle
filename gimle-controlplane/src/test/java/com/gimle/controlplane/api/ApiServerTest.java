@@ -2724,8 +2724,38 @@ class ApiServerTest {
 
   // ---- config/secrets distribution ----
 
+  /**
+   * A tenant id that never existed (or was refused creation) must never be able to accept a config
+   * write -- the config entry would be permanently orphaned under a tenant id that can never be
+   * listed, quota-checked, or torn down through the tenant lifecycle.
+   */
+  @Test
+  void config_put_against_a_nonexistent_tenant_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/does-not-exist/greeting"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"value\":\"hello\",\"encrypted\":false}"))
+                .build());
+    assertEquals(404, put.statusCode());
+    assertTrue(put.body().contains("no such tenant"), put.body());
+    assertTrue(store.getConfigEntry("does-not-exist", "greeting").isEmpty());
+
+    store.putTenant(new Tenant("real-tenant", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    HttpResponse<String> putReal =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/real-tenant/greeting"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"value\":\"hello\",\"encrypted\":false}"))
+                .build());
+    assertEquals(200, putReal.statusCode());
+  }
+
   @Test
   void plain_config_put_and_list_round_trips() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     HttpResponse<String> put =
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
@@ -2747,6 +2777,7 @@ class ApiServerTest {
 
   @Test
   void encrypted_config_round_trips_to_plaintext_on_read() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     HttpResponse<String> put =
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/db-password"))
@@ -2772,6 +2803,7 @@ class ApiServerTest {
 
   @Test
   void config_delete_removes_the_entry() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/temp"))
             .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"x\",\"encrypted\":false}"))
@@ -2809,6 +2841,7 @@ class ApiServerTest {
    */
   @Test
   void config_versions_and_rollback_round_trip_through_the_http_surface() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
             .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"v1\",\"encrypted\":false}"))
@@ -2847,6 +2880,7 @@ class ApiServerTest {
 
   @Test
   void config_rollback_of_an_unknown_version_is_404() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
             .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"v1\",\"encrypted\":false}"))

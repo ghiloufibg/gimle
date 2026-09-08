@@ -433,6 +433,7 @@ class ApiServerAuthzTest {
             java.util.Set.of(Permission.scoped(ResourceKind.CONFIG, Verb.WRITE, "acme"))));
     store.putRoleBinding(
         new RoleBinding("b1", RoleBinding.userSubject("privileged-user"), "config-writer"));
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
@@ -619,6 +620,7 @@ class ApiServerAuthzTest {
     store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("writer"), "config-writer"));
     store.putRoleBinding(
         new RoleBinding("b2", RoleBinding.userSubject("reader-only"), "config-reader"));
+    store.putTenant(new Tenant("tenant-1", new ResourceQuota(1_000_000_000L, 4000, 10)));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));

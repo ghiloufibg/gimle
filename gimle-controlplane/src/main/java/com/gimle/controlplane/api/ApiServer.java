@@ -7371,6 +7371,10 @@ public final class ApiServer implements AutoCloseable {
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
+    if (storeClient.getTenant(tenantId).isEmpty()) {
+      respond(exchange, 404, "no such tenant: " + tenantId);
+      return;
+    }
     byte[] plaintext = value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
     if (plaintext.length > MAX_CONFIG_VALUE_BYTES) {
       respond(
