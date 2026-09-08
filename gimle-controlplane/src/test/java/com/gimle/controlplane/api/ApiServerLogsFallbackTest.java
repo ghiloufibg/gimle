@@ -6,12 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
@@ -19,6 +26,9 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.pki.CertificateAuthority;
+import com.gimle.pki.CertificateSigningRequests;
+import com.gimle.pki.Pem;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -30,6 +40,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +51,8 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +88,7 @@ class ApiServerLogsFallbackTest {
   private HttpServer agentStub;
   private final List<String> muninnReceivedPaths = new CopyOnWriteArrayList<>();
   private String previousLogRoot;
+  private Path caFile;
 
   @BeforeEach
   void startStores() throws IOException {
@@ -90,6 +106,10 @@ class ApiServerLogsFallbackTest {
     } else {
       System.setProperty("gimle.log.root", previousLogRoot);
     }
+    System.clearProperty("gimle.transport.protocol");
+    System.clearProperty("gimle.tls.certFile");
+    System.clearProperty("gimle.tls.keyFile");
+    System.clearProperty("gimle.tls.caFile");
     if (server != null) {
       server.close();
     }
@@ -610,5 +630,295 @@ class ApiServerLogsFallbackTest {
 
     assertEquals(400, response.statusCode());
     assertTrue(response.body().contains("SEVERE"), response.body());
+  }
+
+  /**
+   * Bug 30 regression, the {@code /logs/*} fallback's own half: unlike {@code
+   * ApiServerMetricsHistoryTest}/{@code ApiServerTracesHistoryTest}, this class had no mTLS
+   * coverage at all before this test -- every case above runs in plaintext, where {@code
+   * requireAuthorized} never even calls {@code resolvePrincipal} (see its own {@code !(exchange
+   * instanceof HttpsExchange)} branch), so none of them could have caught a caller identity that
+   * failed to reach Muninn. A cert-authenticated operator who genuinely holds {@code LOGS}
+   * permission must have their real identity, not this control plane's own leaf, reach Muninn as
+   * {@code X-Gimle-Forwarded-Principal}/{@code X-Gimle-Forwarded-Groups} once a node has no
+   * registration at all -- {@link #handleNodeLogsProxy}'s emptiest fallback branch.
+   */
+  @Test
+  @Timeout(15)
+  void a_cert_authenticated_caller_has_their_identity_forwarded_for_a_node_with_no_registration()
+      throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = startHeaderCapturingMuninnStub(receivedHeaders);
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    restartStoresUnderTls();
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("logs-operator"), "logs-only"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    HttpClient operatorClient = mutualTlsClient(ca, "CN=logs-operator");
+
+    HttpResponse<String> response =
+        operatorClient.send(
+            HttpRequest.newBuilder(
+                    URI.create("https://localhost:" + server.port() + "/logs/nodes/ghost"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    assertEquals("logs-operator", receivedHeaders.get(0).getFirst("X-Gimle-Forwarded-Principal"));
+  }
+
+  /**
+   * As above, for {@link #handleNodeLogsProxy}'s other fallback branch: a node that is registered
+   * but whose agent genuinely cannot be reached, matching the QA-reported "node is genuinely gone"
+   * wording most closely.
+   */
+  @Test
+  @Timeout(15)
+  void a_cert_authenticated_caller_has_their_identity_forwarded_for_an_unreachable_agent()
+      throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = startHeaderCapturingMuninnStub(receivedHeaders);
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    restartStoresUnderTls();
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("logs-operator"), "logs-only"));
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a",
+            new NodeCapabilities(Set.of()),
+            // A registered agent address that nothing is actually listening on -- the real proxy
+            // call itself must fail, not just an empty registration.
+            Optional.of("127.0.0.1:1")));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    HttpClient operatorClient = mutualTlsClient(ca, "CN=logs-operator");
+
+    HttpResponse<String> response =
+        operatorClient.send(
+            HttpRequest.newBuilder(
+                    URI.create("https://localhost:" + server.port() + "/logs/nodes/node-a"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    assertEquals("logs-operator", receivedHeaders.get(0).getFirst("X-Gimle-Forwarded-Principal"));
+  }
+
+  /**
+   * The {@link #handleInstanceLogsProxy} counterpart: an instance with no placement at all (a name
+   * only Muninn still remembers), reached without ever calling {@link #resolveInstanceNodeId} down
+   * to a live agent.
+   */
+  @Test
+  @Timeout(15)
+  void a_cert_authenticated_caller_has_their_identity_forwarded_for_an_instance_with_no_placement()
+      throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = startHeaderCapturingMuninnStub(receivedHeaders);
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    restartStoresUnderTls();
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("logs-operator"), "logs-only"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    HttpClient operatorClient = mutualTlsClient(ca, "CN=logs-operator");
+
+    HttpResponse<String> response =
+        operatorClient.send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        "https://localhost:"
+                            + server.port()
+                            + "/logs/instances/ghost-deployment/0"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    assertEquals("logs-operator", receivedHeaders.get(0).getFirst("X-Gimle-Forwarded-Principal"));
+  }
+
+  /**
+   * The {@link #handleInstanceLogsProxy} counterpart to the registered-but-unreachable node case: a
+   * real placement exists, but the node hosting it can't actually be reached.
+   */
+  @Test
+  @Timeout(15)
+  void a_cert_authenticated_caller_has_their_identity_forwarded_for_an_instance_on_a_dead_node()
+      throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = startHeaderCapturingMuninnStub(receivedHeaders);
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    restartStoresUnderTls();
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("logs-operator"), "logs-only"));
+    store.putNodeRegistration(
+        new NodeRegistration("node-a", new NodeCapabilities(Set.of()), Optional.of("127.0.0.1:1")));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/tmp/orders.jar",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    HttpClient operatorClient = mutualTlsClient(ca, "CN=logs-operator");
+
+    HttpResponse<String> response =
+        operatorClient.send(
+            HttpRequest.newBuilder(
+                    URI.create(
+                        "https://localhost:" + server.port() + "/logs/instances/orders-service/0"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    assertEquals("logs-operator", receivedHeaders.get(0).getFirst("X-Gimle-Forwarded-Principal"));
+  }
+
+  /**
+   * A group-bound caller (no direct user grant) must have its groups, not just its name, forwarded.
+   */
+  @Test
+  @Timeout(15)
+  void a_group_bound_cert_caller_has_their_groups_forwarded_to_the_fallback() throws Exception {
+    List<com.sun.net.httpserver.Headers> receivedHeaders = new CopyOnWriteArrayList<>();
+    muninnStub = startHeaderCapturingMuninnStub(receivedHeaders);
+    MuninnClient muninnClient = new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort());
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    restartStoresUnderTls();
+    store.putRole(new Role("logs-only", Set.of(Permission.unscoped(ResourceKind.LOGS, Verb.READ))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.groupSubject("sre-team"), "logs-only"));
+    server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client(), muninnClient);
+    server.start();
+    HttpClient operatorClient = mutualTlsClient(ca, "O=sre-team,CN=sre-caller");
+
+    HttpResponse<String> response =
+        operatorClient.send(
+            HttpRequest.newBuilder(
+                    URI.create("https://localhost:" + server.port() + "/logs/nodes/ghost"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode(), response.body());
+    assertEquals(1, receivedHeaders.size(), "the request must have actually reached muninn");
+    com.sun.net.httpserver.Headers forwarded = receivedHeaders.get(0);
+    assertEquals("sre-caller", forwarded.getFirst("X-Gimle-Forwarded-Principal"));
+    assertEquals("sre-team", forwarded.getFirst("X-Gimle-Forwarded-Groups"));
+  }
+
+  /**
+   * {@code startStores} (the {@code @BeforeEach} above) already opened a plaintext {@code
+   * InProcessStore}/{@code InProcessFafnir} pair before any test method runs, and {@code
+   * configureServerTls} only flips {@code gimle.transport.protocol} to {@code tls} afterwards --
+   * reusing that plaintext pair would have this class's own {@code ApiServer} construction (which
+   * reads a tenant from the store to seed it) fail its own TLS handshake against a store that never
+   * came up expecting one. Every mTLS test in this class calls this right after {@code
+   * configureServerTls} to get a store pair that actually matches the transport it now declares.
+   */
+  private void restartStoresUnderTls() throws IOException {
+    inProcessFafnir.close();
+    inProcessStore.close();
+    inProcessStore = InProcessStore.start(tempDir.resolve("store-mtls"));
+    store = inProcessStore.store();
+    inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret-mtls.key"));
+  }
+
+  private HttpServer startHeaderCapturingMuninnStub(
+      List<com.sun.net.httpserver.Headers> receivedHeaders) throws IOException {
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/logs",
+        exchange -> {
+          // A fresh copy, not the live exchange.getRequestHeaders() reference -- the exchange
+          // itself is recycled once this handler returns.
+          com.sun.net.httpserver.Headers copy = new com.sun.net.httpserver.Headers();
+          copy.putAll(exchange.getRequestHeaders());
+          receivedHeaders.add(copy);
+          byte[] body = "[]".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, body.length);
+          try (OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+          }
+        });
+    stub.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    stub.start();
+    return stub;
+  }
+
+  private HttpClient mutualTlsClient(CertificateAuthority ca, String subject) throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name(subject));
+    String safeName = subject.replaceAll("[^a-zA-Z0-9]", "_");
+    Path certFile =
+        writePem(
+            safeName + "-cert.pem",
+            Pem.encodeCertificate(ca.signCertificateRequest(csr, Duration.ofDays(1))));
+    Path keyFile = writePem(safeName + "-key.pem", Pem.encodePrivateKey(keyPair.getPrivate()));
+    TlsSettings settings = new TlsSettings(certFile, keyFile, caFile);
+    return HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
+  }
+
+  private void configureServerTls(CertificateAuthority ca) throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("O=gimle:controlplane,CN=controlplane"), List.of("localhost"));
+    Path certFile =
+        writePem(
+            "controlplane-cert.pem",
+            Pem.encodeCertificate(ca.signCertificateRequest(csr, Duration.ofDays(1))));
+    Path keyFile = writePem("controlplane-key.pem", Pem.encodePrivateKey(keyPair.getPrivate()));
+    caFile = writePem("test-ca.pem", Pem.encodeCertificate(ca.certificate()));
+
+    System.setProperty("gimle.transport.protocol", "tls");
+    System.setProperty("gimle.tls.certFile", certFile.toString());
+    System.setProperty("gimle.tls.keyFile", keyFile.toString());
+    System.setProperty("gimle.tls.caFile", caFile.toString());
+  }
+
+  private Path writePem(String fileName, String pem) throws IOException {
+    Path path = tempDir.resolve(fileName);
+    Files.writeString(path, pem);
+    return path;
+  }
+
+  private static KeyPair generateRsaKeyPair() throws Exception {
+    KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+    generator.initialize(2048);
+    return generator.generateKeyPair();
   }
 }
