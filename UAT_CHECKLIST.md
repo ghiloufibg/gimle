@@ -369,7 +369,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | Given a generated leaf certificate, When encoded via Pem.encodeCertificate then re-loaded by openssl, Then readable as a valid X.509 certificate. | No |
-| [ ] | GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash. | No |
+| [ ] | GIMLE-078 | Cluster PKI bootstrap CLI (`mvn gimle:tls-init`) | Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/store/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash. | No |
 
 #### PKI / Security
 

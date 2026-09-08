@@ -15,8 +15,9 @@ encoder — not the internal `sun.security.x509` route.
 
 - **`PkiBootstrapMain`** — the entry point for `mvn gimle:tls-init`. Generates, once, everything a
   brand-new cluster needs to start in TLS mode: the self-signed cluster CA plus distinct leaf
-  certificates for the control plane, Fafnir, Muninn, Andvari, and the first human operator (a node
-  agent gets nothing here — it obtains its own certificate later, live, via the CSR bootstrap flow).
+  certificates for the control plane, the store, Fafnir, Muninn, Andvari, and the first human
+  operator (a node agent gets nothing here — it obtains its own certificate later, live, via the CSR
+  bootstrap flow).
   Also writes a `bootstrap-account.yaml` holding only a freshly generated admin password's
   `PasswordHashes` hash, since `ApiServer` reads this file only while its store has zero accounts
   and Raft-proposes it as a real `Account`. The plaintext password itself is delivered exactly once

@@ -322,9 +322,9 @@ mvn gimle:init -pl gimle-examples/greeter-provider
 
 ## `mvn gimle:tls-init`
 
-Generates the cluster CA, the control plane's own leaf certificate, and the first human operator's
-leaf certificate via a real `com.gimle.pki.PkiBootstrapMain` subprocess — everything a brand-new
-cluster needs to start in `gimle.transport.protocol=tls` mode. See
+Generates the cluster CA plus one leaf certificate each for the control plane, the store, Fafnir,
+Muninn, Andvari, and the first human operator, via a real `com.gimle.pki.PkiBootstrapMain`
+subprocess — everything a brand-new cluster needs to start in `gimle.transport.protocol=tls` mode. See
 [Transport security](../architecture/transport-security.md). Unlike `gimle:agent`, this needs no
 cross-module classpath resolution: `PkiBootstrapMain` lives in `gimle-pki` itself, the module this
 goal targets.
