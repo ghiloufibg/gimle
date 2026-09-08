@@ -101,6 +101,45 @@ class UndeployCommandTest {
   }
 
   @Test
+  void undeploy_does_not_drop_the_ledger_while_a_workload_is_still_terminating() throws Exception {
+    fake = new FakeControlPlane();
+    DeployCommand.run(
+        List.of("-f", writeBundle().toString(), "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+    // The control plane accepts the delete, but the workload keeps round-tripping as present --
+    // e.g. a DaemonSet whose instances are slow, stuck, or unhealthy to drain -- for far longer
+    // than the (shortened, for this test) confirmation timeout ever polls for.
+    fake.lingerAfterDelete("Deployment", "greeter-consumer", 1_000);
+
+    String previousTimeout = System.getProperty(BundleApplier.DELETE_CONFIRM_TIMEOUT_PROPERTY);
+    System.setProperty(BundleApplier.DELETE_CONFIRM_TIMEOUT_PROPERTY, "50");
+    try {
+      HilmirException e =
+          assertThrows(
+              HilmirException.class,
+              () ->
+                  UndeployCommand.run(
+                      List.of("--release", "greeter-suite", "--server", fake.address()),
+                      capture(new ByteArrayOutputStream())));
+      assertTrue(e.getMessage().contains("greeter-consumer"), e.getMessage());
+      assertTrue(e.getMessage().contains("terminating"), e.getMessage());
+    } finally {
+      if (previousTimeout == null) {
+        System.clearProperty(BundleApplier.DELETE_CONFIRM_TIMEOUT_PROPERTY);
+      } else {
+        System.setProperty(BundleApplier.DELETE_CONFIRM_TIMEOUT_PROPERTY, previousTimeout);
+      }
+    }
+
+    // The ledger and the tenant it created must survive: a subsequent "disable"/undeploy retry
+    // must still find this release and try again, rather than reporting nothing to disable
+    // against a workload that, in reality, never finished going away.
+    assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.meta") != null);
+    assertTrue(fake.configValue("gimle-hilmir", "hilmir.release.greeter-suite.rev.1") != null);
+    assertTrue(fake.hasTenant("acme"));
+  }
+
+  @Test
   void undeploy_fails_cleanly_for_a_nonexistent_release() throws Exception {
     fake = new FakeControlPlane();
 

@@ -1,7 +1,9 @@
 package com.gimle.hilmir.release;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.hilmir.HilmirException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +23,21 @@ import java.util.function.Consumer;
  * the loop is abandoned partway through (see {@link ReleaseReconciler}'s own use of this).
  */
 final class BundleApplier {
+
+  /**
+   * How long {@link #deleteWorkloads} keeps polling for a resource to actually disappear before
+   * giving up. Configurable for the same reason {@link WaitPoller#TIMEOUT_PROPERTY} is: a
+   * DaemonSet's instances can take longer to drain on a larger cluster than a default is willing to
+   * assume.
+   */
+  static final String DELETE_CONFIRM_TIMEOUT_PROPERTY = "gimle.hilmir.deleteConfirmTimeoutMillis";
+
+  private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
+
+  private static Duration deleteConfirmTimeout() {
+    return Duration.ofMillis(
+        Long.getLong(DELETE_CONFIRM_TIMEOUT_PROPERTY, Duration.ofMinutes(2).toMillis()));
+  }
 
   private BundleApplier() {}
 
@@ -81,11 +98,47 @@ final class BundleApplier {
   }
 
   /**
-   * Deletes {@code resources} in the order given -- callers pass reverse-apply order for undeploy.
+   * Deletes {@code resources} in the order given -- callers pass reverse-apply order for undeploy
+   * -- and confirms each one is actually gone before moving on to the next. A 2xx {@code DELETE}
+   * response only proves the control plane accepted the request, not that the resource finished
+   * terminating: a DaemonSet whose instances are slow, stuck, or unhealthy can still round-trip on
+   * a {@code GET} immediately afterward. Callers such as {@link ReleaseReconciler#undeployRelease}
+   * treat "every workload deleted" as license to drop the release's own ledger bookkeeping next --
+   * doing that while a workload might still be live would leave the ledger empty for a release
+   * that, in reality, is still there.
    */
   static void deleteWorkloads(ControlPlaneApi api, List<ResourceRef> resources) {
     for (ResourceRef resource : resources) {
-      api.expectSuccess(api.delete(WorkloadKinds.pathPrefix(resource.kind()) + resource.name()));
+      String path = WorkloadKinds.pathPrefix(resource.kind()) + resource.name();
+      api.expectSuccess(api.delete(path));
+      awaitGone(api, resource, path);
+    }
+  }
+
+  private static void awaitGone(ControlPlaneApi api, ResourceRef resource, String path) {
+    Duration timeout = deleteConfirmTimeout();
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (api.exists(path)) {
+      if (System.nanoTime() > deadlineNanos) {
+        throw new HilmirException(
+            "timed out after "
+                + timeout
+                + " waiting for "
+                + resource.kind()
+                + " "
+                + resource.name()
+                + " to finish terminating -- it was still present after its delete was accepted");
+      }
+      sleep();
+    }
+  }
+
+  private static void sleep() {
+    try {
+      Thread.sleep(POLL_INTERVAL);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new HilmirException("interrupted while waiting for a deleted workload to disappear", e);
     }
   }
 
