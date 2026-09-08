@@ -21,6 +21,7 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
@@ -462,6 +463,33 @@ class ApiServerTest {
     // what a job looks like the instant after admission.
     assertEquals("RUNNING", status.get("phase"));
     assertFalse(status.containsKey("currentRun"));
+  }
+
+  @Test
+  void re_applying_an_already_terminal_job_is_refused_not_silently_accepted() throws Exception {
+    HttpResponse<String> firstPut =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+                .build());
+    assertEquals(200, firstPut.statusCode());
+    // JobReconciler is what would normally record this in a real cluster; forcing it directly
+    // here is the only way a handler-only test can reach a terminal job with no reconciler loop
+    // running (see the round-trip test above for the same caveat).
+    store.putJobPhase(Optional.of(Tenant.DEFAULT_TENANT_ID), "nightly-cleanup", JobPhase.FAILED);
+
+    HttpResponse<String> reapply =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(jobYaml("nightly-cleanup")))
+                .build());
+    assertEquals(409, reapply.statusCode());
+    assertTrue(reapply.body().contains("FAILED"));
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/nightly-cleanup")).GET().build());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    assertEquals("FAILED", status.get("phase"));
   }
 
   @Test

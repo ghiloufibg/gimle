@@ -3576,6 +3576,27 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return AuditOutcome.REJECTED;
     }
+    // A Job's own terminal phase (see JobPhase's javadoc) is a one-way door: JobReconciler
+    // stops placing further attempts for it forever once reached. Silently accepting a re-apply
+    // here -- as this used to -- reported the same "ok" a genuinely effective apply produces,
+    // while leaving the recorded phase, the old activeDeadline, and the reconciler's own
+    // "already terminal, nothing more to do" skip all untouched; the caller had no way to tell
+    // their edit from a real one short of polling status and noticing nothing changed. Refusing
+    // explicitly means "delete and re-create" is the one way to run a terminal job again, the
+    // same one-way-door semantics the reconciler already enforces internally.
+    Optional<String> terminalPhase =
+        storeClient.getJobPhase(parsedSpec.tenantId(), name).map(Enum::name);
+    if (terminalPhase.isPresent()) {
+      respond(
+          exchange,
+          409,
+          "cannot re-apply job '"
+              + name
+              + "': already "
+              + terminalPhase.get()
+              + " -- delete and re-create it to run it again");
+      return AuditOutcome.REJECTED;
+    }
     // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
     AdmissionArtifact admitted =
