@@ -61,6 +61,26 @@ final class SagaServer {
         "Saga server at " + client.endpoint() + " did not become healthy within " + timeout);
   }
 
+  /**
+   * A spawn-only setting ({@code dataRoot}, say) has no effect once {@link #ensureRunning} decides
+   * to reuse an already-running server rather than spawn a fresh one -- the caller who explicitly
+   * set it gets no indication their setting did anything, silently talking to whatever server was
+   * already there instead of the one they thought they were requesting. Returns the warning to log
+   * for that case; empty when there's nothing to warn about (the setting was never given, or a
+   * fresh spawn actually happened and used it).
+   */
+  static Optional<String> reuseIgnoredSetting(Ensured ensured, String propertyName, String value) {
+    if (ensured != Ensured.REUSED || value == null || value.isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        propertyName
+            + "="
+            + value
+            + " has no effect: an existing Saga server is being reused, not spawned fresh; stop it"
+            + " first (gimle:saga-stop) to apply this setting");
+  }
+
   static Path dataDir() {
     return Path.of(System.getProperty("user.home"), ".gimle", "saga");
   }

@@ -36,7 +36,10 @@ public final class SagaMojo extends AbstractGimleRootMojo {
   /**
    * Overrides {@code SagaMain}'s own default data directory ({@code ~/.gimle/saga}) -- unset by
    * default, forwarded only when explicitly set, matching {@code ControlPlaneMojo}'s own
-   * conditional-forwarding convention for optional properties.
+   * conditional-forwarding convention for optional properties. Only takes effect on a fresh spawn;
+   * reusing an already-running server (see {@link SagaServer#reuseIgnoredSetting}) logs a warning
+   * that this setting was ignored rather than silently talking to whatever server was already
+   * there.
    */
   @Parameter(property = "gimle.saga.dataRoot")
   private String dataRoot;
@@ -57,6 +60,8 @@ public final class SagaMojo extends AbstractGimleRootMojo {
     SagaClient client = new SagaClient("http://127.0.0.1:" + port);
     SagaServer.Ensured ensured =
         SagaServer.ensureRunning(client, this::spawnServer, STARTUP_TIMEOUT, getLog());
+    SagaServer.reuseIgnoredSetting(ensured, "gimle.saga.dataRoot", dataRoot)
+        .ifPresent(getLog()::warn);
     String verb = ensured == SagaServer.Ensured.REUSED ? "reusing running" : "started";
     getLog().info(verb + " Saga server -- console: " + client.endpoint() + "/console");
   }

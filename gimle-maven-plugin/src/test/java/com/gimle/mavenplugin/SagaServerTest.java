@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -97,6 +98,35 @@ class SagaServerTest {
                 SagaServer.ensureRunning(
                     clientFor(server), FakeProcess::alive, Duration.ofSeconds(1), log));
     assertTrue(failure.getMessage().contains("did not become healthy"));
+  }
+
+  @Test
+  void reusing_a_server_warns_when_an_explicit_data_root_was_given() {
+    Optional<String> warning =
+        SagaServer.reuseIgnoredSetting(
+            SagaServer.Ensured.REUSED, "gimle.saga.dataRoot", "/tmp/saga-data");
+
+    assertTrue(warning.isPresent());
+    assertTrue(warning.get().contains("gimle.saga.dataRoot=/tmp/saga-data"), warning.get());
+    assertTrue(warning.get().contains("has no effect"), warning.get());
+  }
+
+  @Test
+  void reusing_a_server_with_no_data_root_given_warns_about_nothing() {
+    assertFalse(
+        SagaServer.reuseIgnoredSetting(SagaServer.Ensured.REUSED, "gimle.saga.dataRoot", null)
+            .isPresent());
+    assertFalse(
+        SagaServer.reuseIgnoredSetting(SagaServer.Ensured.REUSED, "gimle.saga.dataRoot", "   ")
+            .isPresent());
+  }
+
+  @Test
+  void a_fresh_spawn_that_actually_used_the_data_root_warns_about_nothing() {
+    assertFalse(
+        SagaServer.reuseIgnoredSetting(
+                SagaServer.Ensured.SPAWNED, "gimle.saga.dataRoot", "/tmp/saga-data")
+            .isPresent());
   }
 
   @Test
