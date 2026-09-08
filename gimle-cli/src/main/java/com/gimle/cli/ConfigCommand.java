@@ -53,11 +53,13 @@ public final class ConfigCommand {
   }
 
   public void delete(List<String> args) {
+    String usage = "delete config requires <tenantId> <key>";
     if (args.size() < 2) {
-      throw new CliException("delete config requires <tenantId> <key>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     client.expectSuccess(client.delete("/config/" + tenantId + "/" + key));
     OutputFormat.printResult(
         output,

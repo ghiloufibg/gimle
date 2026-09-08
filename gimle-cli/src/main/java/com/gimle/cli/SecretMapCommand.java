@@ -88,11 +88,13 @@ public final class SecretMapCommand {
   }
 
   private void get(List<String> args) {
+    String usage = "secretmap get requires <tenantId> <name>";
     if (args.size() < 2) {
-      throw new CliException("secretmap get requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     Map<String, Object> response = client.getObject("/secretmaps/" + tenantId + "/" + name);
     OutputFormat.printList(output, Json.asObjectList(response.get("keys")), out);
   }
@@ -202,23 +204,27 @@ public final class SecretMapCommand {
   }
 
   private void versions(List<String> args) {
+    String usage = "secretmap versions requires <tenantId> <name>";
     if (args.size() < 2) {
-      throw new CliException("secretmap versions requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     Map<String, Object> response =
         client.getObject("/secretmaps/" + tenantId + "/" + name + "/versions");
     OutputFormat.printList(output, Json.asObjectList(response.get("groupVersions")), out);
   }
 
   private void rollback(List<String> args) {
+    String usage = "secretmap rollback requires <tenantId> <name> <groupVersion>";
     if (args.size() < 3) {
-      throw new CliException("secretmap rollback requires <tenantId> <name> <groupVersion>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
     int groupVersion = parseGroupVersion(args.get(2));
+    Flags.parse(args.subList(3, args.size()), Set.of(), usage);
     String response =
         client.expectSuccess(
             client.post(
