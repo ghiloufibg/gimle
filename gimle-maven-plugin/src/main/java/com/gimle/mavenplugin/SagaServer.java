@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -72,9 +73,18 @@ final class SagaServer {
     return dataDir().resolve("saga.log");
   }
 
-  static List<String> spawnCommand(String javaExecutable, String classpath, String port) {
-    return List.of(
-        javaExecutable, "-cp", classpath, "-Dgimle.saga.port=" + port, "com.gimle.saga.SagaMain");
+  static List<String> spawnCommand(
+      String javaExecutable, String classpath, String port, String dataRoot) {
+    List<String> command = new ArrayList<>();
+    command.add(javaExecutable);
+    command.add("-Dgimle.saga.port=" + port);
+    if (dataRoot != null && !dataRoot.isBlank()) {
+      command.add("-Dgimle.saga.dataRoot=" + dataRoot);
+    }
+    command.add("-cp");
+    command.add(classpath);
+    command.add("com.gimle.saga.SagaMain");
+    return List.copyOf(command);
   }
 
   static Process spawnDetached(List<String> command, Log log) throws MojoExecutionException {

@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -96,6 +97,24 @@ class SagaServerTest {
                 SagaServer.ensureRunning(
                     clientFor(server), FakeProcess::alive, Duration.ofSeconds(1), log));
     assertTrue(failure.getMessage().contains("did not become healthy"));
+  }
+
+  @Test
+  void spawn_command_forwards_an_explicit_data_root() {
+    List<String> command = SagaServer.spawnCommand("java", "saga.jar", "9096", "/tmp/saga-data");
+    assertTrue(
+        command.contains("-Dgimle.saga.dataRoot=/tmp/saga-data"),
+        "expected -Dgimle.saga.dataRoot in the command line, got: " + command);
+  }
+
+  @Test
+  void spawn_command_omits_the_data_root_flag_when_unset() {
+    assertFalse(anyStartsWith(SagaServer.spawnCommand("java", "saga.jar", "9096", null)));
+    assertFalse(anyStartsWith(SagaServer.spawnCommand("java", "saga.jar", "9096", "   ")));
+  }
+
+  private static boolean anyStartsWith(List<String> command) {
+    return command.stream().anyMatch(arg -> arg.startsWith("-Dgimle.saga.dataRoot="));
   }
 
   private static HttpServer serverRespondingWith(int status) throws IOException {
