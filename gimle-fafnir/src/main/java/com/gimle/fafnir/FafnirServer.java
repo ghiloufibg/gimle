@@ -6,6 +6,7 @@ import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
+import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.protocol.AuditEvent;
@@ -1766,6 +1767,19 @@ public final class FafnirServer implements AutoCloseable {
       status.put(
           "tenants", crypto.storeClient().listTenants().stream().map(Tenant::id).sorted().toList());
       respondJson(exchange, 200, status);
+    } catch (GimleRaftException e) {
+      // The store this call depends on couldn't be reached -- a structured, honestly-labeled 503
+      // rather than the generic 500 every other failure below maps to, so an operator polling this
+      // endpoint can tell "Fafnir is down" apart from "Fafnir's store is down."
+      log.warn("status request failed: store unreachable: {}", e.getMessage());
+      Map<String, Object> down = new LinkedHashMap<>();
+      down.put("status", "DOWN");
+      down.put("reason", e.getMessage());
+      try {
+        respondJson(exchange, 503, down);
+      } catch (IOException writeFailed) {
+        log.warn("failed to write status response: {}", writeFailed.getMessage());
+      }
     } catch (IOException | RuntimeException e) {
       log.warn("status request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");

@@ -158,4 +158,40 @@ class FafnirServerAuthTest {
     assertEquals("PLAINTEXT", body.get("transportProtocol"));
     assertEquals(List.of(), body.get("tenants"));
   }
+
+  @Test
+  @Timeout(15)
+  void status_reports_503_down_when_the_store_is_unreachable() throws Exception {
+    // A closed local port refuses every connection immediately, unlike an unresolvable hostname,
+    // so this doesn't add DNS-resolution retries on top of StoreClient's own 10s leader-search
+    // timeout.
+    int deadPort;
+    try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+      deadPort = probe.getLocalPort();
+    }
+    try (com.gimle.mimir.rpc.StoreClient unreachableStoreClient =
+            new com.gimle.mimir.rpc.StoreClient(
+                List.of(new java.net.InetSocketAddress("127.0.0.1", deadPort)));
+        FafnirServer unreachableServer =
+            new FafnirServer(
+                new FafnirCrypto(
+                    unreachableStoreClient, tempDir.resolve("keys/unreachable-secret.key")),
+                0)) {
+      unreachableServer.start();
+
+      HttpResponse<String> response =
+          client.send(
+              HttpRequest.newBuilder(
+                      URI.create("http://127.0.0.1:" + unreachableServer.port() + "/status"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+      assertEquals(503, response.statusCode());
+      Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+      assertEquals("DOWN", body.get("status"));
+      Object reason = body.get("reason");
+      assertTrue(reason instanceof String value && !value.isBlank());
+    }
+  }
 }
