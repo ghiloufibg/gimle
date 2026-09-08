@@ -330,6 +330,46 @@ class FafnirServerTest {
   }
 
   @Test
+  @Timeout(15)
+  void a_put_declaring_a_content_length_far_over_the_limit_is_refused_before_the_body_is_ever_sent()
+      throws Exception {
+    // Regression: a body far over the cap used to never resolve at all -- the streaming check
+    // fires as soon as enough bytes are read to exceed it, but the handler then closed the request
+    // stream before responding, and com.sun.net.httpserver's own request-body stream drains any
+    // *unread* remainder off the socket synchronously on close, so it can offer the connection
+    // back for reuse. For tens of MB of unread excess, that drain is what made the caller see no
+    // response at all -- only a raw connection reset once its own read timeout elapsed. Driven
+    // over a raw Socket, sending only the request line and headers and never a single body byte,
+    // so this actually proves the upfront Content-Length check rejects before ever opening the
+    // request body -- not merely that the existing streaming check is fast.
+    try (java.net.Socket socket = new java.net.Socket("127.0.0.1", server.port())) {
+      socket.setSoTimeout(10_000);
+      java.io.OutputStream out = socket.getOutputStream();
+      // Far more than 10x the 4MB cap, and never sent -- see comment above.
+      long declaredContentLength = 50L * 1024 * 1024;
+      String requestLine =
+          "PUT /secrets/acme/db-password HTTP/1.1\r\n"
+              + "Host: 127.0.0.1\r\n"
+              + "Content-Length: "
+              + declaredContentLength
+              + "\r\n"
+              + "Connection: close\r\n"
+              + "\r\n";
+      out.write(requestLine.getBytes(StandardCharsets.UTF_8));
+      out.flush();
+
+      java.io.BufferedReader in =
+          new java.io.BufferedReader(
+              new java.io.InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+      String statusLine = in.readLine();
+
+      assertTrue(
+          statusLine != null && statusLine.contains("413"),
+          "expected a prompt 413 status line, got: " + statusLine);
+    }
+  }
+
+  @Test
   @Timeout(10)
   void a_value_past_the_per_secret_cap_is_rejected_with_400() throws Exception {
     HttpResponse<String> response =

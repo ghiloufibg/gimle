@@ -1895,6 +1895,20 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   private static String readBody(HttpExchange exchange) throws IOException {
+    // A declared Content-Length far over the cap is refused before the request body is ever
+    // touched -- for a body whose excess is large, letting the streaming check below read up to
+    // the limit and throw is not itself slow, but com.sun.net.httpserver's own request-body stream
+    // drains any *unread remainder* off the socket synchronously once closed, so it can offer the
+    // same connection back for reuse; for tens of MB of unread excess, that drain is what
+    // previously left the caller with no response at all (a raw connection reset once its own
+    // read timeout elapsed) rather than a clean 413. Chunked transfer encoding means this header
+    // isn't always present -- when it's absent (or lies), the streaming check below is still the
+    // real enforcement; this is purely a fast path for the common case of a sender that already
+    // knows its own size.
+    Optional<Long> declaredContentLength = parseContentLength(exchange);
+    if (declaredContentLength.isPresent() && declaredContentLength.get() > MAX_REQUEST_BODY_BYTES) {
+      throw new BodyTooLargeException(MAX_REQUEST_BODY_BYTES);
+    }
     try (InputStream body =
         new SizeLimitedInputStream(
             exchange.getRequestBody(),
@@ -1902,6 +1916,24 @@ public final class FafnirServer implements AutoCloseable {
             exceeded -> new BodyTooLargeException(MAX_REQUEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
+  }
+
+  /**
+   * The request's own declared {@code Content-Length}, when present and well-formed -- absent for
+   * chunked transfer encoding (the header simply isn't sent) or a malformed value, in which case
+   * the caller falls back to whatever check doesn't depend on it, rather than treating either as an
+   * error in its own right.
+   */
+  private static Optional<Long> parseContentLength(HttpExchange exchange) {
+    return firstHeader(exchange, "Content-Length")
+        .flatMap(
+            value -> {
+              try {
+                return Optional.of(Long.parseLong(value.trim()));
+              } catch (NumberFormatException e) {
+                return Optional.empty();
+              }
+            });
   }
 
   private static String pathSegmentAfter(HttpExchange exchange, String prefix) {
