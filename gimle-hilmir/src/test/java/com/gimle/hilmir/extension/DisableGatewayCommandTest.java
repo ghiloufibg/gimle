@@ -10,6 +10,10 @@ import com.gimle.hilmir.analyze.testsupport.HilmirTestJarBuilder;
 import com.gimle.hilmir.release.FakeControlPlane;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
@@ -74,5 +78,34 @@ class DisableGatewayCommandTest {
                 DisableGatewayCommand.run(
                     List.of("--server", fake.address()), capture(new ByteArrayOutputStream())));
     assertTrue(e.getMessage().contains("not currently enabled"));
+  }
+
+  /**
+   * A DaemonSet named {@code gimle-gateway} put there some other way (a direct {@code gimle apply}
+   * bypassing hilmir's own release ledger entirely, or a ledger row separately lost) is a genuinely
+   * different situation from the gateway never having been enabled at all -- both looked identical
+   * before this fix, since the ledger lookup alone can't distinguish them.
+   */
+  @Test
+  void disable_names_the_leftover_daemonset_when_no_ledger_row_exists_for_it() throws Exception {
+    fake = new FakeControlPlane();
+    HttpClient client = HttpClient.newHttpClient();
+    client.send(
+        HttpRequest.newBuilder(URI.create("http://" + fake.address() + "/daemonsets/gimle-gateway"))
+            .PUT(HttpRequest.BodyPublishers.ofString("kind: DaemonSet\nname: gimle-gateway\n"))
+            .build(),
+        HttpResponse.BodyHandlers.discarding());
+    assertTrue(fake.hasWorkload("DaemonSet", "gimle-gateway"));
+
+    HilmirException e =
+        assertThrows(
+            HilmirException.class,
+            () ->
+                DisableGatewayCommand.run(
+                    List.of("--server", fake.address()), capture(new ByteArrayOutputStream())));
+
+    assertFalse(e.getMessage().contains("nothing to disable"), e.getMessage());
+    assertTrue(e.getMessage().contains("gimle-gateway"), e.getMessage());
+    assertTrue(e.getMessage().contains("gimle delete daemonset"), e.getMessage());
   }
 }
