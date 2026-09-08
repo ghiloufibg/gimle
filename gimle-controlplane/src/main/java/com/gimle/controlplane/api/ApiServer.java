@@ -841,6 +841,24 @@ public final class ApiServer implements AutoCloseable {
           respondStoreUnavailable(exchange);
         }
         exchange.close();
+      } catch (RuntimeException e) {
+        // Every handler here is expected to catch its own failure modes and answer a real status
+        // code; an uncaught RuntimeException reaching this far is itself the bug. Without this,
+        // it propagated straight into com.sun.net.httpserver's own internal dispatch code --
+        // losing the diagnostic trail entirely (nothing reached this app's own SLF4J logger) and
+        // leaving the caller with a raw connection reset instead of a real response.
+        log.error("unhandled exception handling {} /{}", verb, endpoint, e);
+        if (exchange.getResponseCode() <= 0) {
+          respondQuietly(exchange, 500, "internal error");
+        }
+        exchange.close();
+      } catch (Error e) {
+        // Logged before rethrowing, the same reasoning as the RuntimeException branch above -- but
+        // an Error (OutOfMemoryError, StackOverflowError, ...) is never something a single
+        // request's own 500 response can paper over, so it is not swallowed here: the JVM's own
+        // fatal-error handling still needs to see it.
+        log.error("unhandled Error handling {} /{}", verb, endpoint, e);
+        throw e;
       } finally {
         admission.release();
         Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
