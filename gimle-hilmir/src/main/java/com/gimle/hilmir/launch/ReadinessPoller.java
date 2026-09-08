@@ -31,7 +31,12 @@ final class ReadinessPoller {
     while (!isPortOpen(hostPort)) {
       if (System.nanoTime() > deadlineNanos) {
         throw new HilmirException(
-            "timed out after " + timeout + " waiting for " + description + " at " + hostPort);
+            "timed out after "
+                + humanReadable(timeout)
+                + " waiting for "
+                + description
+                + " at "
+                + hostPort);
       }
       try {
         Thread.sleep(POLL_INTERVAL);
@@ -70,7 +75,12 @@ final class ReadinessPoller {
       }
       if (System.nanoTime() > deadlineNanos) {
         throw new HilmirException(
-            "timed out after " + timeout + " waiting for " + description + " at " + hostPort);
+            "timed out after "
+                + humanReadable(timeout)
+                + " waiting for "
+                + description
+                + " at "
+                + hostPort);
       }
       try {
         Thread.sleep(POLL_INTERVAL);
@@ -79,6 +89,21 @@ final class ReadinessPoller {
         throw new HilmirException("interrupted while waiting for " + description, e);
       }
     }
+  }
+
+  /**
+   * Renders a timeout the way an operator reads it, e.g. {@code "2m"} or {@code "45s"} -- {@link
+   * Duration#toString()}'s own ISO-8601 form ({@code "PT2M"}) is meant for machine round-tripping,
+   * not a user-facing error message.
+   */
+  static String humanReadable(final Duration duration) {
+    final long totalSeconds = duration.toSeconds();
+    if (totalSeconds < 60) {
+      return totalSeconds + "s";
+    }
+    final long minutes = totalSeconds / 60;
+    final long seconds = totalSeconds % 60;
+    return seconds == 0 ? minutes + "m" : minutes + "m" + seconds + "s";
   }
 
   /** A single, instantaneous connect attempt -- no retry, for a point-in-time status check. */

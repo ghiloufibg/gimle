@@ -1,5 +1,6 @@
 package com.gimle.hilmir.launch;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,6 +33,10 @@ class ReadinessPollerTest {
 
     assertTrue(e.getMessage().contains("a test process"));
     assertTrue(e.getMessage().contains(String.valueOf(neverOpenedPort)));
+    // A raw java.time.Duration#toString() renders ISO-8601 ("PT0.3S"), meant for machine
+    // round-tripping rather than an operator-facing error message.
+    assertFalse(e.getMessage().contains("PT"));
+    assertTrue(e.getMessage().contains("timed out after "));
   }
 
   @Test
@@ -88,6 +93,21 @@ class ReadinessPollerTest {
           alreadyExitedProcess,
           Path.of("unused.log"));
     }
+  }
+
+  @Test
+  void human_readable_formats_a_sub_minute_duration_in_seconds() {
+    assertEquals("45s", ReadinessPoller.humanReadable(Duration.ofSeconds(45)));
+  }
+
+  @Test
+  void human_readable_formats_a_whole_number_of_minutes_without_a_trailing_zero_seconds() {
+    assertEquals("2m", ReadinessPoller.humanReadable(Duration.ofMinutes(2)));
+  }
+
+  @Test
+  void human_readable_formats_minutes_and_seconds_together() {
+    assertEquals("2m5s", ReadinessPoller.humanReadable(Duration.ofSeconds(125)));
   }
 
   @Test
