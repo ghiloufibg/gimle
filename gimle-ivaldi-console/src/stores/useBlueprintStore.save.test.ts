@@ -191,6 +191,26 @@ describe("useBlueprintStore.save", () => {
     expect(useBlueprintStore.getState().recoverableDraft?.name).toBe("my-tab-edit");
   });
 
+  it("restoreDraft after a 409 saves cleanly instead of looping on the draft's own stale updatedAt", async () => {
+    const mine = blueprint({ name: "my-tab-edit", updatedAt: "2026-01-01T00:00:00Z" });
+    useBlueprintStore.setState({ blueprint: mine, dirty: true });
+    saveMock.mockRejectedValueOnce(new ApiError(409, "stale write"));
+    const serverCopy = blueprint({ name: "someone-elses-save", updatedAt: "2026-01-01T00:00:05Z" });
+    getMock.mockResolvedValue(serverCopy);
+
+    await useBlueprintStore.getState().save();
+    useBlueprintStore.getState().restoreDraft();
+
+    saveMock.mockResolvedValueOnce(undefined);
+    await useBlueprintStore.getState().save();
+
+    expect(saveMock).toHaveBeenCalledTimes(2);
+    // The precondition sent on the retried save is the fresh server updatedAt fetched during the
+    // conflict, not the draft's own stale one -- otherwise this would 409 again forever.
+    expect(saveMock.mock.calls[1][1]).toBe("2026-01-01T00:00:05Z");
+    expect(saveMock.mock.calls[1][0]).toMatchObject({ name: "my-tab-edit" });
+  });
+
   it("lets a genuine failure (not a conflict) propagate rather than swallowing it", async () => {
     useBlueprintStore.setState({ blueprint: blueprint(), dirty: true });
     saveMock.mockRejectedValueOnce(new Error("network down"));

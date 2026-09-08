@@ -370,9 +370,17 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => {
 
     restoreDraft: () => {
       const draft = get().recoverableDraft;
+      const current = get().blueprint;
       if (!draft) return;
-      set({ blueprint: draft, dirty: true, recoverableDraft: null, past: [], future: [] });
-      revalidate(draft);
+      // The draft's own updatedAt is whatever it was at the moment it was captured -- stale by
+      // definition once a conflict is what produced it. Applying the draft wholesale carried that
+      // stale value right back into `blueprint`, so the very next autosave sent it as the
+      // precondition and 409ed again, forever. Only the draft's actual content should overwrite
+      // `current` here; `current.updatedAt` (freshly re-fetched during the 409 handling, or
+      // otherwise already the best known value) is what the next save must key off.
+      const restored = current ? { ...current, ...draft, updatedAt: current.updatedAt } : draft;
+      set({ blueprint: restored, dirty: true, recoverableDraft: null, past: [], future: [] });
+      revalidate(restored);
     },
 
     discardDraft: () => {
