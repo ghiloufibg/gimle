@@ -7,7 +7,8 @@ import type { Service } from "@/types";
  */
 export const SKALD_ZONE_SUFFIX = ".svc.gimle.local";
 
-/** `<service>.<tenant>.svc.gimle.local`, or `<service>.svc.gimle.local` for an untenanted Service.
+/** `<service>.<tenant>.svc.gimle.local` -- every Service carries an explicit tenant, default
+ * included, so `tenantId` is only ever falsy here for a malformed listing.
  * Lowercased, matching Skald's own case-insensitive treatment of a queried name. */
 export function skaldDnsName(service: Pick<Service, "name" | "tenantId">): string {
   const qualified = service.tenantId ? `${service.name}.${service.tenantId}` : service.name;
