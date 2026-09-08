@@ -52,4 +52,40 @@
       <artifactId>jline-terminal-ffm</artifactId>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        This module's own dependency graph (gimle-cli's whole closure plus jline-terminal and
+        jline-terminal-ffm) is exactly what the standalone CLI archive ships (gimle-dist's own
+        cli.xml assembly descriptor pulls those two jline artifacts in specifically because this
+        module carries them as real dependencies; see gimle-dist/pom.xml's own comment on that
+        include list). gimle-cli itself never depends on jline or on gimle-hugin: the dependency
+        runs the other way, since gimle-hugin implements the CliExtension gimle-cli defines, and
+        gimle-cli depending back on gimle-hugin would be circular, so gimle-cli's own dependency
+        graph structurally cannot describe the CLI archive's real jar set. This module's graph is
+        the closest one in the reactor that can, which is why gimle-dist copies this execution's
+        target/bom.json (rewriting its root component from gimle-hugin to gimle-cli, the archive it
+        actually describes) rather than gimle-cli's own bom.json into the standalone CLI archive's
+        gimle-cli-*-cyclonedx.json. includeProvidedScope=false: a provided-scope dependency is never
+        actually bundled.
+      -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <configuration>
+          <includeProvidedScope>false</includeProvidedScope>
+        </configuration>
+        <executions>
+          <execution>
+            <id>sbom</id>
+            <phase>package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
