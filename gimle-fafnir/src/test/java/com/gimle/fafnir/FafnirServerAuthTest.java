@@ -1,6 +1,7 @@
 package com.gimle.fafnir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.authz.Account;
@@ -145,7 +146,7 @@ class FafnirServerAuthTest {
 
   @Test
   @Timeout(10)
-  void status_reports_uptime_active_key_and_transport_mode() throws Exception {
+  void status_reports_uptime_and_transport_mode_to_a_fully_anonymous_caller() throws Exception {
     HttpResponse<String> response =
         client.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/status")).GET().build(),
@@ -154,8 +155,27 @@ class FafnirServerAuthTest {
     assertEquals(200, response.statusCode());
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     assertTrue(((Number) body.get("uptimeSeconds")).longValue() >= 0);
-    assertEquals(0, ((Number) body.get("activeKeyId")).intValue());
     assertEquals("PLAINTEXT", body.get("transportProtocol"));
+    // Real tenant names and the key-ring fingerprint are real information about this cluster --
+    // withheld from a caller who has presented no identity at all, unlike the two fields above.
+    assertFalse(body.containsKey("activeKeyId"), body.toString());
+    assertFalse(body.containsKey("secretsKeyRingFingerprint"), body.toString());
+    assertFalse(body.containsKey("tenants"), body.toString());
+  }
+
+  @Test
+  @Timeout(10)
+  void status_reports_the_key_ring_and_tenants_once_a_caller_has_a_session() throws Exception {
+    seedAccount("statususer", "s3cret-password");
+    HttpResponse<String> login =
+        post("/auth/login", Map.of("username", "statususer", "password", "s3cret-password"));
+    String setCookie = login.headers().firstValue("Set-Cookie").orElseThrow();
+    String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+
+    HttpResponse<String> response = getWithCookie("/status", cookie);
+
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals(0, ((Number) body.get("activeKeyId")).intValue());
     assertEquals(List.of(), body.get("tenants"));
   }
 

@@ -1759,14 +1759,25 @@ public final class FafnirServer implements AutoCloseable {
       }
       Map<String, Object> status = new LinkedHashMap<>();
       status.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
-      status.put("activeKeyId", Byte.toUnsignedInt(crypto.activeKeyId()));
-      // Never the key material itself, only its fingerprint -- with no peer-discovery mechanism
-      // of its own to compare this automatically across replicas, this is what lets an operator
-      // manually diff /status output across every replica and notice a silently drifted key ring.
-      status.put("secretsKeyRingFingerprint", crypto.keyRingFingerprint());
       status.put("transportProtocol", TransportProtocol.fromConfig().name());
-      status.put(
-          "tenants", crypto.storeClient().listTenants().stream().map(Tenant::id).sorted().toList());
+      // Read unconditionally, whether or not it ends up in the response below -- this is what
+      // turns a genuinely unreachable store into the 503 caught below for every caller alike, not
+      // only an identified one.
+      List<String> tenants =
+          crypto.storeClient().listTenants().stream().map(Tenant::id).sorted().toList();
+      // Real tenant names and the key-ring fingerprint are diagnostic, not secret material, but
+      // still real information about this cluster -- shown only once the caller has presented some
+      // identity (any resolvable principal, not a specific RBAC grant), matching every other
+      // process kind's own minimal, identity-free /status shape for a fully anonymous caller.
+      if (resolvePrincipal(exchange).isPresent()) {
+        status.put("activeKeyId", Byte.toUnsignedInt(crypto.activeKeyId()));
+        // Never the key material itself, only its fingerprint -- with no peer-discovery mechanism
+        // of its own to compare this automatically across replicas, this is what lets an operator
+        // manually diff /status output across every replica and notice a silently drifted key
+        // ring.
+        status.put("secretsKeyRingFingerprint", crypto.keyRingFingerprint());
+        status.put("tenants", tenants);
+      }
       respondJson(exchange, 200, status);
     } catch (GimleRaftException e) {
       // The store this call depends on couldn't be reached -- a structured, honestly-labeled 503
