@@ -151,6 +151,7 @@ public final class NodesCommand {
       row.put("tiers", String.join(",", supportedTiers(node)));
       row.put("cordoned", node.getOrDefault("cordoned", false));
       row.put("taints", String.join(",", taints(node)));
+      row.put("labels", String.join(",", operatorLabels(node)));
       row.put("status", statusOf(node.get("status")));
       row.put("lastHeartbeatAt", node.getOrDefault("lastHeartbeatAt", "-"));
 
