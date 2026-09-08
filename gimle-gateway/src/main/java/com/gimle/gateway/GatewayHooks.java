@@ -297,18 +297,38 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
         ctx.config("gateway.tenantId")
             .or(() -> ctx.instanceInfo().flatMap(ModuleContext.InstanceInfo::tenantId))
             .orElse(Tenant.DEFAULT_TENANT_ID);
+    boolean tls = TransportProtocol.fromConfig() == TransportProtocol.TLS;
+    URI uri = URI.create((tls ? "https://" : "http://") + endpoint.get() + "/");
     try {
-      HttpIngressSource source =
-          new HttpIngressSource(
-              HttpClient.newHttpClient(), URI.create("http://" + endpoint.get() + "/"));
+      HttpClient client =
+          tls
+              ? HttpClient.newBuilder()
+                  .sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()))
+                  .build()
+              : HttpClient.newHttpClient();
+      HttpIngressSource source = new HttpIngressSource(client, uri);
       return source.fetch(tenantId).map(IngressRoutes::toGatewayRoutes);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return Optional.empty();
     } catch (IOException | RuntimeException e) {
-      log.warn("gimle-gateway could not read declared ingresses: {}", e.getMessage());
+      logIngressFetchFailure(endpoint.get(), e);
       return Optional.empty();
     }
+  }
+
+  /**
+   * A message-less exception (a bare {@code IOException}, {@code ClosedChannelException}, etc.)
+   * would otherwise render as "...: null" here, an unusable line for whoever is debugging a
+   * genuinely unreachable control plane -- the exception's own class name and the endpoint it was
+   * trying to reach keep the line actionable even when {@code getMessage()} has nothing to add.
+   */
+  void logIngressFetchFailure(String endpoint, Exception e) {
+    log.warn(
+        "gimle-gateway could not read declared ingresses from {}: {}: {}",
+        endpoint,
+        e.getClass().getSimpleName(),
+        e.getMessage());
   }
 
   /**

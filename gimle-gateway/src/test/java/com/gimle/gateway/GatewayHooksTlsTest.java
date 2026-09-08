@@ -8,6 +8,7 @@ import com.gimle.core.module.ModuleInstanceId;
 import com.gimle.core.module.Version;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.lifecycle.SimpleModuleContext;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.pki.CertificateAuthority;
@@ -278,6 +279,50 @@ class GatewayHooksTlsTest {
     assertEquals("hello, Odin", response.body());
   }
 
+  @Test
+  void a_tls_configured_gateway_never_accepts_ingress_routes_fetched_over_plaintext()
+      throws Exception {
+    // NET-01 regression: fetchIngressRoutes used to hardcode a plain HttpClient and http:// URI
+    // regardless of gimle.transport.protocol, so a plaintext (or compromised) control plane was
+    // still trusted for route data even while this gateway terminates TLS for inbound traffic.
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    StubIngressControlPlane plaintextControlPlane = new StubIngressControlPlane(List.of("/greet"));
+    stubControlPlanes.add(plaintextControlPlane);
+    TlsSettings clientSettings = issueLeaf(ca, "caller");
+
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    ModuleInstanceId gatewayId =
+        ModuleInstanceId.unattached(new ModuleId("com.gimle.gateway", Version.parse("1.0.0")));
+    registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
+    Map<String, String> config = new ConcurrentHashMap<>();
+    config.put("gateway.port", "0");
+    config.put("gateway.controlPlaneEndpoint", plaintextControlPlane.endpoint());
+
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
+    hooks.onStart(new SimpleModuleContext(gatewayId, registry, config));
+
+    HttpClient client =
+        HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(clientSettings)).build();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("https://localhost:" + hooks.port() + "/greet"))
+            .POST(HttpRequest.BodyPublishers.ofString("Loki"))
+            .build();
+
+    // There is nothing to await for success here -- success is exactly what must not happen --
+    // so give several reload ticks a chance to (fail to) pick the route up instead.
+    Thread.sleep(RELOAD_INTERVAL.toMillis() * 10);
+    HttpResponse<String> response =
+        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(
+        404,
+        response.statusCode(),
+        "an https-only gateway must never accept ingress routes fetched over plaintext");
+  }
+
   private SimpleModuleContext contextWithGreeterRoute() {
     return contextWithGreeterRoute(Map.of());
   }
@@ -332,10 +377,17 @@ class GatewayHooksTlsTest {
   /**
    * Routes reach a gateway only as declared Ingresses, so every test here needs a control plane to
    * read one from -- these tests are about certificate selection, and the single {@code /greet}
-   * route is just something for a request to land on.
+   * route is just something for a request to land on. Terminates TLS itself, using the same {@code
+   * gimle-gateway} leaf certificate {@link #configureServerTls} already wrote out, whenever a test
+   * has configured {@code gimle.transport.protocol=tls} before calling this -- {@link GatewayHooks}
+   * now builds its own outbound {@code HttpClient} the same TLS-aware way, and a plaintext stub
+   * would refuse that client's handshake.
    */
   private StubIngressControlPlane startStubControlPlane() {
-    StubIngressControlPlane controlPlane = new StubIngressControlPlane(List.of("/greet"));
+    TlsSettings serverTls =
+        TransportProtocol.fromConfig() == TransportProtocol.TLS ? TlsSettings.fromConfig() : null;
+    StubIngressControlPlane controlPlane =
+        new StubIngressControlPlane(List.of("/greet"), serverTls);
     stubControlPlanes.add(controlPlane);
     return controlPlane;
   }
