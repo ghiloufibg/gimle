@@ -110,12 +110,54 @@ public final class ClusterStore {
 
   /** Replaces (or creates) the cluster connection at {@code id} with {@code rawJson} verbatim. */
   public Map<String, Object> save(String id, String rawJson) {
+    return save(id, rawJson, Optional.empty());
+  }
+
+  /**
+   * Replaces (or creates) the cluster connection at {@code id} with {@code rawJson} verbatim.
+   *
+   * <p>{@code expectedUpdatedAt}, when present, is the {@code updatedAt} the caller last read
+   * before making this edit -- an optimistic-concurrency precondition, not a value written
+   * anywhere. Two tabs (or a stale autosave racing a manual edit) saving the same cluster
+   * connection used to let whichever PUT landed last silently overwrite the other's edit with no
+   * sign anything was lost. A mismatch here means someone else's save landed in between, so this
+   * one is refused rather than clobbering it. A cluster with nothing on disk yet has nothing to be
+   * stale against, so it is let through regardless of what the caller expected.
+   */
+  public Map<String, Object> save(String id, String rawJson, Optional<String> expectedUpdatedAt) {
     requireValidId(id);
     Map<String, Object> json = parseObject(rawJson);
     requireControlPlaneUrl(json);
+    expectedUpdatedAt.ifPresent(expected -> requireNotStale(id, expected));
     Map<String, Object> stamped = withId(json, id);
     write(fileFor(id), Json.write(stamped));
     return stamped;
+  }
+
+  private void requireNotStale(String id, String expectedUpdatedAt) {
+    Optional<String> existing = get(id);
+    if (existing.isEmpty()) {
+      return;
+    }
+    String currentUpdatedAt =
+        String.valueOf(parseObject(existing.get()).getOrDefault("updatedAt", ""));
+    if (!currentUpdatedAt.equals(expectedUpdatedAt)) {
+      throw new StaleWriteException(id, expectedUpdatedAt, currentUpdatedAt);
+    }
+  }
+
+  /** Thrown for a 409: {@code save} was asked to overwrite a copy that has since changed. */
+  public static final class StaleWriteException extends RuntimeException {
+    public StaleWriteException(String id, String expected, String actual) {
+      super(
+          "cluster '"
+              + id
+              + "' changed since last read (expected updatedAt '"
+              + expected
+              + "', found '"
+              + actual
+              + "') -- reload before saving");
+    }
   }
 
   public boolean delete(String id) {

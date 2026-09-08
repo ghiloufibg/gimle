@@ -263,6 +263,48 @@ class IvaldiServerTest {
   }
 
   /**
+   * Two tabs on the same cluster connection: the second save's PUT still names the updatedAt it
+   * last read, which the first tab's own save has since moved past -- refused rather than silently
+   * overwriting the first tab's edit.
+   */
+  @Test
+  @Timeout(10)
+  void cluster_put_with_a_stale_if_unmodified_since_is_refused_as_a_conflict() throws Exception {
+    put(
+        "/api/clusters/shared",
+        "{\"name\":\"tab-a\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    put(
+        "/api/clusters/shared",
+        "{\"name\":\"tab-a-saved\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+
+    HttpResponse<String> conflict =
+        putIfUnmodifiedSince(
+            "/api/clusters/shared",
+            "{\"name\":\"tab-b-stale\",\"updatedAt\":\"2026-01-01T00:00:10Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}",
+            "2026-01-01T00:00:00Z");
+
+    assertEquals(409, conflict.statusCode());
+    assertTrue(get("/api/clusters/shared").body().contains("tab-a-saved"));
+  }
+
+  @Test
+  @Timeout(10)
+  void cluster_put_with_a_matching_if_unmodified_since_is_permitted() throws Exception {
+    put(
+        "/api/clusters/shared",
+        "{\"name\":\"first\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+
+    HttpResponse<String> response =
+        putIfUnmodifiedSince(
+            "/api/clusters/shared",
+            "{\"name\":\"second\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}",
+            "2026-01-01T00:00:00Z");
+
+    assertEquals(200, response.statusCode());
+    assertTrue(get("/api/clusters/shared").body().contains("second"));
+  }
+
+  /**
    * Deleting a cluster used to succeed unconditionally, leaving a live (or failed-but-not-torn-
    * down) run's real process tree with no cluster record and no run pointing at it -- an orphan
    * neither Stop nor a restart's own adoption could ever find again.

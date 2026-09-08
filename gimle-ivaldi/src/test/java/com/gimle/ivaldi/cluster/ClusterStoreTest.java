@@ -104,6 +104,56 @@ class ClusterStoreTest {
         () -> store.save("local-dev", "{\"name\":\"blank\",\"controlPlaneUrl\":\"\"}"));
   }
 
+  /**
+   * Two tabs (or an autosave racing a manual edit): the second save must not silently clobber the
+   * first's edit just because it landed later.
+   */
+  @Test
+  void refuses_a_save_whose_expected_updatedat_no_longer_matches_what_is_on_disk() {
+    store.save(
+        "shared",
+        "{\"name\":\"tab-a\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    store.save(
+        "shared",
+        "{\"name\":\"tab-a-saved\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+
+    assertThrows(
+        ClusterStore.StaleWriteException.class,
+        () ->
+            store.save(
+                "shared",
+                "{\"name\":\"tab-b-stale\",\"updatedAt\":\"2026-01-01T00:00:10Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}",
+                Optional.of("2026-01-01T00:00:00Z")));
+    // The refused write never landed: tab a's own save is still what's on disk.
+    assertTrue(store.get("shared").orElseThrow().contains("tab-a-saved"));
+  }
+
+  @Test
+  void permits_a_save_whose_expected_updatedat_still_matches_what_is_on_disk() {
+    store.save(
+        "shared",
+        "{\"name\":\"first\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+
+    store.save(
+        "shared",
+        "{\"name\":\"second\",\"updatedAt\":\"2026-01-01T00:00:05Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}",
+        Optional.of("2026-01-01T00:00:00Z"));
+
+    assertTrue(store.get("shared").orElseThrow().contains("second"));
+  }
+
+  @Test
+  void permits_the_very_first_save_of_a_cluster_regardless_of_what_it_expected() {
+    // Nothing is on disk yet to be stale against -- the addressed id's very first PUT after a
+    // POST that somehow never landed.
+    store.save(
+        "brand-new",
+        "{\"name\":\"first\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}",
+        Optional.of("2020-01-01T00:00:00Z"));
+
+    assertTrue(store.get("brand-new").isPresent());
+  }
+
   @Test
   void rejects_a_body_that_is_not_a_json_object() {
     assertThrows(IllegalArgumentException.class, () -> store.create("[1,2,3]"));
