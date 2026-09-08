@@ -90,12 +90,13 @@ public final class DaemonSetsCommand {
   }
 
   public void delete(List<String> args) {
-    if (args.isEmpty()) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "daemonset", TENANT_USAGE);
+    if (split.name() == null) {
       throw new CliException("missing daemonset name/id");
     }
-    String name = args.get(0);
-    String path =
-        TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()), TENANT_USAGE);
+    String name = split.name();
+    String path = TenantQuery.appendTo("/daemonsets/" + name, split.flagArgs(), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "daemonset/" + name + " deleted", out);

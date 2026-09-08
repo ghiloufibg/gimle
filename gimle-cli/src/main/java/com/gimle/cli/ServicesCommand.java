@@ -186,12 +186,13 @@ public final class ServicesCommand {
   }
 
   public void delete(List<String> args) {
-    if (args.isEmpty()) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "service", TENANT_USAGE);
+    if (split.name() == null) {
       throw new CliException("missing service name/id");
     }
-    String name = args.get(0);
-    String path =
-        TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()), TENANT_USAGE);
+    String name = split.name();
+    String path = TenantQuery.appendTo("/services/" + name, split.flagArgs(), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "service/" + name + " deleted", out);
