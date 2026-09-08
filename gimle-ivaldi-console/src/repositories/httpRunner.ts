@@ -359,9 +359,11 @@ export class HttpRunnerClient implements RunnerClient {
     let cursor = 0;
     let seq = 0;
     let stopped = false;
+    let inFlight = false;
 
     const poll = async () => {
-      if (stopped) return;
+      if (stopped || inFlight) return;
+      inFlight = true;
       try {
         // Scoped to this blueprint, not the ambiguous /api/runs/current: a cluster can now host
         // more than one deployment, so "the most recently started run across the whole backend"
@@ -419,6 +421,8 @@ export class HttpRunnerClient implements RunnerClient {
         }
       } catch (error) {
         onEvent({ type: "error", message: error instanceof Error ? error.message : "poll failed" });
+      } finally {
+        inFlight = false;
       }
     };
 

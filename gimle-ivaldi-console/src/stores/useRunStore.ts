@@ -65,6 +65,7 @@ interface RunState {
 }
 
 let unsubscribe: (() => void) | null = null;
+let checkHealthInFlight = false;
 
 function applySnapshot(snapshot: RunSnapshot) {
   return {
@@ -140,7 +141,13 @@ export const useRunStore = create<RunState>((set, get) => {
     },
 
     checkHealth: async () => {
-      set({ health: await runnerClientFor(get().cluster).health() });
+      if (checkHealthInFlight) return;
+      checkHealthInFlight = true;
+      try {
+        set({ health: await runnerClientFor(get().cluster).health() });
+      } finally {
+        checkHealthInFlight = false;
+      }
     },
 
     /**

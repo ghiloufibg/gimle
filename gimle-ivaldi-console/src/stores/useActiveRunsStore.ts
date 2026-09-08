@@ -20,12 +20,20 @@ interface ActiveRunsState {
   byCluster: (clusterId: string) => ActiveRun | undefined;
 }
 
+let refreshInFlight = false;
+
 export const useActiveRunsStore = create<ActiveRunsState>((set, get) => ({
   runs: [],
 
   refresh: async () => {
-    const client = runnerClientFor(useClustersStore.getState().selected());
-    set({ runs: await client.listRuns() });
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    try {
+      const client = runnerClientFor(useClustersStore.getState().selected());
+      set({ runs: await client.listRuns() });
+    } finally {
+      refreshInFlight = false;
+    }
   },
 
   byBlueprint: (blueprintId) => get().runs.find((r) => r.blueprintId === blueprintId),

@@ -5,6 +5,7 @@ import { createBlueprint } from "@/lib/blueprint";
 import type { ClusterConnection, RunnerClient, RunSnapshot } from "@/repositories/contracts";
 
 const createRunMock = vi.fn();
+const healthMock = vi.fn();
 
 vi.mock("@/repositories", () => ({
   runnerClient: { mode: "http", baseUrl: null } as RunnerClient,
@@ -12,7 +13,7 @@ vi.mock("@/repositories", () => ({
     ({
       mode: "http",
       baseUrl: null,
-      health: vi.fn(),
+      health: (...args: unknown[]) => healthMock(...args),
       createRun: (...args: unknown[]) => createRunMock(...args),
       currentRun: vi.fn(),
       listRuns: vi.fn(),
@@ -93,5 +94,43 @@ describe("useRunStore.start", () => {
     await useRunStore.getState().start(blueprint, { cluster: clusterB });
 
     expect(useClustersStore.getState().selectedFor(blueprint.id)?.id).toBe(clusterB.id);
+  });
+});
+
+describe("useRunStore.checkHealth", () => {
+  beforeEach(() => {
+    healthMock.mockReset();
+    useRunStore.setState({ health: null, cluster: cluster("c1") });
+  });
+
+  it("skips an overlapping call rather than running it alongside the one still in flight", async () => {
+    let resolveFirst!: (health: {
+      ok: boolean;
+      mode: "http";
+      version: null;
+      message: null;
+    }) => void;
+    const first = new Promise((resolve) => (resolveFirst = resolve));
+    healthMock.mockReturnValueOnce(first);
+
+    const firstCall = useRunStore.getState().checkHealth();
+    const secondCall = useRunStore.getState().checkHealth();
+
+    expect(healthMock).toHaveBeenCalledTimes(1);
+
+    resolveFirst({ ok: true, mode: "http", version: null, message: null });
+    await Promise.all([firstCall, secondCall]);
+
+    expect(useRunStore.getState().health).toEqual({
+      ok: true,
+      mode: "http",
+      version: null,
+      message: null,
+    });
+
+    // The guard must not outlive the call it guarded.
+    healthMock.mockResolvedValueOnce({ ok: false, mode: "http", version: null, message: "down" });
+    await useRunStore.getState().checkHealth();
+    expect(healthMock).toHaveBeenCalledTimes(2);
   });
 });
