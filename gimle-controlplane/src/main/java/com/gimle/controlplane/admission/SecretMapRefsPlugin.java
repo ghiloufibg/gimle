@@ -3,8 +3,10 @@ package com.gimle.controlplane.admission;
 import com.gimle.controlplane.configmap.ConfigMap;
 import com.gimle.controlplane.configmap.ConfigMapCodec;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.protocol.Json;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.store.StoreReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -113,8 +115,12 @@ public final class SecretMapRefsPlugin implements AdmissionPlugin<DeploymentSpec
       String flatKey;
       String sourceKind;
       if (isFafnirManagedSecretKey(rawKey)) {
-        if (!rawKey.endsWith(META_SUFFIX)) {
-          continue; // only @meta carries the bare key name once; @N would just duplicate the check
+        if (!rawKey.endsWith(META_SUFFIX) || isSoftDeleted(entry)) {
+          // Only @meta carries the bare key name once (@N would just duplicate the check); a
+          // soft-deleted @meta row is the identical tombstone case secretMapMemberKeys guards
+          // against above, just in the opposite collision direction -- a retired flat secret must
+          // not go on blocking a brand-new SecretMap key of the same name forever.
+          continue;
         }
         flatKey = rawKey.substring(0, rawKey.length() - META_SUFFIX.length());
         sourceKind = "flat secret";
@@ -144,19 +150,37 @@ public final class SecretMapRefsPlugin implements AdmissionPlugin<DeploymentSpec
    * Every member key currently under SecretMap {@code name} for {@code tenantId} -- resolved by
    * filtering the tenant's own {@code ConfigEntry} rows for {@code secretmap:{name}:{key}@meta},
    * the identical filter-then-decode shape {@code ConfigMapCodec.findAll} already uses for
-   * ConfigMap's own convention. Empty means the name doesn't exist (or every one of its keys has
-   * been hard-deleted).
+   * ConfigMap's own convention. Empty means the name doesn't exist, or every one of its keys has
+   * been hard-deleted or is currently soft-deleted.
+   *
+   * <p>A {@code @meta} row surviving a soft delete is expected, not a bug to work around here --
+   * {@code SecretStore.softDelete} only ever flips its own {@code deleted} field, exactly so an
+   * undelete can restore the same key later (see that class's own javadoc). This must read that
+   * field rather than treating the row's bare existence as "still declared," or a tombstoned key
+   * would go on colliding with a real ConfigMap/flat-config key forever, even once {@code secretmap
+   * replace} has genuinely dropped it (confirmed {@code deleted:true} over the real API).
    */
   private static List<String> secretMapMemberKeys(StoreReader store, String tenantId, String name) {
     String ownPrefix = SECRETMAP_KEY_PREFIX + name + ":";
     List<String> keys = new ArrayList<>();
     for (ConfigEntry entry : store.listConfigEntriesFor(tenantId)) {
       String rawKey = entry.key();
-      if (rawKey.startsWith(ownPrefix) && rawKey.endsWith(META_SUFFIX)) {
+      if (rawKey.startsWith(ownPrefix) && rawKey.endsWith(META_SUFFIX) && !isSoftDeleted(entry)) {
         keys.add(rawKey.substring(ownPrefix.length(), rawKey.length() - META_SUFFIX.length()));
       }
     }
     return keys;
+  }
+
+  /**
+   * {@code @meta}'s own {@code deleted} field (see {@code SecretStore.Meta}'s javadoc for the
+   * {@code {latestVersion, highestVersion, deleted, versions}} shape) -- plain, unencrypted JSON,
+   * readable directly the same way this class already reads a key's bare existence.
+   */
+  private static boolean isSoftDeleted(ConfigEntry metaEntry) {
+    Map<String, Object> meta =
+        Json.asObject(Json.parse(new String(metaEntry.value(), StandardCharsets.UTF_8)));
+    return Boolean.TRUE.equals(meta.get("deleted"));
   }
 
   /**

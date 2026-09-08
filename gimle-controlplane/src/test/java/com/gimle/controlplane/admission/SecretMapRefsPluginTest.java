@@ -164,6 +164,51 @@ class SecretMapRefsPluginTest {
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
+  @Test
+  void a_soft_deleted_secretmap_key_no_longer_collides_with_a_configmap_key() {
+    // db-creds still has one live key ("username") -- "shared" was dropped via a real secretmap
+    // replace, the exact scenario the fix targets: a still-existing SecretMap whose retired member
+    // must stop colliding, as opposed to the SecretMap having vanished outright.
+    seedSecretMapKey("acme", "db-creds", "username");
+    seedSoftDeletedSecretMapKey("acme", "db-creds", "shared");
+    configMaps.put("acme", "app-config", Map.of("shared", "1"), OptionalInt.empty());
+    DeploymentSpec spec =
+        deployment(
+            "tombstone-collision", Optional.of("acme"), List.of("db-creds"), List.of("app-config"));
+
+    AdmissionDecision<DeploymentSpec> decision = review(spec);
+
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
+  }
+
+  @Test
+  void a_secretmap_whose_only_key_is_soft_deleted_reads_as_having_no_live_keys() {
+    // Distinct from the case above: every one of this SecretMap's own keys is currently
+    // soft-deleted, the same "nothing live here" shape a hard-deleted/never-created name already
+    // produces -- deliberately not distinguished from that case, since a SecretMap with zero live
+    // keys is exactly as unusable as one that was never created.
+    seedSoftDeletedSecretMapKey("acme", "db-creds", "shared");
+    DeploymentSpec spec = deployment("emptied-out", Optional.of("acme"), List.of("db-creds"));
+
+    AdmissionDecision<DeploymentSpec> decision = review(spec);
+
+    assertEquals(
+        "deployment emptied-out references unknown SecretMap 'db-creds' for tenant acme",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  @Test
+  void a_soft_deleted_flat_secret_no_longer_blocks_a_new_secretmap_key_of_the_same_name() {
+    seedSoftDeletedFlatSecretKey("acme", "shared");
+    seedSecretMapKey("acme", "db-creds", "shared");
+    DeploymentSpec spec =
+        deployment("tombstone-flat-secret", Optional.of("acme"), List.of("db-creds"));
+
+    AdmissionDecision<DeploymentSpec> decision = review(spec);
+
+    assertInstanceOf(AdmissionDecision.Allow.class, decision);
+  }
+
   private AdmissionDecision<DeploymentSpec> review(DeploymentSpec spec) {
     return plugin.review(
         new AdmissionRequest<>(
@@ -176,18 +221,26 @@ class SecretMapRefsPluginTest {
    * unencrypted.
    */
   private void seedSecretMapKey(String tenantId, String name, String key) {
-    seedMetaEntry(tenantId, "secretmap:" + name + ":" + key);
+    seedMetaEntry(tenantId, "secretmap:" + name + ":" + key, false);
+  }
+
+  private void seedSoftDeletedSecretMapKey(String tenantId, String name, String key) {
+    seedMetaEntry(tenantId, "secretmap:" + name + ":" + key, true);
   }
 
   private void seedFlatSecretKey(String tenantId, String key) {
-    seedMetaEntry(tenantId, key);
+    seedMetaEntry(tenantId, key, false);
   }
 
-  private void seedMetaEntry(String tenantId, String rawKeyWithoutSuffix) {
+  private void seedSoftDeletedFlatSecretKey(String tenantId, String key) {
+    seedMetaEntry(tenantId, key, true);
+  }
+
+  private void seedMetaEntry(String tenantId, String rawKeyWithoutSuffix, boolean deleted) {
     Map<String, Object> meta = new LinkedHashMap<>();
     meta.put("latestVersion", 1);
     meta.put("highestVersion", 1);
-    meta.put("deleted", false);
+    meta.put("deleted", deleted);
     inProcessStore
         .client()
         .propose(
