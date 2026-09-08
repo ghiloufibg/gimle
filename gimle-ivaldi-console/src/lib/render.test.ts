@@ -388,6 +388,50 @@ describe("NetworkPolicy egress and interface scoping", () => {
   });
 });
 
+describe("NetworkPolicy restrictIngress intent", () => {
+  it("omits allowedCallerTenantIds when restrictIngress is false, even with a populated list", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = {
+      ...policy.data,
+      restrictIngress: false,
+      allowedCallerTenantIds: ["some-tenant"],
+    };
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as Record<string, unknown>;
+
+    expect(doc.allowedCallerTenantIds).toBeUndefined();
+  });
+
+  it("emits an empty allowedCallerTenantIds (deny-all) when restrictIngress is true with no callers", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = {
+      ...policy.data,
+      restrictIngress: true,
+      allowedCallerTenantIds: [],
+    };
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as Record<string, unknown>;
+
+    expect(doc.allowedCallerTenantIds).toEqual([]);
+  });
+
+  it("emits the populated list when restrictIngress is true and callers are set", () => {
+    const bp = structuredClone(ordersPlatform!);
+    const policy = bp.nodes.find((n) => n.kind === "networkPolicy")!;
+    policy.data = {
+      ...policy.data,
+      restrictIngress: true,
+      allowedCallerTenantIds: ["orders-platform", "billing"],
+    };
+    const manifest = renderFiles(bp).find((f) => kindOf(f) === "NetworkPolicy")!;
+    const doc = parse(manifest.content) as { allowedCallerTenantIds?: string[] };
+
+    expect(doc.allowedCallerTenantIds).toEqual(["billing", "orders-platform"]);
+  });
+});
+
 describe("the release a blueprint deploys under", () => {
   it("is named after the blueprint's id, so a rename does not fork its history", () => {
     const bp = structuredClone(ordersPlatform!);

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { createBlueprint, defaultDataFor, type TenantData } from "./blueprint";
+import {
+  createBlueprint,
+  defaultDataFor,
+  restrictsIngress,
+  type NetworkPolicyData,
+  type TenantData,
+} from "./blueprint";
 
 describe("createBlueprint's default runtime.dataRoot", () => {
   it("scopes the default data root to this blueprint's own id", () => {
@@ -54,5 +60,60 @@ describe("createBlueprint's default fafnir keyFile", () => {
     const b = createBlueprint("b");
 
     expect(fafnirKeyFile(a)).not.toBe(fafnirKeyFile(b));
+  });
+});
+
+describe("a new NetworkPolicy node's default restrictIngress", () => {
+  it("defaults to false, matching the platform's no-restriction-by-default posture", () => {
+    const data = defaultDataFor("networkPolicy") as NetworkPolicyData;
+
+    expect(data.restrictIngress).toBe(false);
+  });
+});
+
+describe("restrictsIngress migration inference for pre-existing saved data", () => {
+  it("infers true for a policy saved before this field existed with callers already listed", () => {
+    const legacy: NetworkPolicyData = {
+      name: "old-policy",
+      tenantId: "orders-platform",
+      allowedCallerTenantIds: ["billing"],
+    };
+
+    expect(restrictsIngress(legacy)).toBe(true);
+  });
+
+  it("infers false for a policy saved before this field existed with no callers listed", () => {
+    const legacy: NetworkPolicyData = {
+      name: "old-policy",
+      tenantId: "orders-platform",
+      allowedCallerTenantIds: [],
+    };
+
+    expect(restrictsIngress(legacy)).toBe(false);
+  });
+
+  it("infers false for a policy saved before either field existed", () => {
+    const legacy: NetworkPolicyData = { name: "old-policy", tenantId: "orders-platform" };
+
+    expect(restrictsIngress(legacy)).toBe(false);
+  });
+
+  it("honors an explicit restrictIngress over the caller list either way", () => {
+    expect(
+      restrictsIngress({
+        name: "p",
+        tenantId: "t",
+        restrictIngress: true,
+        allowedCallerTenantIds: [],
+      }),
+    ).toBe(true);
+    expect(
+      restrictsIngress({
+        name: "p",
+        tenantId: "t",
+        restrictIngress: false,
+        allowedCallerTenantIds: ["billing"],
+      }),
+    ).toBe(false);
   });
 });

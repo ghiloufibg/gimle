@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createBlueprint, createNode, type Blueprint } from "@/lib/blueprint";
+import {
+  createBlueprint,
+  createNode,
+  type Blueprint,
+  type NetworkPolicyData,
+} from "@/lib/blueprint";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
 import { useValidationStore } from "@/stores/useValidationStore";
 
@@ -72,5 +77,47 @@ describe("Inspector", () => {
     expect(screen.getAllByText(/declared module version doesn't match the jar's own/)).toHaveLength(
       2,
     );
+  });
+});
+
+describe("NetworkPolicy restrictIngress toggle", () => {
+  function blueprintWithPolicy(data: Partial<NetworkPolicyData> = {}) {
+    const blueprint = createBlueprint("test", { empty: true });
+    const policy = createNode("networkPolicy", { x: 0, y: 0 });
+    policy.data = { ...policy.data, ...data };
+    blueprint.nodes = [policy];
+    return { blueprint, policy };
+  }
+
+  it("hides the allowed-caller-tenants field and shows an unrestricted hint when off", () => {
+    const { blueprint, policy } = blueprintWithPolicy({ restrictIngress: false });
+    useBlueprintStore.setState({ blueprint, selectedId: policy.id, selectedIds: [policy.id] });
+
+    render(<Inspector blueprint={blueprint} />);
+
+    expect(screen.queryByText("Allowed caller tenants")).toBeNull();
+    expect(screen.getByText(/Inbound callers are unrestricted/)).toBeTruthy();
+  });
+
+  it("shows the allowed-caller-tenants field when on", () => {
+    const { blueprint, policy } = blueprintWithPolicy({ restrictIngress: true });
+    useBlueprintStore.setState({ blueprint, selectedId: policy.id, selectedIds: [policy.id] });
+
+    render(<Inspector blueprint={blueprint} />);
+
+    expect(screen.getByText("Allowed caller tenants")).toBeTruthy();
+  });
+
+  it("flips the node's own restrictIngress field when the checkbox is toggled on", () => {
+    const { blueprint, policy } = blueprintWithPolicy({ restrictIngress: false });
+    useBlueprintStore.setState({ blueprint, selectedId: policy.id, selectedIds: [policy.id] });
+
+    render(<Inspector blueprint={blueprint} />);
+    fireEvent.click(screen.getByLabelText("Restrict inbound callers"));
+
+    const updated = useBlueprintStore
+      .getState()
+      .blueprint!.nodes.find((n) => n.id === policy.id)!.data as NetworkPolicyData;
+    expect(updated.restrictIngress).toBe(true);
   });
 });

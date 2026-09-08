@@ -134,8 +134,23 @@ export interface NetworkPolicyData {
   tenantId: string;
   deploymentNames?: string[];
   serviceInterfaceNames?: string[];
+  /** Explicit intent to restrict inbound callers, independent of how many are actually listed --
+   * lets an empty allowedCallerTenantIds mean "deny every caller" rather than being
+   * indistinguishable from "no ingress restriction at all." Absent on data saved before this field
+   * existed; see restrictsIngress below for how that case is read. */
+  restrictIngress?: boolean;
   allowedCallerTenantIds?: string[];
   allowedCalleeTenantIds?: string[];
+}
+
+/**
+ * Whether a NetworkPolicy node means to restrict inbound callers at all: the field's own value
+ * when present, otherwise inferred from data saved before the field existed -- true if it already
+ * names at least one caller (an allow-only-these-callers policy authored under the old rules,
+ * which must not silently lose its restriction), false otherwise.
+ */
+export function restrictsIngress(data: NetworkPolicyData): boolean {
+  return data.restrictIngress ?? (data.allowedCallerTenantIds ?? []).length > 0;
 }
 
 export interface ConfigEntryData {
@@ -308,6 +323,7 @@ export function defaultDataFor(kind: NodeKind, seed: number = 1): NodeData {
         tenantId: "",
         deploymentNames: [],
         serviceInterfaceNames: [],
+        restrictIngress: false,
         allowedCallerTenantIds: [],
         allowedCalleeTenantIds: [],
       } satisfies NetworkPolicyData;

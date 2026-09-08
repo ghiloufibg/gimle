@@ -14,6 +14,7 @@ import {
   type StoreData,
   type TenantData,
   type WorkloadData,
+  restrictsIngress,
 } from "./blueprint";
 import { machineNameOf, tenantIdOf } from "./effective";
 import { DEFAULT_PORTS } from "./ports";
@@ -299,12 +300,12 @@ export function renderFiles(bp: Blueprint): RenderedFile[] {
     if (deployments.length) doc.deploymentNames = deployments;
     if ((d.serviceInterfaceNames ?? []).length)
       doc.serviceInterfaceNames = [...new Set(d.serviceInterfaceNames)].sort();
-    // Omitted (not emitted empty) when the user has named no caller tenant at all, mirroring
-    // allowedCalleeTenantIds below -- the platform's own NetworkPolicySpec treats an absent key as
-    // "no restriction in that direction," so an egress-only policy no longer has an unwanted
-    // deny-every-caller ingress rule forced onto it.
+    // Gated on the node's own restrictIngress intent, not on whether the list happens to be
+    // empty -- an empty list under an explicit restriction is the deny-every-caller policy, while
+    // omitting the key (no restriction declared) is what leaves an egress-only policy's ingress
+    // side alone, per the platform's own NetworkPolicySpec.
     const allowedCallers = [...new Set([...(d.allowedCallerTenantIds ?? []), ...callers])].sort();
-    if (allowedCallers.length) doc.allowedCallerTenantIds = allowedCallers;
+    if (restrictsIngress(d)) doc.allowedCallerTenantIds = allowedCallers;
     // Egress, like ingress above, is left unrestricted (key omitted) when the user has set no
     // callee at all -- the platform's own NetworkPolicySpec already treats an absent set as "no
     // restriction in that direction."

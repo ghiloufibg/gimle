@@ -25,6 +25,7 @@ import {
   type StoreData,
   type TenantData,
   type WorkloadData,
+  restrictsIngress,
 } from "@/lib/blueprint";
 import { effectiveMachine, effectiveTenant } from "@/lib/effective";
 import { useBlueprintStore } from "@/stores/useBlueprintStore";
@@ -804,6 +805,7 @@ function NodeForm({
     }
     case "networkPolicy": {
       const d = node.data as NetworkPolicyData;
+      const ingressRestricted = restrictsIngress(d);
       return (
         <>
           <TextField
@@ -832,15 +834,27 @@ function NodeForm({
               update({ serviceInterfaceNames } as Partial<NodeData>)
             }
           />
-          <ListField
-            label="Allowed caller tenants"
-            values={d.allowedCallerTenantIds ?? []}
-            options={tenantOptions(blueprint)}
-            onChange={(allowedCallerTenantIds) =>
-              update({ allowedCallerTenantIds } as Partial<NodeData>)
-            }
-            problems={pick(problems, ["POLICY_ALLOWED_TENANT_UNKNOWN"])}
+          <CheckboxField
+            label="Restrict inbound callers"
+            checked={ingressRestricted}
+            onChange={(restrictIngress) => update({ restrictIngress } as Partial<NodeData>)}
           />
+          {ingressRestricted ? (
+            <ListField
+              label="Allowed caller tenants"
+              values={d.allowedCallerTenantIds ?? []}
+              options={tenantOptions(blueprint)}
+              onChange={(allowedCallerTenantIds) =>
+                update({ allowedCallerTenantIds } as Partial<NodeData>)
+              }
+              problems={pick(problems, ["POLICY_ALLOWED_TENANT_UNKNOWN"])}
+            />
+          ) : (
+            <p className="text-[10px] text-muted-foreground">
+              Inbound callers are unrestricted. Enable the checkbox above to allow only specific
+              tenants, or leave the list empty there to deny every caller.
+            </p>
+          )}
           <ListField
             label="Allowed callee tenants"
             values={d.allowedCalleeTenantIds ?? []}
