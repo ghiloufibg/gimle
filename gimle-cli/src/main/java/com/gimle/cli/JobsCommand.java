@@ -144,11 +144,13 @@ public final class JobsCommand {
   }
 
   public void delete(List<String> args) {
-    if (args.isEmpty()) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "job", TENANT_USAGE);
+    if (split.name() == null) {
       throw new CliException("missing job name/id");
     }
-    String name = args.get(0);
-    String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()), TENANT_USAGE);
+    String name = split.name();
+    String path = TenantQuery.appendTo("/jobs/" + name, split.flagArgs(), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(output, resultBody("deleted", name), "job/" + name + " deleted", out);
   }

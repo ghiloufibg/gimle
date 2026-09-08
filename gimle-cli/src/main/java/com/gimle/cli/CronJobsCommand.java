@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code get cronjobs [name]}, {@code apply -f <file.yaml>}, {@code delete cronjob <name>}, {@code
@@ -117,12 +118,13 @@ public final class CronJobsCommand {
   }
 
   public void delete(List<String> args) {
-    if (args.isEmpty()) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "cronjob", TENANT_USAGE);
+    if (split.name() == null) {
       throw new CliException("missing cronjob name/id");
     }
-    String name = args.get(0);
-    String path =
-        TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()), TENANT_USAGE);
+    String name = split.name();
+    String path = TenantQuery.appendTo("/cronjobs/" + name, split.flagArgs(), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "cronjob/" + name + " deleted", out);

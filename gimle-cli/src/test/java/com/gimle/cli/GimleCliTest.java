@@ -2399,6 +2399,59 @@ class GimleCliTest {
     assertTrue(stderr().contains("unexpected argument"), stderr());
   }
 
+  // ---- workload delete verbs reject a trailing extra positional argument with the same
+  // informative "too many arguments" shape the tenant/cordon path already uses, rather than a bare
+  // Flags.parse usage-block dump (CHAOS-Midgard-04) ----
+
+  @Test
+  void deleting_a_deployment_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("delete", "deployment", "orders-service", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for deployment"), stderr());
+  }
+
+  @Test
+  void deleting_a_job_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("delete", "job", "one-off-job", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for job"), stderr());
+  }
+
+  @Test
+  void deleting_a_cronjob_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("delete", "cronjob", "nightly", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for cronjob"), stderr());
+  }
+
+  @Test
+  void deleting_a_daemonset_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("delete", "daemonset", "short-lived-daemonset", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for daemonset"), stderr());
+  }
+
+  @Test
+  void deleting_a_statefulset_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode =
+        run("delete", "statefulset", "short-lived-statefulset", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for statefulset"), stderr());
+  }
+
+  @Test
+  void deleting_a_service_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("delete", "service", "web", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments for service"), stderr());
+  }
+
   // ---- -h/--help scopes to wherever it appears in the argument list ----
 
   @Test
