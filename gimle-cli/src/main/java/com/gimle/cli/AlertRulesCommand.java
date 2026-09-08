@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +23,8 @@ public final class AlertRulesCommand {
   private static final String TENANT_USAGE =
       "usage: gimle get|delete alertrules <name> [--tenant <id>]";
 
+  private static final String GET_USAGE = "usage: gimle get alertrules [name] [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -33,14 +36,36 @@ public final class AlertRulesCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/alertrules"), out);
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "alertrule", GET_USAGE);
+    if (split.name() == null) {
+      List<Map<String, Object>> rules =
+          filterByTenant(
+              client.getList("/alertrules"), TenantQuery.valueOf(split.flagArgs(), GET_USAGE));
+      OutputFormat.printList(output, rules, out);
       return;
     }
-    String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/alertrules/" + name, args.subList(1, args.size()), TENANT_USAGE);
+        TenantQuery.appendTo("/alertrules/" + split.name(), split.flagArgs(), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
+  }
+
+  /**
+   * An AlertRule's {@code tenantId} lives at the top level of its own JSON shape, the same place
+   * {@link ServicesCommand}'s sibling filter reads it from.
+   */
+  private static List<Map<String, Object>> filterByTenant(
+      List<Map<String, Object>> rules, String tenantId) {
+    if (tenantId == null) {
+      return rules;
+    }
+    List<Map<String, Object>> filtered = new ArrayList<>();
+    for (Map<String, Object> rule : rules) {
+      if (tenantId.equals(rule.get("tenantId"))) {
+        filtered.add(rule);
+      }
+    }
+    return filtered;
   }
 
   public void set(List<String> args) {

@@ -1729,6 +1729,28 @@ class GimleCliTest {
   }
 
   @Test
+  void get_networkpolicies_with_a_bare_tenant_flag_and_no_name_lists_that_tenants_policies()
+      throws Exception {
+    createTenant("acme");
+    int setExit =
+        run(
+            "set",
+            "networkpolicy",
+            "acme-policy",
+            "--tenant",
+            "acme",
+            "--allowed-caller-tenant",
+            "default");
+    assertEquals(0, setExit, stderr());
+
+    outBuffer.reset();
+    int getExit = run("get", "networkpolicies", "--tenant", "acme");
+
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("acme-policy"));
+  }
+
+  @Test
   void apply_networkpolicy_then_get_networkpolicies_round_trips() throws Exception {
     // Both the policy's own owning tenant and every tenant its allow list names must exist first.
     // "acme" is this harness's one creatable real tenant (plaintext mode allows exactly one), so

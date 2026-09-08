@@ -3,6 +3,7 @@ package com.gimle.cli;
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,6 +40,8 @@ public final class NetworkPolicyCommand {
   private static final String TENANT_USAGE =
       "usage: gimle get|delete networkpolicies <name> --tenant <id>";
 
+  private static final String GET_USAGE = "usage: gimle get networkpolicies [name] --tenant <id>";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -51,13 +54,35 @@ public final class NetworkPolicyCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/networkpolicies"), out);
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "networkpolicy", GET_USAGE);
+    if (split.name() == null) {
+      List<Map<String, Object>> policies =
+          filterByTenant(
+              client.getList("/networkpolicies"), TenantQuery.valueOf(split.flagArgs(), GET_USAGE));
+      OutputFormat.printList(output, policies, out);
       return;
     }
-    String name = args.get(0);
-    String path = requireTenantScopedPath("/networkpolicies/" + name, args.subList(1, args.size()));
+    String path = requireTenantScopedPath("/networkpolicies/" + split.name(), split.flagArgs());
     OutputFormat.printObject(output, client.getObject(path), out);
+  }
+
+  /**
+   * A NetworkPolicy's {@code tenantId} lives at the top level of its own JSON shape (see this
+   * class's own javadoc), the same place {@link ServicesCommand}'s sibling filter reads it from.
+   */
+  private static List<Map<String, Object>> filterByTenant(
+      List<Map<String, Object>> policies, String tenantId) {
+    if (tenantId == null) {
+      return policies;
+    }
+    List<Map<String, Object>> filtered = new ArrayList<>();
+    for (Map<String, Object> policy : policies) {
+      if (tenantId.equals(policy.get("tenantId"))) {
+        filtered.add(policy);
+      }
+    }
+    return filtered;
   }
 
   /**
