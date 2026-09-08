@@ -654,16 +654,115 @@ class RunControllerTest {
   /**
    * The blueprint(s) whose run applied a deployment are recorded beside the cluster's topology, so
    * a cluster recovered after a restart still belongs to something -- adopted with none recorded it
-   * could be stopped but never shown as running anywhere.
+   * could be stopped but never shown as running anywhere. Uses the same deploy-only path against a
+   * fake control plane other tests in this class use: a run that fails purely at validation, like
+   * {@link #filesMissingTheirJar}, never actually deploys anything, so it no longer keeps this
+   * record either (see {@link
+   * #a_run_rejected_purely_at_validation_removes_its_own_speculative_deployment_record}).
    */
   @Test
-  void starting_a_run_records_the_deployment_against_the_cluster() {
+  void starting_a_run_that_actually_reaches_running_records_the_deployment_against_the_cluster()
+      throws Exception {
+    try (FakeReleaseControlPlane fake = new FakeReleaseControlPlane()) {
+      Path dataRoot = tempDir.resolve("cluster-data-records-deployment");
+      Files.createDirectories(dataRoot);
+      Files.writeString(dataRoot.resolve("hilmir-run-local.json"), "[]", StandardCharsets.UTF_8);
+      String topologyYaml = topologyWithControlPlanePort(fake.port(), dataRoot);
+      clusters.save(
+          "c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://" + fake.address() + "\"}");
+      clusters.recordAppliedTopology("c1", topologyYaml);
+      List<RenderedFile> goodFiles =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile(
+                  "bundle.yaml",
+                  BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+
+      controller.start("c1", Optional.of("bp-one"), goodFiles, Map.of());
+      Map<String, Object> settled = awaitSettled("bp-one");
+
+      assertEquals("running", settled.get("status"), settled.toString());
+      assertEquals(Set.of("bp-one"), clusters.deployments("c1"));
+    }
+  }
+
+  /**
+   * GIMLE bug: {@code start} records a deployment the instant a run is admitted, before any
+   * validation runs. A run rejected purely at validation never actually deploys anything, so
+   * leaving that speculative record in place named this blueprint as a live deployment on the
+   * cluster's durable sidecar forever -- invisible until an Ivaldi restart, when {@code
+   * adoptRunningCluster} would read it back and fabricate a phantom {@code RUNNING} status for a
+   * blueprint that never actually deployed anything.
+   */
+  @Test
+  void a_run_rejected_purely_at_validation_removes_its_own_speculative_deployment_record() {
     clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
 
     controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
-    awaitSettled();
+    Map<String, Object> settled = awaitSettled("bp-one");
 
-    assertEquals(Set.of("bp-one"), clusters.deployments("c1"));
+    assertEquals("failed", settled.get("status"), settled.toString());
+    assertEquals(Set.of(), clusters.deployments("c1"));
+  }
+
+  /**
+   * The other pre-infrastructure failure paths -- a cluster/topology address mismatch here -- must
+   * clean up the same speculative record, not just a plain validation error.
+   */
+  @Test
+  void a_run_rejected_for_a_cluster_topology_address_mismatch_removes_its_deployment_record() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:9999\"}");
+
+    controller.start("c1", Optional.of("bp-one"), plaintextFiles(), Map.of());
+    Map<String, Object> settled = awaitSettled("bp-one");
+
+    assertEquals("failed", settled.get("status"), settled.toString());
+    assertEquals(Set.of(), clusters.deployments("c1"));
+  }
+
+  /**
+   * The counterpart regression: a run that fails only *after* touching real infrastructure (a
+   * genuine partial deploy) must not have its deployment record scrubbed -- that path already
+   * correctly retains/restores the previous good deployment's own record, and must keep doing so.
+   */
+  @Test
+  void a_run_failing_after_touching_real_infrastructure_keeps_the_deployment_record()
+      throws Exception {
+    try (FakeReleaseControlPlane fake = new FakeReleaseControlPlane()) {
+      Path dataRoot = tempDir.resolve("cluster-data-touched-state");
+      Files.createDirectories(dataRoot);
+      Files.writeString(dataRoot.resolve("hilmir-run-local.json"), "[]", StandardCharsets.UTF_8);
+      String topologyYaml = topologyWithControlPlanePort(fake.port(), dataRoot);
+      clusters.save(
+          "c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://" + fake.address() + "\"}");
+      clusters.recordAppliedTopology("c1", topologyYaml);
+      List<RenderedFile> goodFiles =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile(
+                  "bundle.yaml",
+                  BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+
+      Map<String, Object> firstStarted =
+          controller.start("c1", Optional.of("bp-one"), goodFiles, Map.of());
+      String previousRunId = String.valueOf(firstStarted.get("id"));
+      Map<String, Object> firstSettled = awaitSettled("bp-one");
+      assertEquals("running", firstSettled.get("status"), firstSettled.toString());
+      assertEquals(Set.of("bp-one"), clusters.deployments("c1"));
+
+      // A malformed bundle.yaml fails BundleParser.parse -- reached only after touchedRealState is
+      // set, since the deploy-only path sets it unconditionally before deciding whether to reboot.
+      List<RenderedFile> brokenBundleFiles =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile("bundle.yaml", "kind: Bundle\nname: t\nversion: 1.0.0\nbogus: x\n"));
+
+      controller.start("c1", Optional.of("bp-one"), brokenBundleFiles, Map.of());
+      Map<String, Object> restored = awaitBlueprintRestoredTo(previousRunId);
+
+      assertEquals("running", restored.get("status"), restored.toString());
+      assertEquals(Set.of("bp-one"), clusters.deployments("c1"));
+    }
   }
 
   /**

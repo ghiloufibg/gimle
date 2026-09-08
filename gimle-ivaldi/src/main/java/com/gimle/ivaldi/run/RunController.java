@@ -779,6 +779,7 @@ public final class RunController {
       } else {
         fail(run, e.getMessage());
         restorePreviousDeploymentOnRejection(run, previousDeployment, touchedRealState);
+        forgetSpeculativeDeployment(run, previousDeployment, touchedRealState);
       }
     } catch (RuntimeException e) {
       // A cancelled run's own failure is the cancellation, whatever shape it arrived in -- an
@@ -790,6 +791,7 @@ public final class RunController {
         log.warn("run {} failed", run.id, e);
         fail(run, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         restorePreviousDeploymentOnRejection(run, previousDeployment, touchedRealState);
+        forgetSpeculativeDeployment(run, previousDeployment, touchedRealState);
       }
     } finally {
       Thread.interrupted();
@@ -1474,6 +1476,35 @@ public final class RunController {
   static boolean shouldRestorePreviousDeployment(
       RunStatus previousStatus, boolean touchedRealState) {
     return !touchedRealState && previousStatus == RunStatus.RUNNING;
+  }
+
+  /**
+   * Undoes the speculative {@link ClusterStore#recordDeployment} {@link #start} made the moment
+   * this run was admitted, before anything about it was known. A run that fails before ever
+   * touching real infrastructure -- pure file validation, an unreadable jar, a cluster/topology
+   * address mismatch, a conflicting-reboot refusal -- never actually deployed anything, so leaving
+   * that record in place named this blueprint as a live deployment on the cluster's durable {@code
+   * .deployments} sidecar forever: invisible until an Ivaldi restart, when {@link
+   * #adoptRunningCluster} reads it back and fabricates a phantom {@code RUNNING} {@link ActiveRun}
+   * for a blueprint that never actually deployed anything, wherever the cluster still has some
+   * other, genuinely live deployment for {@code adoptRunningCluster} to find alive processes under.
+   *
+   * <p>Left alone once real infrastructure was touched ({@code touchedRealState}): a partial deploy
+   * may genuinely have changed something about the cluster, and the existing {@link
+   * #restorePreviousDeploymentOnRejection} handling for that case is what already governs the
+   * record from here. Also left alone whenever that method actually restored a previous {@code
+   * RUNNING} deployment over this rejected attempt's own slot: that previous deployment is
+   * genuinely live, and removing its own deployment record here would forget a cluster it is still
+   * actually running on.
+   */
+  private void forgetSpeculativeDeployment(
+      ActiveRun run, ActiveRun previousDeployment, boolean touchedRealState) {
+    if (touchedRealState
+        || (previousDeployment != null
+            && shouldRestorePreviousDeployment(previousDeployment.status, touchedRealState))) {
+      return;
+    }
+    run.blueprintId.ifPresent(id -> clusters.removeDeployment(run.clusterId, id));
   }
 
   /**
