@@ -65,11 +65,13 @@ public final class ConfigMapCommand {
   }
 
   private void get(List<String> args) {
+    String usage = "configmap get requires <tenantId> <name>";
     if (args.size() < 2) {
-      throw new CliException("configmap get requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     Map<String, Object> response = client.getObject("/configmaps/" + tenantId + "/" + name);
     Map<String, Object> printed = new LinkedHashMap<>();
     printed.put("name", name);
@@ -124,11 +126,13 @@ public final class ConfigMapCommand {
   }
 
   private void delete(List<String> args) {
+    String usage = "configmap delete requires <tenantId> <name>";
     if (args.size() < 2) {
-      throw new CliException("configmap delete requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     client.expectSuccess(client.delete("/configmaps/" + tenantId + "/" + name));
     OutputFormat.printResult(
         output,
@@ -179,23 +183,27 @@ public final class ConfigMapCommand {
   }
 
   private void versions(List<String> args) {
+    String usage = "configmap versions requires <tenantId> <name>";
     if (args.size() < 2) {
-      throw new CliException("configmap versions requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
+    Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     Map<String, Object> response =
         client.getObject("/configmaps/" + tenantId + "/" + name + "/versions");
     OutputFormat.printList(output, Json.asObjectList(response.get("versions")), out);
   }
 
   private void rollback(List<String> args) {
+    String usage = "configmap rollback requires <tenantId> <name> <version>";
     if (args.size() < 3) {
-      throw new CliException("configmap rollback requires <tenantId> <name> <version>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
     int version = parseVersion(args.get(2));
+    Flags.parse(args.subList(3, args.size()), Set.of(), usage);
     String response =
         client.expectSuccess(
             client.post(

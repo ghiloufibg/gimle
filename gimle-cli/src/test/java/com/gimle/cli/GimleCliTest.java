@@ -2330,6 +2330,75 @@ class GimleCliTest {
     assertTrue(stderr().contains("too many arguments"), stderr());
   }
 
+  // ---- configmap/secretmap/config verbs reject a trailing extra positional argument rather than
+  // silently truncating it (CHAOS-Midgard-02) ----
+
+  @Test
+  void configmap_get_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("configmap", "get", "acme", "settings", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void configmap_delete_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("configmap", "delete", "acme", "settings", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void configmap_versions_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("configmap", "versions", "acme", "settings", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void configmap_rollback_with_extra_positional_argument_is_rejected() {
+    int exitCode =
+        run("configmap", "rollback", "acme", "settings", "1", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void secretmap_get_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("secretmap", "get", "acme", "db-creds", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void secretmap_versions_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("secretmap", "versions", "acme", "db-creds", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void secretmap_rollback_with_extra_positional_argument_is_rejected() {
+    int exitCode =
+        run("secretmap", "rollback", "acme", "db-creds", "1", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
+  @Test
+  void config_delete_with_extra_positional_argument_is_rejected() {
+    int exitCode = run("delete", "config", "acme", "some-key", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("unexpected argument"), stderr());
+  }
+
   // ---- -h/--help scopes to wherever it appears in the argument list ----
 
   @Test
