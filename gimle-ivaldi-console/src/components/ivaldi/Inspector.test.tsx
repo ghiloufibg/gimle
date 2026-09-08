@@ -139,9 +139,8 @@ describe("NetworkPolicy restrictIngress toggle", () => {
     render(<Inspector blueprint={blueprint} />);
     fireEvent.click(screen.getByLabelText("Restrict inbound callers"));
 
-    const updated = useBlueprintStore
-      .getState()
-      .blueprint!.nodes.find((n) => n.id === policy.id)!.data as NetworkPolicyData;
+    const updated = useBlueprintStore.getState().blueprint!.nodes.find((n) => n.id === policy.id)!
+      .data as NetworkPolicyData;
     expect(updated.restrictIngress).toBe(true);
   });
 });
