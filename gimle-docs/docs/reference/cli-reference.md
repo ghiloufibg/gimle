@@ -249,6 +249,13 @@ gimle cert revocations
 gimle top
 ```
 
+Every built-in resource noun above accepts either spelling — singular or plural — for every verb it
+appears under, the same convention `kubectl` itself uses (`kubectl delete deployment` and `kubectl
+delete deployments` are identical). `get`'s synopsis above happens to show the plural form and
+`delete`'s the singular, but `gimle delete deployments <name>` and `gimle get deployment <name>` both
+work exactly as their more commonly-used spelling does; this is not limited to `get`/`delete` shown
+here.
+
 `top` is not built into `gimle-cli` — it is contributed by `gimle-hugin` and discovered through
 `ServiceLoader`, so it appears in `gimle --help` only when that jar is on the classpath (every
 distribution archive puts it there). See the [terminal cluster view](./terminal-view.md) for what it

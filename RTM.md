@@ -982,6 +982,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-965 | Request-outcome receipts are swept off the reconcile tick after a fifteen-minute retention window | New | Not Covered | — |
 | GIMLE-966 | Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure | New | Not Covered | — |
 | GIMLE-967 | The Runner page shows a CronJob's own firing history, not just its initial deploy status | New | Not Covered | — |
+| GIMLE-968 | Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7117,6 +7118,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ControlPlaneClientRequestIdTest` (real loopback HTTP server recording received headers): all four mutating verbs send a server-acceptable id; two deliberate operations get two ids; a GET carries none; `unknownOutcome` names the verb, path and id, says the write may already have been applied, and never calls the timeout an unreachable server. Not covered: the id surviving a real 307 redirect, and the timeout path end to end through `sendMutation` against a genuinely hanging server.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClient.java` (`mutating`, `sendMutation`, `unknownOutcome`, `newRequestId`), `gimle-cli/src/main/java/com/gimle/cli/CliException.java`, `gimle-docs/docs/reference/cli-reference.md`
 
+#### GIMLE-968 — Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete
+
+- **Category**: CLI
+- **Status**: New  _(GimleCli's get/set/delete dispatch already accepted both spellings for every built-in noun; delete's own -h usage text documented only the singular. Now documents the plural alongside the singular for every noun, matching kubectl's own resource-name convention.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises this; covered instead by gimle-cli's own GimleCliTest, listed under otherTestCoverage.
+- **Other test coverage (non-Holmgang, informational only)**: GimleCliTest#delete_deployments_the_documented_plural_alias_behaves_identically_to_the_singular_form, #bare_delete_help_documents_the_plural_alias_the_same_way_bare_get_help_does; full gimle-cli suite green.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (per-noun `case "x", "xs" ->` dispatch in the get/set/delete switches; `DELETE_USAGE`, `DELETE_NOUN_USAGE`), `gimle-docs/docs/reference/cli-reference.md`
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -10084,7 +10094,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**837 of 967 requirements are Not Covered.**
+**838 of 968 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -10195,6 +10205,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-874 | gimle-cli | Every ingress apply is guarded by a compare-and-set version | CLI | `IngressCommandTest#re_applying_a_manifest_carrying_a_version_someone_else_moved_past_is_refused`, `#an_apply_declaring_no_version_creates_and_then_replaces_the_ingress` |
 | GIMLE-894 | gimle-cli | `gimle apply -f`'s help names every kind it accepts | CLI | `ApplyKindCoverageTest#every_non_workload_kind_the_dispatcher_names_really_applies`, `#the_help_text_names_every_kind_apply_accepts`, `#the_apply_usage_names_every_kind_apply_accepts` |
 | GIMLE-966 | gimle-cli | Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure | CLI | `ControlPlaneClientRequestIdTest` (real loopback HTTP server recording received headers): all four mutating verbs send a server-acceptable id; two deliberate operations get two ids; a GET carries none; `unknownOutcome` names the verb, path and id, says the write may already have been applied, and never calls the timeout an unreachable server. Not covered: the id surviving a real 307 redirect, and the timeout path end to end through `sendMutation` against a genuinely hanging server. |
+| GIMLE-968 | gimle-cli | Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete | CLI | GimleCliTest#delete_deployments_the_documented_plural_alias_behaves_identically_to_the_singular_form, #bare_delete_help_documents_the_plural_alias_the_same_way_bare_get_help_does; full gimle-cli suite green. |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |

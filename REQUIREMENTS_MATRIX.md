@@ -977,6 +977,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-965 | Request-outcome receipts are swept off the reconcile tick after a fifteen-minute retention window | Reconciliation / Orchestration | Complete | Yes |
 | GIMLE-966 | Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure | CLI | Complete | Yes |
 | GIMLE-967 | The Runner page shows a CronJob's own firing history, not just its initial deploy status | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-968 | Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -10368,6 +10369,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none.
   Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried.
   Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached.
+  ```
+
+#### GIMLE-968 — Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete
+
+- **Category**: CLI
+- **User story**: As an operator used to kubectl's own singular/plural interchangeability (`kubectl delete deployment` and `kubectl delete deployments` are identical), I want gimle's CLI to accept and document the same convention for every built-in resource noun across get/set/delete, so guessing the plural form by analogy with `get deployments` never fails, and never silently works undocumented either.
+- **Status**: Complete. Every built-in resource-noun dispatch in `GimleCli` (get/set/delete) already accepted both the singular and plural spelling (`case "deployment", "deployments" -> ...` and the equivalent for every other built-in kind) before this entry was added -- what was missing was that delete's own `-h` usage text (`DELETE_USAGE`'s resource list, `DELETE_NOUN_USAGE`'s per-noun map) documented only the singular form, so a caller who found the plural worked (by analogy with `get`'s own already-documented plural) had no way to tell a real, supported synonym apart from coincidentally-tolerated, undocumented behavior. Fixed by documenting the plural alongside the singular for every noun in both places, matching kubectl's own resource-name canonicalization convention.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (per-noun `case "x", "xs" ->` dispatch in the get/set/delete switches; `DELETE_USAGE`, `DELETE_NOUN_USAGE`), `gimle-docs/docs/reference/cli-reference.md`
+- **Test coverage**: `GimleCliTest#delete_deployments_the_documented_plural_alias_behaves_identically_to_the_singular_form` (a real delete via the plural form removes the same deployment the singular form would) and `#bare_delete_help_documents_the_plural_alias_the_same_way_bare_get_help_does`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a real deployment named "orders"; When "gimle delete deployments orders" runs (plural form); Then it is deleted exactly as "gimle delete deployment orders" (singular) would have, and "gimle delete -h" documents the plural form alongside the singular.
   ```
 
 ### gimle-hilmir

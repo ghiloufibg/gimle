@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 967,
+  "requirementCount": 968,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -19915,6 +19915,25 @@
         "Given a running Blueprint that declares a CronJob, When the Runner page is open, Then it shows the CronJob's own recently generated Jobs, bounded exactly by however many the control plane still retains.",
         "Given a CronJob that has not fired yet, When the Runner page is open, Then the CronJob is shown with an explicit 'No firings yet' state rather than being omitted.",
         "Given a Job name that does not match any declared CronJob's own naming prefix, When the Runner page groups Jobs by CronJob, Then that Job is never attributed to an unrelated CronJob."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-968",
+      "module": "gimle-cli",
+      "feature": "Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete",
+      "category": "CLI",
+      "userStory": "As an operator used to kubectl's own singular/plural interchangeability (`kubectl delete deployment` and `kubectl delete deployments` are identical), I want gimle's CLI to accept and document the same convention for every built-in resource noun across get/set/delete, so guessing the plural form by analogy with `get deployments` never fails, and never silently works undocumented either.",
+      "statusDetail": "Complete. Every built-in resource-noun dispatch in `GimleCli` (get/set/delete) already accepted both the singular and plural spelling (`case \"deployment\", \"deployments\" -> ...` and the equivalent for every other built-in kind) before this entry was added -- what was missing was that delete's own `-h` usage text (`DELETE_USAGE`'s resource list, `DELETE_NOUN_USAGE`'s per-noun map) documented only the singular form, so a caller who found the plural worked (by analogy with `get`'s own already-documented plural) had no way to tell a real, supported synonym apart from coincidentally-tolerated, undocumented behavior. Fixed by documenting the plural alongside the singular for every noun in both places, matching kubectl's own resource-name canonicalization convention.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (per-noun `case \"x\", \"xs\" ->` dispatch in the get/set/delete switches; `DELETE_USAGE`, `DELETE_NOUN_USAGE`)",
+        "`gimle-docs/docs/reference/cli-reference.md`"
+      ],
+      "testCoverageDetail": "`GimleCliTest#delete_deployments_the_documented_plural_alias_behaves_identically_to_the_singular_form` (a real delete via the plural form removes the same deployment the singular form would) and `#bare_delete_help_documents_the_plural_alias_the_same_way_bare_get_help_does`.",
+      "gherkinSteps": [
+        "Given a real deployment named \"orders\"; When \"gimle delete deployments orders\" runs (plural form); Then it is deleted exactly as \"gimle delete deployment orders\" (singular) would have, and \"gimle delete -h\" documents the plural form alongside the singular."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

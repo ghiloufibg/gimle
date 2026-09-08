@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 966,
+    "totalRequirements": 967,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 836,
-    "releaseReadinessPercent": 13.5
+    "notCoveredByAutomatedTest": 837,
+    "releaseReadinessPercent": 13.4
   },
   "items": [
     {
@@ -10628,6 +10628,17 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "The Runner page shows a CronJob's own firing history, not just its initial deploy status",
       "step": "Given a running Blueprint that declares a CronJob, When the Runner page is open, Then it shows the CronJob's own recently generated Jobs, bounded exactly by however many the control plane still retains. Given a CronJob that has not fired yet, When the Runner page is open, Then the CronJob is shown with an explicit 'No firings yet' state rather than being omitted. Given a Job name that does not match any declared CronJob's own naming prefix, When the Runner page groups Jobs by CronJob, Then that Job is never attributed to an unrelated CronJob.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-968",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete",
+      "step": "Given a real deployment named \"orders\"; When \"gimle delete deployments orders\" runs (plural form); Then it is deleted exactly as \"gimle delete deployment orders\" (singular) would have, and \"gimle delete -h\" documents the plural form alongside the singular.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

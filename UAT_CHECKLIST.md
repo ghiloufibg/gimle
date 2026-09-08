@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 966
+- **Total requirements**: 967
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 836
-- **Release-readiness (automated coverage)**: 13.5%
+- **Not covered by automated test**: 837
+- **Release-readiness (automated coverage)**: 13.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 25 | 0 | 25 | 0.0% |
 | gimle-observability | 21 | 1 | 20 | 4.8% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
-| gimle-cli | 50 | 0 | 50 | 0.0% |
+| gimle-cli | 51 | 0 | 51 | 0.0% |
 | gimle-hilmir | 40 | 0 | 40 | 0.0% |
 | gimle-maven-plugin | 20 | 0 | 20 | 0.0% |
 | gimle-console | 62 | 0 | 62 | 0.0% |
@@ -1934,6 +1934,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-874 | Every ingress apply is guarded by a compare-and-set version | Given an Ingress at version 3 and a manifest exported at version 2 When that manifest is re-applied Then the apply is refused as a stale edit rather than replacing the newer revision And an apply declaring no version guards on whatever is stored at that instant | No |
 | [ ] | GIMLE-894 | `gimle apply -f`'s help names every kind it accepts | Given `gimle apply -h` and `gimle -h` When either is printed Then every kind the apply dispatcher accepts is named, plus custom kinds And each named kind really is accepted by an apply | No |
 | [ ] | GIMLE-966 | Every mutating CLI request identifies itself, and a write whose answer is lost is reported as an unknown outcome rather than a failure | Given any mutating CLI verb, When it is invoked, Then the request carries an X-Gimle-Request-Id the control plane accepts, and a read carries none. Given the same command run twice deliberately, When both are sent, Then they carry two different ids, because they are two operations rather than one retried. Given a control plane that does not answer within the request timeout, When a mutating command is run, Then the CLI exits 6 and reports the outcome as unknown, naming the request id and stating the write may already have been applied, rather than reporting that the server could not be reached. | No |
+| [ ] | GIMLE-968 | Built-in resource nouns accept both singular and plural spellings consistently across get/set/delete | Given a real deployment named "orders"; When "gimle delete deployments orders" runs (plural form); Then it is deleted exactly as "gimle delete deployment orders" (singular) would have, and "gimle delete -h" documents the plural form alongside the singular. | No |
 
 #### CLI / Build Tooling
 
