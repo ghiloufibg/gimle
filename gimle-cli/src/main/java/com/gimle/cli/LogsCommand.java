@@ -172,10 +172,36 @@ public final class LogsCommand {
           continue;
         }
         Map<String, Object> parsed = Json.asObject(Json.parse(line));
+        if (parsed.containsKey("lines")) {
+          // Not a log line but a whole bounded page: the control plane's Muninn fallback for a
+          // gone/unreachable agent silently downgrades follow=true to one non-streaming page (see
+          // ApiServer#muninnNodeLogsPath's own javadoc) rather than erroring, so this response body
+          // is that page's JSON, not NDJSON. Printing it as a line would format every absent
+          // timestamp/level/logger/message field as the literal text "null".
+          printFallbackPage(parsed);
+          continue;
+        }
         out.println(output == OutputFormat.Kind.JSON ? Json.write(parsed) : formatLine(parsed));
       }
     } catch (IOException e) {
       throw new CliException("log stream ended: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Renders a Muninn-fallback page (see {@link #runFollow}) the same way a plain, non-follow
+   * request's own zero-or-more lines are rendered -- an empty page gets the same clear "(no log
+   * lines)" the non-follow path already prints, rather than a garbled line built from fields the
+   * page wrapper never had.
+   */
+  private void printFallbackPage(Map<String, Object> page) {
+    List<Map<String, Object>> lines = Json.asObjectList(page.get("lines"));
+    if (lines.isEmpty()) {
+      out.println("(no log lines)");
+      return;
+    }
+    for (Map<String, Object> line : lines) {
+      out.println(output == OutputFormat.Kind.JSON ? Json.write(line) : formatLine(line));
     }
   }
 

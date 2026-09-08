@@ -304,6 +304,39 @@ class LogsCommandTest {
     assertTrue(Json.asObjectList(Json.parse(printed())).isEmpty(), printed());
   }
 
+  /**
+   * The control plane's Muninn fallback (a gone/unreachable agent) silently downgrades a
+   * follow=true request to one bounded page shaped like the plain non-follow response, rather than
+   * NDJSON per-line objects -- reproduced directly rather than through a real fallback, since what
+   * matters here is only the response shape the command must tolerate.
+   */
+  @Test
+  void following_a_target_that_falls_back_to_a_muninn_page_with_no_lines_prints_the_clear_message() {
+    // A more specific context than "/logs" registered in startStub(), so the HttpServer routes a
+    // request for this exact path here instead -- standing in for the Muninn fallback, which
+    // answers a follow=true request with one bounded page rather than a real NDJSON stream.
+    stub.createContext(
+        "/logs/nodes/fallback-empty-page",
+        exchange -> {
+          Map<String, Object> page = new LinkedHashMap<>();
+          page.put("lines", List.of());
+          page.put("olderCursor", null);
+          page.put("newerCursor", null);
+          byte[] bytes = Json.write(page).getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson");
+          exchange.sendResponseHeaders(200, bytes.length);
+          try (OutputStream body = exchange.getResponseBody()) {
+            body.write(bytes);
+          }
+          exchange.close();
+        });
+
+    run("node/fallback-empty-page", "--follow");
+
+    assertEquals("(no log lines)", printed().strip());
+    assertFalse(printed().contains("null"), printed());
+  }
+
   @Test
   void json_output_under_follow_emits_one_object_per_line() {
     pageLines = List.of(line("INFO", "first"), line("WARN", "second"));
