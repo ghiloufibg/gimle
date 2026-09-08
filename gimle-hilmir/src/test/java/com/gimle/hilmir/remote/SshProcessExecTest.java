@@ -11,10 +11,14 @@ import org.junit.jupiter.api.Test;
 /**
  * Asserts the exact {@code ssh}/{@code scp} argv {@link SshProcessExec} builds, without invoking a
  * real process -- the same spirit as testing {@code com.gimle.hilmir.plan.JavaArgFile#rewrite}'s
- * argument construction without running {@code java}. {@link SshProcessExec#pinHostKey} shells out
- * to {@code ssh-keyscan}/{@code ssh-keygen} against a real reachable host, so it -- unlike the pure
- * argv-building methods here -- has no equivalent hermetic unit coverage; {@code
- * RemoteDispatchTest} covers the {@link RemoteExec} contract it participates in via a fake instead.
+ * argument construction without running {@code java}. {@link SshProcessExec#pinHostKey} itself
+ * shells out to {@code ssh-keyscan}/{@code ssh-keygen} against a real reachable host, so it has no
+ * equivalent hermetic unit coverage ({@code RemoteDispatchTest} covers the {@link RemoteExec}
+ * contract it participates in via a fake instead) -- but the two pieces of its own failure-path
+ * logic are each tested directly below: {@link SshProcessExec#runCapturingOutput} for real, via a
+ * fake command standing in for a real {@code ssh-keyscan} that fails during key-exchange
+ * negotiation (writes only to stderr, nothing to stdout), and {@link
+ * SshProcessExec#unreachableMessage} as the pure function it is.
  */
 class SshProcessExecTest {
 
@@ -145,5 +149,57 @@ class SshProcessExecTest {
     assertEquals("/local/topology.yaml", command.get(command.size() - 2));
     assertEquals(
         "ubuntu@gimle-1.example.com:/opt/gimle/topology.yaml", command.get(command.size() - 1));
+  }
+
+  /**
+   * Stands in for a real {@code ssh-keyscan} failing key-exchange negotiation: nothing on stdout, a
+   * real diagnostic on stderr, nonzero exit. Before the fix, stderr was never captured at all
+   * ({@code redirectErrorStream(false)} with only stdout read), so this diagnostic was silently
+   * discarded in favor of a generic "is it reachable?" guess.
+   */
+  @Test
+  void run_capturing_output_captures_stderr_separately_from_an_empty_stdout() {
+    final List<String> command =
+        List.of("sh", "-c", "echo 'no matching key exchange method found' >&2; exit 1");
+
+    final SshProcessExec.CapturedOutput captured =
+        SshProcessExec.runCapturingOutput(command, "scanning SSH host key for m1");
+
+    assertTrue(captured.stdout().isEmpty());
+    assertTrue(captured.stderr().contains("no matching key exchange method found"));
+  }
+
+  @Test
+  void run_capturing_output_captures_stdout_when_present() {
+    final List<String> command = List.of("sh", "-c", "echo scanned-key-line");
+
+    final SshProcessExec.CapturedOutput captured =
+        SshProcessExec.runCapturingOutput(command, "scanning SSH host key for m1");
+
+    assertTrue(captured.stdout().contains("scanned-key-line"));
+    assertTrue(captured.stderr().isEmpty());
+  }
+
+  @Test
+  void unreachable_message_folds_in_the_captured_stderr_diagnostic() {
+    final ResolvedSshTarget target = target(Optional.empty(), Optional.empty(), Optional.empty());
+    final SshProcessExec.CapturedOutput scanned =
+        new SshProcessExec.CapturedOutput("", "no matching key exchange method found");
+
+    final String message = SshProcessExec.unreachableMessage(target, scanned);
+
+    assertTrue(message.contains("is it reachable"));
+    assertTrue(message.contains("no matching key exchange method found"));
+  }
+
+  @Test
+  void unreachable_message_omits_the_stderr_clause_when_nothing_was_captured() {
+    final ResolvedSshTarget target = target(Optional.empty(), Optional.empty(), Optional.empty());
+    final SshProcessExec.CapturedOutput scanned = new SshProcessExec.CapturedOutput("", "");
+
+    final String message = SshProcessExec.unreachableMessage(target, scanned);
+
+    assertTrue(message.contains("is it reachable"));
+    assertTrue(!message.contains("ssh-keyscan reported"));
   }
 }
