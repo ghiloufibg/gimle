@@ -192,6 +192,57 @@ class MachineLauncherIntegrationTest {
   }
 
   @Test
+  @Timeout(15)
+  void up_honors_a_shorter_readiness_timeout_set_via_the_system_property() throws IOException {
+    // The fixture process binds and stays alive on its own port, but the command's declared
+    // readiness address names a different, never-opened port -- so the readiness wait can only
+    // ever time out, never succeed. With the default 2-minute timeout this test would have to wait
+    // two minutes to prove anything; overriding it to a few hundred milliseconds proves both that
+    // the property is honored and that the resulting message never leaks a raw ISO-8601 Duration.
+    final int fixtureBoundPort = LaunchTestSupport.freePort();
+    final int neverOpenedReadinessPort = LaunchTestSupport.freePort();
+    final ProcessCommand neverReadyCommand =
+        new ProcessCommand(
+            ProcessRole.STORE,
+            "store-0",
+            "m1",
+            List.of(
+                LaunchTestSupport.javaExecutable(),
+                "-cp",
+                LaunchTestSupport.testClasspath(),
+                "com.gimle.hilmir.launch.fixture.SocketFixtureMain",
+                String.valueOf(fixtureBoundPort)),
+            "store-0.log",
+            Path.of("/unused"),
+            "127.0.0.1:" + neverOpenedReadinessPort,
+            false);
+
+    final Map<String, MachinePlan> byMachine = new LinkedHashMap<>();
+    byMachine.put("m1", new MachinePlan("m1", List.of(neverReadyCommand)));
+    final ClusterPlan clusterPlan = new ClusterPlan(byMachine);
+
+    final ResolvedRuntime m1Runtime =
+        new ResolvedRuntime(
+            LaunchTestSupport.javaExecutable(), LaunchTestSupport.testClasspath(), tempDir);
+
+    System.setProperty("gimle.hilmir.readinessTimeoutMillis", "300");
+    try {
+      final ByteArrayOutputStream m1UpOutput = new ByteArrayOutputStream();
+      final HilmirException e =
+          assertThrows(
+              HilmirException.class,
+              () ->
+                  MachineLauncher.up(clusterPlan, TOPOLOGY, "m1", m1Runtime, capture(m1UpOutput)));
+      assertTrue(e.getMessage().contains("timed out after"));
+      assertFalse(e.getMessage().contains("PT"));
+    } finally {
+      System.clearProperty("gimle.hilmir.readinessTimeoutMillis");
+      MachineLauncher.down(m1Runtime.dataRoot(), capture(new ByteArrayOutputStream()));
+      LaunchTestSupport.drainTempDir(tempDir);
+    }
+  }
+
+  @Test
   void down_is_a_clean_no_op_for_an_already_dead_recorded_pid() {
     final RunRecord deadRecord =
         new RunRecord(

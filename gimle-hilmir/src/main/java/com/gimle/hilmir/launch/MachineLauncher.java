@@ -70,7 +70,8 @@ public final class MachineLauncher {
    */
   private static final String LEADER_PROBE_NODE_ID = "hilmir-upgrade-leader-probe";
 
-  private static final Duration READINESS_TIMEOUT = Duration.ofMinutes(2);
+  private static final Duration DEFAULT_READINESS_TIMEOUT = Duration.ofMinutes(2);
+  private static final String READINESS_TIMEOUT_PROPERTY = "gimle.hilmir.readinessTimeoutMillis";
   private static final Duration ONE_SHOT_TIMEOUT = Duration.ofSeconds(60);
   private static final Duration KILL_GRACE_PERIOD = Duration.ofSeconds(5);
   private static final Duration FILE_RELEASE_TIMEOUT = Duration.ofSeconds(10);
@@ -492,7 +493,7 @@ public final class MachineLauncher {
               + address
               + ")...");
       ReadinessPoller.awaitPortOpen(
-          address, READINESS_TIMEOUT, prerequisite.role() + " " + prerequisite.id());
+          address, readinessTimeout(), prerequisite.role() + " " + prerequisite.id());
       confirmedReady.add(address);
     }
   }
@@ -543,10 +544,34 @@ public final class MachineLauncher {
     }
     ReadinessPoller.awaitPortOpen(
         command.readinessAddress(),
-        READINESS_TIMEOUT,
+        readinessTimeout(),
         command.role() + " " + command.id(),
         spawned.process(),
         spawned.logFile());
+  }
+
+  /**
+   * How long a spawn (same-machine) or a cross-machine prerequisite wait is given to open its
+   * readiness port before {@link #up} gives up on it. Resolved fresh on every call rather than
+   * cached in a static field, so a test (or an operator re-launching with a different {@code -D})
+   * can change it without needing this class reloaded by a fresh JVM.
+   */
+  private static Duration readinessTimeout() {
+    final String override = System.getProperty(READINESS_TIMEOUT_PROPERTY);
+    if (override == null || override.isBlank()) {
+      return DEFAULT_READINESS_TIMEOUT;
+    }
+    try {
+      return Duration.ofMillis(Long.parseLong(override.trim()));
+    } catch (final NumberFormatException e) {
+      throw new HilmirException(
+          "invalid -D"
+              + READINESS_TIMEOUT_PROPERTY
+              + " value '"
+              + override
+              + "': expected a number of milliseconds",
+          e);
+    }
   }
 
   /**
