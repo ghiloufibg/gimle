@@ -185,6 +185,28 @@ public final class ReleaseReconciler {
   }
 
   /**
+   * The vault keys {@code target}'s own snapshot declared that {@code current} no longer has -- the
+   * secret-restoration half of a rollback, kept separate from {@link #computeKeyPrune} (which walks
+   * the opposite direction and mixes config with secrets) since a rollback restores this
+   * direction's keys via Fafnir's own soft-delete/undelete, never a plain re-apply: the ledger's
+   * own {@link SecretRef} carries only a digest, never a plaintext value, so there is nothing here
+   * {@link BundleApplier#applySecrets} could be handed even if this method returned one.
+   */
+  public static List<KeyRef> computeSecretsToRestore(
+      ReleaseRevision target, ReleaseRevision current) {
+    List<KeyRef> currentKeys =
+        current.secrets().stream().map(s -> new KeyRef(s.tenant(), s.key())).toList();
+    List<KeyRef> toRestore = new ArrayList<>();
+    for (SecretRef entry : target.secrets()) {
+      KeyRef ref = new KeyRef(entry.tenant(), entry.key());
+      if (!currentKeys.contains(ref) && !toRestore.contains(ref)) {
+        toRestore.add(ref);
+      }
+    }
+    return List.copyOf(toRestore);
+  }
+
+  /**
    * Applies an existing release's new content over its previous one: apply, then prune {@code
    * toPrune} and {@code keysToPrune} (see {@link #computePrune} and {@link #computeKeyPrune}), an
    * optional per-workload wait, and finally writes the next revision plus its meta pointer row.

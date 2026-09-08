@@ -160,6 +160,23 @@ final class BundleApplier {
     }
   }
 
+  /**
+   * Restores vault keys a rollback target declared that the current revision has since dropped, via
+   * Fafnir's own {@code POST /secrets/{tenant}/{key}/undelete} -- {@code deleteSecrets} above only
+   * ever soft-deletes (no {@code ?destroy=true}), so a key this method is handed is still
+   * recoverable material, not gone. With no version given, Fafnir restores whichever version was
+   * current the moment it was soft-deleted; a key that was deleted and recreated more than once
+   * since the target revision, or hard-destroyed outright, restores to the wrong version or 404s --
+   * {@code expectSuccess} is deliberately not used here for the same reason {@link #deleteConfig}
+   * skips it: a 404 (nothing left to undelete) is a real gap the ledger cannot close, not a reason
+   * to fail the rest of an otherwise-successful rollback.
+   */
+  static void restoreSecrets(ControlPlaneApi api, List<KeyRef> keys) {
+    for (KeyRef key : keys) {
+      api.post("/secrets/" + key.tenant() + "/" + key.key() + "/undelete", "");
+    }
+  }
+
   static void deleteTenants(ControlPlaneApi api, List<String> tenantIds) {
     for (String tenantId : tenantIds) {
       api.expectSuccess(api.delete("/tenants/" + tenantId));

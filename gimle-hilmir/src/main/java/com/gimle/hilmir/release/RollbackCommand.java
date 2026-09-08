@@ -112,14 +112,24 @@ public final class RollbackCommand {
                 .toList(),
             target.workloads());
     List<KeyRef> keysToPrune = ReleaseReconciler.computeKeyPrune(targetForKeyPrune, current);
+    List<KeyRef> secretsToRestore = ReleaseReconciler.computeSecretsToRestore(target, current);
 
     if (flags.isSet("--dry-run")) {
       ReleasePlan.printWithPrune(asBundle, toPrune, json, out);
+      if (!secretsToRestore.isEmpty()) {
+        out.println(
+            "  restoreSecrets: "
+                + secretsToRestore.stream().map(k -> k.tenant() + "/" + k.key()).toList());
+      }
       return 0;
     }
 
     BundleApplier.applyTenants(api, target.tenants(), t -> {});
     BundleApplier.applyConfig(api, target.config(), c -> {});
+    // Restored via Fafnir's own soft-delete/undelete, not a plain re-apply -- see
+    // BundleApplier#restoreSecrets and ReleaseReconciler#computeSecretsToRestore for why the
+    // ledger has nothing else to hand a value-carrying apply here.
+    BundleApplier.restoreSecrets(api, secretsToRestore);
     BundleApplier.applyWorkloads(api, target.workloads(), w -> {});
     BundleApplier.deleteWorkloads(api, toPrune);
     BundleApplier.deleteConfig(api, keysToPrune);

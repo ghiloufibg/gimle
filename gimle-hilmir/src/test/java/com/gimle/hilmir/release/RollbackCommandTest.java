@@ -60,6 +60,30 @@ class RollbackCommandTest {
             name: greeter-consumer
       """;
 
+  private static final String BUNDLE_V1_WITH_SECRET =
+      """
+      kind: Bundle
+      name: greeter-suite
+      version: 1.0.0
+      secrets:
+        - {tenant: acme, key: api-token, value: s3cret}
+      workloads:
+        - manifest: |
+            kind: Deployment
+            name: greeter-provider
+      """;
+
+  private static final String BUNDLE_V2_WITHOUT_SECRET =
+      """
+      kind: Bundle
+      name: greeter-suite
+      version: 2.0.0
+      workloads:
+        - manifest: |
+            kind: Deployment
+            name: greeter-provider
+      """;
+
   private static final String BUNDLE_V2_WITH_NEW_CONFIG_KEY =
       """
       kind: Bundle
@@ -119,6 +143,91 @@ class RollbackCommandTest {
         fake.configValue("acme", "greeting.suffix"),
         "a config key the rollback target never declared must be pruned");
     assertEquals("Hello", fake.configValue("acme", "greeting.prefix"));
+  }
+
+  /**
+   * The vault has no plaintext to hand back for a re-apply -- see {@link
+   * BundleApplier#restoreSecrets} -- so restoration has to go through Fafnir's own
+   * soft-delete/undelete, and the only observable proof this test can check against a
+   * request-recording stub (rather than a real vault) is that the right {@code undelete} call was
+   * actually made, matching {@code UpgradeCommandTest}'s own request-log style for the mirror-image
+   * prune case.
+   */
+  @Test
+  void rollback_restores_a_secret_the_target_revision_declared_but_current_dropped()
+      throws Exception {
+    fake = new FakeControlPlane();
+    DeployCommand.run(
+        List.of(
+            "-f",
+            writeBundle(BUNDLE_V1_WITH_SECRET, "v1.yaml").toString(),
+            "--server",
+            fake.address()),
+        capture(new ByteArrayOutputStream()));
+    UpgradeCommand.run(
+        List.of(
+            "-f",
+            writeBundle(BUNDLE_V2_WITHOUT_SECRET, "v2.yaml").toString(),
+            "--server",
+            fake.address()),
+        capture(new ByteArrayOutputStream()));
+    assertTrue(
+        deleted("/secrets/acme/api-token"),
+        "upgrade should have soft-deleted the dropped secret first: " + fake.requests);
+
+    RollbackCommand.run(
+        List.of(
+            "--release", "greeter-suite",
+            "--to-revision", "1",
+            "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+
+    assertTrue(
+        fake.requests.stream()
+            .anyMatch(
+                r ->
+                    r.method().equals("POST")
+                        && r.path().equals("/secrets/acme/api-token/undelete")),
+        "rollback to a revision declaring this secret must undelete it: " + fake.requests);
+  }
+
+  @Test
+  void rollback_does_not_restore_a_secret_both_revisions_already_declare() throws Exception {
+    fake = new FakeControlPlane();
+    DeployCommand.run(
+        List.of(
+            "-f",
+            writeBundle(BUNDLE_V1_WITH_SECRET, "v1.yaml").toString(),
+            "--server",
+            fake.address()),
+        capture(new ByteArrayOutputStream()));
+    UpgradeCommand.run(
+        List.of(
+            "-f",
+            writeBundle(BUNDLE_V1_WITH_SECRET, "v2.yaml").toString(),
+            "--server",
+            fake.address()),
+        capture(new ByteArrayOutputStream()));
+
+    RollbackCommand.run(
+        List.of(
+            "--release", "greeter-suite",
+            "--to-revision", "1",
+            "--server", fake.address()),
+        capture(new ByteArrayOutputStream()));
+
+    assertTrue(
+        fake.requests.stream()
+            .noneMatch(
+                r ->
+                    r.method().equals("POST")
+                        && r.path().equals("/secrets/acme/api-token/undelete")),
+        "a secret both revisions already declare needs no restoration: " + fake.requests);
+  }
+
+  private boolean deleted(String path) {
+    return fake.requests.stream()
+        .anyMatch(r -> r.method().equals("DELETE") && r.path().equals(path));
   }
 
   @Test
