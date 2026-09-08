@@ -78,6 +78,30 @@ describe("Inspector", () => {
       2,
     );
   });
+
+  it("shows a SERVICE_TARGET_PORT_MISMATCH finding inline on the Target port field", () => {
+    const blueprint = createBlueprint("test", { empty: true });
+    const service = createNode("service", { x: 0, y: 0 });
+    blueprint.nodes = [service];
+    useBlueprintStore.setState({ blueprint, selectedId: service.id, selectedIds: [service.id] });
+    useValidationStore.setState({
+      problems: [
+        {
+          code: "SERVICE_TARGET_PORT_MISMATCH",
+          severity: "warn",
+          message: 'Service "a" and service "b" declare different target ports.',
+          nodeId: service.id,
+        },
+      ],
+      serverProblems: [],
+    });
+
+    render(<Inspector blueprint={blueprint} />);
+
+    // Twice: once in the node's own "Problems" summary panel, once inline on the Target port
+    // field itself -- the field-level surfacing this test exists to prove actually happened.
+    expect(screen.getAllByText(/declare different target ports/)).toHaveLength(2);
+  });
 });
 
 describe("NetworkPolicy restrictIngress toggle", () => {

@@ -788,7 +788,7 @@ function NodeForm({
               label="Target port"
               value={d.targetPort}
               onChange={(targetPort) => update({ targetPort } as Partial<NodeData>)}
-              problems={pick(problems, ["SERVICE_PORT_RANGE"])}
+              problems={pick(problems, ["SERVICE_PORT_RANGE", "SERVICE_TARGET_PORT_MISMATCH"])}
               hint="Blank defaults to Port."
               allowBlank
             />
