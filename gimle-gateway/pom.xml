@@ -53,5 +53,15 @@
       <artifactId>gimle-pki</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Registers EagerSlf4jBindingInitializer (see its own javadoc), needed once a test here
+         (GatewayHooksIngressFetchLoggingTest) casts LoggerFactory's result to logback's own
+         Logger, since otherwise concurrent test classes can race SLF4J's one-time binding and
+         hand that cast a SubstituteLogger instead. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
