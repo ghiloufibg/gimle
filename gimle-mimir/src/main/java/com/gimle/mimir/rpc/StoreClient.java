@@ -56,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLException;
 
 /**
  * The client side of {@link StoreRpc}: what {@code ApiServer}, the reconcilers, and {@code
@@ -782,6 +783,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
    */
   private StoreRpc.Response sendAnyNode(StoreRpc.Request request) {
     int start = readCursor.getAndUpdate(i -> (i + 1) % endpoints.size());
+    TlsFailureTracker tlsFailures = new TlsFailureTracker();
     for (int i = 0; i < endpoints.size(); i++) {
       SocketAddress address = endpoints.get((start + i) % endpoints.size());
       try {
@@ -791,9 +793,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         // A gray failure (reachable but silent) surfaces here the same way as a clean refusal --
         // StoreConnection's own connect/read timeouts turn it into a SocketTimeoutException,
         // which is still an IOException, so it needs no special case beyond this one.
+        tlsFailures.recordFailure(e);
       }
     }
-    throw GimleRaftException.storeUnreachable(request.getClass().getSimpleName());
+    throw unreachableException(request.getClass().getSimpleName(), tlsFailures);
   }
 
   /**
@@ -808,23 +811,30 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /**
    * Keeps trying every endpoint until one answers as leader or {@link #LEADER_SEARCH_TIMEOUT}
-   * expires. Each pass is {@link #sendLeaderOnlyOnce}.
+   * expires. Each pass is {@link #sendLeaderOnlyOnce}. Bails out before the timeout the moment
+   * every attempt made so far failed its TLS handshake outright -- unlike "no leader yet", that
+   * outcome cannot resolve itself by waiting, so spending the rest of the budget retrying it would
+   * only delay reporting a certificate problem behind a misleading "unreachable" wait.
    */
   private StoreRpc.Response sendLeaderOnly(String operationName, StoreRpc.Request request) {
     long deadlineNanos = System.nanoTime() + LEADER_SEARCH_TIMEOUT.toNanos();
+    TlsFailureTracker tlsFailures = new TlsFailureTracker();
     while (true) {
-      StoreRpc.Response response = sendLeaderOnlyOnce(request);
+      StoreRpc.Response response = sendLeaderOnlyOnce(request, tlsFailures);
       if (response != null) {
         return response;
       }
+      if (tlsFailures.allAttemptsFailedWithTls()) {
+        throw unreachableException(operationName, tlsFailures);
+      }
       if (System.nanoTime() - deadlineNanos >= 0) {
-        throw GimleRaftException.storeUnreachable(operationName);
+        throw unreachableException(operationName, tlsFailures);
       }
       try {
         Thread.sleep(LEADER_SEARCH_RETRY_INTERVAL);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        throw GimleRaftException.storeUnreachable(operationName);
+        throw unreachableException(operationName, tlsFailures);
       }
     }
   }
@@ -836,15 +846,16 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
    * NotLeader} becomes the new cached preferred leader. {@code null} means no endpoint answered as
    * leader this pass -- either unreachable or all still followers.
    */
-  private StoreRpc.Response sendLeaderOnlyOnce(StoreRpc.Request request) {
+  private StoreRpc.Response sendLeaderOnlyOnce(
+      StoreRpc.Request request, TlsFailureTracker tlsFailures) {
     SocketAddress cached = preferredLeader.get();
     if (cached != null) {
-      StoreRpc.Response response = tryOnce(cached, request);
+      StoreRpc.Response response = tryOnce(cached, request, tlsFailures);
       if (response != null) {
         if (!(response instanceof StoreRpc.NotLeader notLeader)) {
           return response;
         }
-        StoreRpc.Response followed = followLeaderHint(notLeader, request);
+        StoreRpc.Response followed = followLeaderHint(notLeader, request, tlsFailures);
         if (followed != null) {
           return followed;
         }
@@ -854,7 +865,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
       if (address.equals(cached)) {
         continue; // already tried above
       }
-      StoreRpc.Response response = tryOnce(address, request);
+      StoreRpc.Response response = tryOnce(address, request, tlsFailures);
       if (response == null) {
         continue;
       }
@@ -862,7 +873,7 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         preferredLeader.set(address);
         return response;
       }
-      StoreRpc.Response followed = followLeaderHint(notLeader, request);
+      StoreRpc.Response followed = followLeaderHint(notLeader, request, tlsFailures);
       if (followed != null) {
         return followed;
       }
@@ -872,12 +883,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /** One direct retry against a {@link StoreRpc.NotLeader} hint's address. */
   private StoreRpc.Response followLeaderHint(
-      StoreRpc.NotLeader notLeader, StoreRpc.Request request) {
+      StoreRpc.NotLeader notLeader, StoreRpc.Request request, TlsFailureTracker tlsFailures) {
     if (notLeader.leaderClientAddress().isBlank()) {
       return null;
     }
     SocketAddress hinted = parseAddress(notLeader.leaderClientAddress());
-    StoreRpc.Response response = tryOnce(hinted, request);
+    StoreRpc.Response response = tryOnce(hinted, request, tlsFailures);
     if (response != null && !(response instanceof StoreRpc.NotLeader)) {
       preferredLeader.set(hinted);
       return response;
@@ -887,12 +898,69 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /**
    * Returns {@code null} (never throws) on transport failure, so callers can just try the next
-   * endpoint.
+   * endpoint. Every such failure is recorded in {@code tlsFailures} so the caller can tell, once
+   * every endpoint has been exhausted, whether this was ordinary unreachability or a TLS handshake
+   * rejected outright.
    */
-  private StoreRpc.Response tryOnce(SocketAddress address, StoreRpc.Request request) {
+  private StoreRpc.Response tryOnce(
+      SocketAddress address, StoreRpc.Request request, TlsFailureTracker tlsFailures) {
     try {
       return connectionFor(address).call(request);
     } catch (UncheckedIOException e) {
+      tlsFailures.recordFailure(e);
+      return null;
+    }
+  }
+
+  /**
+   * Distinguishes "every attempted endpoint failed its TLS handshake" from ordinary unreachability,
+   * so a bad local or peer certificate never surfaces as {@link
+   * GimleRaftException#storeUnreachable}'s generic message -- which reads exactly like a dead
+   * cluster or network partition and sends an operator chasing the wrong problem entirely.
+   */
+  private static GimleRaftException unreachableException(
+      String operationName, TlsFailureTracker tlsFailures) {
+    return tlsFailures.allAttemptsFailedWithTls()
+        ? GimleRaftException.storeUnreachableTls(operationName, tlsFailures.lastSslCause())
+        : GimleRaftException.storeUnreachable(operationName);
+  }
+
+  /**
+   * Accumulates, across every transport failure seen while searching for a leader (or rotating
+   * through endpoints for {@link #sendAnyNode}), whether every single one was rooted in an {@link
+   * SSLException} -- an outright TLS handshake rejection, not a mere connectivity gap. Unlike a
+   * refused or timed-out connection, a handshake failure will never resolve by retrying or waiting:
+   * it means this process's own certificate, or the peer's, is not one the other side's trust store
+   * accepts.
+   */
+  private static final class TlsFailureTracker {
+    private int attempts;
+    private int sslFailures;
+    private SSLException lastSslCause;
+
+    void recordFailure(UncheckedIOException failure) {
+      attempts++;
+      SSLException sslCause = findSslCause(failure);
+      if (sslCause != null) {
+        sslFailures++;
+        lastSslCause = sslCause;
+      }
+    }
+
+    boolean allAttemptsFailedWithTls() {
+      return attempts > 0 && sslFailures == attempts;
+    }
+
+    SSLException lastSslCause() {
+      return lastSslCause;
+    }
+
+    private static SSLException findSslCause(Throwable failure) {
+      for (Throwable current = failure; current != null; current = current.getCause()) {
+        if (current instanceof SSLException sslException) {
+          return sslException;
+        }
+      }
       return null;
     }
   }

@@ -68,6 +68,23 @@ public class GimleRaftException extends RuntimeException {
   }
 
   /**
+   * The client-side counterpart to {@link #storeUnreachable}, but for the one class of transport
+   * failure retrying can never resolve: every store endpoint {@code StoreClient} attempted while
+   * serving {@code operation} failed its TLS handshake outright, rather than merely being
+   * unreachable or slow. {@code cause} is the real {@code SSLHandshakeException}/{@code
+   * SSLException} from the last such attempt, chained so it is inspectable via {@link #getCause()}
+   * even though the top-level message stays generic about which peer rejected it.
+   */
+  public static GimleRaftException storeUnreachableTls(String operation, Throwable cause) {
+    return new GimleRaftException(
+        "every store endpoint rejected the TLS handshake while serving "
+            + operation
+            + " -- check this process's certificate and the store's trust configuration, not"
+            + " cluster/network health",
+        cause);
+  }
+
+  /**
    * The etcd-style membership-change safety rule this codebase ships in place of full joint
    * consensus: a leader rejects a new {@code AddServer}/{@code RemoveServer} while an earlier one
    * it proposed is still uncommitted, rather than allowing two configurations to ever be in flight
