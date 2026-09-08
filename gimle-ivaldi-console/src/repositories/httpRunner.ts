@@ -3,6 +3,8 @@ import { parse } from "yaml";
 import { DEFAULT_PORTS } from "@/lib/ports";
 import { applyLogLine, finalizeSteps, initialSteps, markCurrentPhase } from "@/lib/runPhases";
 
+import { fetchWithTimeout } from "./apiClient";
+
 import type {
   ActiveRun,
   CreateRunRequest,
@@ -201,7 +203,9 @@ export class HttpRunnerClient implements RunnerClient {
 
   async health(): Promise<RunnerHealth> {
     try {
-      const res = await fetch(this.url("/api/health"), { headers: { accept: "application/json" } });
+      const res = await fetchWithTimeout(this.url("/api/health"), {
+        headers: { accept: "application/json" },
+      });
       if (!res.ok)
         return { ok: false, mode: this.mode, version: null, message: `HTTP ${res.status}` };
       return { ok: true, mode: this.mode, version: null, message: null };
@@ -216,7 +220,7 @@ export class HttpRunnerClient implements RunnerClient {
   }
 
   async createRun(request: CreateRunRequest): Promise<RunSnapshot> {
-    const res = await fetch(this.url("/api/runs"), {
+    const res = await fetchWithTimeout(this.url("/api/runs"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -251,7 +255,7 @@ export class HttpRunnerClient implements RunnerClient {
       const path = blueprintId
         ? `/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`
         : "/api/runs/current";
-      const res = await fetch(this.url(path), {
+      const res = await fetchWithTimeout(this.url(path), {
         headers: { accept: "application/json" },
       });
       if (!res.ok) return null;
@@ -268,7 +272,9 @@ export class HttpRunnerClient implements RunnerClient {
 
   async listRuns(): Promise<ActiveRun[]> {
     try {
-      const res = await fetch(this.url("/api/runs"), { headers: { accept: "application/json" } });
+      const res = await fetchWithTimeout(this.url("/api/runs"), {
+        headers: { accept: "application/json" },
+      });
       if (!res.ok) return [];
       const raw = (await res.json()) as RawRunSnapshot[];
       return raw
@@ -301,12 +307,15 @@ export class HttpRunnerClient implements RunnerClient {
         // more than one deployment, so "the most recently started run across the whole backend"
         // could belong to a different blueprint entirely, on the same cluster or a different one.
         const [snapshotRes, logRes] = await Promise.all([
-          fetch(this.url(`/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`), {
+          fetchWithTimeout(this.url(`/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`), {
             headers: { accept: "application/json" },
           }),
-          fetch(this.url(`/api/runs/${encodeURIComponent(runId)}/log?cursor=${cursor}`), {
-            headers: { accept: "application/json" },
-          }),
+          fetchWithTimeout(
+            this.url(`/api/runs/${encodeURIComponent(runId)}/log?cursor=${cursor}`),
+            {
+              headers: { accept: "application/json" },
+            },
+          ),
         ]);
         if (logRes.ok) {
           const page = (await logRes.json()) as { lines?: string[]; nextCursor?: number };
@@ -365,7 +374,7 @@ export class HttpRunnerClient implements RunnerClient {
     // Scoped to this blueprint for the same reason #subscribe is: /api/runs/current would stop
     // whichever deployment across the whole backend happened to start most recently, not
     // necessarily this one.
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       this.url(`/api/runs/for-blueprint/${encodeURIComponent(blueprintId)}`),
       { method: "DELETE" },
     );
@@ -378,9 +387,12 @@ export class HttpRunnerClient implements RunnerClient {
    * caller -- there is no per-run topology endpoint, only a per-cluster one. */
   private async fetchTopologyText(clusterId: string): Promise<string | undefined> {
     try {
-      const res = await fetch(this.url(`/api/clusters/${encodeURIComponent(clusterId)}/topology`), {
-        headers: { accept: "application/json" },
-      });
+      const res = await fetchWithTimeout(
+        this.url(`/api/clusters/${encodeURIComponent(clusterId)}/topology`),
+        {
+          headers: { accept: "application/json" },
+        },
+      );
       if (!res.ok) return undefined;
       const body = (await res.json()) as { topology?: string | null };
       return body.topology ?? undefined;

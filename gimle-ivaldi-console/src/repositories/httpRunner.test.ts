@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { REQUEST_TIMEOUT_MS } from "./apiClient";
 import { HttpRunnerClient } from "./httpRunner";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -257,6 +258,29 @@ describe("HttpRunnerClient.createRun", () => {
       { name: "m1", host: "127.0.0.1", roles: ["store", "control plane"] },
       { name: "m2", host: "127.0.0.2", roles: ["andvari"] },
     ]);
+  });
+
+  it("rejects a black-holed POST /api/runs after the shared request timeout instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const call = client.createRun({
+      blueprintId: "bp-orders",
+      blueprintName: "orders",
+      machine: "m1",
+      files: [],
+    });
+    const assertion = expect(call).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    await assertion;
+    vi.useRealTimers();
   });
 });
 
