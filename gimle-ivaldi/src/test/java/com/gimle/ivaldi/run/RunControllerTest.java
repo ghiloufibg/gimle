@@ -895,6 +895,81 @@ class RunControllerTest {
     }
   }
 
+  /**
+   * {@code runsById} gained an entry on every {@link RunController#start} call and never lost one
+   * -- redeploying the same blueprint repeatedly grew it without bound for the life of the process.
+   * The current run for a deployment key is never at risk: only a run that has already been
+   * superseded (here, by the very next redeploy against the same key) ever counts against the cap.
+   */
+  @Test
+  void terminal_runs_beyond_the_retention_cap_are_evicted_from_runs_by_id() {
+    clusters.save("c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    List<String> runIds = new ArrayList<>();
+    int totalStarts = RunController.MAX_TERMINAL_RUNS_PER_DEPLOYMENT + 3;
+    for (int i = 0; i < totalStarts; i++) {
+      Map<String, Object> started =
+          controller.start("c1", Optional.of("bp-one"), filesMissingTheirJar(), Map.of());
+      runIds.add(String.valueOf(started.get("id")));
+      awaitSettled("bp-one");
+    }
+
+    String oldestRunId = runIds.get(0);
+    String recentRunId = runIds.get(runIds.size() - 2);
+    String currentRunId = runIds.get(runIds.size() - 1);
+
+    assertEquals(Optional.empty(), controller.log(oldestRunId, 0));
+    assertTrue(controller.log(recentRunId, 0).isPresent(), recentRunId);
+    assertTrue(controller.log(currentRunId, 0).isPresent(), currentRunId);
+  }
+
+  /**
+   * The workspace-cleanup counterpart to the retention test above: a run's own {@code
+   * ~/.gimle/ivaldi/runs/<run-id>/} directory must disappear once it is genuinely evicted, while a
+   * currently-live deployment's own workspace is left completely alone. Redeploys a single
+   * blueprint to {@code RUNNING} repeatedly against a real (fake) control plane, the same
+   * deploy-only path other tests in this class use, so each attempt genuinely writes its own
+   * workspace via {@code writeWorkspace} rather than failing before ever reaching it.
+   */
+  @Test
+  void a_terminal_evicted_runs_workspace_is_deleted_but_a_live_runs_workspace_is_not()
+      throws Exception {
+    try (FakeReleaseControlPlane fake = new FakeReleaseControlPlane()) {
+      Path dataRoot = tempDir.resolve("cluster-data-workspace");
+      Files.createDirectories(dataRoot);
+      Files.writeString(dataRoot.resolve("hilmir-run-local.json"), "[]", StandardCharsets.UTF_8);
+      String topologyYaml = topologyWithControlPlanePort(fake.port(), dataRoot);
+      clusters.save(
+          "c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://" + fake.address() + "\"}");
+      clusters.recordAppliedTopology("c1", topologyYaml);
+      List<RenderedFile> goodFiles =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile(
+                  "bundle.yaml",
+                  BUNDLE.replace("workloads:\n  - file: manifests/01-app.yaml\n", "")));
+
+      List<String> runIds = new ArrayList<>();
+      int totalStarts = RunController.MAX_TERMINAL_RUNS_PER_DEPLOYMENT + 2;
+      for (int i = 0; i < totalStarts; i++) {
+        Map<String, Object> started =
+            controller.start("c1", Optional.of("bp-one"), goodFiles, Map.of());
+        runIds.add(String.valueOf(started.get("id")));
+        Map<String, Object> settled = awaitSettled("bp-one");
+        assertEquals("running", settled.get("status"), settled.toString());
+      }
+
+      Path oldWorkspace = tempDir.resolve("runs").resolve(runIds.get(0));
+      Path currentWorkspace = tempDir.resolve("runs").resolve(runIds.get(runIds.size() - 1));
+
+      assertTrue(
+          Files.notExists(oldWorkspace),
+          "expected the evicted run's workspace to be gone: " + oldWorkspace);
+      assertTrue(
+          Files.isDirectory(currentWorkspace),
+          "expected the live run's own workspace to still exist: " + currentWorkspace);
+    }
+  }
+
   private Map<String, Object> awaitBlueprintRestoredTo(String expectedRunId) {
     for (int attempt = 0; attempt < 200; attempt++) {
       Map<String, Object> snapshot = controller.blueprintSnapshotJson("bp-one");

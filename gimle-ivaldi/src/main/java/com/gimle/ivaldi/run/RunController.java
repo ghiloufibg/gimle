@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import org.slf4j.Logger;
@@ -130,6 +131,16 @@ public final class RunController {
   /** How long a shutdown waits for a run's own worker to unwind before tearing down under it. */
   private static final Duration SHUTDOWN_WORKER_GRACE = Duration.ofSeconds(10);
 
+  /**
+   * How many superseded runs {@link #retireSupersededRun} keeps per deployment key before the
+   * oldest falls out of {@link #runsById} and its workspace is deleted. {@code runsById} and each
+   * run's own workspace directory otherwise grow without bound for the life of the process -- every
+   * {@link #start} call adds an entry and nothing ever removed one. Five is a judgment call for a
+   * solo-operator tool: enough that glancing back at "what did my last few attempts against this
+   * deployment actually do" still works, without keeping every attempt ever made.
+   */
+  static final int MAX_TERMINAL_RUNS_PER_DEPLOYMENT = 5;
+
   private final ClusterStore clusters;
   private final Path workspaceRoot;
 
@@ -155,6 +166,15 @@ public final class RunController {
    * resolvable forever after -- this is what {@link #byId} actually reads.
    */
   private final Map<String, ActiveRun> runsById = new ConcurrentHashMap<>();
+
+  /**
+   * Every deployment key's own superseded-run ids, oldest first, capped at {@link
+   * #MAX_TERMINAL_RUNS_PER_DEPLOYMENT} -- what {@link #retireSupersededRun} trims against. Only a
+   * run that has stopped being {@link #runsByDeployment}'s current pointer for its key is ever
+   * added here; the run still live at that key is never at risk of eviction.
+   */
+  private final Map<String, ConcurrentLinkedDeque<String>> terminalRunHistory =
+      new ConcurrentHashMap<>();
 
   public RunController(ClusterStore clusters, Path dataRoot) {
     this.clusters = clusters;
@@ -349,6 +369,11 @@ public final class RunController {
     ActiveRun run = new ActiveRun(mintRunId(), clusterId, blueprintId);
     runsByDeployment.put(key, run);
     runsById.put(run.id, run);
+    // existing (if any) just stopped being this key's current run -- already known terminal by the
+    // isInFlight() check above, so it is now eligible for #retireSupersededRun's own cap.
+    if (existing != null) {
+      retireSupersededRun(key, existing);
+    }
     blueprintId.ifPresent(id -> clusters.recordDeployment(clusterId, id));
     run.worker = Thread.ofVirtual().start(() -> execute(run, files, values, existing));
     return snapshotOf(run).toJsonMap();
@@ -1335,6 +1360,69 @@ public final class RunController {
     }
   }
 
+  /**
+   * Deletes {@code runId}'s own {@code ~/.gimle/ivaldi/runs/<run-id>/} workspace directory,
+   * best-effort -- called only once a run has genuinely stopped being useful to anything (see
+   * {@link #retireSupersededRun}), so a missing directory (a run that failed before ever reaching
+   * {@link #writeWorkspace}) is the common case, not an error.
+   */
+  private void deleteWorkspaceQuietly(String runId) {
+    Path workspace = workspaceRoot.resolve(runId);
+    if (!Files.exists(workspace)) {
+      return;
+    }
+    try (var paths = Files.walk(workspace)) {
+      for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(path);
+      }
+    } catch (java.io.IOException e) {
+      log.warn(
+          "failed deleting workspace for run {} under {}: {}", runId, workspace, e.getMessage());
+    }
+  }
+
+  /**
+   * Called the instant {@code superseded} stops being {@link #runsByDeployment}'s current run for
+   * {@code deploymentKey} -- an ordinary redeploy taking over the key in {@link #start}, or a
+   * rejected attempt's own slot being handed back to the previous good run in {@link
+   * #restorePreviousDeploymentOnRejection}. Without this, {@link #runsById} gained an entry on
+   * every {@link #start} call and never lost one, and every run past {@link #writeWorkspace} left
+   * its own directory under {@link #workspaceRoot} on disk forever, whichever of the two ended it.
+   *
+   * <p>A run that never reached {@link RunStatus#RUNNING} never became this deployment's own last
+   * known good state, so its workspace is never coming back -- deleted immediately rather than
+   * waiting for the cap below, since nothing reads a run's own workspace again once its own attempt
+   * is over (the jar push already landed in Andvari, the bundle deploy already reached the control
+   * plane; the workspace was only ever the local staging area for those two steps). A run that
+   * *did* reach {@code RUNNING} was genuinely live once, so its workspace is left alone here and
+   * only cleaned up once it actually falls out of {@link #runsById} below -- the one path this
+   * method funnels every eviction and every workspace deletion through, rather than scattering a
+   * second cleanup trigger elsewhere.
+   *
+   * <p>{@code runsById} history is kept a little longer than that: up to {@link
+   * #MAX_TERMINAL_RUNS_PER_DEPLOYMENT} superseded runs per deployment key stay resolvable by id --
+   * what lets an operator glance back at their last few attempts, not just the very latest one --
+   * before the oldest is evicted and its workspace (if it still has one) is deleted too.
+   */
+  private void retireSupersededRun(String deploymentKey, ActiveRun superseded) {
+    if (superseded.status != RunStatus.RUNNING) {
+      deleteWorkspaceQuietly(superseded.id);
+    }
+    ConcurrentLinkedDeque<String> history =
+        terminalRunHistory.computeIfAbsent(deploymentKey, k -> new ConcurrentLinkedDeque<>());
+    history.addLast(superseded.id);
+    while (history.size() > MAX_TERMINAL_RUNS_PER_DEPLOYMENT) {
+      String evictedId = history.pollFirst();
+      if (evictedId == null) {
+        break;
+      }
+      ActiveRun evicted = runsById.remove(evictedId);
+      if (evicted != null) {
+        deleteWorkspaceQuietly(evicted.id);
+      }
+    }
+  }
+
   private static void fail(ActiveRun run, String message) {
     run.status = RunStatus.FAILED;
     run.error = Optional.ofNullable(message);
@@ -1371,6 +1459,7 @@ public final class RunController {
       previousDeployment.log.append(
           "rejected a new deployment attempt against this cluster: " + run.error.orElse(""));
       previousDeployment.updatedAt = Instant.now();
+      retireSupersededRun(key, run);
     }
   }
 
