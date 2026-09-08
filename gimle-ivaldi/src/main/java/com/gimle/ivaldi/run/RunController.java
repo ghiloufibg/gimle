@@ -1258,9 +1258,9 @@ public final class RunController {
    * allowedCallerTenantIds/allowedCalleeTenantIds even as {@code []} to declare a real
    * deny-in-that-direction policy, and dropping a present-but-empty list here collapsed it into
    * "direction not restricted at all" -- the one shape the control plane refuses outright ("a
-   * network policy must restrict at least one direction"). deploymentNames staying keyed on
-   * presence too is what the manifest already omits when it means "the whole tenant" rather than
-   * "none".
+   * network policy must restrict at least one direction"). deploymentNames and
+   * serviceInterfaceNames staying keyed on presence too is what the manifest already omits when it
+   * means "every deployment"/"every service interface" rather than "none".
    */
   static Map<String, Object> networkPolicyBody(RenderedFile manifest, Map<?, ?> mapping) {
     String name = requireName(manifest, mapping, "NetworkPolicy", "'name'");
@@ -1273,7 +1273,11 @@ public final class RunController {
     }
     body.put("tenantId", tenant);
     for (String key :
-        List.of("deploymentNames", "allowedCallerTenantIds", "allowedCalleeTenantIds")) {
+        List.of(
+            "deploymentNames",
+            "serviceInterfaceNames",
+            "allowedCallerTenantIds",
+            "allowedCalleeTenantIds")) {
       if (mapping.containsKey(key)) {
         body.put(key, stringList(mapping.get(key)));
       }

@@ -733,6 +733,29 @@ class RunControllerTest {
         body.toString());
   }
 
+  /**
+   * A NetworkPolicy scoped to specific fabric service interfaces used to have that scoping silently
+   * dropped when applied, deploying a broader policy than the Designer showed as configured.
+   */
+  @Test
+  void network_policy_body_carries_service_interface_names_through_to_the_control_plane() {
+    RenderedFile manifest = new RenderedFile("manifests/05-networkpolicy-scoped.yaml", "");
+    Map<String, Object> mapping =
+        Map.of(
+            "name",
+            "scoped",
+            "tenantId",
+            "acme",
+            "serviceInterfaceNames",
+            List.of("com.example.Greeter"),
+            "allowedCallerTenantIds",
+            List.of("billing"));
+
+    Map<String, Object> body = RunController.networkPolicyBody(manifest, mapping);
+
+    assertEquals(List.of("com.example.Greeter"), body.get("serviceInterfaceNames"));
+  }
+
   @Test
   void network_policy_body_carries_a_non_empty_allow_list_through_unchanged() {
     RenderedFile manifest = new RenderedFile("manifests/05-networkpolicy-scoped.yaml", "");
