@@ -59,9 +59,18 @@ public final class HttpControlPlaneClient implements ControlPlaneClient {
       final Path jar,
       final int replicas,
       final Optional<String> tenantId) {
+    final int pushStatus = pushArtifact(moduleName, moduleVersion, jar, tenantId);
+    if (pushStatus != 200) {
+      return pushStatus;
+    }
     // Built by plain concatenation rather than a formatted text block: a multi-line format
     // string trips SpotBugs's VA_FORMAT_STRING_USES_NEWLINE, which a text block's own embedded
     // line breaks can never actually avoid triggering.
+    //
+    // No artifactPath line at all: the jar was just pushed above under this exact (name, version)
+    // coordinate, and the manifest parser rejects a present-but-blank value outright -- omitting
+    // the field entirely is what tells the control plane to resolve the module from the artifact
+    // registry instead of a local path meaningless on whatever machine actually runs it.
     final StringBuilder manifest = new StringBuilder();
     manifest
         .append("kind: Deployment\n")
@@ -75,15 +84,49 @@ public final class HttpControlPlaneClient implements ControlPlaneClient {
         .append("  version: ")
         .append(moduleVersion)
         .append('\n')
-        .append("artifactPath: ")
-        .append(jar.toAbsolutePath())
-        .append('\n')
         .append("replicas: ")
         .append(replicas)
         .append('\n');
     tenantId.ifPresent(id -> manifest.append("tenantId: ").append(id).append('\n'));
     return send(
         "PUT", "/deployments/" + deploymentName, manifest.toString(), "deployment submission");
+  }
+
+  /**
+   * Pushes the module jar to the target cluster's own artifact registry under the exact {@code
+   * (moduleName, moduleVersion)} coordinate the deployment manifest above will name, through the
+   * same {@code /artifacts/*} proxy {@code gimle artifact push} uses -- never a local {@code
+   * artifactPath}, which names a file on whatever filesystem this process happens to run on and
+   * means nothing to a real remote control plane or node agent. An identical re-push (the
+   * coordinate already holding these exact bytes) is an idempotent no-op on the registry side, so
+   * calling this before every submission -- including a same-machine harness cluster that could
+   * have used a local path just fine -- costs at most one redundant upload rather than requiring a
+   * separate code path.
+   */
+  private int pushArtifact(
+      final String moduleName,
+      final String moduleVersion,
+      final Path jar,
+      final Optional<String> tenantId) {
+    try {
+      final HttpRequest.Builder builder =
+          HttpRequest.newBuilder(
+                  URI.create(baseUrl + "/artifacts/" + moduleName + "/" + moduleVersion))
+              .PUT(HttpRequest.BodyPublishers.ofFile(jar));
+      tenantId.ifPresent(id -> builder.header("X-Gimle-Artifact-Tenant", id));
+      return httpClient
+          .send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+          .statusCode();
+    } catch (final Exception e) {
+      throw new RagnarokException(
+          "artifact push failed against "
+              + baseUrl
+              + "/artifacts/"
+              + moduleName
+              + "/"
+              + moduleVersion,
+          e);
+    }
   }
 
   @Override
