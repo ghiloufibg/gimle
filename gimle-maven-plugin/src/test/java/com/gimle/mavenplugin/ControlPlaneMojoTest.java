@@ -11,11 +11,57 @@ import org.junit.jupiter.api.Test;
  * {@link ControlPlaneMojo#buildCommand()} needs a live Maven session to resolve the runtime
  * classpath at all, but the actual command line it hands to the spawned process is a pure function
  * of its own inputs, split out into the static {@link ControlPlaneMojo#buildCommand(String, String,
- * String, String, String, String, String, String, String, String, String)} overload specifically so
- * it can be asserted here without any of that machinery -- the same seam {@link InitMojo}
- * establishes for its own {@code buildCommand}.
+ * String, String, String, String, String, String, String, String, String, String, String, String)}
+ * overload specifically so it can be asserted here without any of that machinery -- the same seam
+ * {@link InitMojo} establishes for its own {@code buildCommand}.
  */
 class ControlPlaneMojoTest {
+
+  @Test
+  void forwards_tls_cert_key_and_ca_files_as_plain_gimle_tls_system_properties() {
+    List<String> command =
+        ControlPlaneMojo.buildCommand(
+            "java",
+            "controlplane.jar",
+            "8080",
+            "secret.key",
+            "127.0.0.1:9091",
+            "127.0.0.1:9092",
+            null,
+            null,
+            "tls",
+            null,
+            null,
+            "/tls/controlplane.crt",
+            "/tls/controlplane.key",
+            "/tls/ca.crt");
+
+    assertTrue(command.contains("-Dgimle.tls.certFile=/tls/controlplane.crt"));
+    assertTrue(command.contains("-Dgimle.tls.keyFile=/tls/controlplane.key"));
+    assertTrue(command.contains("-Dgimle.tls.caFile=/tls/ca.crt"));
+  }
+
+  @Test
+  void unset_tls_files_leave_the_corresponding_flags_off_entirely() {
+    List<String> command =
+        ControlPlaneMojo.buildCommand(
+            "java",
+            "controlplane.jar",
+            "8080",
+            "secret.key",
+            "127.0.0.1:9091",
+            "127.0.0.1:9092",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    assertFalse(command.stream().anyMatch(arg -> arg.startsWith("-Dgimle.tls.")));
+  }
 
   @Test
   void threads_the_andvari_endpoint_through_to_control_plane_main() {
@@ -28,6 +74,9 @@ class ControlPlaneMojoTest {
             "127.0.0.1:9091",
             "127.0.0.1:9092",
             "127.0.0.1:9094",
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -52,6 +101,9 @@ class ControlPlaneMojoTest {
             null,
             null,
             null,
+            null,
+            null,
+            null,
             null);
 
     assertFalse(command.contains("--andvari-endpoint"));
@@ -71,6 +123,9 @@ class ControlPlaneMojoTest {
             null,
             null,
             null,
+            null,
+            null,
+            null,
             null);
 
     assertFalse(command.contains("--andvari-endpoint"));
@@ -86,6 +141,9 @@ class ControlPlaneMojoTest {
             "secret.key",
             "127.0.0.1:9091",
             "127.0.0.1:9092",
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -111,6 +169,9 @@ class ControlPlaneMojoTest {
             "127.0.0.1:9093",
             null,
             null,
+            null,
+            null,
+            null,
             null);
 
     int index = command.indexOf("--muninn-endpoint");
@@ -130,6 +191,9 @@ class ControlPlaneMojoTest {
             "127.0.0.1:9092",
             "127.0.0.1:9094",
             "  ",
+            null,
+            null,
+            null,
             null,
             null,
             null);
