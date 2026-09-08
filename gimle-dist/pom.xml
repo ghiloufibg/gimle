@@ -364,6 +364,11 @@
         at all, so it needs no OS-specific branching. checksum's format="MD5SUM" produces the
         traditional "<hash> *<filename>" line a real sha256sum -c already parses (verified against
         it), matching this execution's own name.
+
+        checksum writes each line's terminator via System.lineSeparator(), so a Windows-run build
+        (the very platform this Ant-over-shell-script choice exists to support) would otherwise ship
+        CRLF sidecars that a Linux/macOS sha256sum -c can't parse. The fixcrlf pass right after forces
+        every sidecar to LF regardless of which OS produced it, without touching the hash text itself.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -389,6 +394,7 @@
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <fixcrlf srcdir="${project.build.directory}" includes="*.sha256" eol="lf" eof="remove"/>
                 <copy file="${project.build.directory}/bom-platform.json"
                       tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"
                       overwrite="true" encoding="UTF-8" outputencoding="UTF-8">
