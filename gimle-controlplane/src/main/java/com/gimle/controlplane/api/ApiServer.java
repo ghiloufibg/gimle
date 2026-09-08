@@ -1670,13 +1670,28 @@ public final class ApiServer implements AutoCloseable {
 
   private static Optional<ModuleArtifact> readArtifactIfPossible(
       String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
+    Path path = Path.of(artifactPath);
     try {
       return Optional.of(
           vessel.isPresent()
-              ? VesselArtifacts.readVesselArtifact(Path.of(artifactPath), moduleId, vessel.get())
-              : ModuleArtifactReader.read(Path.of(artifactPath)));
+              ? VesselArtifacts.readVesselArtifact(path, moduleId, vessel.get())
+              : ModuleArtifactReader.read(path));
     } catch (RuntimeException e) {
-      return Optional.empty();
+      if (!Files.isRegularFile(path)) {
+        // Genuinely transient: the artifact simply isn't on this node's filesystem yet (most
+        // commonly because it hasn't finished syncing) -- admit anyway, the same tolerant posture
+        // this admission path has always taken, and let the reconciler keep re-validating every
+        // tick until it appears.
+        return Optional.empty();
+      }
+      // The artifact file exists but is deterministically, structurally invalid -- not a real
+      // JPMS module, missing its own bundled descriptor, or a descriptor that fails validation
+      // outright (e.g. a resource request exceeding its own limit). None of that can ever succeed
+      // on a future retry, so fail loudly here at apply time rather than admit silently and leave
+      // the reconciler to rediscover the same defect on every future tick -- the same "fail loudly
+      // at submit time, don't sit unplaceable forever" reasoning moduleVersionMismatchRejection
+      // below already applies to a resolved-but-wrong artifact.
+      throw e;
     }
   }
 
