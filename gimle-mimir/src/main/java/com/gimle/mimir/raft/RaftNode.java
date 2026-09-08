@@ -804,25 +804,52 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     awaitAppliedThrowing(index);
   }
 
-  /** The symmetric removal counterpart to {@link #addServer}. */
+  /**
+   * The symmetric removal counterpart to {@link #addServer}. {@code peerId} naming this leader's
+   * own {@link #selfId} is a real, supported case, not a contradiction: {@link #peerAddresses} is
+   * deliberately self-exclusive (see its own invariant), so a leader is never its own "peer" to
+   * remove the ordinary way -- without this branch, {@code peerAddresses.containsKey(selfId)} is
+   * trivially false and this call would throw {@link GimleRaftException#notAMember} for the one
+   * peer that unquestionably *is* a cluster member. Removing itself needs no majority hand-off the
+   * way etcd's own leader self-removal does: {@link #appendMembershipChangeLocked}'s existing
+   * commit path already requires only a majority of the unchanged surviving peer set (this leader's
+   * own log entry always counts toward it), so the entry commits exactly like any other proposal --
+   * the one thing that must differ is the entry itself must NOT re-add this leader back in the way
+   * every other entry does (see {@code includeSelfInEntry} below), or every other node would keep
+   * recovering the very peer being removed. Once that entry is committed and applied -- this leader
+   * still fully leading in the meantime, so replication proceeds normally -- this leader steps down
+   * to an ordinary follower via {@link #demoteToFollowerLocked}, the same terminal state any other
+   * removed peer's own still-running process is already left in.
+   */
   public void removeServer(String peerId) {
+    boolean removingSelf = peerId.equals(selfId);
     long index;
     lock.lock();
     try {
       requireReadyForMembershipChangeLocked();
-      if (!peerAddresses.containsKey(peerId)) {
+      if (!removingSelf && !peerAddresses.containsKey(peerId)) {
         throw GimleRaftException.notAMember(selfId, peerId);
       }
       Map<String, PeerAddress> updatedPeers = new LinkedHashMap<>(peerAddresses);
-      updatedPeers.remove(peerId);
       Set<String> updatedLearners = new LinkedHashSet<>(learners);
-      updatedLearners.remove(peerId);
-      index = appendMembershipChangeLocked(updatedPeers, updatedLearners);
+      if (!removingSelf) {
+        updatedPeers.remove(peerId);
+        updatedLearners.remove(peerId);
+      }
+      index = appendMembershipChangeLocked(updatedPeers, updatedLearners, !removingSelf);
     } finally {
       lock.unlock();
     }
     wakePeerSenders();
     awaitAppliedThrowing(index);
+    if (removingSelf) {
+      lock.lock();
+      try {
+        demoteToFollowerLocked();
+      } finally {
+        lock.unlock();
+      }
+    }
   }
 
   private void requireReadyForMembershipChangeLocked() {
@@ -847,17 +874,36 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * #maybePromoteLearnerLocked} (which does not: nothing calls it synchronously, so nothing needs
    * to wait on its result; it will commit on this same replication loop's own next successful round
    * if not this one). {@code newPeers} is still this leader's own self-exclusive view (the {@link
-   * #peerAddresses} invariant every call site already relies on); the log entry itself carries the
-   * full self-inclusive membership -- {@code newPeers} plus this leader's own {@link #selfAddress}
-   * -- so that every *other* node, applying the identical entry, can recover the leader as one of
-   * its own peers too by dropping only its own id (see {@link #reconfigurePeersLocked}).
+   * #peerAddresses} invariant every call site already relies on); the log entry itself normally
+   * carries the full self-inclusive membership -- {@code newPeers} plus this leader's own {@link
+   * #selfAddress} -- so that every *other* node, applying the identical entry, can recover the
+   * leader as one of its own peers too by dropping only its own id (see {@link
+   * #reconfigurePeersLocked}).
    */
   private long appendMembershipChangeLocked(
       Map<String, PeerAddress> newPeers, Set<String> newLearners) {
+    return appendMembershipChangeLocked(newPeers, newLearners, true);
+  }
+
+  /**
+   * The one case {@link #appendMembershipChangeLocked(Map, Set)} above cannot express: {@code
+   * includeSelfInEntry} false is this leader removing itself, where re-adding {@link #selfId} to
+   * the entry the way every other membership change does would silently undo the very removal being
+   * proposed -- every other node applies the identical entry, so a self-inclusive one would keep
+   * recovering this leader as one of their peers forever. {@code newPeers} stays the unchanged
+   * surviving set (self was never a member of it -- see {@link #peerAddresses}'s own invariant), so
+   * this leader's own {@link #reconfigurePeersLocked} call below is a no-op; only the *entry*
+   * differs from the self-inclusive shape, which is what lets every surviving node drop this leader
+   * on the very next reconfiguration.
+   */
+  private long appendMembershipChangeLocked(
+      Map<String, PeerAddress> newPeers, Set<String> newLearners, boolean includeSelfInEntry) {
     long term = raftLog.currentTerm();
     long index = raftLog.lastIndex() + 1;
     Map<String, PeerAddress> replicated = new LinkedHashMap<>(newPeers);
-    replicated.put(selfId, selfAddress);
+    if (includeSelfInEntry) {
+      replicated.put(selfId, selfAddress);
+    }
     raftLog.append(new LogEntry(term, index, new MembershipChange(replicated, newLearners)));
     reconfigurePeersLocked(newPeers, newLearners);
     pendingMembershipChangeIndex = index;

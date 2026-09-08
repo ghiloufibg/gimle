@@ -658,6 +658,42 @@ class RaftClusterTest {
         Duration.ofSeconds(10));
   }
 
+  /**
+   * OPS-w2c-01: removing the store's own CURRENT LEADER used to fail with a contradictory "not a
+   * cluster member" -- {@link RaftNode#peerAddresses} is self-exclusive, so the leader's own id was
+   * never a key in it to find. Unlike removing an ordinary peer, this needs the leader to keep
+   * leading long enough to get its own self-removing entry committed by the (unchanged) surviving
+   * majority, then step down -- see {@link RaftNode#removeServer}'s own updated javadoc.
+   */
+  @Test
+  @Timeout(30)
+  void removing_the_current_leader_itself_commits_then_steps_down_leaving_a_healthy_cluster()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode leader = awaitLeader(cluster);
+
+    leader.raftNode().removeServer(leader.id());
+
+    assertTrue(!leader.raftNode().isLeader(), "the self-removed leader must have stepped down");
+    List<ClusterNode> survivors = cluster.stream().filter(c -> c != leader).toList();
+    assertEquals(2, survivors.size());
+
+    // A new leader must emerge from the two survivors and go on committing real writes -- the
+    // old leader's own removal must not have left the cluster stuck with no one able to lead.
+    ClusterNode newLeader = awaitLeader(survivors);
+    assertNotEquals(leader.id(), newLeader.id());
+    newLeader
+        .raftNode()
+        .propose(
+            new StateMutation.PutTenant(
+                new Tenant("after-leader-self-removal", new ResourceQuota(1, 1, 1))));
+    Await.until(
+        () ->
+            survivors.stream()
+                .allMatch(c -> c.store().getTenant("after-leader-self-removal").isPresent()),
+        Duration.ofSeconds(10));
+  }
+
   @Test
   @Timeout(30)
   void adding_a_voter_doing_real_work_removing_an_original_then_killing_the_leader_stays_healthy()
