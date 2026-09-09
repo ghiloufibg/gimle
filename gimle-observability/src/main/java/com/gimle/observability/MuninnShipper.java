@@ -175,8 +175,8 @@ public final class MuninnShipper implements AutoCloseable {
 
   /**
    * Starts a periodic tick snapshotting every meter currently in {@code registry} and shipping one
-   * NDJSON line per meter -- a periodic push, not a pull-based scrape endpoint; Muninn has no
-   * Prometheus-shaped scrape exporter to poll. {@link Meter#measure()}'s generic {@code
+   * NDJSON line per meter -- a periodic push, not a pull-based scrape endpoint; Muninn exposes
+   * nothing for a metrics scraper to poll. {@link Meter#measure()}'s generic {@code
    * Statistic}-keyed iteration is what makes this uniform across
    * Counter/Gauge/Timer/DistributionSummary without hand-special-casing each meter type.
    */

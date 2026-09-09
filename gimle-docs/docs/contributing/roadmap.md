@@ -13,19 +13,20 @@ actually teaches, not by a feature-parity checklist.
 
 1. **Priority and preemption.** No notion of a higher-priority deployment evicting a lower-priority
    one under resource pressure — a genuinely hard fairness-versus-urgency scheduling problem.
-2. **Prometheus/OTLP-compatible read translation for Muninn.** Muninn's own first-party ingest/read
-   APIs (`/ingest/metrics/*`, `/metrics/*`, `/ingest/traces/*`, `/traces/*` — what
+2. **Exporting Muninn's data to an external observability stack.** Muninn's own first-party
+   ingest/read APIs (`/ingest/metrics/*`, `/metrics/*`, `/ingest/traces/*`, `/traces/*` — what
    `gimle-controlplane`'s `GET /metrics-history/*`/`GET /traces-history/*` proxy onto, see [Web
    console](../architecture/web-console.md#metrics-history-traces-and-audit-trail)) are deliberately
-   not wire-compatible with a Prometheus scrape or an OTLP collector — a considered trade-off (see
+   not wire-compatible with any third-party collector — a considered trade-off (see
    [Observability](../architecture/observability.md)), not an oversight: staying dependency-free
-   and self-contained (no `micrometer-registry-prometheus`/`opentelemetry-exporter-otlp`, no
-   operator-run collector) was preferred over out-of-the-box Grafana/Jaeger compatibility. Deferred
-   to last priority — it recovers ecosystem compatibility for existing data rather than closing a
-   cluster-mechanics gap the way item 1 above does. **Why it's worth building**: a thin
-   read-side translation layer — Muninn's own stored data exposed as a Prometheus-compatible scrape
-   endpoint — would recover that ecosystem compatibility without giving up the first-party
-   ingest/storage path underneath it.
+   and self-contained was preferred over out-of-the-box Grafana/Jaeger compatibility. Deferred to
+   last priority — it recovers ecosystem compatibility for existing data rather than closing a
+   cluster-mechanics gap the way item 1 above does. **Why it's worth building**: an opt-in,
+   push-based export from Muninn over OTLP/HTTP to a self-hosted Loki/Tempo/Mimir stack, driven off
+   the day files Muninn already retains, would recover that compatibility without giving up the
+   first-party ingest/storage path underneath it. A Prometheus scrape endpoint is explicitly *not*
+   the shape this takes: Gimlé carries no Prometheus support, and a scrape of an aggregating sink
+   needs staleness and authentication semantics Muninn's reads cannot offer a scraper.
 
 ## Acknowledged, deliberately not prioritized
 
