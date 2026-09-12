@@ -18,8 +18,13 @@ final class ResourceQuantity {
 
   /**
    * Renders {@code bytes} back into the largest binary suffix that divides it exactly, falling back
-   * to a bare byte count -- so the text always round-trips through {@link #parseMemory} and a
-   * diagnostic reads in the same units an operator writes in a manifest.
+   * to a bare byte count -- so the text round-trips through {@link #parseMemory}, and a diagnostic
+   * reads in the same units an operator writes in a manifest, <em>for a positive quantity</em>: a
+   * manifest's own {@code resources.request}/{@code resources.limit} can never legitimately be zero
+   * or negative, so {@link #parseMemory} rejects both, but a computed diagnostic this method also
+   * serves (a fully-packed node's zero free memory, an over-committed node's negative free capacity)
+   * can legitimately be either -- {@code formatMemory(0)}/a negative {@code formatMemory} result
+   * never re-parses, by design, not by oversight.
    */
   static String formatMemory(long bytes) {
     if (bytes == 0) {
