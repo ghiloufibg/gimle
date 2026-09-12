@@ -193,10 +193,12 @@ public interface StoreReader {
 
   Optional<NodeRegistration> getNodeRegistration(String nodeId);
 
-  Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName);
+  Optional<Integer> getEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name);
 
   /** Empty means "never scaled" -- see {@code StateStore#deploymentLastScale}'s own comment. */
-  Optional<Instant> getDeploymentLastScale(Optional<String> tenantId, String deploymentName);
+  Optional<Instant> getDeploymentLastScale(
+      String workloadKind, Optional<String> tenantId, String name);
 
   Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName);
 

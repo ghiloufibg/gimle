@@ -532,14 +532,16 @@ public final class RaftCodec {
       }
       case StateMutation.PutEffectiveReplicas m -> {
         out.writeByte(MUT_PUT_EFFECTIVE_REPLICAS);
+        out.writeUTF(m.workloadKind());
         DomainCodec.writeOptionalString(out, m.tenantId());
-        out.writeUTF(m.deploymentName());
+        out.writeUTF(m.name());
         out.writeInt(m.replicas());
       }
       case StateMutation.PutDeploymentLastScale m -> {
         out.writeByte(MUT_PUT_DEPLOYMENT_LAST_SCALE);
+        out.writeUTF(m.workloadKind());
         DomainCodec.writeOptionalString(out, m.tenantId());
-        out.writeUTF(m.deploymentName());
+        out.writeUTF(m.name());
         out.writeLong(m.lastScaleTime().toEpochMilli());
       }
       case StateMutation.PutNodeRegistration m -> {
@@ -923,15 +925,17 @@ public final class RaftCodec {
         yield new StateMutation.RemoveSurgeIndex(tenantId, deploymentName, in.readInt());
       }
       case MUT_PUT_EFFECTIVE_REPLICAS -> {
+        String workloadKind = in.readUTF();
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
-        String deploymentName = in.readUTF();
-        yield new StateMutation.PutEffectiveReplicas(tenantId, deploymentName, in.readInt());
+        String name = in.readUTF();
+        yield new StateMutation.PutEffectiveReplicas(workloadKind, tenantId, name, in.readInt());
       }
       case MUT_PUT_DEPLOYMENT_LAST_SCALE -> {
+        String workloadKind = in.readUTF();
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
-        String deploymentName = in.readUTF();
+        String name = in.readUTF();
         yield new StateMutation.PutDeploymentLastScale(
-            tenantId, deploymentName, Instant.ofEpochMilli(in.readLong()));
+            workloadKind, tenantId, name, Instant.ofEpochMilli(in.readLong()));
       }
       case MUT_PUT_NODE_REGISTRATION ->
           new StateMutation.PutNodeRegistration(DomainCodec.readNodeRegistration(in));

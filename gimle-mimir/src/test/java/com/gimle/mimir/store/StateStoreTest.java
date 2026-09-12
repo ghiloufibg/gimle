@@ -1410,17 +1410,18 @@ class StateStoreTest {
     StateStore store = new StateStore();
     Instant untenanted = Instant.parse("2026-03-01T10:00:00Z");
     Instant tenanted = Instant.parse("2026-03-01T11:00:00Z");
-    store.putDeploymentLastScale(Optional.empty(), "orders-service", untenanted);
-    store.putDeploymentLastScale(Optional.of("tenant-a"), "orders-service", tenanted);
+    store.putDeploymentLastScale("Deployment", Optional.empty(), "orders-service", untenanted);
+    store.putDeploymentLastScale("Deployment", Optional.of("tenant-a"), "orders-service", tenanted);
 
     assertEquals(
-        Optional.of(untenanted), store.getDeploymentLastScale(Optional.empty(), "orders-service"));
+        Optional.of(untenanted),
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"));
     assertEquals(
         Optional.of(tenanted),
-        store.getDeploymentLastScale(Optional.of("tenant-a"), "orders-service"));
+        store.getDeploymentLastScale("Deployment", Optional.of("tenant-a"), "orders-service"));
     assertEquals(
         Optional.empty(),
-        store.getDeploymentLastScale(Optional.empty(), "never-scaled"),
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "never-scaled"),
         "an unscaled deployment has no stamp at all, which is what makes its first scale free");
 
     StateStore target = new StateStore();
@@ -1428,7 +1429,7 @@ class StateStoreTest {
 
     assertEquals(
         Optional.of(tenanted),
-        target.getDeploymentLastScale(Optional.of("tenant-a"), "orders-service"),
+        target.getDeploymentLastScale("Deployment", Optional.of("tenant-a"), "orders-service"),
         "a replica catching up from a snapshot must inherit the open stabilization window");
   }
 
@@ -1436,15 +1437,70 @@ class StateStoreTest {
   void removing_a_deployment_clears_its_last_scale_stamp() {
     StateStore store = new StateStore();
     store.putDeployment(sampleDeployment("orders-service", 2));
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 4);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 4);
     store.putDeploymentLastScale(
-        Optional.empty(), "orders-service", Instant.parse("2026-03-01T10:00:00Z"));
+        "Deployment", Optional.empty(), "orders-service", Instant.parse("2026-03-01T10:00:00Z"));
 
     store.removeDeployment(Optional.empty(), "orders-service");
 
     assertEquals(
         Optional.empty(),
-        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"),
         "a deployment recreated under the same name must not inherit the old one's window");
+  }
+
+  /**
+   * The bug this proves fixed: a Deployment and a StatefulSet can share a name (see
+   * WorkloadHealthState's own javadoc), and effectiveReplicas/deploymentLastScale used to be keyed
+   * on nothing but (tenantId, name) -- one kind's autoscale tick silently overwrote the other's
+   * stored count, and an ordinary removeDeployment wiped a same-named StatefulSet's own
+   * stabilization window entirely.
+   */
+  @Test
+  void a_deployment_and_a_statefulset_sharing_a_name_have_independent_autoscale_state() {
+    StateStore store = new StateStore();
+    Optional<String> tenant = Optional.of("acme");
+    Instant deploymentScaledAt = Instant.parse("2026-03-01T10:00:00Z");
+    Instant statefulSetScaledAt = Instant.parse("2026-03-01T11:00:00Z");
+
+    store.putEffectiveReplicas("Deployment", tenant, "orders", 7);
+    store.putDeploymentLastScale("Deployment", tenant, "orders", deploymentScaledAt);
+    store.putEffectiveReplicas("StatefulSet", tenant, "orders", 3);
+    store.putDeploymentLastScale("StatefulSet", tenant, "orders", statefulSetScaledAt);
+
+    assertEquals(Optional.of(7), store.getEffectiveReplicas("Deployment", tenant, "orders"));
+    assertEquals(Optional.of(3), store.getEffectiveReplicas("StatefulSet", tenant, "orders"));
+    assertEquals(
+        Optional.of(deploymentScaledAt),
+        store.getDeploymentLastScale("Deployment", tenant, "orders"));
+    assertEquals(
+        Optional.of(statefulSetScaledAt),
+        store.getDeploymentLastScale("StatefulSet", tenant, "orders"));
+
+    store.removeDeployment(tenant, "orders");
+
+    assertEquals(
+        Optional.of(3),
+        store.getEffectiveReplicas("StatefulSet", tenant, "orders"),
+        "deleting the Deployment must never touch the same-named StatefulSet's own count");
+    assertEquals(
+        Optional.of(statefulSetScaledAt),
+        store.getDeploymentLastScale("StatefulSet", tenant, "orders"),
+        "deleting the Deployment must never touch the same-named StatefulSet's own window");
+  }
+
+  @Test
+  void removing_a_statefulset_clears_its_own_effective_replicas_and_last_scale() {
+    StateStore store = new StateStore();
+    Optional<String> tenant = Optional.of("acme");
+    store.putStatefulSetSpec(sampleStatefulSet("orders", 2));
+    store.putEffectiveReplicas("StatefulSet", tenant, "orders", 5);
+    store.putDeploymentLastScale(
+        "StatefulSet", tenant, "orders", Instant.parse("2026-03-01T10:00:00Z"));
+
+    store.removeStatefulSetSpec(tenant, "orders");
+
+    assertEquals(Optional.empty(), store.getEffectiveReplicas("StatefulSet", tenant, "orders"));
+    assertEquals(Optional.empty(), store.getDeploymentLastScale("StatefulSet", tenant, "orders"));
   }
 }

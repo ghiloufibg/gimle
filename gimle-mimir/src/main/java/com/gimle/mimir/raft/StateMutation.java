@@ -514,11 +514,18 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record PutEffectiveReplicas(Optional<String> tenantId, String deploymentName, int replicas)
+  /**
+   * {@code workloadKind} ({@code "Deployment"} or {@code "StatefulSet"} -- see {@code
+   * AutoscaleReconciler}'s two {@code reconcileOnce} branches) scopes the stored key alongside
+   * {@code (tenantId, name)}: a Deployment and a StatefulSet can share a name (see {@code
+   * WorkloadHealthState}'s own javadoc), so without it one kind's autoscale tick silently
+   * overwrote the other's effective replica count.
+   */
+  record PutEffectiveReplicas(String workloadKind, Optional<String> tenantId, String name, int replicas)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putEffectiveReplicas(tenantId, deploymentName, replicas);
+      store.putEffectiveReplicas(workloadKind, tenantId, name, replicas);
       return MutationOutcome.accepted();
     }
   }
@@ -526,14 +533,15 @@ public sealed interface StateMutation extends RaftLogPayload {
   /**
    * Proposed in the same batch as the {@link PutEffectiveReplicas} it accounts for -- what an
    * {@code AutoscalePolicy}'s stabilization windows are measured against on every later tick,
-   * whichever control-plane replica runs that tick.
+   * whichever control-plane replica runs that tick. {@code workloadKind} scopes it the identical
+   * way {@link PutEffectiveReplicas}'s own field comment explains.
    */
   record PutDeploymentLastScale(
-      Optional<String> tenantId, String deploymentName, Instant lastScaleTime)
+      String workloadKind, Optional<String> tenantId, String name, Instant lastScaleTime)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putDeploymentLastScale(tenantId, deploymentName, lastScaleTime);
+      store.putDeploymentLastScale(workloadKind, tenantId, name, lastScaleTime);
       return MutationOutcome.accepted();
     }
   }

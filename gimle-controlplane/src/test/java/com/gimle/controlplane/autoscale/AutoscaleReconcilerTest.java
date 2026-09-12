@@ -12,6 +12,7 @@ import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
@@ -127,6 +128,21 @@ class AutoscaleReconcilerTest {
         Optional.of(policy));
   }
 
+  private static StatefulSetSpec statefulSet(
+      String name, int replicas, Path jar, AutoscalePolicy policy, Optional<String> tenantId) {
+    return new StatefulSetSpec(
+        name,
+        new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+        jar.toAbsolutePath().toString(),
+        replicas,
+        PlacementConstraints.NONE,
+        Optional.of(policy),
+        tenantId,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
   /**
    * Two ready instances (indices 0/1) on {@code node-a}, each using {@code cpuMillicoresUsed} out
    * of the fixture's 10m request, with every non-CPU scaling signal at zero.
@@ -178,13 +194,13 @@ class AutoscaleReconcilerTest {
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -215,7 +231,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         2,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "node-a's heartbeat has gone dark, so its frozen high-utilization observation must not"
             + " drive a scale-up -- holding the current count, the same 'no signal yet' behavior"
             + " as no observations at all");
@@ -235,7 +251,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -245,16 +261,16 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = uncooledCpuPolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
     // 1m used out of a 10m request: 10% utilization, a fifth of the 50% target.
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -264,7 +280,7 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = uncooledCpuPolicy(2, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
@@ -272,7 +288,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(2, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(2, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -288,7 +304,7 @@ class AutoscaleReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -307,7 +323,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(Optional.empty(), store.getEffectiveReplicas(Optional.empty(), "orders-service"));
+    assertEquals(Optional.empty(), store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -363,7 +379,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce(); // steady state: already at the 5-replica ceiling
     }
 
-    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
     assertEquals(3, proposalsToReachCeiling, "expected exactly the 3 real transitions 2->3->4->5");
     assertEquals(
         proposalsToReachCeiling,
@@ -384,22 +400,22 @@ class AutoscaleReconcilerTest {
     DeploymentSpec highSpec = deployment("above-max-service", 2, jarHigh, policy);
     store.putDeployment(highSpec);
     // already above maxReplicas=5
-    store.putEffectiveReplicas(Optional.empty(), "above-max-service", 9);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "above-max-service", 9);
     twoReadyInstancesAt(store, "above-max-service", highSpec.moduleId(), 10L); // 100% util
 
     Path jarLow = buildFixtureJar();
     DeploymentSpec lowSpec = deployment("below-min-service", 2, jarLow, policy);
     store.putDeployment(lowSpec);
     // already below minReplicas=1
-    store.putEffectiveReplicas(Optional.empty(), "below-min-service", -3);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "below-min-service", -3);
     twoReadyInstancesAt(store, "below-min-service", lowSpec.moduleId(), 1L); // 10% util
 
     new AutoscaleReconciler(store).reconcileOnce();
 
     assertEquals(
-        5, store.getEffectiveReplicas(Optional.empty(), "above-max-service").orElseThrow());
+        5, store.getEffectiveReplicas("Deployment", Optional.empty(), "above-max-service").orElseThrow());
     assertEquals(
-        1, store.getEffectiveReplicas(Optional.empty(), "below-min-service").orElseThrow());
+        1, store.getEffectiveReplicas("Deployment", Optional.empty(), "below-min-service").orElseThrow());
   }
 
   @Test
@@ -419,7 +435,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         3,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "queue depth alone should drive a scale-up even though CPU utilization is well under"
             + " target");
   }
@@ -439,7 +455,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -457,7 +473,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -476,7 +492,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         1,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "an unconfigured signal must never influence the scaling decision");
   }
 
@@ -511,7 +527,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         1,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "heavily weighting CPU should pull the blended decision below what request rate alone"
             + " would have driven under worst-signal-wins");
   }
@@ -545,7 +561,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(2, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(2, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -575,7 +591,7 @@ class AutoscaleReconcilerTest {
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
     store.putDeployment(spec);
     // already below minReplicas=1
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", -3);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", -3);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 0.0, 0.0, 15);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
@@ -583,7 +599,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -595,14 +611,14 @@ class AutoscaleReconcilerTest {
         cooledCpuPolicy(1, 5, 50, Duration.ofMinutes(30), Duration.ofMinutes(30));
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // 10% util vs a 50% target
 
     reconcilerOn(store, clock).reconcileOnce();
 
     assertEquals(
         4,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "nothing has ever scaled this deployment, so there is no window to wait out");
   }
 
@@ -614,19 +630,19 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(4));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // still heart-beating
     reconciler.reconcileOnce();
     assertEquals(
         4,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "4 minutes into a 5-minute window, the same low utilization must not scale down again");
 
     clock.advance(Duration.ofMinutes(1).plusSeconds(1));
@@ -634,7 +650,7 @@ class AutoscaleReconcilerTest {
     reconciler.reconcileOnce();
     assertEquals(
         3,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "once the window has elapsed the sustained signal is acted on again");
   }
 
@@ -652,7 +668,7 @@ class AutoscaleReconcilerTest {
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     // The signal flips below target and stays there for four consecutive ticks, a minute apart.
     for (int tick = 0; tick < 4; tick++) {
@@ -661,7 +677,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
       assertEquals(
           3,
-          store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+          store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
           "the scale-up must not be reversed while its own stabilization window is still open");
     }
 
@@ -670,7 +686,7 @@ class AutoscaleReconcilerTest {
     reconciler.reconcileOnce();
     assertEquals(
         2,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "a signal that stays down past the window is a real change, not a flap");
   }
 
@@ -687,20 +703,20 @@ class AutoscaleReconcilerTest {
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
     reconciler.reconcileOnce();
     assertEquals(
         3,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "sustained overload still waits out a configured scale-up window");
 
     clock.advance(Duration.ofMinutes(1).plusSeconds(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -714,11 +730,11 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     reconcilerOn(store, clock).reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
@@ -726,7 +742,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         4,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "a fresh reconciler must still see the window the previous one opened");
   }
 
@@ -741,15 +757,15 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 9);
-    store.putDeploymentLastScale(Optional.empty(), "orders-service", clock.instant());
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 9);
+    store.putDeploymentLastScale("Deployment", Optional.empty(), "orders-service", clock.instant());
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // 10% util: wants down
 
     reconcilerOn(store, clock).reconcileOnce();
 
     assertEquals(
         5,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "the count must be clamped into the policy's own bounds regardless of the window, but not"
             + " stepped past them by the suppressed signal");
   }
@@ -764,14 +780,14 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
-    store.putDeploymentLastScale(
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
+    store.putDeploymentLastScale("Deployment", 
         Optional.empty(), "orders-service", clock.instant().plus(Duration.ofHours(1)));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofHours(1).plusMinutes(6));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
@@ -779,7 +795,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         4,
-        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
         "once real time passes the skewed stamp plus the window, scaling resumes normally");
   }
 
@@ -795,14 +811,14 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         Optional.empty(),
-        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"),
         "nothing is stamped before the first actual scale event");
 
     reconciler.reconcileOnce();
 
     assertEquals(
         Optional.of(clock.instant()),
-        store.getDeploymentLastScale(Optional.empty(), "orders-service"));
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -816,10 +832,43 @@ class AutoscaleReconcilerTest {
 
     reconcilerOn(store, clock).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
     assertEquals(
         Optional.empty(),
-        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"),
         "seeding the effective count is not a scale event and must not open a window");
+  }
+
+  /**
+   * The bug this proves fixed, driven through the real {@link AutoscaleReconciler#reconcileOnce}
+   * dispatch rather than a direct {@link StateStore} call: a Deployment and a StatefulSet sharing a
+   * name (legal -- no cross-kind uniqueness constraint, see {@code WorkloadHealthState}'s own
+   * javadoc) used to share one {@code effectiveReplicas} entry, so reconciling one after seeding the
+   * other silently overwrote it. Neither workload has any ready instance here (the "no signal yet,
+   * hold the current count" branch {@link #a_held_count_never_stamps_a_scale_event_that_did_not_happen}
+   * above already covers on its own), which is deliberate: it isolates this test to proving the two
+   * kinds' stored counts stay independent through one real reconcile tick, not to re-proving the
+   * scaling arithmetic a signal would drive.
+   */
+  @Test
+  void a_deployment_and_a_statefulset_sharing_a_name_scale_independently_through_reconcile_once() {
+    StateStore store = new StateStore();
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = uncooledCpuPolicy(1, 10, 50);
+    store.putDeployment(deployment("orders", 2, jar, policy));
+    store.putStatefulSetSpec(statefulSet("orders", 2, jar, policy, Optional.empty()));
+    store.putEffectiveReplicas("Deployment", Optional.empty(), "orders", 7);
+    store.putEffectiveReplicas("StatefulSet", Optional.empty(), "orders", 3);
+
+    reconcilerOn(store, Clock.systemUTC()).reconcileOnce();
+
+    assertEquals(
+        7,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders").orElseThrow(),
+        "reconciling the same-named StatefulSet must never overwrite the Deployment's own count");
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("StatefulSet", Optional.empty(), "orders").orElseThrow(),
+        "the StatefulSet's own count must survive reconciling the same-named Deployment");
   }
 }

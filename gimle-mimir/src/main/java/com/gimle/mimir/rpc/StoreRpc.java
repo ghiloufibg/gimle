@@ -450,11 +450,16 @@ public sealed interface StoreRpc {
 
   record GetNodeRegistration(String nodeId) implements Request {}
 
-  record GetEffectiveReplicas(Optional<String> tenantId, String deploymentName)
+  /**
+   * {@code workloadKind} ({@code "Deployment"} or {@code "StatefulSet"}) scopes the read the same
+   * way {@code StateStore#effectiveReplicas}'s own field comment explains a Deployment and a
+   * StatefulSet can share a {@code name}.
+   */
+  record GetEffectiveReplicas(String workloadKind, Optional<String> tenantId, String name)
       implements Request {}
 
   /** Empty means "never scaled" -- see {@code StateStore#deploymentLastScale}'s own comment. */
-  record GetDeploymentLastScale(Optional<String> tenantId, String deploymentName)
+  record GetDeploymentLastScale(String workloadKind, Optional<String> tenantId, String name)
       implements Request {}
 
   record ListRollingIndices(Optional<String> tenantId, String deploymentName) implements Request {}

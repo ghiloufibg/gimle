@@ -658,17 +658,19 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName) {
+  public Optional<Integer> getEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name) {
     StoreRpc.IntResult r =
-        (StoreRpc.IntResult) sendRead(new StoreRpc.GetEffectiveReplicas(tenantId, deploymentName));
+        (StoreRpc.IntResult)
+            sendRead(new StoreRpc.GetEffectiveReplicas(workloadKind, tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   public Optional<Instant> getDeploymentLastScale(
-      Optional<String> tenantId, String deploymentName) {
+      String workloadKind, Optional<String> tenantId, String name) {
     StoreRpc.InstantResult r =
         (StoreRpc.InstantResult)
-            sendRead(new StoreRpc.GetDeploymentLastScale(tenantId, deploymentName));
+            sendRead(new StoreRpc.GetDeploymentLastScale(workloadKind, tenantId, name));
     return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
   }
 

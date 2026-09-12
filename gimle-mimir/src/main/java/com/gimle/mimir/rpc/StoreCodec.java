@@ -502,13 +502,15 @@ public final class StoreCodec {
         }
         case StoreRpc.GetDeploymentLastScale v -> {
           out.writeByte(TAG_GET_DEPLOYMENT_LAST_SCALE);
+          out.writeUTF(v.workloadKind());
           DomainCodec.writeOptionalString(out, v.tenantId());
-          out.writeUTF(v.deploymentName());
+          out.writeUTF(v.name());
         }
         case StoreRpc.GetEffectiveReplicas v -> {
           out.writeByte(TAG_GET_EFFECTIVE_REPLICAS);
+          out.writeUTF(v.workloadKind());
           DomainCodec.writeOptionalString(out, v.tenantId());
-          out.writeUTF(v.deploymentName());
+          out.writeUTF(v.name());
         }
         case StoreRpc.ListRollingIndices v -> {
           out.writeByte(TAG_LIST_ROLLING_INDICES);
@@ -1171,9 +1173,11 @@ public final class StoreCodec {
         case TAG_GET_ACCOUNT -> new StoreRpc.GetAccount(in.readUTF());
         case TAG_GET_NODE_REGISTRATION -> new StoreRpc.GetNodeRegistration(in.readUTF());
         case TAG_GET_EFFECTIVE_REPLICAS ->
-            new StoreRpc.GetEffectiveReplicas(DomainCodec.readOptionalString(in), in.readUTF());
+            new StoreRpc.GetEffectiveReplicas(
+                in.readUTF(), DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_DEPLOYMENT_LAST_SCALE ->
-            new StoreRpc.GetDeploymentLastScale(DomainCodec.readOptionalString(in), in.readUTF());
+            new StoreRpc.GetDeploymentLastScale(
+                in.readUTF(), DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_ROLLING_INDICES ->
             new StoreRpc.ListRollingIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_SURGE_INDICES ->

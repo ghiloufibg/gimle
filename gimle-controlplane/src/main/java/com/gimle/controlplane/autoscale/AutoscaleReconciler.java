@@ -31,14 +31,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Horizontal autoscaling: for every deployment carrying an {@link AutoscalePolicy}, computes an
- * ideal replica count per configured signal -- CPU utilization ({@code cpuMillicoresUsed} &divide;
- * the module descriptor's {@code resourceRequest.cpuMillicores()}, always evaluated) plus request
- * rate, error rate, and queue depth (each only when its own {@code AutoscalePolicy} target is
- * configured), averaged across every currently-{@code ready} instance. {@link
- * AutoscalePolicy.CombinationMode#WORST_SIGNAL} (the default) takes the highest (worst) one as the
- * basis for the effective replica count, the same "max wins across independently computed metrics"
- * approach Kubernetes' own HPA uses rather than blending units together; {@link
+ * Horizontal autoscaling: for every Deployment or StatefulSet carrying an {@link AutoscalePolicy},
+ * computes an ideal replica count per configured signal -- CPU utilization ({@code
+ * cpuMillicoresUsed} &divide; the module descriptor's {@code resourceRequest.cpuMillicores()},
+ * always evaluated) plus request rate, error rate, and queue depth (each only when its own {@code
+ * AutoscalePolicy} target is configured), averaged across every currently-{@code ready} instance.
+ * {@link AutoscalePolicy.CombinationMode#WORST_SIGNAL} (the default) takes the highest (worst) one
+ * as the basis for the effective replica count, the same "max wins across independently computed
+ * metrics" approach Kubernetes' own HPA uses rather than blending units together; {@link
  * AutoscalePolicy.CombinationMode#WEIGHTED} instead blends every configured signal's own
  * observed/target ratio into a single weighted average first (see {@link #computeWeightedIdeal}),
  * an opt-in alternative that leaves every pre-existing policy's behavior unchanged. The result is
@@ -49,11 +49,18 @@ import org.slf4j.LoggerFactory;
  * of the user-submitted {@code replicas} whenever a policy is present; this reconciler never
  * touches {@link com.gimle.mimir.store.InstanceAssignment}s itself.
  *
+ * <p>{@code reconcileOnce}'s two kinds share this whole decision core (see {@link
+ * #reconcileWorkload}) but never share stored state: a Deployment and a StatefulSet can legally
+ * share a {@code name} (see {@code WorkloadHealthState}'s own javadoc), so every read/write of the
+ * effective replica count and the last-scale stamp below is scoped by {@code workloadKind}
+ * alongside {@code (tenantId, name)} -- without that, one kind's tick would silently overwrite the
+ * other's stored count, and deleting either would wipe the other's stabilization window entirely.
+ *
  * <p>One replica per tick bounds how fast a decision is acted on, but not how often the direction
  * may reverse -- a metric sitting on its own target would otherwise scale up, then down, then up
  * again forever. {@link AutoscalePolicy#scaleUpCooldown()}/{@link
  * AutoscalePolicy#scaleDownCooldown()} are the stabilization windows that stop that: a move in
- * either direction is suppressed until that direction's window has elapsed since the deployment's
+ * either direction is suppressed until that direction's window has elapsed since the workload's own
  * last recorded scale event. That timestamp is read from and written to the store ({@code
  * StateMutation.PutDeploymentLastScale}, committed in the same batch as the replica-count change it
  * accounts for), never held on this object -- a reconciler field would reset on every control-plane
@@ -128,7 +135,7 @@ public final class AutoscaleReconciler {
                   reconcileWorkload(
                       spec.tenantId(),
                       spec.name(),
-                      "deployment",
+                      "Deployment",
                       spec.artifactPath(),
                       spec.moduleId(),
                       spec.vessel(),
@@ -147,9 +154,10 @@ public final class AutoscaleReconciler {
                 }
               });
     }
-    // A StatefulSet's own OrderedReady placement/scale-down still reads replicas() (or, once an
-    // autoscale policy is present, this same effectiveReplicas store entry) exactly the way
-    // DeploymentReconciler already does -- this reconciler never touches assignments itself.
+    // Kept in its own store entry, keyed by workloadKind alongside (tenantId, name) -- see
+    // effectiveReplicas' own field comment in StateStore -- so a StatefulSet sharing a name with a
+    // Deployment gets its own independent effective-replica count and stabilization window rather
+    // than silently sharing (and corrupting) the Deployment's.
     for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
       spec.autoscale()
           .ifPresent(
@@ -158,7 +166,7 @@ public final class AutoscaleReconciler {
                   reconcileWorkload(
                       spec.tenantId(),
                       spec.name(),
-                      "statefulset",
+                      "StatefulSet",
                       spec.artifactPath(),
                       spec.moduleId(),
                       spec.vessel(),
@@ -196,7 +204,8 @@ public final class AutoscaleReconciler {
       AutoscalePolicy policy,
       int replicas,
       Supplier<List<InstanceObservation>> readyObservationsSupplier) {
-    int currentEffective = store.getEffectiveReplicas(tenantId, name).orElse(replicas);
+    int currentEffective =
+        store.getEffectiveReplicas(workloadKindLabel, tenantId, name).orElse(replicas);
 
     ModuleDescriptor descriptor;
     try {
@@ -209,19 +218,19 @@ public final class AutoscaleReconciler {
           name,
           artifactPath,
           e.getMessage());
-      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
+      putEffectiveReplicas(workloadKindLabel, tenantId, name, clamp(currentEffective, policy));
       return;
     }
     long cpuRequestMillicores = descriptor.resourceRequest().cpuMillicores();
     if (cpuRequestMillicores <= 0) {
-      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
+      putEffectiveReplicas(workloadKindLabel, tenantId, name, clamp(currentEffective, policy));
       return;
     }
 
     List<InstanceObservation> readyObservations = readyObservationsSupplier.get();
     if (readyObservations.isEmpty()) {
       // No signal yet (nothing ready/reporting): hold the current count rather than guessing.
-      putEffectiveReplicas(tenantId, name, clamp(currentEffective, policy));
+      putEffectiveReplicas(workloadKindLabel, tenantId, name, clamp(currentEffective, policy));
       return;
     }
 
@@ -303,8 +312,8 @@ public final class AutoscaleReconciler {
     }
 
     if (nextEffective != bounded
-        && withinCooldown(tenantId, name, policy, nextEffective > bounded)) {
-      putEffectiveReplicas(tenantId, name, bounded);
+        && withinCooldown(workloadKindLabel, tenantId, name, policy, nextEffective > bounded)) {
+      putEffectiveReplicas(workloadKindLabel, tenantId, name, bounded);
       return;
     }
     if (nextEffective != currentEffective) {
@@ -324,11 +333,12 @@ public final class AutoscaleReconciler {
       // measure the stabilization window against something that never happened.
       mutations.proposeAll(
           List.of(
-              new StateMutation.PutEffectiveReplicas(tenantId, name, nextEffective),
-              new StateMutation.PutDeploymentLastScale(tenantId, name, clock.instant())));
+              new StateMutation.PutEffectiveReplicas(workloadKindLabel, tenantId, name, nextEffective),
+              new StateMutation.PutDeploymentLastScale(
+                  workloadKindLabel, tenantId, name, clock.instant())));
       return;
     }
-    putEffectiveReplicas(tenantId, name, nextEffective);
+    putEffectiveReplicas(workloadKindLabel, tenantId, name, nextEffective);
   }
 
   /**
@@ -338,12 +348,16 @@ public final class AutoscaleReconciler {
    * clock reads slightly behind whichever one stamped the last event.
    */
   private boolean withinCooldown(
-      Optional<String> tenantId, String name, AutoscalePolicy policy, boolean scalingUp) {
+      String workloadKind,
+      Optional<String> tenantId,
+      String name,
+      AutoscalePolicy policy,
+      boolean scalingUp) {
     Duration window = scalingUp ? policy.scaleUpCooldown() : policy.scaleDownCooldown();
     if (window.isZero()) {
       return false;
     }
-    Optional<Instant> lastScale = store.getDeploymentLastScale(tenantId, name);
+    Optional<Instant> lastScale = store.getDeploymentLastScale(workloadKind, tenantId, name);
     if (lastScale.isEmpty()) {
       return false;
     }
@@ -434,16 +448,17 @@ public final class AutoscaleReconciler {
    * unchanged, only the redundant re-proposal of an already-correct value is skipped. An absent
    * stored value (a workload's very first tick) always proposes, seeding it exactly once.
    */
-  private void putEffectiveReplicas(Optional<String> tenantId, String name, int replicas) {
+  private void putEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name, int replicas) {
     boolean alreadyCorrect =
         store
-            .getEffectiveReplicas(tenantId, name)
+            .getEffectiveReplicas(workloadKind, tenantId, name)
             .map(current -> current == replicas)
             .orElse(false);
     if (alreadyCorrect) {
       return;
     }
-    mutations.propose(new StateMutation.PutEffectiveReplicas(tenantId, name, replicas));
+    mutations.propose(new StateMutation.PutEffectiveReplicas(workloadKind, tenantId, name, replicas));
   }
 
   private static int clamp(int value, AutoscalePolicy policy) {

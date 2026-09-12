@@ -336,7 +336,27 @@ class RaftCodecTest {
         logEntry(
             1L,
             new StateMutation.PutDeploymentLastScale(
-                Optional.of("tenant-1"), "greeter", Instant.ofEpochMilli(1_700_000_000_000L)));
+                "Deployment",
+                Optional.of("tenant-1"),
+                "greeter",
+                Instant.ofEpochMilli(1_700_000_000_000L)));
+
+    LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
+
+    assertEquals(original, decoded);
+  }
+
+  /**
+   * workloadKind is what keeps a Deployment and a StatefulSet sharing a name from silently
+   * overwriting each other's effective replica count -- round-tripping a StatefulSet-kind entry
+   * (not just the Deployment-kind one every other test here already covers) proves the field
+   * itself, not just its presence, survives the wire.
+   */
+  @Test
+  void round_trips_a_statefulset_kind_effective_replicas_entry() {
+    LogEntry original =
+        logEntry(
+            1L, new StateMutation.PutEffectiveReplicas("StatefulSet", Optional.of("tenant-1"), "orders", 5));
 
     LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
 

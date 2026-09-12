@@ -127,11 +127,17 @@ public final class StateStore implements StoreReader {
   // map from rollingIndices: maxUnavailable and maxSurge are independent budgets, and a given
   // mismatched index is only ever tracked by one of the two at a time.
   private final Map<String, Map<Integer, Integer>> surgeIndices = new ConcurrentHashMap<>();
+  // Keyed by workloadKindScopedKey, not scopedKey alone: a Deployment and a StatefulSet can share a
+  // name (see WorkloadHealthState's own javadoc, and rollingIndices/rollingStatefulSetIndices'
+  // identical split above), so AutoscaleReconciler ticking both kinds under one shared key let one
+  // kind's own effective replica count silently overwrite the other's, and an ordinary undeploy of
+  // one wipe the other's stabilization window entirely (see removeDeployment below).
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
-  // When the autoscaler last actually moved a deployment's effectiveReplicas. Absent means "never
+  // When the autoscaler last actually moved a workload's effectiveReplicas. Absent means "never
   // scaled," which no stabilization window can ever suppress. Durable rather than a field on the
   // reconciler so a control-plane restart or failover onto another replica can't reset the window
-  // and let a flapping metric scale again immediately.
+  // and let a flapping metric scale again immediately. Same kind-scoped key as effectiveReplicas
+  // above, for the identical reason.
   private final Map<String, Instant> deploymentLastScale = new ConcurrentHashMap<>();
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
@@ -302,8 +308,8 @@ public final class StateStore implements StoreReader {
     deploymentGenerations.merge(key, 1L, Long::sum);
     clearAllRollingIndices(tenantId, name);
     clearAllSurgeIndices(tenantId, name);
-    effectiveReplicas.remove(key);
-    deploymentLastScale.remove(key);
+    effectiveReplicas.remove(workloadKindScopedKey("Deployment", tenantId, name));
+    deploymentLastScale.remove(workloadKindScopedKey("Deployment", tenantId, name));
     controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", tenantId, name));
     clearInstanceEventsFor(tenantId, name);
   }
@@ -677,6 +683,11 @@ public final class StateStore implements StoreReader {
     statefulSetSpecs.remove(scopedKey(tenantId, name));
     clearAllRollingStatefulSetIndices(tenantId, name);
     controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", tenantId, name));
+    // This kind's own effectiveReplicas/deploymentLastScale entry -- absent before the fix that
+    // gave effectiveReplicas a kind-scoped key at all, since a StatefulSet's autoscale state had
+    // nowhere of its own to be cleared from; see effectiveReplicas' own field comment.
+    effectiveReplicas.remove(workloadKindScopedKey("StatefulSet", tenantId, name));
+    deploymentLastScale.remove(workloadKindScopedKey("StatefulSet", tenantId, name));
     clearInstanceEventsFor(tenantId, name);
   }
 
@@ -847,16 +858,19 @@ public final class StateStore implements StoreReader {
   // ---- autoscaling bookkeeping ----
 
   /**
-   * The autoscaler's current target replica count, read by {@link
+   * The autoscaler's current target replica count for one workload of {@code workloadKind} ({@code
+   * "Deployment"} or {@code "StatefulSet"}), read by {@link
    * com.gimle.controlplane.reconcile.DeploymentReconciler} in place of {@code
    * DeploymentSpec#replicas()} whenever a deployment carries an {@code autoscale} policy.
    */
-  public void putEffectiveReplicas(Optional<String> tenantId, String deploymentName, int replicas) {
-    effectiveReplicas.put(scopedKey(tenantId, deploymentName), replicas);
+  public void putEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name, int replicas) {
+    effectiveReplicas.put(workloadKindScopedKey(workloadKind, tenantId, name), replicas);
   }
 
-  public Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName) {
-    return Optional.ofNullable(effectiveReplicas.get(scopedKey(tenantId, deploymentName)));
+  public Optional<Integer> getEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name) {
+    return Optional.ofNullable(effectiveReplicas.get(workloadKindScopedKey(workloadKind, tenantId, name)));
   }
 
   /**
@@ -864,14 +878,15 @@ public final class StateStore implements StoreReader {
    * it accounts for, so the two can never disagree about whether a scale event happened.
    */
   public void putDeploymentLastScale(
-      Optional<String> tenantId, String deploymentName, Instant lastScaleTime) {
-    deploymentLastScale.put(scopedKey(tenantId, deploymentName), lastScaleTime);
+      String workloadKind, Optional<String> tenantId, String name, Instant lastScaleTime) {
+    deploymentLastScale.put(workloadKindScopedKey(workloadKind, tenantId, name), lastScaleTime);
   }
 
   /** Empty means "never scaled" -- see {@link #deploymentLastScale}'s own field comment. */
   public Optional<Instant> getDeploymentLastScale(
-      Optional<String> tenantId, String deploymentName) {
-    return Optional.ofNullable(deploymentLastScale.get(scopedKey(tenantId, deploymentName)));
+      String workloadKind, Optional<String> tenantId, String name) {
+    return Optional.ofNullable(
+        deploymentLastScale.get(workloadKindScopedKey(workloadKind, tenantId, name)));
   }
 
   // ---- node registrations ----
@@ -2051,6 +2066,18 @@ public final class StateStore implements StoreReader {
    */
   private static String scopedKey(Optional<String> tenantId, String name) {
     return tenantId.orElse("") + '\0' + name;
+  }
+
+  /**
+   * {@link #scopedKey}'s counterpart for a resource kind whose own store key must additionally
+   * distinguish it from a same-named workload of a different kind (see {@link #effectiveReplicas}'s
+   * own field comment) -- {@code workloadKind} is an internal literal ({@code "Deployment"}, {@code
+   * "StatefulSet"}), never operator-supplied, so the same {@code '\0'} delimiter guarantee
+   * {@link #scopedKey} relies on holds here too.
+   */
+  private static String workloadKindScopedKey(
+      String workloadKind, Optional<String> tenantId, String name) {
+    return workloadKind + '\0' + scopedKey(tenantId, name);
   }
 
   /**

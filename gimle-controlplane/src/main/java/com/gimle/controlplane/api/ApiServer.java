@@ -4567,9 +4567,11 @@ public final class ApiServer implements AutoCloseable {
         .ifPresent(reason -> status.put("unplacedReason", reason));
     putNotRunningRollup(status, notRunningReasons);
     // Present only once the autoscaler has actually moved this statefulset -- mirrors
-    // deploymentStatus's identical field exactly.
+    // deploymentStatus's identical field exactly. Its own kind-scoped store entry (see
+    // AutoscaleReconciler's own javadoc): a Deployment sharing this name has never shared, or been
+    // able to overwrite, this StatefulSet's own last-scale stamp.
     storeClient
-        .getDeploymentLastScale(spec.tenantId(), spec.name())
+        .getDeploymentLastScale("StatefulSet", spec.tenantId(), spec.name())
         .ifPresent(t -> status.put("lastScaleTime", t.toString()));
     return status;
   }
@@ -4698,7 +4700,7 @@ public final class ApiServer implements AutoCloseable {
     // stabilization windows are measured against, so an operator can see why a scale decision is
     // currently being held back.
     storeClient
-        .getDeploymentLastScale(spec.tenantId(), spec.name())
+        .getDeploymentLastScale("Deployment", spec.tenantId(), spec.name())
         .ifPresent(t -> status.put("lastScaleTime", t.toString()));
     Optional<String> limitRangeViolationReason =
         storeClient.limitRangeViolationReason(spec.tenantId(), spec.name());

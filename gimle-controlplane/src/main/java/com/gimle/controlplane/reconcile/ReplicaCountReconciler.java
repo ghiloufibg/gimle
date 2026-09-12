@@ -230,7 +230,7 @@ public final class ReplicaCountReconciler {
     int maxUnavailable = spec.get().effectiveDisruptionBudget().maxUnavailable();
     int replicas =
         store
-            .getEffectiveReplicas(identity.tenantId(), identity.deploymentName())
+            .getEffectiveReplicas("Deployment", identity.tenantId(), identity.deploymentName())
             .orElse(spec.get().replicas());
     long assignedWithinReplicaRange =
         assignments.stream().filter(a -> a.instanceIndex() < replicas).count();

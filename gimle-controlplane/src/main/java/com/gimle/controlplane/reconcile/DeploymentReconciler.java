@@ -167,7 +167,8 @@ public final class DeploymentReconciler {
     // The autoscaler's effective count stands in for the user-submitted replicas whenever a
     // policy is present; absent a policy (or absent any computed value yet), the submitted count
     // is exactly what's used, unchanged from before autoscaling existed.
-    int replicas = store.getEffectiveReplicas(spec.tenantId(), spec.name()).orElse(spec.replicas());
+    int replicas =
+        store.getEffectiveReplicas("Deployment", spec.tenantId(), spec.name()).orElse(spec.replicas());
 
     reclaimStaleAssignments(spec, replicas);
 
