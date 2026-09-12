@@ -1836,8 +1836,8 @@ public final class AgentMain {
    * trip ({@code GET /configmaps/{tenantId}?names=a,b,c}), and flattens each returned ConfigMap's
    * own {@code data} map into the same {@link ConfigValue} shape {@link #fetchConfigForTenant}
    * returns -- {@code ctx.config(key)} on the module side stays a plain map lookup regardless of
-   * which of the two fetch paths populated it. Never encrypted: a ConfigMap's plaintext data never
-   * touches Fafnir (see the design's own non-goals).
+   * which of the two fetch paths populated it. Never encrypted: a ConfigMap is plain configuration,
+   * not a secret, so its data never touches Fafnir.
    */
   private static List<ConfigValue> fetchConfigMaps(
       HttpClient httpClient, URI baseUrl, String tenantId, List<String> names)

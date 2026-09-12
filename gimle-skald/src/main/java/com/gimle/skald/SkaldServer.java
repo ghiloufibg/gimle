@@ -28,7 +28,8 @@ import org.slf4j.LoggerFactory;
 /**
  * The DNS responder itself: binds one {@link DatagramSocket} and one {@link ServerSocket} on the
  * same port, decodes each incoming query, resolves it against a {@link ServiceDirectory}, and
- * replies. Scope is deliberately narrow (see the design this component implements): standard {@code
+ * replies. Scope is deliberately narrow, matching what a cluster DNS responder actually needs to
+ * answer: standard {@code
  * A} and {@code SRV} queries against the {@code svc.gimle.local} zone get real answers (see {@link
  * #buildResponse} for the two name shapes served); a query this server can't or won't answer (wrong
  * opcode, an unsupported type, or a name outside the zone or not currently cached) gets a

@@ -25,15 +25,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Proves the design's central claim about {@code EndpointClusterTarget}: pointed at a real cluster
- * over HTTP and a real store client port only -- no process handles, no {@code GimleCluster} in
- * sight from the target's own perspective -- Surtr runs a real workload to completion, the
- * store-health gates answer for real off a genuine {@link com.gimle.mimir.rpc.StoreClient} RPC, and
- * every Fenrir fault this target has no way to fire (it holds no process handle for any of them) is
- * recorded {@code SKIPPED} with the expected reason rather than thrown. The cluster itself is
- * booted through the harness only to have something real to point the endpoint target at -- exactly
- * the honest degradation the design documents, not the harness's own {@code asClusterTarget()}
- * adapter.
+ * Proves {@code EndpointClusterTarget} works pointed at a real cluster over HTTP and a real store
+ * client port only -- no process handles, no {@code GimleCluster} in sight from the target's own
+ * perspective -- Surtr runs a real workload to completion, the store-health gates answer for real
+ * off a genuine {@link com.gimle.mimir.rpc.StoreClient} RPC, and every Fenrir fault this target has
+ * no way to fire (it holds no process handle for any of them) is recorded {@code SKIPPED} with the
+ * expected reason rather than thrown. The cluster itself is booted through the harness only to have
+ * something real to point the endpoint target at -- an adapter without process control degrading
+ * honestly is the whole point here, not the harness's own {@code asClusterTarget()} adapter.
  */
 @Tag("holmgang")
 class EndpointClusterTargetIT {

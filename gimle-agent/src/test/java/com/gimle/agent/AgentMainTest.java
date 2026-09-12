@@ -2152,7 +2152,7 @@ class AgentMainTest {
   // ---- deliverConfig: secretMapRefs narrows secret delivery to just the named SecretMaps ----
 
   /**
-   * The one test that proves the actual point of Phase 1's SecretMap work: a deployment declaring
+   * The one test that proves the actual point of SecretMap scoping: a deployment declaring
    * {@code secretMapRefs} must receive only those SecretMaps' keys as {@link
    * ControlMessage.ConfigDelivered} messages, never the tenant's other secrets -- unlike today's
    * unscoped behavior (every secret, always), which is what an empty {@code secretMapRefs} still
