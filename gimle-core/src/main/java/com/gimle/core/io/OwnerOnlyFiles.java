@@ -18,15 +18,15 @@ import org.slf4j.LoggerFactory;
  * between the two calls, at whatever the process's default umask allows -- commonly group/world-
  * readable on a stock Linux host. {@link Files#createFile(Path,
  * java.nio.file.attribute.FileAttribute[])} sets the requested mode as part of the same syscall
- * that creates the file, so there is no window between "file exists" and "file is owner-only" for
- * a local co-resident account to win.
+ * that creates the file, so there is no window between "file exists" and "file is owner-only" for a
+ * local co-resident account to win.
  *
- * <p>Falls back to {@code java.io.File}'s portable permission setters on a filesystem with no
- * POSIX permissions view (Windows, local development only -- every real deployment target this
- * platform runs on is POSIX). That fallback still can't be applied atomically at creation the way
- * the POSIX branch is, so a file created on such a filesystem is briefly visible at default
- * permissions regardless -- an accepted, local-development-only residual, not the exposure this
- * class exists to close.
+ * <p>Falls back to {@code java.io.File}'s portable permission setters on a filesystem with no POSIX
+ * permissions view (Windows, local development only -- every real deployment target this platform
+ * runs on is POSIX). That fallback still can't be applied atomically at creation the way the POSIX
+ * branch is, so a file created on such a filesystem is briefly visible at default permissions
+ * regardless -- an accepted, local-development-only residual, not the exposure this class exists to
+ * close.
  */
 public final class OwnerOnlyFiles {
 
@@ -35,9 +35,9 @@ public final class OwnerOnlyFiles {
   private OwnerOnlyFiles() {}
 
   /**
-   * Writes {@code content} to {@code path}: creates it with owner-only permissions atomically if
-   * it doesn't exist yet, or overwrites its content in place (permissions left untouched) if it
-   * does -- so a caller that repeatedly rewrites the same path (a key rotation's {@code .active}
+   * Writes {@code content} to {@code path}: creates it with owner-only permissions atomically if it
+   * doesn't exist yet, or overwrites its content in place (permissions left untouched) if it does
+   * -- so a caller that repeatedly rewrites the same path (a key rotation's {@code .active}
    * sidecar, a renewed leaf certificate's key file, a secret value re-rendered on every reconcile)
    * never reopens the exposure window the first write already closed.
    */
@@ -65,12 +65,25 @@ public final class OwnerOnlyFiles {
     }
   }
 
+  /**
+   * Every setter below must run regardless of whether an earlier one succeeded -- a failed {@code
+   * setReadable(false, false)} shouldn't skip the attempt to also clear write/execute or restore
+   * owner access. Each call is captured in its own local first, then combined with plain {@code
+   * &&}, rather than short-circuiting {@code &&} directly between calls (which would skip later
+   * setters the moment one returns {@code false}) or the bitwise {@code &} that would run
+   * everything but reads as an accidental typo for {@code &&}.
+   */
   private static boolean restrictPortable(Path path) {
     File file = path.toFile();
-    return file.setReadable(false, false)
-        & file.setWritable(false, false)
-        & file.setExecutable(false, false)
-        & file.setReadable(true, true)
-        & file.setWritable(true, true);
+    boolean clearedGroupOtherRead = file.setReadable(false, false);
+    boolean clearedGroupOtherWrite = file.setWritable(false, false);
+    boolean clearedGroupOtherExecute = file.setExecutable(false, false);
+    boolean restoredOwnerRead = file.setReadable(true, true);
+    boolean restoredOwnerWrite = file.setWritable(true, true);
+    return clearedGroupOtherRead
+        && clearedGroupOtherWrite
+        && clearedGroupOtherExecute
+        && restoredOwnerRead
+        && restoredOwnerWrite;
   }
 }
