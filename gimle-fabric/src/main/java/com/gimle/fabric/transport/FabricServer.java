@@ -747,6 +747,18 @@ public final class FabricServer implements AutoCloseable {
       if (!rule.tenantId().equals(selfTenantId.get())) {
         continue;
       }
+      if (deploymentName.isEmpty() && rule.deploymentNames().isPresent()) {
+        // appliesToDeployment(Optional.empty()) is unconditionally false for a scoped rule, so an
+        // unresolvable owner identity makes the rule silently not apply rather than silently deny
+        // -- the opposite of what a security control's own failure mode should look like. Flagging
+        // it loudly here beats a policy an operator believes is enforced quietly doing nothing.
+        log.warn(
+            "network policy {} is scoped to specific deployments, but this worker could not resolve"
+                + " {}'s own deployment identity -- the policy cannot be evaluated for this call and"
+                + " is treated as not applying",
+            rule.name(),
+            owner);
+      }
       if (!rule.appliesToDeployment(deploymentName)) {
         continue;
       }

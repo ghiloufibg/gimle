@@ -861,6 +861,49 @@ class FabricServerTest {
   }
 
   /**
+   * The bug this proves fixed: a deployment-scoped policy whose target deployment identity can't be
+   * resolved never applied and never said so either -- a security control failing silently rather
+   * than loudly. The rule still doesn't apply (that part is correct, per {@link
+   * #a_deployment_scoped_network_policy_never_restricts_a_target_with_no_known_deployment_name}
+   * above); this only proves the operator now finds out.
+   */
+  @Test
+  @Timeout(10)
+  void an_unresolvable_deployment_identity_against_a_scoped_policy_is_logged_not_silent()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenantAndDeployment(registry, Optional.of("tenant-a"), Optional.empty());
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "deny-by-default",
+                "tenant-a",
+                Optional.of(Set.of("greeter-deployment")),
+                Set.of())),
+        Set.of());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(FabricServer.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+    } finally {
+      logger.detachAppender(appender);
+    }
+
+    assertTrue(
+        appender.list.stream()
+            .anyMatch(event -> event.getFormattedMessage().contains("deny-by-default")),
+        "log line must name the unresolvable scoped policy: " + formattedMessages(appender));
+  }
+
+  /**
    * The bug this proves fixed: before naming the denying rule, an explicit network-policy refusal
    * was silent (no log line at all) and its exception read identically to "nobody exports this
    * interface," leaving an operator unable to tell a policy denial apart from a missing provider.
