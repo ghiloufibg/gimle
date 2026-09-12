@@ -11,6 +11,7 @@ import com.gimle.core.exception.GimleIsolationException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.exception.GimleTlsException;
+import com.gimle.core.io.OwnerOnlyFiles;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.module.ArtifactKind;
@@ -1122,8 +1123,8 @@ public final class AgentMain {
       if (directory != null) {
         Files.createDirectories(directory);
       }
-      Files.writeString(keyFile, Pem.encodePrivateKey(privateKey), StandardCharsets.US_ASCII);
-      restrictToOwner(keyFile);
+      OwnerOnlyFiles.write(
+          keyFile, Pem.encodePrivateKey(privateKey).getBytes(StandardCharsets.US_ASCII));
       Files.writeString(certFile, certificatePem, StandardCharsets.US_ASCII);
     } catch (IOException e) {
       throw new IOException(
@@ -1227,11 +1228,9 @@ public final class AgentMain {
       // synchronization with this one. Writing the key first guarantees that by the time the
       // watcher ever observes certFile's mtime move, the matching key is already fully on disk --
       // otherwise a poll landing between the two writes could pair a fresh cert with the stale key.
-      Files.writeString(
+      OwnerOnlyFiles.write(
           settings.keyFile(),
-          Pem.encodePrivateKey(keyPair.getPrivate()),
-          StandardCharsets.US_ASCII);
-      restrictToOwner(settings.keyFile());
+          Pem.encodePrivateKey(keyPair.getPrivate()).getBytes(StandardCharsets.US_ASCII));
       Files.writeString(settings.certFile(), issuedPem, StandardCharsets.US_ASCII);
       return new RotationOutcome(
           buildHttpClient(), monitor.rotated(Pem.decodeCertificate(issuedPem)));
@@ -2759,32 +2758,14 @@ public final class AgentMain {
         if (parent != null) {
           Files.createDirectories(parent);
         }
-        Files.writeString(target, value, StandardCharsets.UTF_8);
         if (secretBacked) {
-          restrictToOwner(target);
+          OwnerOnlyFiles.write(target, value.getBytes(StandardCharsets.UTF_8));
+        } else {
+          Files.writeString(target, value, StandardCharsets.UTF_8);
         }
       } catch (IOException e) {
         throw new UncheckedIOException("failed to render vessel file " + target, e);
       }
-    }
-  }
-
-  /**
-   * Owner-only read/write via {@code java.io.File}'s portable permission setters -- works on every
-   * platform the JVM does, unlike {@code PosixFilePermissions}. Best-effort: a filesystem that
-   * cannot express the restriction (some FAT mounts) logs rather than fails the spawn, since the
-   * file itself rendered correctly.
-   */
-  private static void restrictToOwner(Path target) {
-    java.io.File file = target.toFile();
-    boolean restricted =
-        file.setReadable(false, false)
-            & file.setWritable(false, false)
-            & file.setExecutable(false, false)
-            & file.setReadable(true, true)
-            & file.setWritable(true, true);
-    if (!restricted) {
-      log.warn("could not fully restrict permissions on secret-backed file {}", target);
     }
   }
 

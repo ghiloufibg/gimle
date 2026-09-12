@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -77,6 +78,22 @@ class NodeCertificateBootstrapTest {
     assertEquals(List.of("10.0.0.5"), alternativeNames(issued, IP_ADDRESS));
     assertEquals(CsrPurpose.NODE_CLIENT, submissions.get(0).purpose());
     assertEquals(Optional.of("token"), submissions.get(0).bootstrapToken());
+  }
+
+  @Test
+  void the_bootstrapped_nodes_own_private_key_is_restricted_to_its_owner() throws Exception {
+    List<String> requested =
+        AgentMain.nodeCertificateNames("node-a.cluster.internal", "node-a", "10.0.0.5");
+    Path certFile = tempDir.resolve("identity/node-node-a.crt");
+    Path keyFile = tempDir.resolve("identity/node-node-a.key");
+
+    AgentMain.bootstrapCertificate(
+        "node-a", certFile, keyFile, requested, Optional.empty(), this::signLikeTheControlPlane);
+
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      assertEquals(
+          "rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(keyFile)));
+    }
   }
 
   @Test
