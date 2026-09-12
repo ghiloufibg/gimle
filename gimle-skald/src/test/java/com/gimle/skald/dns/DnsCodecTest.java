@@ -210,8 +210,7 @@ final class DnsCodecTest {
       manyShortLabels.add("wwwww");
     }
 
-    assertThrows(
-        IllegalArgumentException.class, () -> DnsCodec.Answer.cname(manyShortLabels));
+    assertThrows(IllegalArgumentException.class, () -> DnsCodec.Answer.cname(manyShortLabels));
   }
 
   @Test

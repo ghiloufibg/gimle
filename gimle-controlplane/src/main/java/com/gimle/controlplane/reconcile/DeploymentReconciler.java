@@ -168,7 +168,9 @@ public final class DeploymentReconciler {
     // policy is present; absent a policy (or absent any computed value yet), the submitted count
     // is exactly what's used, unchanged from before autoscaling existed.
     int replicas =
-        store.getEffectiveReplicas("Deployment", spec.tenantId(), spec.name()).orElse(spec.replicas());
+        store
+            .getEffectiveReplicas("Deployment", spec.tenantId(), spec.name())
+            .orElse(spec.replicas());
 
     reclaimStaleAssignments(spec, replicas);
 

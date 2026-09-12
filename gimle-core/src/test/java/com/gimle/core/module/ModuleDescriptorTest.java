@@ -105,8 +105,8 @@ class ModuleDescriptorTest {
   }
 
   /**
-   * A volume name becomes a raw path segment {@code LocalDiskVolumeManager} joins straight onto
-   * the instance's own data directory -- a blank check alone let a traversal sequence through
+   * A volume name becomes a raw path segment {@code LocalDiskVolumeManager} joins straight onto the
+   * instance's own data directory -- a blank check alone let a traversal sequence through
    * unchanged, deleting or writing arbitrary files outside the instance's own sandbox once that
    * volume was later released or destroyed.
    */

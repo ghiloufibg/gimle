@@ -356,7 +356,9 @@ class RaftCodecTest {
   void round_trips_a_statefulset_kind_effective_replicas_entry() {
     LogEntry original =
         logEntry(
-            1L, new StateMutation.PutEffectiveReplicas("StatefulSet", Optional.of("tenant-1"), "orders", 5));
+            1L,
+            new StateMutation.PutEffectiveReplicas(
+                "StatefulSet", Optional.of("tenant-1"), "orders", 5));
 
     LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
 

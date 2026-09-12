@@ -333,7 +333,8 @@ public final class AutoscaleReconciler {
       // measure the stabilization window against something that never happened.
       mutations.proposeAll(
           List.of(
-              new StateMutation.PutEffectiveReplicas(workloadKindLabel, tenantId, name, nextEffective),
+              new StateMutation.PutEffectiveReplicas(
+                  workloadKindLabel, tenantId, name, nextEffective),
               new StateMutation.PutDeploymentLastScale(
                   workloadKindLabel, tenantId, name, clock.instant())));
       return;
@@ -458,7 +459,8 @@ public final class AutoscaleReconciler {
     if (alreadyCorrect) {
       return;
     }
-    mutations.propose(new StateMutation.PutEffectiveReplicas(workloadKind, tenantId, name, replicas));
+    mutations.propose(
+        new StateMutation.PutEffectiveReplicas(workloadKind, tenantId, name, replicas));
   }
 
   private static int clamp(int value, AutoscalePolicy policy) {

@@ -311,11 +311,11 @@ class AuthorizerTest {
 
   /**
    * {@code hasAnyReadGrant} originally skipped both {@link Authorizer#isNodeTenantScopedConfigRead}
-   * and {@link Authorizer#isControlPlaneArtifactRead}, the two special-case grants {@code authorize}
-   * itself honors beyond the ordinary RoleBinding walk -- so a node with a real tenant assignment
-   * (and thus a genuine {@code authorize} grant for that tenant's own CONFIG) was told it had no
-   * read grant at all, and the control plane's own unscoped ARTIFACT read fared the same, each
-   * narrower than {@code authorize} for exactly the caller this method exists to answer for.
+   * and {@link Authorizer#isControlPlaneArtifactRead}, the two special-case grants {@code
+   * authorize} itself honors beyond the ordinary RoleBinding walk -- so a node with a real tenant
+   * assignment (and thus a genuine {@code authorize} grant for that tenant's own CONFIG) was told
+   * it had no read grant at all, and the control plane's own unscoped ARTIFACT read fared the same,
+   * each narrower than {@code authorize} for exactly the caller this method exists to answer for.
    */
   @Test
   void has_any_read_grant_recognizes_a_nodes_tenant_scoped_config_grant() {

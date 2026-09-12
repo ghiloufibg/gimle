@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
  * resolution first. No {@code /} or {@code \}, and no leading {@code .} (which rules out {@code ..}
  * without special-casing it), so a caller can never smuggle a path-traversal or absolute-path
  * segment into a name that was only ever validated as "not blank." Dots are otherwise permitted
- * since a dotted name (a JPMS module id, a semver-ish version string) is a legitimate segment on its
- * own.
+ * since a dotted name (a JPMS module id, a semver-ish version string) is a legitimate segment on
+ * its own.
  *
  * <p>The same allow-list {@code gimle-andvari}'s own {@code ArtifactStore} and {@code gimle-muninn}
  * already apply to their own path segments -- centralized here once a third caller ({@link
@@ -23,7 +23,9 @@ public final class PathSegmentNames {
 
   private PathSegmentNames() {}
 
-  /** Whether {@code value} is safe to use as one raw path segment, per this class's own allow-list. */
+  /**
+   * Whether {@code value} is safe to use as one raw path segment, per this class's own allow-list.
+   */
   public static boolean isValidSegment(String value) {
     return value != null && SEGMENT.matcher(value).matches();
   }

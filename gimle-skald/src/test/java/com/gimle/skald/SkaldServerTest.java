@@ -111,8 +111,7 @@ final class SkaldServerTest {
   @Test
   void an_external_name_service_with_an_unencodable_host_answers_servfail_not_silence()
       throws IOException {
-    directory.replaceAll(
-        Map.of("billing.acme", List.of(new HostPort("b".repeat(260), 443))));
+    directory.replaceAll(Map.of("billing.acme", List.of(new HostPort("b".repeat(260), 443))));
 
     byte[] response = query(0x23, "billing.acme.svc.gimle.local", 1);
 

@@ -194,13 +194,19 @@ class AutoscaleReconcilerTest {
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        4,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        5,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -251,7 +257,9 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        5,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -267,10 +275,14 @@ class AutoscaleReconcilerTest {
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        4,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -288,7 +300,9 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(2, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        2,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -304,7 +318,9 @@ class AutoscaleReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -323,7 +339,9 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(Optional.empty(), store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service"));
+    assertEquals(
+        Optional.empty(),
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -379,7 +397,9 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce(); // steady state: already at the 5-replica ceiling
     }
 
-    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        5,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
     assertEquals(3, proposalsToReachCeiling, "expected exactly the 3 real transitions 2->3->4->5");
     assertEquals(
         proposalsToReachCeiling,
@@ -413,9 +433,15 @@ class AutoscaleReconcilerTest {
     new AutoscaleReconciler(store).reconcileOnce();
 
     assertEquals(
-        5, store.getEffectiveReplicas("Deployment", Optional.empty(), "above-max-service").orElseThrow());
+        5,
+        store
+            .getEffectiveReplicas("Deployment", Optional.empty(), "above-max-service")
+            .orElseThrow());
     assertEquals(
-        1, store.getEffectiveReplicas("Deployment", Optional.empty(), "below-min-service").orElseThrow());
+        1,
+        store
+            .getEffectiveReplicas("Deployment", Optional.empty(), "below-min-service")
+            .orElseThrow());
   }
 
   @Test
@@ -455,7 +481,9 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -473,7 +501,9 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -561,7 +591,9 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(2, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        2,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -599,7 +631,9 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        5,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -635,7 +669,9 @@ class AutoscaleReconcilerTest {
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        4,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(4));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // still heart-beating
@@ -668,7 +704,9 @@ class AutoscaleReconcilerTest {
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     // The signal flips below target and stays there for four consecutive ticks, a minute apart.
     for (int tick = 0; tick < 4; tick++) {
@@ -677,7 +715,9 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
       assertEquals(
           3,
-          store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow(),
+          store
+              .getEffectiveReplicas("Deployment", Optional.empty(), "orders-service")
+              .orElseThrow(),
           "the scale-up must not be reversed while its own stabilization window is still open");
     }
 
@@ -703,7 +743,9 @@ class AutoscaleReconcilerTest {
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
@@ -716,7 +758,9 @@ class AutoscaleReconcilerTest {
     clock.advance(Duration.ofMinutes(1).plusSeconds(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        4,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -734,7 +778,9 @@ class AutoscaleReconcilerTest {
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     reconcilerOn(store, clock).reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        4,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofMinutes(1));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
@@ -781,13 +827,18 @@ class AutoscaleReconcilerTest {
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
     store.putEffectiveReplicas("Deployment", Optional.empty(), "orders-service", 5);
-    store.putDeploymentLastScale("Deployment", 
-        Optional.empty(), "orders-service", clock.instant().plus(Duration.ofHours(1)));
+    store.putDeploymentLastScale(
+        "Deployment",
+        Optional.empty(),
+        "orders-service",
+        clock.instant().plus(Duration.ofHours(1)));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
     AutoscaleReconciler reconciler = reconcilerOn(store, clock);
 
     reconciler.reconcileOnce();
-    assertEquals(5, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        5,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
 
     clock.advance(Duration.ofHours(1).plusMinutes(6));
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
@@ -832,7 +883,9 @@ class AutoscaleReconcilerTest {
 
     reconcilerOn(store, clock).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        3,
+        store.getEffectiveReplicas("Deployment", Optional.empty(), "orders-service").orElseThrow());
     assertEquals(
         Optional.empty(),
         store.getDeploymentLastScale("Deployment", Optional.empty(), "orders-service"),
@@ -843,12 +896,13 @@ class AutoscaleReconcilerTest {
    * The bug this proves fixed, driven through the real {@link AutoscaleReconciler#reconcileOnce}
    * dispatch rather than a direct {@link StateStore} call: a Deployment and a StatefulSet sharing a
    * name (legal -- no cross-kind uniqueness constraint, see {@code WorkloadHealthState}'s own
-   * javadoc) used to share one {@code effectiveReplicas} entry, so reconciling one after seeding the
-   * other silently overwrote it. Neither workload has any ready instance here (the "no signal yet,
-   * hold the current count" branch {@link #a_held_count_never_stamps_a_scale_event_that_did_not_happen}
-   * above already covers on its own), which is deliberate: it isolates this test to proving the two
-   * kinds' stored counts stay independent through one real reconcile tick, not to re-proving the
-   * scaling arithmetic a signal would drive.
+   * javadoc) used to share one {@code effectiveReplicas} entry, so reconciling one after seeding
+   * the other silently overwrote it. Neither workload has any ready instance here (the "no signal
+   * yet, hold the current count" branch {@link
+   * #a_held_count_never_stamps_a_scale_event_that_did_not_happen} above already covers on its own),
+   * which is deliberate: it isolates this test to proving the two kinds' stored counts stay
+   * independent through one real reconcile tick, not to re-proving the scaling arithmetic a signal
+   * would drive.
    */
   @Test
   void a_deployment_and_a_statefulset_sharing_a_name_scale_independently_through_reconcile_once() {

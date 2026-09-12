@@ -29,12 +29,11 @@ import org.slf4j.LoggerFactory;
  * The DNS responder itself: binds one {@link DatagramSocket} and one {@link ServerSocket} on the
  * same port, decodes each incoming query, resolves it against a {@link ServiceDirectory}, and
  * replies. Scope is deliberately narrow, matching what a cluster DNS responder actually needs to
- * answer: standard {@code
- * A} and {@code SRV} queries against the {@code svc.gimle.local} zone get real answers (see {@link
- * #buildResponse} for the two name shapes served); a query this server can't or won't answer (wrong
- * opcode, an unsupported type, or a name outside the zone or not currently cached) gets a
- * well-formed {@code NOTIMP}/{@code NXDOMAIN} response rather than silence, so a caller's resolver
- * fails fast instead of timing out.
+ * answer: standard {@code A} and {@code SRV} queries against the {@code svc.gimle.local} zone get
+ * real answers (see {@link #buildResponse} for the two name shapes served); a query this server
+ * can't or won't answer (wrong opcode, an unsupported type, or a name outside the zone or not
+ * currently cached) gets a well-formed {@code NOTIMP}/{@code NXDOMAIN} response rather than
+ * silence, so a caller's resolver fails fast instead of timing out.
  *
  * <p>TCP serves the RFC 1035 §4.2.2 fallback contract: a UDP response that would exceed the
  * unextended 512-byte ceiling is sent truncated ({@code TC=1}, carrying as many complete answer
@@ -251,7 +250,8 @@ public final class SkaldServer implements AutoCloseable {
       // length limits (see DnsCodec.writeName) -- SERVFAIL rather than letting the exception escape
       // uncaught, which would silently drop the UDP query (handleDatagram calls this outside any
       // try/catch) or tear down the TCP connection, either way leaving the caller to time out
-      // instead of getting a fast, well-formed failure. The same "can't safely produce a trustworthy
+      // instead of getting a fast, well-formed failure. The same "can't safely produce a
+      // trustworthy
       // answer" posture staleServfail already takes for stale directory data.
       log.warn(
           "failed to build a DNS response for '{}': {}", query.question().name(), e.getMessage());

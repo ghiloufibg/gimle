@@ -130,11 +130,11 @@ public final class TenantUsage {
    * StatefulSet sharing it *except* {@code excludingWorkload} (pass {@code Optional.empty()} to
    * include everything) -- the exclusion lets admission compute "what would usage be after this PUT
    * replaces its own prior spec" without double-counting the workload being submitted. Matched by
-   * kind and name together, via {@link #isExcluded}: a bare name alone is not enough to identify one
-   * spec, since a Deployment and a Job (or any two different kinds) can legitimately share a name --
-   * see {@code WorkloadHealthState}'s own javadoc for the identical collision, already fixed once
-   * there. Excluding by name alone would silently drop a same-named, different-kind workload's real
-   * usage from this total instead of only the one spec actually being replaced.
+   * kind and name together, via {@link #isExcluded}: a bare name alone is not enough to identify
+   * one spec, since a Deployment and a Job (or any two different kinds) can legitimately share a
+   * name -- see {@code WorkloadHealthState}'s own javadoc for the identical collision, already
+   * fixed once there. Excluding by name alone would silently drop a same-named, different-kind
+   * workload's real usage from this total instead of only the one spec actually being replaced.
    */
   public static Usage currentlyAssigned(
       StoreReader store,

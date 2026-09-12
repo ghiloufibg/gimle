@@ -46,8 +46,8 @@ class LocalDiskVolumeManagerTest {
    * Defense-in-depth: a volume name is joined straight onto the instance's own data directory, so
    * this class validates it directly rather than trusting every caller (a module descriptor's own
    * declared volumes, a Vessel workload's env-var-keyed mount) to have done so upstream. Without
-   * this, a traversal sequence resolved through the real filesystem and reading, writing, or
-   * (once released under {@code ReclaimPolicy.DELETE}) recursively deleting an arbitrary directory
+   * this, a traversal sequence resolved through the real filesystem and reading, writing, or (once
+   * released under {@code ReclaimPolicy.DELETE}) recursively deleting an arbitrary directory
    * anywhere the process can reach.
    */
   @Test
@@ -58,7 +58,11 @@ class LocalDiskVolumeManagerTest {
         IllegalArgumentException.class,
         () ->
             manager.allocate(
-                NO_TENANT, "orders-statefulset", 0, "../../../../etc/evil", new VolumeRequest(1024)));
+                NO_TENANT,
+                "orders-statefulset",
+                0,
+                "../../../../etc/evil",
+                new VolumeRequest(1024)));
   }
 
   @Test

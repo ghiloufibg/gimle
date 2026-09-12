@@ -76,7 +76,9 @@ public final class WorkloadPlacementPreview {
    */
   private PlacementForecast forecastDeployment(DeploymentSpec spec, ModuleDescriptor descriptor) {
     int replicas =
-        store.getEffectiveReplicas("Deployment", spec.tenantId(), spec.name()).orElse(spec.replicas());
+        store
+            .getEffectiveReplicas("Deployment", spec.tenantId(), spec.name())
+            .orElse(spec.replicas());
     Set<Integer> assignedIndices = new HashSet<>();
     Set<String> occupiedNodes = new HashSet<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {

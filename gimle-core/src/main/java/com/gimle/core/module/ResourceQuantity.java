@@ -22,9 +22,9 @@ final class ResourceQuantity {
    * reads in the same units an operator writes in a manifest, <em>for a positive quantity</em>: a
    * manifest's own {@code resources.request}/{@code resources.limit} can never legitimately be zero
    * or negative, so {@link #parseMemory} rejects both, but a computed diagnostic this method also
-   * serves (a fully-packed node's zero free memory, an over-committed node's negative free capacity)
-   * can legitimately be either -- {@code formatMemory(0)}/a negative {@code formatMemory} result
-   * never re-parses, by design, not by oversight.
+   * serves (a fully-packed node's zero free memory, an over-committed node's negative free
+   * capacity) can legitimately be either -- {@code formatMemory(0)}/a negative {@code formatMemory}
+   * result never re-parses, by design, not by oversight.
    */
   static String formatMemory(long bytes) {
     if (bytes == 0) {

@@ -44,13 +44,13 @@ class ResourceSpecTest {
    * a manifest's own resources.request/resources.limit can never legitimately be zero or negative,
    * so parseMemory rejects both, but formatMemory also serves computed diagnostics (a fully-packed
    * node's zero free memory, an over-committed node's negative free capacity) that legitimately are
-   * either -- their formatted text is display-only and was never meant to feed back into a manifest.
+   * either -- their formatted text is display-only and was never meant to feed back into a
+   * manifest.
    */
   @Test
   void formatted_zero_or_negative_memory_does_not_parse_back() {
     assertThrows(
-        IllegalArgumentException.class,
-        () -> new ResourceSpec(ResourceSpec.formatMemory(0), "1m"));
+        IllegalArgumentException.class, () -> new ResourceSpec(ResourceSpec.formatMemory(0), "1m"));
     assertThrows(
         IllegalArgumentException.class,
         () -> new ResourceSpec(ResourceSpec.formatMemory(-4L * 1024 * 1024), "1m"));

@@ -119,8 +119,8 @@ public final class Authorizer {
    * <p>Must mirror every special-case grant {@link #authorize} itself recognizes, not just the
    * ordinary {@link RoleBinding} walk -- {@link #isNodeTenantScopedConfigRead} and {@link
    * #isControlPlaneArtifactRead} are real {@link Verb#READ} grants {@code authorize} honors, so
-   * omitting them here would make this gate narrower than {@code authorize} for exactly the
-   * callers it exists to answer for, contradicting this method's own contract above.
+   * omitting them here would make this gate narrower than {@code authorize} for exactly the callers
+   * it exists to answer for, contradicting this method's own contract above.
    */
   public boolean hasAnyReadGrant(Principal principal, ResourceKind resource) {
     if (isNodeSelfService(principal, resource, Verb.READ, Optional.empty())) {

@@ -870,7 +870,8 @@ public final class StateStore implements StoreReader {
 
   public Optional<Integer> getEffectiveReplicas(
       String workloadKind, Optional<String> tenantId, String name) {
-    return Optional.ofNullable(effectiveReplicas.get(workloadKindScopedKey(workloadKind, tenantId, name)));
+    return Optional.ofNullable(
+        effectiveReplicas.get(workloadKindScopedKey(workloadKind, tenantId, name)));
   }
 
   /**
@@ -2072,8 +2073,8 @@ public final class StateStore implements StoreReader {
    * {@link #scopedKey}'s counterpart for a resource kind whose own store key must additionally
    * distinguish it from a same-named workload of a different kind (see {@link #effectiveReplicas}'s
    * own field comment) -- {@code workloadKind} is an internal literal ({@code "Deployment"}, {@code
-   * "StatefulSet"}), never operator-supplied, so the same {@code '\0'} delimiter guarantee
-   * {@link #scopedKey} relies on holds here too.
+   * "StatefulSet"}), never operator-supplied, so the same {@code '\0'} delimiter guarantee {@link
+   * #scopedKey} relies on holds here too.
    */
   private static String workloadKindScopedKey(
       String workloadKind, Optional<String> tenantId, String name) {

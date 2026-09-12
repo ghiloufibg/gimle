@@ -162,8 +162,8 @@ class PermissionTest {
   /**
    * covers() matches tenantScope and qualifier by exact string equality against a request's own
    * value, so incidental whitespace left in the stored value would silently never match any real
-   * request -- ALL.equals(token.trim()) already trimmed for the wildcard check, but the non-wildcard
-   * branch stored the untrimmed token.
+   * request -- ALL.equals(token.trim()) already trimmed for the wildcard check, but the
+   * non-wildcard branch stored the untrimmed token.
    */
   @Test
   void parsing_trims_incidental_whitespace_from_tenant_scope_and_qualifier() {

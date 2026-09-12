@@ -310,14 +310,14 @@ public final class DnsCodec {
   }
 
   /**
-   * Enforces the same two RFC 1035 ceilings {@link #decodeName} already enforces on the read side --
-   * a label over {@link #MAX_LABEL_LENGTH} bytes or a name over {@link #MAX_NAME_LENGTH} bytes --
-   * before this label reaches the wire. Without this, {@code out.writeByte(bytes.length)} silently
-   * keeps only the low 8 bits of a length over 255 (a 260-byte label writes a declared length of 4),
-   * corrupting every byte of the record after it; a label between 64 and 255 bytes doesn't wrap but
-   * still violates the per-label limit every conformant resolver assumes. Reachable from a plain
-   * operator-supplied string -- an ExternalName Service's own {@code externalName}, or an SRV
-   * target's host -- with nothing upstream bounding its length.
+   * Enforces the same two RFC 1035 ceilings {@link #decodeName} already enforces on the read side
+   * -- a label over {@link #MAX_LABEL_LENGTH} bytes or a name over {@link #MAX_NAME_LENGTH} bytes
+   * -- before this label reaches the wire. Without this, {@code out.writeByte(bytes.length)}
+   * silently keeps only the low 8 bits of a length over 255 (a 260-byte label writes a declared
+   * length of 4), corrupting every byte of the record after it; a label between 64 and 255 bytes
+   * doesn't wrap but still violates the per-label limit every conformant resolver assumes.
+   * Reachable from a plain operator-supplied string -- an ExternalName Service's own {@code
+   * externalName}, or an SRV target's host -- with nothing upstream bounding its length.
    */
   private static void writeName(DataOutputStream out, List<String> labels) throws IOException {
     int encodedLength = 0;

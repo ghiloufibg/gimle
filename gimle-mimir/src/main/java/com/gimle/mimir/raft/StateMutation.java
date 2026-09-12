@@ -518,10 +518,11 @@ public sealed interface StateMutation extends RaftLogPayload {
    * {@code workloadKind} ({@code "Deployment"} or {@code "StatefulSet"} -- see {@code
    * AutoscaleReconciler}'s two {@code reconcileOnce} branches) scopes the stored key alongside
    * {@code (tenantId, name)}: a Deployment and a StatefulSet can share a name (see {@code
-   * WorkloadHealthState}'s own javadoc), so without it one kind's autoscale tick silently
-   * overwrote the other's effective replica count.
+   * WorkloadHealthState}'s own javadoc), so without it one kind's autoscale tick silently overwrote
+   * the other's effective replica count.
    */
-  record PutEffectiveReplicas(String workloadKind, Optional<String> tenantId, String name, int replicas)
+  record PutEffectiveReplicas(
+      String workloadKind, Optional<String> tenantId, String name, int replicas)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
