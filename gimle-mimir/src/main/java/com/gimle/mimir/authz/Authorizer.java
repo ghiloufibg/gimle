@@ -11,6 +11,7 @@ import com.gimle.mimir.store.StoreReader;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Resolves whether {@code principal} may perform {@code verb} on {@code resource}. Reads the store
@@ -114,9 +115,21 @@ public final class Authorizer {
    * through {@link #authorize} with its own tenant), while a caller with no read grant for the kind
    * whatsoever gets the same 403 a single-resource read would -- and this answers which of those
    * two a caller is without having to enumerate every tenant in the cluster.
+   *
+   * <p>Must mirror every special-case grant {@link #authorize} itself recognizes, not just the
+   * ordinary {@link RoleBinding} walk -- {@link #isNodeTenantScopedConfigRead} and {@link
+   * #isControlPlaneArtifactRead} are real {@link Verb#READ} grants {@code authorize} honors, so
+   * omitting them here would make this gate narrower than {@code authorize} for exactly the
+   * callers it exists to answer for, contradicting this method's own contract above.
    */
   public boolean hasAnyReadGrant(Principal principal, ResourceKind resource) {
     if (isNodeSelfService(principal, resource, Verb.READ, Optional.empty())) {
+      return true;
+    }
+    if (isNodeAssignedToAnyTenantScopedConfigRead(principal, resource)) {
+      return true;
+    }
+    if (isControlPlaneArtifactRead(principal, resource, Verb.READ)) {
       return true;
     }
     if (principal.groups().contains(BuiltinRoles.GROUP_OPERATORS)) {
@@ -224,6 +237,23 @@ public final class Authorizer {
   }
 
   /**
+   * The {@link #hasAnyReadGrant} counterpart to {@link #isNodeTenantScopedConfigRead}: that method
+   * answers for one specific tenant, but {@code hasAnyReadGrant} has none to check -- so this asks
+   * only whether the node has an active instance assignment for *some* tenant at all, which is
+   * exactly what would make at least one tenant-scoped {@code authorize} call succeed.
+   */
+  private boolean isNodeAssignedToAnyTenantScopedConfigRead(
+      Principal principal, ResourceKind resource) {
+    if (!principal.groups().contains(BuiltinRoles.GROUP_NODES)) {
+      return false;
+    }
+    if (resource != ResourceKind.CONFIG && resource != ResourceKind.CONFIGMAP) {
+      return false;
+    }
+    return isAssignedToNode(principal.name(), tenantId -> true);
+  }
+
+  /**
    * The control plane's own leaf certificate ({@code group:gimle:controlplane}, stamped by {@code
    * PkiBootstrapMain}) may always {@link Verb#READ} the artifact registry, unscoped by tenant or
    * moduleId -- the same unconditional-but-verb-limited shape {@code gimle:nodes} already gets for
@@ -272,41 +302,51 @@ public final class Authorizer {
    * check, not just the ones its own deployed modules actually declared a dependency on.
    */
   public boolean isTenantAssignedToNode(String nodeId, String tenantId) {
-    return deploymentTenantAssignedToNode(nodeId, tenantId)
-        || jobTenantAssignedToNode(nodeId, tenantId)
-        || daemonSetTenantAssignedToNode(nodeId, tenantId)
-        || statefulSetTenantAssignedToNode(nodeId, tenantId);
+    return isAssignedToNode(nodeId, tenantId::equals);
   }
 
-  private boolean deploymentTenantAssignedToNode(String nodeId, String tenantId) {
+  /**
+   * Shared core behind {@link #isTenantAssignedToNode} (a specific-tenant check) and {@link
+   * #isNodeAssignedToAnyTenantScopedConfigRead} (an any-tenant-at-all check) -- both walk the exact
+   * same four assignment kinds for {@code nodeId}, differing only in which of a matched
+   * assignment's own {@code tenantId} they accept, which {@code tenantMatches} captures.
+   */
+  private boolean isAssignedToNode(String nodeId, Predicate<String> tenantMatches) {
+    return deploymentAssignedToNode(nodeId, tenantMatches)
+        || jobAssignedToNode(nodeId, tenantMatches)
+        || daemonSetAssignedToNode(nodeId, tenantMatches)
+        || statefulSetAssignedToNode(nodeId, tenantMatches);
+  }
+
+  private boolean deploymentAssignedToNode(String nodeId, Predicate<String> tenantMatches) {
     return store.listAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
         .map(a -> store.getDeployment(a.tenantId(), a.deploymentName()))
         .flatMap(Optional::stream)
-        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+        .anyMatch(spec -> spec.tenantId().filter(tenantMatches).isPresent());
   }
 
-  private boolean jobTenantAssignedToNode(String nodeId, String tenantId) {
+  private boolean jobAssignedToNode(String nodeId, Predicate<String> tenantMatches) {
     return store.listJobRuns().stream()
         .filter(run -> run.nodeId().equals(nodeId))
         .map(run -> store.getJobSpec(run.tenantId(), run.jobName()))
         .flatMap(Optional::stream)
-        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+        .anyMatch(spec -> spec.tenantId().filter(tenantMatches).isPresent());
   }
 
-  private boolean daemonSetTenantAssignedToNode(String nodeId, String tenantId) {
+  private boolean daemonSetAssignedToNode(String nodeId, Predicate<String> tenantMatches) {
     return store.listDaemonSetAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
         .map(a -> store.getDaemonSetSpec(a.tenantId(), a.daemonSetName()))
         .flatMap(Optional::stream)
-        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+        .anyMatch(spec -> spec.tenantId().filter(tenantMatches).isPresent());
   }
 
-  private boolean statefulSetTenantAssignedToNode(String nodeId, String tenantId) {
+  private boolean statefulSetAssignedToNode(String nodeId, Predicate<String> tenantMatches) {
     return store.listStatefulSetAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
         .map(a -> store.getStatefulSetSpec(a.tenantId(), a.statefulSetName()))
         .flatMap(Optional::stream)
-        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+        .anyMatch(spec -> spec.tenantId().filter(tenantMatches).isPresent());
   }
 }

@@ -309,6 +309,41 @@ class AuthorizerTest {
             new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES)), ResourceKind.SERVICE));
   }
 
+  /**
+   * {@code hasAnyReadGrant} originally skipped both {@link Authorizer#isNodeTenantScopedConfigRead}
+   * and {@link Authorizer#isControlPlaneArtifactRead}, the two special-case grants {@code authorize}
+   * itself honors beyond the ordinary RoleBinding walk -- so a node with a real tenant assignment
+   * (and thus a genuine {@code authorize} grant for that tenant's own CONFIG) was told it had no
+   * read grant at all, and the control plane's own unscoped ARTIFACT read fared the same, each
+   * narrower than {@code authorize} for exactly the caller this method exists to answer for.
+   */
+  @Test
+  void has_any_read_grant_recognizes_a_nodes_tenant_scoped_config_grant() {
+    StateStore store = new StateStore();
+    assignDeploymentToNode(store, "node-1", "acme");
+    Authorizer authorizer = new Authorizer(store);
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertTrue(authorizer.hasAnyReadGrant(node, ResourceKind.CONFIG));
+    assertTrue(authorizer.hasAnyReadGrant(node, ResourceKind.CONFIGMAP));
+    // A resource CONFIG's own grant doesn't reach, and a node with no assignment at all, both still
+    // report no -- this widening must not become an unconditional yes for every node.
+    assertFalse(authorizer.hasAnyReadGrant(node, ResourceKind.SECRET));
+    assertFalse(
+        authorizer.hasAnyReadGrant(
+            new Principal("node-2", Set.of(BuiltinRoles.GROUP_NODES)), ResourceKind.CONFIG));
+  }
+
+  @Test
+  void has_any_read_grant_recognizes_the_controlplanes_unscoped_artifact_grant() {
+    Authorizer authorizer = authorizer("controlplane-any-read-grant");
+    Principal controlPlane =
+        new Principal("controlplane-1", Set.of(BuiltinRoles.GROUP_CONTROLPLANE));
+
+    assertTrue(authorizer.hasAnyReadGrant(controlPlane, ResourceKind.ARTIFACT));
+    assertFalse(authorizer.hasAnyReadGrant(controlPlane, ResourceKind.DEPLOYMENT));
+  }
+
   @Test
   void a_binding_referencing_a_role_that_no_longer_exists_grants_nothing() {
     StateStore store = new StateStore();
