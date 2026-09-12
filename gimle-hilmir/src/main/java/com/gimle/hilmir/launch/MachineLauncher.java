@@ -839,7 +839,22 @@ public final class MachineLauncher {
       final Path dataRoot, final RunRecord record, final PrintStream out) {
     final Optional<ProcessHandle> maybeHandle = ProcessHandle.of(record.pid());
     if (maybeHandle.isEmpty()) {
-      out.println(record.role() + " " + record.id() + " (pid " + record.pid() + ") already gone");
+      final List<ProcessHandle> orphans = findOrphanedWorkers(record.command());
+      if (orphans.isEmpty()) {
+        out.println(
+            record.role() + " " + record.id() + " (pid " + record.pid() + ") already gone");
+      } else {
+        killHandles(orphans);
+        out.println(
+            record.role()
+                + " "
+                + record.id()
+                + " (pid "
+                + record.pid()
+                + ") already gone -- found and stopped "
+                + orphans.size()
+                + " worker JVM(s) it left running");
+      }
       return;
     }
     final ProcessHandle handle = maybeHandle.get();
@@ -879,14 +894,82 @@ public final class MachineLauncher {
       if (descendants.isEmpty()) {
         return;
       }
-      descendants.forEach(ProcessHandle::destroy);
-      if (!awaitExit(descendants, KILL_GRACE_PERIOD)) {
-        final List<ProcessHandle> stillAlive =
-            descendants.stream().filter(ProcessHandle::isAlive).toList();
-        stillAlive.forEach(ProcessHandle::destroyForcibly);
-        awaitExit(stillAlive, KILL_GRACE_PERIOD);
-      }
+      killHandles(descendants);
     }
+  }
+
+  /**
+   * The destroy-then-await-then-destroyForcibly escalation {@link #killDescendants} and {@link
+   * #findOrphanedWorkers}'s own caller both need against a batch of handles neither of them owns a
+   * parent/child relationship to walk again afterward -- extracted once so both give every handle
+   * the same real chance to exit cooperatively before being forced.
+   */
+  private static void killHandles(final List<ProcessHandle> handles) {
+    handles.forEach(ProcessHandle::destroy);
+    if (!awaitExit(handles, KILL_GRACE_PERIOD)) {
+      final List<ProcessHandle> stillAlive =
+          handles.stream().filter(ProcessHandle::isAlive).toList();
+      stillAlive.forEach(ProcessHandle::destroyForcibly);
+      awaitExit(stillAlive, KILL_GRACE_PERIOD);
+    }
+  }
+
+  /** The {@code -Dgimle.log.root=} flag every worker a real agent spawns carries its own value. */
+  private static final String WORKER_LOG_ROOT_FLAG = "-Dgimle.log.root=";
+
+  /**
+   * Finds worker JVMs a now-already-dead agent left running, for the one case {@link
+   * #killDescendants} structurally cannot reach: once a tracked process is fully gone -- reaped,
+   * or killed by something other than this launcher before {@code down}/{@code stop} ever ran --
+   * the OS has no parent/child record left to walk {@link ProcessHandle#descendants()} from at
+   * all. Every worker a real {@code AgentMain} spawns carries its own {@code
+   * -Dgimle.log.root=<agentLogRoot>/workers/<key>} flag, scoped under the exact {@code
+   * -Dgimle.log.root} value hilmir itself gave that one agent instance (see {@code
+   * AgentMain#buildWorkerCommand}) -- unique to this run, so matching on it can never catch an
+   * unrelated node's own worker. A record for any role that never spawns children (every role but
+   * AGENT) simply has no such flag in its own command, so this always returns empty for those.
+   */
+  private static List<ProcessHandle> findOrphanedWorkers(final List<String> recordCommand) {
+    final Optional<String> agentLogRoot = flagValue(recordCommand, WORKER_LOG_ROOT_FLAG);
+    if (agentLogRoot.isEmpty()) {
+      return List.of();
+    }
+    final String workerMarker =
+        WORKER_LOG_ROOT_FLAG + Path.of(agentLogRoot.get()).resolve("workers");
+    return ProcessHandle.allProcesses()
+        .filter(candidate -> candidate.isAlive() && carriesMarker(candidate, workerMarker))
+        .toList();
+  }
+
+  private static Optional<String> flagValue(final List<String> command, final String flagPrefix) {
+    return command.stream()
+        .filter(arg -> arg.startsWith(flagPrefix))
+        .map(arg -> arg.substring(flagPrefix.length()))
+        .findFirst();
+  }
+
+  /**
+   * Whether {@code candidate}'s own command line carries {@code marker} as the prefix of one of its
+   * arguments. Prefers {@link ProcessHandle.Info#arguments()} -- a real per-argument array, immune
+   * to the single-string truncation {@link ProcessHandle.Info#commandLine()} is documented to apply
+   * to a very long command line before reaching a trailing argument (this exact pitfall cost a
+   * previous QA session real time misidentifying a worker process by its main-class argument alone)
+   * -- and falls back to a plain substring search over {@code commandLine()} only when the
+   * platform/permission model withholds the argument array, which both can do depending on OS and
+   * on whether this JVM owns the candidate process.
+   */
+  private static boolean carriesMarker(final ProcessHandle candidate, final String marker) {
+    final ProcessHandle.Info info = candidate.info();
+    final Optional<String[]> arguments = info.arguments();
+    if (arguments.isPresent()) {
+      for (final String arg : arguments.get()) {
+        if (arg.startsWith(marker)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return info.commandLine().map(line -> line.contains(marker)).orElse(false);
   }
 
   /**

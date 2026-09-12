@@ -66,6 +66,34 @@ class MachineLauncherDescendantKillIntegrationTest {
         false);
   }
 
+  /**
+   * Same fixture, but carrying a {@code -Dgimle.log.root=<agentLogRoot>} flag on its own command
+   * line -- exactly the flag a real {@code AgentMain} always carries, and the one {@link
+   * ParentWithChildFixtureMain} reads to scope its own spawned child's {@code -Dgimle.log.root}
+   * under {@code <agentLogRoot>/workers/child}, matching {@code AgentMain#buildWorkerCommand}'s own
+   * convention. Needed only by the orphaned-worker-discovery test below -- the other tests in this
+   * class don't set it, so their own children carry no such marker.
+   */
+  private static ProcessCommand parentWithChildCommandAndLogRoot(
+      final String id, final int port, final Path agentLogRoot) {
+    return new ProcessCommand(
+        AGENT,
+        id,
+        "m1",
+        List.of(
+            LaunchTestSupport.javaExecutable(),
+            "-Dgimle.log.root=" + agentLogRoot,
+            "-cp",
+            LaunchTestSupport.testClasspath(),
+            "com.gimle.hilmir.launch.fixture.ParentWithChildFixtureMain",
+            String.valueOf(port),
+            "false"),
+        id + ".log",
+        Path.of("/unused"),
+        "127.0.0.1:" + port,
+        false);
+  }
+
   private static PrintStream capture(final ByteArrayOutputStream buffer) {
     return new PrintStream(buffer, true, StandardCharsets.UTF_8);
   }
@@ -129,6 +157,54 @@ class MachineLauncherDescendantKillIntegrationTest {
         elapsed.compareTo(Duration.ofSeconds(5)) < 0,
         "a cooperative descendant must not cost a full grace-period wait: took " + elapsed);
     LaunchTestSupport.drainTempDir(tempDir);
+  }
+
+  @Test
+  @Timeout(30)
+  void down_finds_and_stops_a_worker_orphaned_by_an_agent_that_died_before_down_ever_ran()
+      throws IOException {
+    final int port = LaunchTestSupport.freePort();
+    final Path agentLogRoot = tempDir.resolve("agent-a-logs");
+    final List<RunRecord> started =
+        MachineLauncher.up(
+            singleCommandPlan(parentWithChildCommandAndLogRoot("agent-a", port, agentLogRoot)),
+            TOPOLOGY,
+            "m1",
+            runtime(),
+            capture(new ByteArrayOutputStream()));
+    final long parentPid = started.get(0).pid();
+    final long childPid = awaitDescendant(parentPid);
+
+    // Simulates the real gap this test exists for: the agent is already gone -- reaped, not just
+    // unresponsive -- by the time `down` runs, so `down` never gets a live ProcessHandle to walk
+    // descendants from at all. A plain destroy (not destroyForcibly) is enough since the parent
+    // fixture installs no shutdown hook of its own.
+    ProcessHandle.of(parentPid).orElseThrow().destroy();
+    awaitGone(parentPid);
+
+    MachineLauncher.down(tempDir, capture(new ByteArrayOutputStream()));
+
+    assertFalse(
+        ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
+        "an orphaned worker left behind by an already-dead agent must still be found and stopped");
+    LaunchTestSupport.drainTempDir(tempDir);
+  }
+
+  /** Polls until {@code pid} is fully gone (exited and reaped), not merely no longer alive. */
+  private static void awaitGone(final long pid) {
+    final long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+    while (System.nanoTime() < deadline) {
+      if (ProcessHandle.of(pid).isEmpty()) {
+        return;
+      }
+      try {
+        Thread.sleep(25);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError("interrupted waiting for pid " + pid + " to be reaped", e);
+      }
+    }
+    throw new AssertionError("pid " + pid + " was never reaped within 10s");
   }
 
   /**
