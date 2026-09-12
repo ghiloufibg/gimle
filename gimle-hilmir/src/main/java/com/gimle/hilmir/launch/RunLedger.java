@@ -2,6 +2,7 @@ package com.gimle.hilmir.launch;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.hilmir.HilmirException;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -75,11 +76,19 @@ final class RunLedger {
   static List<RunRecord> read(final Path dataRoot) {
     final List<Path> files = ledgerFiles(dataRoot);
     if (files.isEmpty()) {
+      // Not fileFor(dataRoot, "<machine>"): that resolves a real Path, and "<"/">" are illegal
+      // filename characters on Windows -- Path#resolve throws InvalidPathException before this
+      // message-only placeholder ever reaches a human. Plain concatenation instead: this is
+      // display text describing the expected filename shape, never an actual path to resolve.
       throw new HilmirException(
           "no run recorded at "
               + dataRoot
               + " (expected "
-              + fileFor(dataRoot, "<machine>")
+              + dataRoot
+              + File.separator
+              + FILE_PREFIX
+              + "<machine>"
+              + FILE_SUFFIX
               + "); has 'hilmir up' been run with this --data-root?");
     }
     final List<RunRecord> records = new ArrayList<>();

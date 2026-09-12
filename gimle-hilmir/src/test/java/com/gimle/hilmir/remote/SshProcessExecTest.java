@@ -139,14 +139,18 @@ class SshProcessExecTest {
 
   @Test
   void scp_command_carries_the_local_file_and_the_remote_destination_last() {
+    final Path localFile = Path.of("/local/topology.yaml");
     final List<String> command =
         exec()
             .scpCommand(
                 target(Optional.of("ubuntu"), Optional.empty(), Optional.empty()),
-                Path.of("/local/topology.yaml"),
+                localFile,
                 "/opt/gimle/topology.yaml");
 
-    assertEquals("/local/topology.yaml", command.get(command.size() - 2));
+    // scpCommand renders the local argument via Path#toString, which is platform-native (backslash
+    // on Windows) -- unlike the remote argument below, a plain string this class builds itself and
+    // always forward-slash regardless of host OS.
+    assertEquals(localFile.toString(), command.get(command.size() - 2));
     assertEquals(
         "ubuntu@gimle-1.example.com:/opt/gimle/topology.yaml", command.get(command.size() - 1));
   }
