@@ -1,6 +1,7 @@
 package com.gimle.os.localdisk;
 
 import com.gimle.core.exception.GimleVolumeException;
+import com.gimle.core.io.PathSegmentNames;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.VolumeRequest;
 import com.gimle.os.AllocatedVolume;
@@ -51,6 +52,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
       int instanceIndex,
       String volumeName,
       VolumeRequest request) {
+    PathSegmentNames.requireValidSegment(volumeName, "volume name");
     Path path = instancePath(tenantId, statefulSetName, instanceIndex).resolve(volumeName);
     try {
       Files.createDirectories(path);
@@ -67,11 +69,19 @@ public final class LocalDiskVolumeManager implements VolumeManager {
 
   @Override
   public Path hostPath(VolumeHandle handle) {
+    PathSegmentNames.requireValidSegment(handle.volumeName(), "volume name");
     return instancePath(handle.tenantId(), handle.statefulSetName(), handle.instanceIndex())
         .resolve(handle.volumeName());
   }
 
+  /**
+   * Defense-in-depth on {@code statefulSetName}: every real caller already sources it from a
+   * validated deployment/workload name, but this is the class that actually turns it into a
+   * filesystem path, so it validates it directly rather than trusting every future caller to have
+   * done so upstream.
+   */
   private Path instancePath(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    PathSegmentNames.requireValidSegment(statefulSetName, "statefulSetName");
     return dataRoot
         .resolve(VOLUMES_DIR)
         .resolve(tenantSegment(tenantId))

@@ -1,5 +1,6 @@
 package com.gimle.core.module;
 
+import com.gimle.core.io.PathSegmentNames;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -66,9 +67,11 @@ public record ModuleDescriptor(
       throw new IllegalArgumentException("volumes must not be null (use Map.of())");
     }
     for (String volumeName : volumes.keySet()) {
-      if (volumeName == null || volumeName.isBlank()) {
-        throw new IllegalArgumentException("volume names must not be blank");
-      }
+      // A volume name becomes a raw path segment (LocalDiskVolumeManager joins it straight onto
+      // the instance's own data directory), so a blank check alone lets "../../../etc" or an
+      // absolute path through unchanged -- the same defense gimle-andvari's own ArtifactStore
+      // already applies to its path segments.
+      PathSegmentNames.requireValidSegment(volumeName, "volume name");
     }
     volumes = Map.copyOf(volumes);
   }

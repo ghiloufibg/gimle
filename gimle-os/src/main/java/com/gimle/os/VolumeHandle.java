@@ -1,5 +1,6 @@
 package com.gimle.os;
 
+import com.gimle.core.io.PathSegmentNames;
 import com.gimle.core.module.VolumeRequest;
 import java.util.Optional;
 
@@ -26,15 +27,15 @@ public record VolumeHandle(
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
     }
-    if (statefulSetName == null || statefulSetName.isBlank()) {
-      throw new IllegalArgumentException("statefulSetName must not be blank");
-    }
+    // Both become raw filesystem path segments in LocalDiskVolumeManager, joined straight onto
+    // the instance's own data directory -- validated here too, not only there, so no path built
+    // from this handle's own fields can ever carry a traversal or absolute-path segment,
+    // regardless of which VolumeManager implementation or reconstruction path built it.
+    PathSegmentNames.requireValidSegment(statefulSetName, "statefulSetName");
     if (instanceIndex < 0) {
       throw new IllegalArgumentException("instanceIndex must not be negative: " + instanceIndex);
     }
-    if (volumeName == null || volumeName.isBlank()) {
-      throw new IllegalArgumentException("volumeName must not be blank");
-    }
+    PathSegmentNames.requireValidSegment(volumeName, "volumeName");
     if (request == null) {
       throw new IllegalArgumentException("request must not be null");
     }

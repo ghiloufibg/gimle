@@ -42,6 +42,36 @@ class LocalDiskVolumeManagerTest {
     assertTrue(Files.isDirectory(expected));
   }
 
+  /**
+   * Defense-in-depth: a volume name is joined straight onto the instance's own data directory, so
+   * this class validates it directly rather than trusting every caller (a module descriptor's own
+   * declared volumes, a Vessel workload's env-var-keyed mount) to have done so upstream. Without
+   * this, a traversal sequence resolved through the real filesystem and reading, writing, or
+   * (once released under {@code ReclaimPolicy.DELETE}) recursively deleting an arbitrary directory
+   * anywhere the process can reach.
+   */
+  @Test
+  void allocate_rejects_a_volume_name_containing_a_path_traversal_sequence() {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            manager.allocate(
+                NO_TENANT, "orders-statefulset", 0, "../../../../etc/evil", new VolumeRequest(1024)));
+  }
+
+  @Test
+  void hostpath_rejects_a_handle_whose_volume_name_contains_a_path_traversal_sequence() {
+    // VolumeHandle's own compact constructor validates volumeName, so the traversal sequence is
+    // rejected at construction time -- before hostPath ever sees it.
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new VolumeHandle(
+                NO_TENANT, "orders-statefulset", 0, "../../../etc/evil", new VolumeRequest(1024)));
+  }
+
   @Test
   void allocate_is_idempotent_for_the_same_index() throws IOException {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
