@@ -1,19 +1,16 @@
 package com.gimle.core.session;
 
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.io.OwnerOnlyFiles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Loads a process's own AES-256 session-cookie-signing key from {@code keyFilePath}, generating one
@@ -33,7 +30,6 @@ import org.slf4j.LoggerFactory;
  */
 public final class SessionKeyFileManager {
 
-  private static final Logger log = LoggerFactory.getLogger(SessionKeyFileManager.class);
   private static final String ALGORITHM = "AES";
   private static final int KEY_BITS = 256;
   private static final Set<Integer> VALID_AES_KEY_LENGTHS = Set.of(16, 24, 32);
@@ -54,8 +50,7 @@ public final class SessionKeyFileManager {
       if (parent != null) {
         Files.createDirectories(parent);
       }
-      createKeyFile(keyFilePath);
-      Files.write(keyFilePath, key.getEncoded(), StandardOpenOption.WRITE);
+      OwnerOnlyFiles.write(keyFilePath, key.getEncoded());
       return key;
     } catch (IOException e) {
       throw new UncheckedIOException(
@@ -70,27 +65,6 @@ public final class SessionKeyFileManager {
       return generator.generateKey();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("AES key generation unavailable", e);
-    }
-  }
-
-  /**
-   * Creates {@code path} atomically with owner-only permissions already applied on a POSIX
-   * filesystem, so the key file is never briefly visible at default (often world-readable)
-   * permissions between creation and a separate chmod call -- and never left behind at those
-   * default permissions if the process crashes between the two. Falls back to a plain create plus a
-   * logged warning where POSIX permissions aren't available.
-   */
-  private static void createKeyFile(Path path) throws IOException {
-    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-      Files.createFile(
-          path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-    } else {
-      Files.createFile(path);
-      log.warn(
-          "filesystem at {} does not support POSIX permissions; session signing key file was"
-              + " created without owner-only restriction (expected only in local Windows"
-              + " development -- every real deployment target restricts this)",
-          path);
     }
   }
 }
