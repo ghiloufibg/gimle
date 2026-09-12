@@ -9,8 +9,18 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
-/** Parsing and validation of chaos plan documents. */
+/**
+ * Parsing and validation of chaos plan documents.
+ *
+ * <p>{@code @ResourceLock(SYSTEM_PROPERTIES)}: every parsed plan's seed reads {@link
+ * FenrirPlan#SEED_PROPERTY} as an override, and this class's own override test mutates that same
+ * global property -- without this lock it can race {@link FenrirPlanTest}'s identical mutation, one
+ * test observing the other's value or a clear landing between its own set and read.
+ */
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class ChaosPlanParserTest {
 
   private static FenrirPlan parse(final String yaml) {

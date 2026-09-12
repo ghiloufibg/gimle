@@ -7,8 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.ragnarok.RagnarokException;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
-/** Validation and seed-override behaviour of the immutable chaos plan. */
+/**
+ * Validation and seed-override behaviour of the immutable chaos plan.
+ *
+ * <p>{@code @ResourceLock(SYSTEM_PROPERTIES)}: see {@link ChaosPlanParserTest}'s own javadoc --
+ * both classes read/mutate the same global {@link FenrirPlan#SEED_PROPERTY}.
+ */
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class FenrirPlanTest {
 
   @Test

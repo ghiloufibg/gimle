@@ -9,12 +9,21 @@ import java.io.IOException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 /**
  * Exercises {@link SshWorkerHandle} against a real local process (via {@link FakeRemoteExec}) --
  * unlike {@link SshManagedProcess}, this handle tracks a single pid fixed at construction, with no
  * pid file and no restart of its own.
+ *
+ * <p>Windows-disabled for the same reason {@link SshManagedProcessTest} is: {@code
+ * FakeRemoteExec}'s {@code kill -0}/{@code kill -9} run through whatever {@code sh} is on {@code
+ * PATH}, whose own POSIX-emulation pid table doesn't reliably recognize a real Win32 pid the JVM
+ * spawned directly (as this class's own {@code new ProcessBuilder("sleep", "300")} does) --
+ * production only ever runs this against a real POSIX remote target, with no such layer to lose.
  */
+@DisabledOnOs(OS.WINDOWS)
 final class SshWorkerHandleTest {
 
   private static final ResolvedSshTarget TARGET =

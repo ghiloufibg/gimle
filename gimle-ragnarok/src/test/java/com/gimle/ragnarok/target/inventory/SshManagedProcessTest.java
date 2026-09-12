@@ -12,13 +12,25 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Exercises {@link SshManagedProcess} against a real local process (via {@link FakeRemoteExec},
  * which runs its generated shell scripts locally instead of over SSH) -- a genuine kill/restart
  * cycle on a real OS process, not a mocked one.
+ *
+ * <p>Windows-disabled: every generated script is plain POSIX ({@code kill -0}/{@code -9}, {@code
+ * nohup ... & echo $!}), which only ever runs against a real remote Linux target in production (see
+ * {@link SshManagedProcess}'s own javadoc -- every real deployment target this platform runs on is
+ * POSIX). Locally on Windows that script still runs, through whatever {@code sh} is on {@code PATH}
+ * (Git Bash/MSYS), but the {@code $!}/{@code kill -0} pid it captures belongs to that shell's own
+ * POSIX-emulation process table, not necessarily the real Win32 pid the JVM's own {@link
+ * ProcessHandle} would recognize -- so a liveness check right after spawning can report a live
+ * process as already gone. A real POSIX target has no such translation layer to lose.
  */
+@DisabledOnOs(OS.WINDOWS)
 final class SshManagedProcessTest {
 
   @TempDir private Path tempDir;
