@@ -56,7 +56,8 @@ class KeyFileManagerTest {
     if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
       Path rotatedKeyFile = keyFile.resolveSibling("secret.key.1");
       Path activeFile = keyFile.resolveSibling("secret.key.active");
-      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(rotatedKeyFile)));
+      assertEquals(
+          "rw-------", PosixFilePermissions.toString(readPosixPermissions(rotatedKeyFile)));
       assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(activeFile)));
     }
   }

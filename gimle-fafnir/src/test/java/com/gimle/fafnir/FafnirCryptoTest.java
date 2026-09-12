@@ -20,7 +20,18 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
+/**
+ * {@link InProcessStore#start} reads the ambient {@code gimle.transport.protocol} system property
+ * (via {@code StoreTransport}) even though this class never sets it itself -- without this lock, a
+ * concurrently-running class that does (e.g. {@code FafnirServerTlsTest}, {@code
+ * FafnirMainResilienceTest}, both already {@code @ResourceLock(SYSTEM_PROPERTIES)} on the writing
+ * side) can leave it at {@code tls} mid-test here, failing {@code setUp} with a spurious {@code
+ * GimleTlsException} for a missing cert file this class never asked for.
+ */
+@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class FafnirCryptoTest {
 
   @TempDir Path tempDir;
