@@ -196,7 +196,10 @@ public final class BifrostProxy implements AutoCloseable {
         InetSocketAddress bindAddress =
             settings.exposeOnAllInterfaces()
                 ? new InetSocketAddress((InetAddress) null, endpoints.port())
-                : new InetSocketAddress(LoopbackAddressAllocator.allocate(name), endpoints.port());
+                : new InetSocketAddress(
+                    LoopbackAddressAllocator.allocate(
+                        name, endpoints.port(), reservedLoopbackAddresses()),
+                    endpoints.port());
         try {
           // A UDP Service gets a datagram relay, which deliberately takes no TLS context: there is
           // no handshake to terminate, so a policy-restricted UDP Service can only ever fail
@@ -243,6 +246,22 @@ public final class BifrostProxy implements AutoCloseable {
       }
     }
     return false;
+  }
+
+  /**
+   * Every address:port this proxy is currently bound to, across every service -- what {@link
+   * LoopbackAddressAllocator#allocate} must never hand out again while computing a new service's
+   * address, so two service names whose hashes collide (and which also happen to declare the same
+   * port) each still get a real, distinct, working listener instead of the second one failing to
+   * bind forever. Recomputed fresh each time a new service needs an address, not cached, so an
+   * address freed by a service that disappeared this same tick is immediately eligible again.
+   */
+  private Set<InetSocketAddress> reservedLoopbackAddresses() {
+    Set<InetSocketAddress> reserved = new LinkedHashSet<>();
+    for (ServiceRelay relay : listeners.values()) {
+      reserved.add(relay.boundAddress());
+    }
+    return reserved;
   }
 
   /**

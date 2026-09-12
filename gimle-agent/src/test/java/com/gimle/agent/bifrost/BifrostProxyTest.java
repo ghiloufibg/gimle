@@ -166,6 +166,35 @@ class BifrostProxyTest {
     assertEquals("P", readTagFrom(clusterAddress));
   }
 
+  /**
+   * The bug this proves fixed: "3m88yv76" and "vr7pe6ya" hash to the identical loopback address
+   * (found by brute force -- see the Round 6 report), and both declare the same port here on
+   * purpose, the only combination that actually conflicts at the socket level. Before
+   * LoopbackAddressAllocator took a reserved set, whichever of the two this proxy tried to bind
+   * second would fail with a real BindException, log a warning, and retry-fail forever -- this
+   * proves both now get a distinct address and a real, working listener.
+   */
+  @Test
+  @Timeout(15)
+  void two_services_whose_names_hash_to_the_same_address_both_get_working_listeners()
+      throws Exception {
+    ServiceEndpoint first = startTaggedBackend("first");
+    ServiceEndpoint second = startTaggedBackend("second");
+    source.put("3m88yv76", 9200, List.of(first));
+    source.put("vr7pe6ya", 9200, List.of(second));
+    proxy = new BifrostProxy(source, Duration.ofMinutes(5));
+
+    proxy.pollOnce();
+
+    InetSocketAddress firstAddress = proxy.boundAddressFor("3m88yv76").orElseThrow();
+    InetSocketAddress secondAddress = proxy.boundAddressFor("vr7pe6ya").orElseThrow();
+    assertTrue(
+        !firstAddress.getAddress().equals(secondAddress.getAddress()),
+        "colliding names must not share the same loopback address once both are bound");
+    assertEquals("first", readTagFrom(firstAddress));
+    assertEquals("second", readTagFrom(secondAddress));
+  }
+
   @Test
   @Timeout(15)
   void endpoints_on_the_proxys_own_node_are_preferred_over_remote_ones() throws Exception {
