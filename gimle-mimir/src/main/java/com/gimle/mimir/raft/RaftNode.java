@@ -227,6 +227,19 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private volatile String leaderHint;
   private volatile boolean running;
 
+  /**
+   * Set once, permanently, by {@link #removeServer} when this node removes itself from the cluster
+   * -- checked by {@link #onElectionTimeout} for the same reason {@link #learners} already is: this
+   * node's peer view of the surviving cluster never updates (self-removal never touches {@link
+   * #peerAddresses}, which was always self-exclusive), so once {@link #demoteToFollowerLocked}
+   * re-arms its election timer the ordinary way, nothing else will ever stop it from timing out and
+   * starting a new candidacy. Unlike a learner's lagging log, this node's log is fully caught up,
+   * so left unchecked it can actually win that election and hijack leadership right back from the
+   * real survivors -- surfacing as {@code RaftClusterTest}'s leader-self-removal test
+   * intermittently waiting forever for one of the survivors, specifically, to report itself leader.
+   */
+  private volatile boolean removed;
+
   private long commitIndex;
   private long lastApplied;
 
@@ -845,6 +858,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     if (removingSelf) {
       lock.lock();
       try {
+        removed = true;
         demoteToFollowerLocked();
       } finally {
         lock.unlock();
@@ -1154,6 +1168,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     lock.lock();
     try {
       if (!running || role == Role.LEADER) {
+        return;
+      }
+      if (removed) {
+        // No promotion path back exists once self-removed (unlike the learner branch below),
+        // so simply stop rearming rather than rescheduling a no-op timer forever.
         return;
       }
       if (learners.contains(selfId)) {
