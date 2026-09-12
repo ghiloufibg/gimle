@@ -26,8 +26,8 @@ export function describeAuditCoverage(
   return {
     summary:
       shown === matched
-        ? `${shown.toLocaleString()} of ${matched.toLocaleString()} matching — complete`
-        : `showing ${shown.toLocaleString()} of ${matched.toLocaleString()} matching`,
+        ? `${shown.toLocaleString("en-US")} of ${matched.toLocaleString("en-US")} matching — complete`
+        : `showing ${shown.toLocaleString("en-US")} of ${matched.toLocaleString("en-US")} matching`,
     canLoadMore: Boolean(page?.nextCursor),
     pagingGapNotice: page?.cursorExpired
       ? "The next page was discarded by the audit trail's retention cap while you were reading." +
@@ -44,8 +44,8 @@ function retentionNotice(status: AuditTrailStatus | null): string | null {
   const from =
     oldest === undefined ? "" : ` The trail now starts at ${new Date(oldest).toISOString()}.`;
   return (
-    `The audit trail has exceeded its retention cap — ${status.evictedTotal.toLocaleString()}` +
-    ` older event(s) have been discarded, retaining ${status.retainedCount.toLocaleString()}.` +
+    `The audit trail has exceeded its retention cap — ${status.evictedTotal.toLocaleString("en-US")}` +
+    ` older event(s) have been discarded, retaining ${status.retainedCount.toLocaleString("en-US")}.` +
     from +
     " This is the trail's own state, independent of the filters below."
   );
