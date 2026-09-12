@@ -63,6 +63,16 @@ public final class FabricClient {
    */
   public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
+  /**
+   * Shared across every call rather than one {@code newVirtualThreadPerTaskExecutor()} allocated
+   * and discarded per invocation -- a virtual-thread-per-task executor is cheap relative to a
+   * platform-thread pool, but this is every cross-worker/cross-machine fabric call in the process,
+   * not an occasional path, so the allocate-and-shutdown churn is pure waste with nothing to show
+   * for it: the executor's own submitted-task bookkeeping is the only state involved, and every
+   * task still gets its own fresh virtual thread either way.
+   */
+  private static final ExecutorService EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+
   private FabricClient() {}
 
   public static FabricFrame call(SocketAddress endpoint, FabricFrame.InvokeRequest request)
@@ -143,28 +153,23 @@ public final class FabricClient {
   private static FabricFrame runBounded(
       SocketAddress endpoint, AutoCloseable resource, Duration timeout, Callable<FabricFrame> task)
       throws IOException {
-    ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    Future<FabricFrame> future = EXECUTOR.submit(task);
     try {
-      Future<FabricFrame> future = executor.submit(task);
-      try {
-        return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-      } catch (TimeoutException e) {
-        closeQuietly(resource);
-        throw new SocketTimeoutException(
-            "fabric call to " + endpoint + " timed out after " + timeout);
-      } catch (ExecutionException e) {
-        Throwable cause = e.getCause();
-        if (cause instanceof IOException io) {
-          throw io;
-        }
-        throw new IOException("fabric call to " + endpoint + " failed", cause);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        closeQuietly(resource);
-        throw new InterruptedIOException("fabric call to " + endpoint + " interrupted");
+      return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (TimeoutException e) {
+      closeQuietly(resource);
+      throw new SocketTimeoutException(
+          "fabric call to " + endpoint + " timed out after " + timeout);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof IOException io) {
+        throw io;
       }
-    } finally {
-      executor.shutdown();
+      throw new IOException("fabric call to " + endpoint + " failed", cause);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      closeQuietly(resource);
+      throw new InterruptedIOException("fabric call to " + endpoint + " interrupted");
     }
   }
 
