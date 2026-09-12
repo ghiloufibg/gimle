@@ -243,6 +243,22 @@ public final class SkaldServer implements AutoCloseable {
    * that is momentarily empty -- never look identical from the resolver's side.
    */
   private byte[] buildResponse(DnsCodec.Query query) {
+    try {
+      return resolveResponse(query);
+    } catch (IllegalArgumentException e) {
+      // A Service's own externalName, or another declared name, violates the DNS wire format's own
+      // length limits (see DnsCodec.writeName) -- SERVFAIL rather than letting the exception escape
+      // uncaught, which would silently drop the UDP query (handleDatagram calls this outside any
+      // try/catch) or tear down the TCP connection, either way leaving the caller to time out
+      // instead of getting a fast, well-formed failure. The same "can't safely produce a trustworthy
+      // answer" posture staleServfail already takes for stale directory data.
+      log.warn(
+          "failed to build a DNS response for '{}': {}", query.question().name(), e.getMessage());
+      return DnsCodec.encodeResponse(query, DnsCodec.RCODE_SERVFAIL, List.of());
+    }
+  }
+
+  private byte[] resolveResponse(DnsCodec.Query query) {
     if (query.opcode() != DnsCodec.OPCODE_QUERY) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOTIMP, List.of());
     }

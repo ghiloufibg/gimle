@@ -99,6 +99,28 @@ final class SkaldServerTest {
     assertEquals("billing.example.com", srvTargetName(rdatas.get(0)));
   }
 
+  /**
+   * The bug this proves fixed: an ExternalName Service whose own externalName is nothing but a
+   * plain operator-supplied string (see ServiceSpec's own compact constructor -- checked only for
+   * non-blank) could carry a label DnsCodec.writeName can't safely encode, and buildResponse called
+   * it with no try/catch around it at all -- an uncaught exception there left the UDP query
+   * unanswered (handleDatagram calls buildResponse outside any try/catch) rather than producing any
+   * response. This proves a query against such a Service now gets a fast, well-formed SERVFAIL
+   * instead of silence.
+   */
+  @Test
+  void an_external_name_service_with_an_unencodable_host_answers_servfail_not_silence()
+      throws IOException {
+    directory.replaceAll(
+        Map.of("billing.acme", List.of(new HostPort("b".repeat(260), 443))));
+
+    byte[] response = query(0x23, "billing.acme.svc.gimle.local", 1);
+
+    int flags = unsignedShort(response, 2);
+    assertEquals(2, flags & 0xF); // RCODE: SERVFAIL
+    assertEquals(0, unsignedShort(response, 6)); // ANCOUNT: no answer to offer
+  }
+
   @Test
   void an_a_query_answers_every_endpoint_address_at_once() throws IOException {
     directory.replaceAll(

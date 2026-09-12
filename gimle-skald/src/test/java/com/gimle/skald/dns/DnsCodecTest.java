@@ -169,6 +169,58 @@ final class DnsCodecTest {
     assertSame(full, DnsCodec.truncateForUdp(full, 512));
   }
 
+  /**
+   * The bug this proves fixed: writeName wrote a label's length via writeByte, which keeps only the
+   * low 8 bits -- a 260-byte label declared a length of 4, then wrote all 260 real bytes after it,
+   * corrupting every field of the record from that point on. Reachable from a plain
+   * operator-supplied string (an ExternalName Service's own externalName, or an SRV target host)
+   * with nothing upstream bounding its length.
+   */
+  @Test
+  void cname_rejects_a_label_that_would_overflow_the_length_prefix_byte() {
+    String overlongLabel = "a".repeat(260);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> DnsCodec.Answer.cname(List.of(overlongLabel)));
+    assertTrue(thrown.getMessage().contains("260 bytes"), thrown.getMessage());
+  }
+
+  /**
+   * A label between 64 and 255 bytes doesn't overflow the length-prefix byte, but still violates
+   * RFC 1035's own 63-byte-per-label ceiling -- the same ceiling {@link DnsCodec#decodeQuery} has
+   * always enforced on the read side of this exact same class.
+   */
+  @Test
+  void srv_rejects_a_label_over_the_63_byte_rfc_ceiling_even_when_it_fits_in_a_byte() {
+    String labelOver63 = "b".repeat(100);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> DnsCodec.Answer.srv(0, 0, 8080, List.of(labelOver63)));
+  }
+
+  @Test
+  void cname_rejects_a_name_whose_total_encoded_length_exceeds_255_bytes_even_with_short_labels()
+      throws IOException {
+    // Sixty 5-byte labels ("wwwww.") is 360 bytes of name -- no single label anywhere near 63
+    // bytes, so only the whole-name ceiling (not the per-label one) can catch this.
+    List<String> manyShortLabels = new ArrayList<>();
+    for (int i = 0; i < 60; i++) {
+      manyShortLabels.add("wwwww");
+    }
+
+    assertThrows(
+        IllegalArgumentException.class, () -> DnsCodec.Answer.cname(manyShortLabels));
+  }
+
+  @Test
+  void cname_accepts_a_label_right_at_the_63_byte_rfc_ceiling() {
+    String maxLabel = "c".repeat(63);
+
+    assertEquals(64 + 1, DnsCodec.Answer.cname(List.of(maxLabel)).rdata().length);
+  }
+
   private static byte[] buildQuery(
       int id, String name, int qtype, int opcode, boolean recursionDesired) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
