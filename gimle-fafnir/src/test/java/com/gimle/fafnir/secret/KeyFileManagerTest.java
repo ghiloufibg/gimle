@@ -7,8 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleSecretsException;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -28,6 +33,40 @@ class KeyFileManagerTest {
     SecretKey second = KeyFileManager.loadOrCreate(keyFile);
 
     assertArrayEquals(first.getEncoded(), second.getEncoded());
+  }
+
+  @Test
+  void a_freshly_generated_key_file_is_restricted_to_its_owner() {
+    Path keyFile = tempDir.resolve("secret.key");
+
+    KeyFileManager.loadOrCreate(keyFile);
+
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(keyFile)));
+    }
+  }
+
+  @Test
+  void a_rotated_keys_file_and_its_active_sidecar_are_both_restricted_to_their_owner() {
+    Path keyFile = tempDir.resolve("secret.key");
+    KeyRing ring = KeyFileManager.loadAllOrCreate(keyFile);
+
+    KeyFileManager.rotate(keyFile, ring);
+
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Path rotatedKeyFile = keyFile.resolveSibling("secret.key.1");
+      Path activeFile = keyFile.resolveSibling("secret.key.active");
+      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(rotatedKeyFile)));
+      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(activeFile)));
+    }
+  }
+
+  private static Set<PosixFilePermission> readPosixPermissions(Path path) {
+    try {
+      return Files.getPosixFilePermissions(path);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Test

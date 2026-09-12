@@ -7,8 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleSecretsException;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +32,47 @@ class SealingKeyFileManagerTest {
 
     assertEquals((byte) 0, ring.activeKeyId());
     assertEquals(1, ring.keyPairsById().size());
+  }
+
+  @Test
+  void the_private_key_file_is_owner_only_but_the_public_key_file_is_not() {
+    Path keyFile = tempDir.resolve("sealing.key");
+
+    SealingKeyFileManager.loadAllOrCreate(keyFile);
+
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(keyFile)));
+      assertFalse(
+          "rw-------"
+              .equals(
+                  PosixFilePermissions.toString(
+                      readPosixPermissions(keyFile.resolveSibling("sealing.key.pub")))),
+          "the public key is meant to be read by others; it must not end up owner-only");
+    }
+  }
+
+  @Test
+  void a_rotated_keys_private_file_and_its_active_sidecar_are_both_owner_only() {
+    Path keyFile = tempDir.resolve("sealing.key");
+    SealingKeyRing ring = SealingKeyFileManager.loadAllOrCreate(keyFile);
+
+    SealingKeyFileManager.rotate(keyFile, ring);
+
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Path rotatedPrivateKeyFile = keyFile.resolveSibling("sealing.key.1");
+      Path activeFile = keyFile.resolveSibling("sealing.key.active");
+      assertEquals(
+          "rw-------", PosixFilePermissions.toString(readPosixPermissions(rotatedPrivateKeyFile)));
+      assertEquals("rw-------", PosixFilePermissions.toString(readPosixPermissions(activeFile)));
+    }
+  }
+
+  private static Set<PosixFilePermission> readPosixPermissions(Path path) {
+    try {
+      return Files.getPosixFilePermissions(path);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Test

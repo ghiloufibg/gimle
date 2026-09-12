@@ -1,13 +1,13 @@
 package com.gimle.fafnir.secret;
 
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.io.OwnerOnlyFiles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -99,9 +99,8 @@ public final class SealingKeyFileManager {
     try {
       writeKeyPair(baseKeyFilePath, newId, newKeyPair);
       Path activeFile = activeKeyFile(baseKeyFilePath);
-      Files.writeString(
-          activeFile, String.valueOf(Byte.toUnsignedInt(newId)), StandardCharsets.UTF_8);
-      restrictPermissions(activeFile);
+      OwnerOnlyFiles.write(
+          activeFile, String.valueOf(Byte.toUnsignedInt(newId)).getBytes(StandardCharsets.UTF_8));
     } catch (IOException e) {
       throw new UncheckedIOException("failed to write rotated sealing key file", e);
     }
@@ -162,8 +161,7 @@ public final class SealingKeyFileManager {
       throws IOException {
     Path privateFile = privateKeyFile(baseKeyFilePath, id);
     Path publicFile = publicKeyFile(baseKeyFilePath, id);
-    Files.write(privateFile, keyPair.getPrivate().getEncoded());
-    restrictPermissions(privateFile);
+    OwnerOnlyFiles.write(privateFile, keyPair.getPrivate().getEncoded());
     // Public key files are, deliberately, never permission-restricted -- that's the entire point
     // of the key being public.
     Files.write(publicFile, keyPair.getPublic().getEncoded());
@@ -242,18 +240,6 @@ public final class SealingKeyFileManager {
       return generator.generateKeyPair();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("RSA key pair generation unavailable", e);
-    }
-  }
-
-  private static void restrictPermissions(Path path) throws IOException {
-    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
-    } else {
-      log.warn(
-          "filesystem at {} does not support POSIX permissions; sealing private key file was"
-              + " written without owner-only restriction (expected only in local Windows"
-              + " development -- every real deployment target restricts this)",
-          path);
     }
   }
 }

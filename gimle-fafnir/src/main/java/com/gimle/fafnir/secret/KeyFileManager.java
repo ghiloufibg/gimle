@@ -1,13 +1,13 @@
 package com.gimle.fafnir.secret;
 
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.io.OwnerOnlyFiles;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,9 +21,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Loads Fafnir's AES-256 secrets master key from {@code keyFilePath}, generating one on first run
  * if absent. A platform-generated local key file is self-contained, with no external KMS
- * dependency, consistent with this project's MVP-first/YAGNI posture. File permissions are
- * restricted to owner-read-only wherever the filesystem supports POSIX permissions (every real
- * deployment target -- Linux, macOS); on a filesystem that doesn't (Windows, common only in local
+ * dependency, consistent with this project's MVP-first/YAGNI posture. Every key file this class
+ * writes goes through {@link OwnerOnlyFiles}, which applies owner-read/write-only permissions
+ * atomically at creation wherever the filesystem supports POSIX permissions (every real deployment
+ * target -- Linux, macOS); on a filesystem that doesn't (Windows, common only in local
  * development), the key is still written but the restriction is skipped with a logged warning
  * rather than a hard failure, since {@code java.nio.file}'s own POSIX view is simply unavailable
  * there.
@@ -55,8 +56,7 @@ public final class KeyFileManager {
       if (parent != null) {
         Files.createDirectories(parent);
       }
-      Files.write(keyFilePath, key.getEncoded());
-      restrictPermissions(keyFilePath);
+      OwnerOnlyFiles.write(keyFilePath, key.getEncoded());
       return key;
     } catch (IOException e) {
       throw new UncheckedIOException(
@@ -128,12 +128,10 @@ public final class KeyFileManager {
     SecretKey newKey = generateKey();
     try {
       Path newKeyFile = keyFilePathForId(baseKeyFilePath, newId);
-      Files.write(newKeyFile, newKey.getEncoded());
-      restrictPermissions(newKeyFile);
+      OwnerOnlyFiles.write(newKeyFile, newKey.getEncoded());
       Path activeFile = activeKeyFile(baseKeyFilePath);
-      Files.writeString(
-          activeFile, String.valueOf(Byte.toUnsignedInt(newId)), StandardCharsets.UTF_8);
-      restrictPermissions(activeFile);
+      OwnerOnlyFiles.write(
+          activeFile, String.valueOf(Byte.toUnsignedInt(newId)).getBytes(StandardCharsets.UTF_8));
     } catch (IOException e) {
       throw new UncheckedIOException("failed to write rotated secrets key file", e);
     }
@@ -236,18 +234,6 @@ public final class KeyFileManager {
       return generator.generateKey();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("AES key generation unavailable", e);
-    }
-  }
-
-  private static void restrictPermissions(Path path) throws IOException {
-    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
-    } else {
-      log.warn(
-          "filesystem at {} does not support POSIX permissions; secrets key file was written"
-              + " without owner-only restriction (expected only in local Windows development --"
-              + " every real deployment target restricts this)",
-          path);
     }
   }
 }
