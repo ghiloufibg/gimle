@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.util.List;
 import org.apache.maven.model.Build;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -19,6 +20,16 @@ import org.junit.jupiter.api.Test;
  * FlakyTestsMojoTest} exercises for {@link FlakyTestsMojo}.
  */
 class ArtifactSetMojoTest {
+
+  /**
+   * The generated manifest's jar paths come from {@link java.nio.file.Path#toString()}, which
+   * renders with whatever separator the host OS uses -- {@code /} on POSIX, {@code \} on Windows.
+   * Expected YAML below is written with {@code /} for readability and normalized through this
+   * before comparison, so the fixture's forward slashes don't fail on a Windows checkout.
+   */
+  private static String nativePath(String forwardSlashPath) {
+    return forwardSlashPath.replace("/", File.separator);
+  }
 
   private static MavenProject project(String finalName, String tenantId) {
     MavenProject project = new MavenProject();
@@ -81,12 +92,13 @@ class ArtifactSetMojoTest {
     String yaml = ArtifactSetMojo.generateManifestYaml(List.of(project("app-1.0.0", null)), "");
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        modules:
-          - /repo/some-module/target/app-1.0.0.jar
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            modules:
+              - /repo/some-module/target/app-1.0.0.jar
+            """),
         yaml);
   }
 
@@ -103,18 +115,19 @@ class ArtifactSetMojoTest {
         ArtifactSetMojo.generateManifestYaml(List.of(orders, inventory, billing, shared), null);
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        tenant:
-          orders-platform:
-            - /repo/some-module/target/orders-service-1.0.0.jar
-            - /repo/some-module/target/inventory-service-1.0.0.jar
-          billing:
-            - /repo/some-module/target/billing-service-1.0.0.jar
-        modules:
-          - /repo/some-module/target/shared-lib-1.0.0.jar
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            tenant:
+              orders-platform:
+                - /repo/some-module/target/orders-service-1.0.0.jar
+                - /repo/some-module/target/inventory-service-1.0.0.jar
+              billing:
+                - /repo/some-module/target/billing-service-1.0.0.jar
+            modules:
+              - /repo/some-module/target/shared-lib-1.0.0.jar
+            """),
         yaml);
   }
 
@@ -123,12 +136,13 @@ class ArtifactSetMojoTest {
     String yaml = ArtifactSetMojo.generateManifestYaml(List.of(project("app-1.0.0", null)), null);
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        modules:
-          - /repo/some-module/target/app-1.0.0.jar
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            modules:
+              - /repo/some-module/target/app-1.0.0.jar
+            """),
         yaml);
   }
 
@@ -137,7 +151,7 @@ class ArtifactSetMojoTest {
     project.setGroupId("com.acme");
     project.setArtifactId("report");
     project.setVersion("2.0.0");
-    project.setFile(new java.io.File("/repo/some-module/pom.xml"));
+    project.setFile(new File("/repo/some-module/pom.xml"));
     return project;
   }
 
@@ -149,15 +163,16 @@ class ArtifactSetMojoTest {
     String yaml = ArtifactSetMojo.generateManifestYaml(List.of(vessel), null);
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        modules:
-          - artifact: /repo/some-module/target/report-2.0.0.jar
-            kind: vessel
-            name: com.acme.report
-            version: 2.0.0
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            modules:
+              - artifact: /repo/some-module/target/report-2.0.0.jar
+                kind: vessel
+                name: com.acme.report
+                version: 2.0.0
+            """),
         yaml);
   }
 
@@ -172,18 +187,19 @@ class ArtifactSetMojoTest {
     String yaml = ArtifactSetMojo.generateManifestYaml(List.of(bundle), null);
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        tenant:
-          orders-platform:
-            - artifact: /repo/some-module/target/quarkus-app
-              kind: bundle
-              name: com.acme.report
-              version: 2.0.0
-              command: ['java', '-jar', 'quarkus-run.jar']
-              workdir: '.'
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            tenant:
+              orders-platform:
+                - artifact: /repo/some-module/target/quarkus-app
+                  kind: bundle
+                  name: com.acme.report
+                  version: 2.0.0
+                  command: ['java', '-jar', 'quarkus-run.jar']
+                  workdir: '.'
+            """),
         yaml);
   }
 
@@ -229,12 +245,13 @@ class ArtifactSetMojoTest {
     String yaml = ArtifactSetMojo.generateManifestYaml(List.of(aggregator, app), null);
 
     assertEquals(
-        """
-        apiVersion: v1
-        kind: ArtifactSet
-        modules:
-          - /repo/some-module/target/app-1.0.0.jar
-        """,
+        nativePath(
+            """
+            apiVersion: v1
+            kind: ArtifactSet
+            modules:
+              - /repo/some-module/target/app-1.0.0.jar
+            """),
         yaml);
   }
 

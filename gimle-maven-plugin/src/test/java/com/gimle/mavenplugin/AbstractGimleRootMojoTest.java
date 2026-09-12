@@ -45,7 +45,10 @@ class AbstractGimleRootMojoTest {
     mojo.execute();
 
     assertTrue(mojo.executed, "the orchestration project must still run the goal body");
-    assertEquals(Path.of("/repo"), mojo.capturedRoot);
+    // Not Path.of("/repo") directly: MavenSession#getExecutionRootDirectory() resolves the
+    // request's base directory to an absolute path, which on Windows means a drive letter gets
+    // prepended to a leading-slash path like "/repo" that Path.of() alone leaves without one.
+    assertEquals(executionRoot.getAbsoluteFile().toPath(), mojo.capturedRoot);
     assertEquals(gimleOs.getBasedir().toPath(), mojo.capturedProjectBasedir);
     assertTrue(
         !mojo.capturedRoot.equals(mojo.capturedProjectBasedir),
