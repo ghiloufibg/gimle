@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ResourceSpec;
+import com.gimle.core.protocol.Json;
 import com.gimle.core.vessel.VesselEntrypoint;
 import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
@@ -109,8 +110,13 @@ class AgentBundleLaunchTest {
             id -> {})) {
       supervisor.start();
       String logged = awaitLogContaining(applicationLogFile, "CWD=", Duration.ofSeconds(15));
-      assertTrue(
-          logged.contains("CWD=" + workdir.toRealPath()),
+      // Not a raw substring match against the JSON log line itself: on Windows, workdir.toString()
+      // contains backslashes, which JSON string encoding escapes to "\\" in the file -- a literal
+      // single-backslash needle could never match there. Decode the "message" field first instead.
+      String message = String.valueOf(Json.asObject(Json.parse(logged.strip())).get("message"));
+      assertEquals(
+          "CWD=" + workdir.toRealPath(),
+          message,
           "expected the driver to report the configured workdir; got: " + logged);
     }
   }
