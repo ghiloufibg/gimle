@@ -257,6 +257,69 @@ class StatefulSetReconcilerTest {
     assertTrue(indexOf(assignments, 1).isPresent());
   }
 
+  /**
+   * Regression test: {@code reconcileStatefulSet} must place up to the autoscaler's own effective
+   * count, not the manifest's {@code replicas} floor -- mirrors {@code DeploymentReconciler}'s own
+   * established behavior for Deployments.
+   */
+  @Test
+  void places_up_to_the_effective_replica_count_not_the_manifest_floor(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    store.putEffectiveReplicas("StatefulSet", Optional.empty(), "orders", 2);
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment index0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+
+    reportReady(store, index0);
+    reconciler.reconcileOnce();
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
+    assertEquals(2, assignments.size());
+    assertTrue(indexOf(assignments, 1).isPresent());
+  }
+
+  /**
+   * Regression test: scale-down must remove indices at or beyond the autoscaler's own effective
+   * count, not the manifest's {@code replicas} floor -- an active autoscale policy holding the
+   * count above the submitted floor must not have its own indices torn down every tick.
+   */
+  @Test
+  void does_not_scale_down_below_the_effective_replica_count(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    store.putEffectiveReplicas("StatefulSet", Optional.empty(), "orders", 2);
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    reportReady(
+        store, indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).get());
+    reconciler.reconcileOnce();
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+    List<StatefulSetAssignment> beforeScaleDownCheck =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
+    assertEquals(2, beforeScaleDownCheck.size());
+
+    reconciler.reconcileOnce(); // must not remove index 1: effective count is still 2
+
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
+    assertEquals(2, assignments.size());
+    assertTrue(indexOf(assignments, 1).isPresent());
+  }
+
   @Test
   void an_index_stays_sticky_bound_to_its_node_across_a_rolling_update() {
     StateStore store = new StateStore();

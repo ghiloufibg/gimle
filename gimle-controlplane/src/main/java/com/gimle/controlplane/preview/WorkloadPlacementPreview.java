@@ -99,8 +99,15 @@ public final class WorkloadPlacementPreview {
    * handed straight to {@link Scheduler#place}, which then answers only "is that one node still
    * eligible?" rather than choosing freely. A never-placed index has no binding and is scheduled
    * like any other replica.
+   *
+   * <p>The autoscaler's own effective count stands in for the submitted {@code replicas} exactly as
+   * {@code StatefulSetReconciler} lets it, mirroring {@link #forecastDeployment} exactly.
    */
   private PlacementForecast forecastStatefulSet(StatefulSetSpec spec, ModuleDescriptor descriptor) {
+    int replicas =
+        store
+            .getEffectiveReplicas("StatefulSet", spec.tenantId(), spec.name())
+            .orElse(spec.replicas());
     Set<Integer> assignedIndices = new HashSet<>();
     Set<String> occupiedNodes = new HashSet<>();
     for (StatefulSetAssignment assignment :
@@ -112,7 +119,7 @@ public final class WorkloadPlacementPreview {
     List<PlacementForecast.Failure> failures = new ArrayList<>();
     Set<String> chosenSoFar = new HashSet<>(occupiedNodes);
     int evaluated = 0;
-    for (int index = 0; index < spec.replicas(); index++) {
+    for (int index = 0; index < replicas; index++) {
       if (assignedIndices.contains(index)) {
         continue;
       }

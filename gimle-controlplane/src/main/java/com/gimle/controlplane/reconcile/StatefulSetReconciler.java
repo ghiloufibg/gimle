@@ -235,7 +235,16 @@ public final class StatefulSetReconciler {
   }
 
   private void reconcileStatefulSet(StatefulSetSpec spec) {
-    if (scaleDownOneIndexIfNeeded(spec)) {
+    // The autoscaler's effective count stands in for the user-submitted replicas whenever a
+    // policy is present; absent a policy (or absent any computed value yet), the submitted count
+    // is exactly what's used, unchanged from before autoscaling existed. Mirrors
+    // DeploymentReconciler#reconcileDeployment exactly.
+    int replicas =
+        store
+            .getEffectiveReplicas(WORKLOAD_KIND, spec.tenantId(), spec.name())
+            .orElse(spec.replicas());
+
+    if (scaleDownOneIndexIfNeeded(spec, replicas)) {
       return; // one destructive step per tick -- see class javadoc.
     }
 
@@ -279,7 +288,7 @@ public final class StatefulSetReconciler {
     // the first one that isn't both present and ready. Placing that one missing index (if any) and
     // returning is what keeps index i+1 from ever being attempted before index i is ready --
     // no separate "am I mid-rollout" bookkeeping needed beyond this scan itself.
-    for (int index = 0; index < spec.replicas(); index++) {
+    for (int index = 0; index < replicas; index++) {
       int currentIndex = index;
       Optional<StatefulSetAssignment> assignment =
           existing.stream().filter(a -> a.instanceIndex() == currentIndex).findFirst();
@@ -393,9 +402,10 @@ public final class StatefulSetReconciler {
   }
 
   /**
-   * Removes the highest index at or beyond {@code spec.replicas()}, if any, and (if it happened to
-   * be one mid-rollout) its now-meaningless rolling marker. Returns {@code true} if it did so --
-   * the caller stops for this tick either way.
+   * Removes the highest index at or beyond {@code replicas} (the effective replica count -- the
+   * autoscaler's computed value when present, {@code spec.replicas()} otherwise), if any, and (if
+   * it happened to be one mid-rollout) its now-meaningless rolling marker. Returns {@code true} if
+   * it did so -- the caller stops for this tick either way.
    *
    * <p>Deliberately leaves the sticky {@link StateStore#getStatefulSetIndexNode} binding in place
    * -- mirroring Kubernetes' own StatefulSet volume-retention default, an ordinary replica-count
@@ -406,10 +416,10 @@ public final class StatefulSetReconciler {
    * sweep in {@link #reconcileOnce}) ever clears this binding, since only that means the index is
    * never coming back.
    */
-  private boolean scaleDownOneIndexIfNeeded(StatefulSetSpec spec) {
+  private boolean scaleDownOneIndexIfNeeded(StatefulSetSpec spec, int replicas) {
     Optional<StatefulSetAssignment> toRemove =
         store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
-            .filter(a -> a.instanceIndex() >= spec.replicas())
+            .filter(a -> a.instanceIndex() >= replicas)
             .max(Comparator.comparingInt(StatefulSetAssignment::instanceIndex));
     if (toRemove.isEmpty()) {
       return false;
