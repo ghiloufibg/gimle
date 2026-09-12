@@ -397,12 +397,11 @@ public final class MuninnServer implements AutoCloseable {
   // ---- GET /logs (root) ----
 
   /**
-   * Catches every request under {@code /logs} that doesn't match one of the two real, more
-   * specific routes below -- most commonly the bare {@code /logs} or {@code /logs/} a caller who
-   * doesn't already know the exact shape would try first. Answers with a {@code 400} naming both
-   * valid shapes, the same "say what's missing" pattern {@code ApiServer}'s own routes already
-   * follow, rather than falling through to the JDK's default context-less {@code 404} with no body
-   * at all.
+   * Catches every request under {@code /logs} that doesn't match one of the two real, more specific
+   * routes below -- most commonly the bare {@code /logs} or {@code /logs/} a caller who doesn't
+   * already know the exact shape would try first. Answers with a {@code 400} naming both valid
+   * shapes, the same "say what's missing" pattern {@code ApiServer}'s own routes already follow,
+   * rather than falling through to the JDK's default context-less {@code 404} with no body at all.
    */
   private void handleReadLogsRoot(HttpExchange exchange) {
     handle(

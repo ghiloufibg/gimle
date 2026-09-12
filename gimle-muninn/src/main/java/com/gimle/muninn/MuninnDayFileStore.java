@@ -6,6 +6,7 @@ import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -337,12 +338,15 @@ final class MuninnDayFileStore {
     List<String> lines;
     try {
       lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-    } catch (NoSuchFileException e) {
+    } catch (NoSuchFileException | AccessDeniedException e) {
       // Lost a race against RetentionSweeper's own deleteIfExists: this file was still in the
       // listing readAllLinesSorted just took, but aged past the cutoff and got swept before this
       // read reached it. Treat exactly like the file never existed -- the same graceful-skip
       // posture already applied to a malformed line below -- rather than letting a read that
-      // should have simply returned one file short surface as a 500.
+      // should have simply returned one file short surface as a 500. The same race surfaces as
+      // AccessDeniedException rather than NoSuchFileException on Windows (local development only
+      // -- every real deployment target is POSIX): deleting a file another handle still has open
+      // fails outright there instead of unlinking a directory entry out from under a live reader.
       log.debug("muninn day file {} was removed by a concurrent retention sweep; skipping", file);
       return;
     } catch (IOException e) {
