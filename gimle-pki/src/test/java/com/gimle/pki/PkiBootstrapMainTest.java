@@ -174,6 +174,41 @@ class PkiBootstrapMainTest {
   }
 
   /**
+   * The account file carries a password hash rather than the password itself, but it is still the
+   * one artifact on disk that lets its bearer mint a valid console session -- it must be locked
+   * down exactly like {@code ca.key} and every leaf key, not left at the world-readable default.
+   */
+  @Test
+  void the_bootstrap_account_file_is_restricted_to_its_owner_like_every_other_credential()
+      throws Exception {
+    bootstrapToPasswordFile("h1");
+
+    Path accountFile = outputDir.resolve("bootstrap-account.yaml");
+    if (accountFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      assertEquals(
+          "rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(accountFile)));
+    }
+  }
+
+  @Test
+  void the_ca_key_and_every_leaf_key_are_restricted_to_their_owner() throws Exception {
+    bootstrapToPasswordFile("h1");
+
+    for (Path keyFile :
+        List.of(
+            outputDir.resolve("ca.key"),
+            outputDir.resolve("controlplane-h1.key"),
+            outputDir.resolve("operator.key"))) {
+      if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+        assertEquals(
+            "rw-------",
+            PosixFilePermissions.toString(Files.getPosixFilePermissions(keyFile)),
+            keyFile + " should be owner-only");
+      }
+    }
+  }
+
+  /**
    * The whole point of the refusal: a build, a pipeline, or any redirected run would otherwise
    * print the cluster's initial administrator credential into a log that outlives the command.
    */

@@ -3,13 +3,13 @@ package com.gimle.pki;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.io.OwnerOnlyFiles;
 import java.io.Console;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -22,8 +22,6 @@ import java.util.List;
 import java.util.Optional;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * {@code mvn gimle:tls-init}'s entry point (spawned by {@code TlsInitMojo} against this module's
@@ -51,7 +49,6 @@ import org.slf4j.LoggerFactory;
  */
 public final class PkiBootstrapMain {
 
-  private static final Logger log = LoggerFactory.getLogger(PkiBootstrapMain.class);
   private static final Duration CA_VALIDITY = Duration.ofDays(3650);
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   private static final SecureRandom RANDOM = new SecureRandom();
@@ -244,8 +241,8 @@ public final class PkiBootstrapMain {
     if (parent != null) {
       Files.createDirectories(parent);
     }
-    Files.writeString(file, password + System.lineSeparator(), StandardCharsets.US_ASCII);
-    restrictPermissions(file);
+    OwnerOnlyFiles.write(
+        file, (password + System.lineSeparator()).getBytes(StandardCharsets.US_ASCII));
     out.println(
         "bootstrap console account: username=admin, one-time password written to "
             + file
@@ -262,7 +259,11 @@ public final class PkiBootstrapMain {
    * Raft-proposes as a real {@code Account}. {@code gimle-pki} runs standalone, before any
    * control-plane process exists, so it cannot propose Raft state directly; this file is the
    * hand-off point, the same role {@code ca.key}/{@code operator.key} already play for certificate
-   * material. Returns the generated plaintext password so the caller can deliver it exactly once.
+   * material. Written owner-only like every other credential this run produces: it carries a
+   * password hash rather than the password itself, but it is still the one artifact on disk that
+   * lets its bearer mint a valid session once {@code ApiServer} adopts it, so it gets the same
+   * restriction as {@code ca.key} and the leaf keys rather than being the one exception among them.
+   * Returns the generated plaintext password so the caller can deliver it exactly once.
    */
   private static String writeBootstrapAccount(Path outputDir) throws IOException {
     byte[] passwordBytes = new byte[24];
@@ -271,7 +272,8 @@ public final class PkiBootstrapMain {
     byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
     String yaml =
         "username: admin\npasswordHash: " + Base64.getEncoder().encodeToString(passwordHash) + "\n";
-    Files.writeString(outputDir.resolve("bootstrap-account.yaml"), yaml, StandardCharsets.US_ASCII);
+    OwnerOnlyFiles.write(
+        outputDir.resolve("bootstrap-account.yaml"), yaml.getBytes(StandardCharsets.US_ASCII));
     return password;
   }
 
@@ -280,9 +282,9 @@ public final class PkiBootstrapMain {
         outputDir.resolve("ca.crt"),
         Pem.encodeCertificate(ca.certificate()),
         StandardCharsets.US_ASCII);
-    Path caKeyFile = outputDir.resolve("ca.key");
-    Files.writeString(caKeyFile, Pem.encodePrivateKey(ca.privateKey()), StandardCharsets.US_ASCII);
-    restrictPermissions(caKeyFile);
+    OwnerOnlyFiles.write(
+        outputDir.resolve("ca.key"),
+        Pem.encodePrivateKey(ca.privateKey()).getBytes(StandardCharsets.US_ASCII));
   }
 
   private static void issueLeaf(
@@ -300,10 +302,9 @@ public final class PkiBootstrapMain {
         outputDir.resolve(fileNamePrefix + ".crt"),
         Pem.encodeCertificate(certificate),
         StandardCharsets.US_ASCII);
-    Path leafKeyFile = outputDir.resolve(fileNamePrefix + ".key");
-    Files.writeString(
-        leafKeyFile, Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
-    restrictPermissions(leafKeyFile);
+    OwnerOnlyFiles.write(
+        outputDir.resolve(fileNamePrefix + ".key"),
+        Pem.encodePrivateKey(keyPair.getPrivate()).getBytes(StandardCharsets.US_ASCII));
   }
 
   private static KeyPair generateKeyPair() {
@@ -313,25 +314,6 @@ public final class PkiBootstrapMain {
       return generator.generateKeyPair();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("RSA key pair generation unavailable", e);
-    }
-  }
-
-  /**
-   * Restricts a freshly-written private key file to owner-read/write only wherever the filesystem
-   * supports POSIX permissions (every real deployment target); on a filesystem that doesn't
-   * (Windows, local development only), the key is left written but the restriction is skipped with
-   * a logged warning rather than a hard failure, since {@code java.nio.file}'s own POSIX view is
-   * simply unavailable there.
-   */
-  private static void restrictPermissions(Path path) throws IOException {
-    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
-    } else {
-      log.warn(
-          "filesystem at {} does not support POSIX permissions; private key file was written"
-              + " without owner-only restriction (expected only in local Windows development --"
-              + " every real deployment target restricts this)",
-          path);
     }
   }
 }
