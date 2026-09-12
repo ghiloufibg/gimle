@@ -1,5 +1,6 @@
 package com.gimle.hilmir.launch;
 
+import com.gimle.core.io.OwnerOnlyFiles;
 import com.gimle.hilmir.HilmirException;
 import com.gimle.hilmir.plan.BundledJreResolver;
 import com.gimle.hilmir.plan.ResolvedRuntime;
@@ -10,7 +11,6 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -182,24 +182,11 @@ public final class PkiInit {
       }
       final KeyGenerator generator = KeyGenerator.getInstance("AES");
       generator.init(FAFNIR_KEY_BITS);
-      Files.write(keyFile, generator.generateKey().getEncoded());
-      restrictPermissions(keyFile);
+      OwnerOnlyFiles.write(keyFile, generator.generateKey().getEncoded());
     } catch (final NoSuchAlgorithmException e) {
       throw new IllegalStateException("AES key generation unavailable", e);
     } catch (final IOException e) {
       throw new HilmirException("failed writing fafnir key file " + keyFile, e);
-    }
-  }
-
-  /**
-   * Restricts a freshly-written Fafnir key file to owner-read/write only wherever the filesystem
-   * supports POSIX permissions -- mirrors {@code gimle-pki}'s own {@code
-   * PkiBootstrapMain#restrictPermissions}, silently skipped rather than failed where unsupported
-   * (local Windows development only).
-   */
-  private static void restrictPermissions(final Path path) throws IOException {
-    if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-      Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
     }
   }
 

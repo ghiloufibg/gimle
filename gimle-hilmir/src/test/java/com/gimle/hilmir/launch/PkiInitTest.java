@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,10 @@ class PkiInitTest {
 
     assertTrue(Files.exists(keyFile));
     assertEquals(32, Files.readAllBytes(keyFile).length);
+    if (keyFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      assertEquals(
+          "rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(keyFile)));
+    }
   }
 
   @Test
