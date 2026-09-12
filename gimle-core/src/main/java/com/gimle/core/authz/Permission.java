@@ -173,7 +173,10 @@ public record Permission(
     if (token == null || token.isBlank() || ALL.equals(token.trim())) {
       return Optional.empty();
     }
-    return Optional.of(token);
+    // Trimmed before storing, not just before the ALL comparison above -- covers() matches
+    // tenantScope by exact string equality against a request's own tenant id, so an untrimmed
+    // token carrying incidental whitespace would silently never match any real request.
+    return Optional.of(token.trim());
   }
 
   /**
@@ -186,7 +189,8 @@ public record Permission(
     if (token == null || token.isBlank()) {
       return Optional.empty();
     }
-    if (ALL.equals(token.trim())) {
+    String normalized = token.trim();
+    if (ALL.equals(normalized)) {
       throw new IllegalArgumentException(
           "permission qualifier must not be "
               + ALL
@@ -195,7 +199,9 @@ public record Permission(
               + STATUS_QUALIFIER_SUFFIX
               + ")");
     }
-    return Optional.of(token);
+    // Trimmed before storing -- covers() matches qualifier by exact string equality against a
+    // request's own qualifier, so an untrimmed token would silently never match any real request.
+    return Optional.of(normalized);
   }
 
   private static String requireToken(String token, String position) {

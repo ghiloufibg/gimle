@@ -15,8 +15,17 @@ public record RoleBinding(String id, String subject, String roleName) {
   private static final String GROUP_PREFIX = "group:";
 
   public RoleBinding {
+    // Trimmed before storing, not just before validating: subject is matched for exact string
+    // equality against Authorizer's own RoleBinding.userSubject/groupSubject output, and roleName
+    // against a stored Role's own name -- a binding built from an API body carrying incidental
+    // whitespace (a copy-pasted CLI argument, a trailing newline) would otherwise never match
+    // either lookup and silently grant nothing, with no error to say why.
     if (id == null || id.isBlank()) {
       throw new IllegalArgumentException("id must not be blank");
+    }
+    id = id.trim();
+    if (subject != null) {
+      subject = subject.trim();
     }
     if (subject == null || !(subject.startsWith(USER_PREFIX) || subject.startsWith(GROUP_PREFIX))) {
       throw new IllegalArgumentException(
@@ -30,6 +39,7 @@ public record RoleBinding(String id, String subject, String roleName) {
     if (roleName == null || roleName.isBlank()) {
       throw new IllegalArgumentException("roleName must not be blank");
     }
+    roleName = roleName.trim();
   }
 
   public static String userSubject(String principalName) {

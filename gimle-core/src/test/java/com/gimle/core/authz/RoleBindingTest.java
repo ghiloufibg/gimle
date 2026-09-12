@@ -24,4 +24,18 @@ class RoleBindingTest {
     new RoleBinding("b1", RoleBinding.userSubject("alice"), "cluster-admin");
     new RoleBinding("b2", RoleBinding.groupSubject("gimle:operators"), "cluster-admin");
   }
+
+  /**
+   * subject and roleName are matched for exact string equality elsewhere (Authorizer's own
+   * matchingSubjects set, and a stored Role's own name) -- incidental whitespace from an API body
+   * or copy-pasted CLI argument must not survive into the stored value, or the binding would
+   * silently grant nothing with no error to say why.
+   */
+  @Test
+  void trims_incidental_whitespace_from_subject_and_role_name() {
+    RoleBinding binding = new RoleBinding("b1", "  user:alice  ", "  cluster-admin  ");
+
+    assertEquals("user:alice", binding.subject());
+    assertEquals("cluster-admin", binding.roleName());
+  }
 }
