@@ -97,12 +97,17 @@ final class ManifestFiles {
     } catch (NoSuchFileException e) {
       throw new CliException("could not read manifest file " + file + ": no such file", e);
     } catch (AccessDeniedException e) {
-      throw new CliException("could not read manifest file " + file + ": permission denied", e);
+      // Opening a directory for byte-stream reading is denied outright on Windows (unlike POSIX's
+      // plain, exception-type-less IOException for the same case below) -- checked here too, or a
+      // directory target would always report as a permission problem on Windows instead of what
+      // it actually is.
+      String reason = Files.isDirectory(file) ? "is a directory" : "permission denied";
+      throw new CliException("could not read manifest file " + file + ": " + reason, e);
     } catch (IOException e) {
       // Files.readAllBytes throws a plain IOException (not one of the two specific subtypes
-      // above) for a directory -- distinguish that one other common case too rather than falling
-      // back to the exception's own message, which for NoSuchFileException/AccessDeniedException
-      // is just the path repeated with no stated reason at all.
+      // above) for a directory on POSIX -- distinguish that one other common case too rather than
+      // falling back to the exception's own message, which for NoSuchFileException/
+      // AccessDeniedException is just the path repeated with no stated reason at all.
       String reason = Files.isDirectory(file) ? "is a directory" : e.getMessage();
       throw new CliException("could not read manifest file " + file + ": " + reason, e);
     }

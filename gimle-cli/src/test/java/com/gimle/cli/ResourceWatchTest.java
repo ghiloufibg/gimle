@@ -221,7 +221,11 @@ class ResourceWatchTest {
 
   private List<String> stdoutLines() {
     List<String> lines = new ArrayList<>();
-    for (String line : stdout().split("\n")) {
+    // Not split("\n"): PrintStream#println writes the platform line separator, "\r\n" on Windows
+    // -- a plain "\n" split would leave a trailing "\r" on every line, breaking exact-match and
+    // endsWith() checks below even though the content is otherwise identical. \R matches any line
+    // terminator.
+    for (String line : stdout().split("\\R")) {
       if (!line.isBlank()) {
         lines.add(line);
       }

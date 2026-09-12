@@ -860,11 +860,30 @@ class GimleCliTest {
     assertFalse(stderr().contains("no control-plane server configured"));
   }
 
+  /**
+   * Needs its own write lock, not just the class-wide read one: {@link CliConfig#defaultPath()}
+   * falls back to this developer's own real {@code ~/.gimle/config} whenever nothing currently
+   * overrides {@link CliConfig#CONFIG_FILE_PROPERTY}, which a machine with a genuine saved context
+   * from ordinary CLI use (this one included) actually has -- "no server configured" would
+   * otherwise resolve a real context and fail differently (a connection error, not this one).
+   */
   @Test
+  @ResourceLock(Resources.SYSTEM_PROPERTIES)
   void missing_server_configuration_is_a_clear_error() {
-    int exit = GimleCli.run(new String[] {"get", "tenants"}, out, err);
-    assertEquals(1, exit);
-    assertTrue(stderr().contains("no control-plane server configured"));
+    String previous = System.getProperty(CliConfig.CONFIG_FILE_PROPERTY);
+    System.setProperty(
+        CliConfig.CONFIG_FILE_PROPERTY, tempDir.resolve("no-such-config").toString());
+    try {
+      int exit = GimleCli.run(new String[] {"get", "tenants"}, out, err);
+      assertEquals(1, exit);
+      assertTrue(stderr().contains("no control-plane server configured"));
+    } finally {
+      if (previous == null) {
+        System.clearProperty(CliConfig.CONFIG_FILE_PROPERTY);
+      } else {
+        System.setProperty(CliConfig.CONFIG_FILE_PROPERTY, previous);
+      }
+    }
   }
 
   @Test

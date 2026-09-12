@@ -311,7 +311,8 @@ class LogsCommandTest {
    * matters here is only the response shape the command must tolerate.
    */
   @Test
-  void following_a_target_that_falls_back_to_a_muninn_page_with_no_lines_prints_the_clear_message() {
+  void
+      following_a_target_that_falls_back_to_a_muninn_page_with_no_lines_prints_the_clear_message() {
     // A more specific context than "/logs" registered in startStub(), so the HttpServer routes a
     // request for this exact path here instead -- standing in for the Muninn fallback, which
     // answers a follow=true request with one bounded page rather than a real NDJSON stream.

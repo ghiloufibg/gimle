@@ -38,7 +38,10 @@ class OutputFormatTest {
 
     OutputFormat.printList(OutputFormat.Kind.TABLE, List.of(newest, older), out);
 
-    String[] lines = printed().split("\n");
+    // Not split("\n"): PrintStream#println writes the platform line separator, "\r\n" on Windows
+    // -- a plain "\n" split would leave a trailing "\r" on every line, breaking exact-match checks
+    // below even though the content is otherwise identical. \R matches any line terminator.
+    String[] lines = printed().split("\\R");
     assertEquals("id\tkind\tcauseSummary", lines[0]);
     assertEquals("evt-2\tACTIVE\t-", lines[1]);
     assertEquals("evt-1\tTRANSITION_FAILED\tIllegalStateException: boom", lines[2]);
@@ -53,7 +56,10 @@ class OutputFormatTest {
 
     OutputFormat.printList(OutputFormat.Kind.TABLE, List.of(a, b), out);
 
-    String[] lines = printed().split("\n");
+    // Not split("\n"): PrintStream#println writes the platform line separator, "\r\n" on Windows
+    // -- a plain "\n" split would leave a trailing "\r" on every line, breaking exact-match checks
+    // below even though the content is otherwise identical. \R matches any line terminator.
+    String[] lines = printed().split("\\R");
     assertEquals("name", lines[0]);
     assertEquals("a", lines[1]);
     assertEquals("b", lines[2]);
