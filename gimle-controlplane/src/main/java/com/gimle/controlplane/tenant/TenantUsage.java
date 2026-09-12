@@ -121,35 +121,38 @@ public final class TenantUsage {
    * through a control plane's shared resolver.
    */
   public static Usage currentlyAssigned(
-      StoreReader store, String tenantId, Optional<String> excludingWorkloadName) {
-    return currentlyAssigned(store, ArtifactResolver.localOnly(), tenantId, excludingWorkloadName);
+      StoreReader store, String tenantId, Optional<WorkloadSpec> excludingWorkload) {
+    return currentlyAssigned(store, ArtifactResolver.localOnly(), tenantId, excludingWorkload);
   }
 
   /**
    * Currently-assigned usage for {@code tenantId}, summed across every Deployment/Job/DaemonSet/
-   * StatefulSet sharing it *except* {@code excludingWorkloadName} (pass {@code Optional.empty()} to
+   * StatefulSet sharing it *except* {@code excludingWorkload} (pass {@code Optional.empty()} to
    * include everything) -- the exclusion lets admission compute "what would usage be after this PUT
    * replaces its own prior spec" without double-counting the workload being submitted. Matched by
-   * bare name only, not kind -- harmless in practice since a kind/name pair is what a submission's
-   * own URL path already pins down.
+   * kind and name together, via {@link #isExcluded}: a bare name alone is not enough to identify one
+   * spec, since a Deployment and a Job (or any two different kinds) can legitimately share a name --
+   * see {@code WorkloadHealthState}'s own javadoc for the identical collision, already fixed once
+   * there. Excluding by name alone would silently drop a same-named, different-kind workload's real
+   * usage from this total instead of only the one spec actually being replaced.
    */
   public static Usage currentlyAssigned(
       StoreReader store,
       ArtifactResolver artifactResolver,
       String tenantId,
-      Optional<String> excludingWorkloadName) {
+      Optional<WorkloadSpec> excludingWorkload) {
     Usage total = new Usage(0, 0, 0);
     for (DeploymentSpec spec : store.listDeployments()) {
-      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkload, spec);
     }
     for (JobSpec spec : store.listJobSpecs()) {
-      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkload, spec);
     }
     for (DaemonSetSpec spec : store.listDaemonSetSpecs()) {
-      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkload, spec);
     }
     for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
-      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkload, spec);
     }
     return total;
   }
@@ -159,9 +162,9 @@ public final class TenantUsage {
       StoreReader store,
       ArtifactResolver artifactResolver,
       String tenantId,
-      Optional<String> excludingWorkloadName,
+      Optional<WorkloadSpec> excludingWorkload,
       WorkloadSpec spec) {
-    if (excludingWorkloadName.filter(spec.name()::equals).isPresent()) {
+    if (isExcluded(excludingWorkload, spec)) {
       return total;
     }
     if (spec.tenantId().filter(tenantId::equals).isEmpty()) {
@@ -170,6 +173,18 @@ public final class TenantUsage {
     Usage contribution = contributionOf(store, artifactResolver, spec);
     return total.plus(
         contribution.memoryBytes(), contribution.cpuMillicores(), contribution.instances());
+  }
+
+  /**
+   * Whether {@code spec} is the one workload {@code excludingWorkload} names -- both its concrete
+   * kind (the runtime class: {@code DeploymentSpec}, {@code JobSpec}, ...) and its name must match,
+   * not the name alone, since two different kinds can share a name.
+   */
+  private static boolean isExcluded(Optional<WorkloadSpec> excludingWorkload, WorkloadSpec spec) {
+    return excludingWorkload
+        .filter(excluded -> excluded.getClass() == spec.getClass())
+        .filter(excluded -> excluded.name().equals(spec.name()))
+        .isPresent();
   }
 
   /**

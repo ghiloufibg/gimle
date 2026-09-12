@@ -67,7 +67,7 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<WorkloadSpec> {
     int committed = profile.get().committedInstances();
     TenantUsage.Usage existing =
         TenantUsage.currentlyAssigned(
-            request.store(), artifactResolver, tenantId, Optional.of(spec.name()));
+            request.store(), artifactResolver, tenantId, Optional.of(spec));
     if (request.artifact().isEmpty()) {
       // The instance ceiling needs no descriptor, so it is checked even here -- an unreadable jar
       // is no reason to let a submission past the one dimension that is still fully computable.
