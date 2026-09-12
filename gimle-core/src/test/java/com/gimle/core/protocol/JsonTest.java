@@ -71,4 +71,19 @@ class JsonTest {
     assertThrows(IllegalArgumentException.class, () -> Json.parse("not json"));
     assertThrows(IllegalArgumentException.class, () -> Json.parse("{\"a\":1} trailing"));
   }
+
+  /**
+   * A string truncated mid-escape-sequence originally read one or four characters past the end of
+   * the input unchecked, throwing a raw StringIndexOutOfBoundsException instead of the
+   * IllegalArgumentException every other malformed-input case in this parser reports.
+   */
+  @Test
+  void a_string_truncated_right_after_a_backslash_throws_illegal_argument() {
+    assertThrows(IllegalArgumentException.class, () -> Json.parse("\"abc\\"));
+  }
+
+  @Test
+  void a_string_truncated_partway_through_a_unicode_escape_throws_illegal_argument() {
+    assertThrows(IllegalArgumentException.class, () -> Json.parse("\"abc\\u12"));
+  }
 }

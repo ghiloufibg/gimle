@@ -236,6 +236,13 @@ public final class Json {
           break;
         }
         if (c == '\\') {
+          // Both reads below assume the escape sequence is complete -- a string truncated right
+          // after '\' or partway through a \\uXXXX sequence must fail as malformed input, not leak
+          // a raw StringIndexOutOfBoundsException past this parser's own IllegalArgumentException
+          // contract.
+          if (atEnd()) {
+            throw new IllegalArgumentException("unterminated escape sequence at position " + pos);
+          }
           char escaped = text.charAt(pos++);
           switch (escaped) {
             case '"' -> sb.append('"');
@@ -247,6 +254,10 @@ public final class Json {
             case 'b' -> sb.append('\b');
             case 'f' -> sb.append('\f');
             case 'u' -> {
+              if (pos + 4 > text.length()) {
+                throw new IllegalArgumentException(
+                    "truncated \\u escape sequence at position " + pos);
+              }
               String hex = text.substring(pos, pos + 4);
               sb.append((char) Integer.parseInt(hex, 16));
               pos += 4;
