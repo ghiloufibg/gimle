@@ -11,6 +11,7 @@ import com.gimle.hilmir.validate.Severity;
 import com.gimle.hilmir.validate.TopologyValidator;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -62,7 +63,11 @@ class UtgardTopologiesTest {
     final Topology topology = parse(yaml);
     assertEquals(com.gimle.hilmir.topology.Transport.MTLS, topology.transport());
     assertTrue(topology.tls().isPresent());
-    assertEquals("/opt/gimle/tls", topology.tls().get().materialDir().toString());
+    // Not a literal "/opt/gimle/tls": materialDir names a directory on a remote target machine,
+    // parsed locally into a Path -- Path#toString renders with the platform separator (backslash
+    // on Windows), even though nothing here ever touches this path on the local filesystem.
+    assertEquals(
+        Path.of("/opt/gimle/tls").toString(), topology.tls().get().materialDir().toString());
 
     // A multi-machine mtls topology is real, fully-supported PKI territory now (PkiBootstrapMain
     // mints one leaf per machine hostname) -- no ERROR, and no warning about it either.
