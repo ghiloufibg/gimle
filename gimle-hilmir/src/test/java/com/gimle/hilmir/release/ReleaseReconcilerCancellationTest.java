@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Regression coverage for {@code ReleaseReconciler.awaitAll}: interrupting the run-worker thread
@@ -19,6 +20,11 @@ import org.junit.jupiter.api.Test;
  * actually end a stuck {@code --wait} promptly, not only once the per-workload poll's own (much
  * longer) timeout eventually fires on its own.
  */
+// Mutates WaitPoller.TIMEOUT_PROPERTY, a JVM-global WaitPoller.timeout() reads fresh on every
+// call regardless of which test class triggered the wait -- any other concurrently-running class
+// expecting a short default wait would inherit this test's own (deliberately long) override
+// instead. @Isolated: no other test class runs at all while this one does.
+@Isolated
 class ReleaseReconcilerCancellationTest {
 
   private FakeControlPlane fake;

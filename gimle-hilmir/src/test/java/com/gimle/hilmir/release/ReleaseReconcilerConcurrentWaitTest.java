@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Regression coverage for {@code ReleaseReconciler.awaitIfRequested}: a Job that reaches its own
@@ -19,6 +20,11 @@ import org.junit.jupiter.api.Test;
  * (public in this package) rather than going through {@link DeployCommand}, since the behavior
  * under test lives entirely in the private {@code awaitIfRequested} it calls.
  */
+// Both tests below mutate WaitPoller.TIMEOUT_PROPERTY, a JVM-global WaitPoller.timeout() reads
+// fresh on every call regardless of which test class triggered the wait -- any other
+// concurrently-running class relying on the default multi-minute wait would inherit the
+// shortened one instead. @Isolated: no other test class runs at all while this one does.
+@Isolated
 class ReleaseReconcilerConcurrentWaitTest {
 
   private FakeControlPlane fake;

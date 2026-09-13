@@ -16,7 +16,13 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
+// One test below mutates BundleApplier.DELETE_CONFIRM_TIMEOUT_PROPERTY, a JVM-global that
+// governs how long any concurrently-running class's own delete-confirmation poll waits --
+// shortening it here would starve an unrelated class's own genuine wait. @Isolated: no other
+// test class runs at all while this one does.
+@Isolated
 class UndeployCommandTest {
 
   @TempDir Path tempDir;

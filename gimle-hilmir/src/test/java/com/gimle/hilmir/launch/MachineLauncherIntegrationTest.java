@@ -26,6 +26,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Exercises {@link MachineLauncher}'s {@code up}/{@code down}/{@code status} against real, killable
@@ -34,6 +35,12 @@ import org.junit.jupiter.api.io.TempDir;
  * StoreMain}, {@code AgentMain}, ...), which {@link com.gimle.hilmir.plan.LaunchPlanner} always
  * plans and this module deliberately never depends on.
  */
+// One test below mutates the gimle.hilmir.readinessTimeoutMillis system property, a JVM-global
+// every MachineLauncher.up() call reads regardless of which test class triggered it -- any other
+// concurrently-running class spawning a real process here would inherit that shortened timeout
+// and could see it exit for real before its port opens. @Isolated: no other test class runs at
+// all while this one does.
+@Isolated
 class MachineLauncherIntegrationTest {
 
   @TempDir Path tempDir;

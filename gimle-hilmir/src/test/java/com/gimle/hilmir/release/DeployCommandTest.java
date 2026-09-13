@@ -21,7 +21,13 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
+// One test below mutates WaitPoller.TIMEOUT_PROPERTY, a JVM-global WaitPoller.timeout() reads
+// fresh on every call regardless of which test class triggered the wait -- any other
+// concurrently-running class relying on the default multi-minute wait would inherit the
+// shortened one instead. @Isolated: no other test class runs at all while this one does.
+@Isolated
 class DeployCommandTest {
 
   @TempDir Path tempDir;
