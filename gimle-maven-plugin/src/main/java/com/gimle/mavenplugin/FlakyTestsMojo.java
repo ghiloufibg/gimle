@@ -37,7 +37,7 @@ public final class FlakyTestsMojo extends AbstractGimleRootMojo {
    */
   @Parameter(
       property = "gimle.flakyTests.modules",
-      defaultValue = "gimle-mimir,gimle-controlplane,gimle-worker")
+      defaultValue = "gimle-mimir,gimle-controlplane,gimle-worker,gimle-agent")
   private String modules;
 
   /**

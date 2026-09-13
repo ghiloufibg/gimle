@@ -153,7 +153,10 @@
         the same way. Every concrete *IT class in this package (GreeterClusterTopologyIT,
         RaftResilienceIT, ObservabilityIT, SelfHealingIT, QuotaIT, AutoscaleIT, RollingUpdateIT,
         all sharing the GreeterSmokeClusterSupport fixture) carries @Tag("smoke") for exactly
-        this.
+        this. Composed with ${gimle.excludedGroups} (see the root pom's own property) rather than
+        a bare "smoke" literal: a plain override here would silently cancel out the root pom's own
+        flaky-test quarantine for this module alone, the same hazard fixed for real in
+        gimle-agent's identical pattern.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -162,7 +165,7 @@
           <excludes>
             <exclude>**/*IT.java</exclude>
           </excludes>
-          <excludedGroups>smoke</excludedGroups>
+          <excludedGroups>smoke,${gimle.excludedGroups}</excludedGroups>
         </configuration>
       </plugin>
     </plugins>

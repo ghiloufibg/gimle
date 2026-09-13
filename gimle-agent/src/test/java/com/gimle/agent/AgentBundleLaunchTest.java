@@ -128,14 +128,24 @@ class AgentBundleLaunchTest {
     }
   }
 
+  /**
+   * Returns the first logged line containing {@code needle}, not the whole file: the supervised
+   * process here exits cleanly (code 0) on every run, which {@link VesselProcessSupervisor#onExit}
+   * still treats as "exited unexpectedly" and keeps respawning until the caller closes the
+   * supervisor -- exactly the keep-it-alive behavior a real Vessel needs -- so the log file
+   * routinely accumulates more than one matching line before a caller gets around to reading it.
+   * Returning the raw file content once let two concatenated JSON lines reach {@code Json.parse} as
+   * a single string and fail with "trailing content after JSON value".
+   */
   private static String awaitLogContaining(Path logFile, String needle, Duration timeout)
       throws Exception {
     Instant deadline = Instant.now().plus(timeout);
     while (Instant.now().isBefore(deadline)) {
       if (Files.isRegularFile(logFile)) {
-        String content = Files.readString(logFile);
-        if (content.contains(needle)) {
-          return content;
+        for (String line : Files.readAllLines(logFile)) {
+          if (line.contains(needle)) {
+            return line;
+          }
         }
       }
       Thread.sleep(100);

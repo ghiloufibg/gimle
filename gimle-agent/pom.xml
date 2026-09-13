@@ -123,6 +123,12 @@
         pattern alone is not enough, and JUnit 5's tag-based excludedGroups filtering is a separate
         mechanism unaffected by that override. Every concrete *IT class in this module carries
         @Tag("aotbench") for exactly this. Plain unit tests still run under the default build.
+        Composed with ${gimle.excludedGroups} (see the root pom's own property) rather than a bare
+        "aotbench" literal: a plain override here would silently cancel out the root pom's own
+        flaky-test quarantine for this module alone, letting a @Tag("flaky") test in gimle-agent run
+        (and occasionally fail) under plain mvn verify while every other module skips it. The same
+        indirection is what lets `gimle:flaky-tests` clear the flaky half with
+        -Dgimle.excludedGroups= without losing the aotbench exclusion.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -131,7 +137,7 @@
           <excludes>
             <exclude>**/*IT.java</exclude>
           </excludes>
-          <excludedGroups>aotbench</excludedGroups>
+          <excludedGroups>aotbench,${gimle.excludedGroups}</excludedGroups>
         </configuration>
       </plugin>
     </plugins>

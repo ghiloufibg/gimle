@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,7 +44,13 @@ class Tier1DensityJobCompletionIntegrationTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  /**
+   * Flaky under a cold JVM/disk cache: this spawns a real worker JVM subprocess end to end, and a
+   * first invocation in a fresh process can occasionally miss even the generous 60-second budget
+   * (confirmed non-bug -- passes in well under a second immediately after; see FLAKY_TESTS.md).
+   */
   @Test
+  @Tag("flaky")
   void a_completed_jobs_stop_module_is_nacked_and_a_later_sibling_still_installs_cleanly()
       throws Exception {
     assertTimeoutPreemptively(Duration.ofSeconds(60), this::runScenario);

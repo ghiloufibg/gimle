@@ -231,7 +231,10 @@
         a separate mechanism unaffected by that override. Every concrete *IT class in this module
         carries @Tag("holmgang") for exactly this. Plain unit tests (topology parsing, port
         leasing) still run under the default build, keeping this module compiling and covered
-        even when no real cluster is ever spawned.
+        even when no real cluster is ever spawned. Composed with ${gimle.excludedGroups} (see the
+        root pom's own property) rather than a bare "holmgang" literal: a plain override here
+        would silently cancel out the root pom's own flaky-test quarantine for this module alone,
+        the same hazard fixed for real in gimle-agent's identical pattern.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -240,7 +243,7 @@
           <excludes>
             <exclude>**/*IT.java</exclude>
           </excludes>
-          <excludedGroups>holmgang</excludedGroups>
+          <excludedGroups>holmgang,${gimle.excludedGroups}</excludedGroups>
         </configuration>
       </plugin>
     </plugins>
