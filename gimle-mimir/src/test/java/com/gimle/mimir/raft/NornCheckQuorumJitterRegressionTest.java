@@ -48,8 +48,8 @@ class NornCheckQuorumJitterRegressionTest {
   // thread that touches the WAL between the interrupt and the close can leave a file handle open
   // past @TempDir's own cleanup on Windows, which cannot delete a directory holding one ("JUnit
   // Failed to close extension context" / DirectoryNotEmptyException). Confirmed environment-timing
-  // dependent, not deterministic: 4/4 clean isolated reruns, reproducing only under this session's
-  // own full-reactor build load. Real underlying shutdown-ordering gap in RaftNode#close(), but a
+  // dependent, not deterministic: clean in isolation every time, reproducing only under heavy
+  // concurrent build load. Real underlying shutdown-ordering gap in RaftNode#close(), but a
   // POSIX-invisible one -- tracked here rather than fixed inline, matching this file's own
   // "confirmed clean across N isolated runs" flaky-diagnosis standard elsewhere.
   @Test

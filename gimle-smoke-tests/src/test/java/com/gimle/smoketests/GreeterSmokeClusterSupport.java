@@ -158,8 +158,8 @@ abstract class GreeterSmokeClusterSupport {
   static final String LOAD_GENERATOR_TENANT_ID = "load-generator-smoke-tenant";
 
   // Matches gimle-console/e2e/greeter-smoke.spec.ts's own login credentials -- that suite logs in
-  // as this account before touching any /console page (RBAC/session auth, commit 05af65d, gates
-  // every console route client-side regardless of transport). Created via an unauthenticated PUT
+  // as this account before touching any /console page, since session-based RBAC gates every
+  // console route client-side regardless of transport. Created via an unauthenticated PUT
   // below: plaintext mode's ApiServer#requireAuthorized bypasses auth entirely (there is nothing
   // real to protect without TLS), so no prior identity is needed to create the first account.
   static final String SMOKE_OPERATOR_USERNAME = "smoke-operator";

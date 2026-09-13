@@ -168,11 +168,11 @@ class BifrostProxyTest {
 
   /**
    * The bug this proves fixed: "3m88yv76" and "vr7pe6ya" hash to the identical loopback address
-   * (found by brute force -- see the Round 6 report), and both declare the same port here on
-   * purpose, the only combination that actually conflicts at the socket level. Before
-   * LoopbackAddressAllocator took a reserved set, whichever of the two this proxy tried to bind
-   * second would fail with a real BindException, log a warning, and retry-fail forever -- this
-   * proves both now get a distinct address and a real, working listener.
+   * (found by brute-force search), and both declare the same port here on purpose, the only
+   * combination that actually conflicts at the socket level. Before LoopbackAddressAllocator took a
+   * reserved set, whichever of the two this proxy tried to bind second would fail with a real
+   * BindException, log a warning, and retry-fail forever -- this proves both now get a distinct
+   * address and a real, working listener.
    */
   @Test
   @Timeout(15)

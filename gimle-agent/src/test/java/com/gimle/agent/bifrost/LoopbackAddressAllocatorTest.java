@@ -40,10 +40,10 @@ class LoopbackAddressAllocatorTest {
 
   /**
    * The bug this proves fixed: with no reserved set to consult, "3m88yv76" and "vr7pe6ya" hash to
-   * the identical address (found by brute force -- see the Round 6 report) -- previously, whichever
-   * of the two this proxy tried to bind second would fail with a real BindException and retry-fail
-   * forever. Reserving the first one's address before allocating the second's proves the allocator
-   * itself now routes around a colliding hash instead of handing out the same address twice.
+   * the identical address (found by brute-force search) -- previously, whichever of the two this
+   * proxy tried to bind second would fail with a real BindException and retry-fail forever.
+   * Reserving the first one's address before allocating the second's proves the allocator itself
+   * now routes around a colliding hash instead of handing out the same address twice.
    */
   @Test
   void a_hash_collision_at_the_same_port_is_resolved_to_a_distinct_address() {
