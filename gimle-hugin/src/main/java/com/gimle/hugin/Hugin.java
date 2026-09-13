@@ -59,7 +59,7 @@ import java.util.Optional;
  */
 public final class Hugin {
 
-  /** Fixed for now, and the same interval the design settled on: it matches what a poll costs. */
+  /** Fixed for now, matching what a poll actually costs -- no adaptive tuning yet. */
   private final RefreshIntervals intervals;
 
   /**

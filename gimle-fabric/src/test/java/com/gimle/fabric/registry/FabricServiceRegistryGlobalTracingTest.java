@@ -35,11 +35,11 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Exercises a real cross-worker fabric call end to end against a real installed OTel SDK -- the P3
- * finding this guards (OBS-4): before {@link FabricServiceRegistry#invokeOverWire} started its own
+ * Exercises a real cross-worker fabric call end to end against a real installed OTel SDK -- the
+ * regression this guards: before {@link FabricServiceRegistry#invokeOverWire} started its own
  * {@link SpanKind#CLIENT} span, a caller with no already-active span captured the all-zero "no
  * active span" marker, so {@code FabricServer}'s inbound {@code SERVER} span always came up as a
- * disconnected root -- real caller activity or not. Also covers OBS-5's metrics half: a worker that
+ * disconnected root -- real caller activity or not. Also covers the metrics half: a worker that
  * only ever calls out through the fabric (never receives an inbound call, so {@code FabricServer}'s
  * own request counters never fire) now still produces real client-side request telemetry via {@link
  * WorkerMetrics#recordClientRequest}.

@@ -79,7 +79,7 @@ class HttpServiceCatalogClientTest {
 
     List<ServiceListing> listings = client.listServices();
 
-    // ADD-6: tenantId travels alongside the bare name -- without it, every tenant-scoped
+    // tenantId travels alongside the bare name -- without it, every tenant-scoped
     // Service's endpoints get cached under a key no DNS query for it can ever derive.
     assertEquals(
         List.of(

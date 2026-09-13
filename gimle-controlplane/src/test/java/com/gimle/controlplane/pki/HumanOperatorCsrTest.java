@@ -129,7 +129,7 @@ class HumanOperatorCsrTest {
   }
 
   /**
-   * {@code V3-M5}: an explicit {@code gimle cert approve <id>} call's own audit row must record
+   * Regression test: an explicit {@code gimle cert approve <id>} call's own audit row must record
    * which pending request it resolved -- before the fix, every such row carried an empty {@code
    * targetId}, so more than one approval by the same principal was indistinguishable in the audit
    * trail. The schema itself already supports this (a bootstrap-token node join's own {@code

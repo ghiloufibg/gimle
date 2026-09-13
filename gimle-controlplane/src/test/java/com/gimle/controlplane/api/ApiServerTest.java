@@ -1778,10 +1778,10 @@ class ApiServerTest {
   }
 
   /**
-   * QA finding: {@code gimle events <deployment> <idx>} with no {@code --tenant} at all silently
-   * returned nothing even for a genuinely default-tenant deployment -- every other verb this class
-   * exposes resolves a bare, untenanted name against whichever tenant actually owns it, but this
-   * route defaulted straight to the untenanted namespace instead, a bucket a real (parsed, always
+   * {@code gimle events <deployment> <idx>} with no {@code --tenant} at all silently returned
+   * nothing even for a genuinely default-tenant deployment -- every other verb this class exposes
+   * resolves a bare, untenanted name against whichever tenant actually owns it, but this route
+   * defaulted straight to the untenanted namespace instead, a bucket a real (parsed, always
    * tenant-normalized) manifest never actually lands in.
    */
   @Test
@@ -1884,13 +1884,12 @@ class ApiServerTest {
   }
 
   /**
-   * QA finding: a StatefulSet/DaemonSet instance's own relayed event used to be filed under the
-   * untenanted namespace regardless of its real tenant -- {@code handleAppendInstanceEvent} only
-   * ever joined against {@code storeClient.listAssignments()}, Deployment-kind bookkeeping alone --
-   * so a bare {@code GET /events} (no {@code ?tenant=}) against a non-default-tenant StatefulSet
-   * instance found it (both landed in the untenanted bucket), while an explicit {@code
-   * ?tenant=acme} for the very same instance came back empty, the exact opposite of every other
-   * verb's own convention.
+   * A StatefulSet/DaemonSet instance's own relayed event used to be filed under the untenanted
+   * namespace regardless of its real tenant -- {@code handleAppendInstanceEvent} only ever joined
+   * against {@code storeClient.listAssignments()}, Deployment-kind bookkeeping alone -- so a bare
+   * {@code GET /events} (no {@code ?tenant=}) against a non-default-tenant StatefulSet instance
+   * found it (both landed in the untenanted bucket), while an explicit {@code ?tenant=acme} for the
+   * very same instance came back empty, the exact opposite of every other verb's own convention.
    */
   @Test
   void a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant() throws Exception {
@@ -2011,7 +2010,7 @@ class ApiServerTest {
   }
 
   /**
-   * QA end-user-QA finding: {@code requireAuthorized}'s plaintext short-circuit used to return
+   * An end-user-reported bug: {@code requireAuthorized}'s plaintext short-circuit used to return
    * {@code true} immediately, before the WRITE/DELETE audit-recording branch a few lines later ever
    * ran -- so a plaintext cluster (the default, and what most local/dev clusters run) audited
    * nothing at all, for any resource kind, ever. This class's own {@code @BeforeEach} already runs
@@ -2828,11 +2827,11 @@ class ApiServerTest {
   // ---- certificate bootstrap on a plaintext (no-CA) cluster ----
 
   /**
-   * {@code GOV-01}: on a plaintext-transport cluster {@code certificateAuthority} is never present,
-   * so {@code /bootstrap/csr} and its siblings are never registered at all -- without a catch-all,
-   * the JDK's own httpserver answers with a truly empty-bodied 404 that gives a CLI caller no clue
-   * why. This class's own {@code @BeforeEach} always builds a plaintext server (see its own
-   * javadoc), so every test here already runs against exactly that configuration.
+   * On a plaintext-transport cluster {@code certificateAuthority} is never present, so {@code
+   * /bootstrap/csr} and its siblings are never registered at all -- without a catch-all, the JDK's
+   * own httpserver answers with a truly empty-bodied 404 that gives a CLI caller no clue why. This
+   * class's own {@code @BeforeEach} always builds a plaintext server (see its own javadoc), so
+   * every test here already runs against exactly that configuration.
    */
   @Test
   void bootstrap_csr_on_a_plaintext_cluster_gives_an_informative_body_not_an_empty_404()

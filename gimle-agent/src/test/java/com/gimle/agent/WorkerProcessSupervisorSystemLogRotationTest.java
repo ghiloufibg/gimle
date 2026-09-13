@@ -21,11 +21,11 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Proves the fix for BETA-10: the raw stdout/stderr SYSTEM-capture file used to be opened {@code
- * CREATE, APPEND} and never rotated, growing unbounded for the lifetime of a chatty or long-lived
- * worker. A real {@link WorkerProcessSupervisor} supervising a real subprocess that floods stdout
- * with plain-text lines, against a deliberately tiny {@code gimle.log.maxFileSizeBytes}, exercises
- * the actual rotation path rather than asserting against the private rotation method directly.
+ * Proves the fix: the raw stdout/stderr SYSTEM-capture file used to be opened {@code CREATE,
+ * APPEND} and never rotated, growing unbounded for the lifetime of a chatty or long-lived worker. A
+ * real {@link WorkerProcessSupervisor} supervising a real subprocess that floods stdout with
+ * plain-text lines, against a deliberately tiny {@code gimle.log.maxFileSizeBytes}, exercises the
+ * actual rotation path rather than asserting against the private rotation method directly.
  */
 class WorkerProcessSupervisorSystemLogRotationTest {
 

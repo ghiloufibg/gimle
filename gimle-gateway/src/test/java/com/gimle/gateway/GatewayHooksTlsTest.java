@@ -179,7 +179,7 @@ class GatewayHooksTlsTest {
 
   @Test
   void a_gateway_tlscertificates_update_is_picked_up_without_a_restart() throws Exception {
-    // M55 regression: gateway.tlsCertificates used to be parsed exactly once at onStart, so a
+    // Regression test: gateway.tlsCertificates used to be parsed exactly once at onStart, so a
     // config change reaching an already-running instance (the same live-delivery path
     // the route table already reloads through) had no effect at all -- every hostname kept getting
     // whichever certificate set (or lack of one) happened to be in place at boot.
@@ -282,7 +282,7 @@ class GatewayHooksTlsTest {
   @Test
   void a_tls_configured_gateway_never_accepts_ingress_routes_fetched_over_plaintext()
       throws Exception {
-    // NET-01 regression: fetchIngressRoutes used to hardcode a plain HttpClient and http:// URI
+    // Regression test: fetchIngressRoutes used to hardcode a plain HttpClient and http:// URI
     // regardless of gimle.transport.protocol, so a plaintext (or compromised) control plane was
     // still trusted for route data even while this gateway terminates TLS for inbound traffic.
     CertificateAuthority ca =

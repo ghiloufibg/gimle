@@ -36,10 +36,10 @@ import org.junit.jupiter.api.parallel.Isolated;
  * {@code StoreClient#addServer}/{@code #removeServer} driven over a real, address-aware, real-TCP
  * {@code StoreNode}/{@code RaftNode} cluster -- the exact protocol surface {@code hilmir store
  * add}/{@code remove} sit on top of, one layer below {@link
- * com.gimle.hilmir.store.StoreCommandsClusterTest}'s own CLI-process-level coverage. Proves the M45
- * fix: a leader that genuinely evaluates {@code addServer}/{@code removeServer} and rejects it for
- * a real, deterministic reason must answer with that reason, never a self-referential {@code
- * NotLeader} that sends the client chasing a redirect back to the very node that already answered.
+ * com.gimle.hilmir.store.StoreCommandsClusterTest}'s own CLI-process-level coverage. Proves a
+ * leader that genuinely evaluates {@code addServer}/{@code removeServer} and rejects it for a real,
+ * deterministic reason must answer with that reason, never a self-referential {@code NotLeader}
+ * that sends the client chasing a redirect back to the very node that already answered.
  */
 @Isolated
 class StoreClientMembershipChangeTest {
@@ -226,7 +226,7 @@ class StoreClientMembershipChangeTest {
 
     // Deliberately built with ONLY the three original endpoints -- mirroring an operator's
     // topology file that was never updated with the newly-added fourth machine's own address, the
-    // exact shape M45 reported failing against.
+    // exact shape known to fail against.
     List<SocketAddress> originalOnlyEndpoints = clientAddressesOf(originalCluster);
     client = new StoreClient(originalOnlyEndpoints);
 

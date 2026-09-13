@@ -93,11 +93,11 @@ class ServiceReconcilerTest {
   }
 
   /**
-   * QA finding: a Service fronting a DaemonSet never resolved any endpoints, even with every
-   * replica genuinely {@code ACTIVE}/ready and reporting a port matching the Service's own {@code
-   * targetPort} -- {@link com.gimle.controlplane.service.ServiceEndpointResolver} only ever
-   * consulted {@code listAssignmentsFor}, Deployment-kind bookkeeping alone. A byte-for-byte
-   * equivalent workload as a plain Deployment (the test directly above) resolved immediately.
+   * A Service fronting a DaemonSet never resolved any endpoints, even with every replica genuinely
+   * {@code ACTIVE}/ready and reporting a port matching the Service's own {@code targetPort} --
+   * {@link com.gimle.controlplane.service.ServiceEndpointResolver} only ever consulted {@code
+   * listAssignmentsFor}, Deployment-kind bookkeeping alone. A byte-for-byte equivalent workload as
+   * a plain Deployment (the test directly above) resolved immediately.
    */
   @Test
   void a_service_fronting_a_daemonset_resolves_its_endpoints() {

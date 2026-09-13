@@ -43,7 +43,7 @@ final class ControlPlaneServicePollerTest {
 
   @Test
   void a_tenant_scoped_service_is_cached_under_its_qualified_name_not_its_bare_one() {
-    // ADD-6: the control plane's own /services/{name}/endpoints path needs the bare name, but
+    // The control plane's own /services/{name}/endpoints path needs the bare name, but
     // the directory must be keyed by the qualified name a DNS query resolves to -- caching under
     // the bare name made every tenant-scoped Service unresolvable (NXDOMAIN) no matter how live
     // its endpoint was.

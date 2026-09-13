@@ -244,7 +244,7 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
   @Test
   void rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value()
       throws Exception {
-    // FUNC-55 regression: withArtifactSha256's field-by-field reconstruction on rollback must
+    // Regression test: withArtifactSha256's field-by-field reconstruction on rollback must
     // carry tolerateAllTaints forward too, not silently reset it to false.
     put("/daemonsets/node-exporter", daemonSetYamlTolerantOfAllTaints("node-exporter", "1.0.0"));
     put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.1.0"));

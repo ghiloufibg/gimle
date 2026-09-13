@@ -73,7 +73,9 @@ public final class Pem {
     }
   }
 
-  /** The design's leaf and CA certificates are always RSA-signed, so this only ever loads RSA. */
+  /**
+   * Every leaf and CA certificate this platform issues is RSA-signed, so this only ever loads RSA.
+   */
   public static PrivateKey decodePrivateKey(String pem) {
     try {
       KeyFactory keyFactory = KeyFactory.getInstance("RSA");

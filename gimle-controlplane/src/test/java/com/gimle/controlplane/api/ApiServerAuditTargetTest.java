@@ -21,10 +21,10 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@code V3-M5}: a Deployment write/delete's own audit row must carry the deployment's own name as
- * its {@code targetId}, not just the enclosing tenant -- the schema already supports this (a
- * bootstrap-token node join's own {@code APPROVE} row already records the joining CSR's subject as
- * its target), but {@code dispatchResourceRequest}'s PUT/DELETE branches omitted it, leaving two
+ * A Deployment write/delete's own audit row must carry the deployment's own name as its {@code
+ * targetId}, not just the enclosing tenant -- the schema already supports this (a bootstrap-token
+ * node join's own {@code APPROVE} row already records the joining CSR's subject as its target), but
+ * {@code dispatchResourceRequest}'s PUT/DELETE branches omitted it, leaving two
  * independently-created, differently-named deployments in the same tenant indistinguishable from
  * the audit trail alone. See {@code HumanOperatorCsrTest} for the identical gap on the certificate-
  * approval side.
@@ -96,7 +96,7 @@ class ApiServerAuditTargetTest {
   }
 
   /**
-   * {@code V3-M5}: a Deployment PUT's own audit row must carry the deployment's own name as its
+   * Regression test: a Deployment PUT's own audit row must carry the deployment's own name as its
    * {@code targetId} -- before the fix, every Deployment {@code WRITE} row carried only the tenant,
    * so two independently-created, differently-named deployments in the same tenant produced audit
    * rows indistinguishable from each other.
@@ -111,8 +111,8 @@ class ApiServerAuditTargetTest {
   }
 
   /**
-   * {@code V3-M5}: the identical gap on the delete side -- a Deployment DELETE's own audit row must
-   * also carry the deployment's own name, not just its tenant.
+   * The identical gap on the delete side -- a Deployment DELETE's own audit row must also carry the
+   * deployment's own name, not just its tenant.
    */
   @Test
   void a_deployment_delete_records_its_own_name_as_the_audit_target() throws Exception {

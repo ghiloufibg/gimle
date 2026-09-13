@@ -165,7 +165,7 @@ class DaemonSetReconcilerTest {
 
   @Test
   void a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too() {
-    // FUNC-55: a genuinely cluster-wide DaemonSet (e.g. a log shipper) that opts into
+    // A genuinely cluster-wide DaemonSet (e.g. a log shipper) that opts into
     // tolerateAllTaints must reach every node, including one reserved for a different tenant.
     StateStore store = new StateStore();
     Scheduler scheduler = new Scheduler();
@@ -806,7 +806,7 @@ class DaemonSetReconcilerTest {
         "node-a's own stuck state is untouched by unblocking node-b");
   }
 
-  // ---- desired-count publication (GIMLE-15 sub-item 2) ----
+  // ---- desired-count publication ----
 
   @Test
   void desired_count_is_zero_when_no_node_is_eligible() {

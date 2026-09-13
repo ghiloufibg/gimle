@@ -465,7 +465,7 @@ class ApiServerNetworkPoliciesTest {
     HttpResponse<String> response =
         patch("/networkpolicies/policy?tenant=acme", addCallerPatch(1, "no-such-tenant"));
     assertEquals(400, response.statusCode());
-    // NET-04: the message must describe the real operation -- adding an unregistered tenant --
+    // The message must describe the real operation -- adding an unregistered tenant --
     // not read as a failed removal/allow-list lookup, the wording POST's own equivalent rejection
     // still carries for its own genuinely different operation (declaring a new policy's list).
     assertTrue(response.body().contains("no such tenant(s) to add"), response.body());

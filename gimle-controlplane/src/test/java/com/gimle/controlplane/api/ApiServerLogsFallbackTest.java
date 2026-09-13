@@ -301,15 +301,15 @@ class ApiServerLogsFallbackTest {
   }
 
   /**
-   * QA finding: {@code gimle logs ... --follow} against a node/instance whose supervising agent is
-   * genuinely down used to hang forever -- {@code proxyFollowToAgent} committed to a chunked 200
-   * response before ever attempting the connection, so a stopped agent's connection failure (caught
-   * only after the fact, and only logged at DEBUG) left the caller with an open, silent connection
-   * and no way to tell a hung follow from a healthy, quiet one. The registered node's own
-   * log-server address here is a real port nothing listens on (the same {@code 127.0.0.1:1} trick
-   * the plain unreachable-agent test above uses), and the instance itself carries a real placement
-   * so this request reaches the follow branch at all. {@link Timeout} makes "must not hang" an
-   * enforced fact of this test, not just a hope.
+   * {@code gimle logs ... --follow} against a node/instance whose supervising agent is genuinely
+   * down used to hang forever -- {@code proxyFollowToAgent} committed to a chunked 200 response
+   * before ever attempting the connection, so a stopped agent's connection failure (caught only
+   * after the fact, and only logged at DEBUG) left the caller with an open, silent connection and
+   * no way to tell a hung follow from a healthy, quiet one. The registered node's own log-server
+   * address here is a real port nothing listens on (the same {@code 127.0.0.1:1} trick the plain
+   * unreachable-agent test above uses), and the instance itself carries a real placement so this
+   * request reaches the follow branch at all. {@link Timeout} makes "must not hang" an enforced
+   * fact of this test, not just a hope.
    */
   @Test
   @Timeout(15)
@@ -363,7 +363,7 @@ class ApiServerLogsFallbackTest {
   }
 
   /**
-   * QA end-user-QA finding: {@code /logs/instances/{name}/{index}} used to resolve placement
+   * An end-user-reported bug: {@code /logs/instances/{name}/{index}} used to resolve placement
    * exclusively via {@code storeClient.listAssignmentsFor}, which only Deployment-kind bookkeeping
    * ever populates -- a StatefulSet/DaemonSet/Job-owned instance 404'd forever, even genuinely
    * {@code ACTIVE} on a live, reachable agent. These three prove each of the non-Deployment kinds
@@ -396,7 +396,7 @@ class ApiServerLogsFallbackTest {
   }
 
   /**
-   * QA finding: {@code /logs/instances/{name}/{index}} used to resolve its tenant via {@code
+   * {@code /logs/instances/{name}/{index}} used to resolve its tenant via {@code
    * workloadTenantHint}, which defaults a missing {@code ?tenant=} straight to the untenanted
    * namespace rather than searching for the name the way {@code /endpoints/{name}} already does --
    * a genuinely {@code ACTIVE} instance whose owning tenant wasn't literally the untenanted
@@ -710,8 +710,8 @@ class ApiServerLogsFallbackTest {
 
   /**
    * As above, for {@link #handleNodeLogsProxy}'s other fallback branch: a node that is registered
-   * but whose agent genuinely cannot be reached, matching the QA-reported "node is genuinely gone"
-   * wording most closely.
+   * but whose agent genuinely cannot be reached, which should read as "node is genuinely gone"
+   * rather than a generic failure.
    */
   @Test
   @Timeout(15)

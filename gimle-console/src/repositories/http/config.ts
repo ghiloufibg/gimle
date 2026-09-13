@@ -7,7 +7,7 @@ import { requestJson, requestOk } from "./apiClient";
 // must be stitched back in here rather than left undefined for callers that read it off a fetched item.
 type RawConfigEntry = Omit<ConfigEntry, "tenantId">;
 
-/** Deliberately uncached (see the M2 plan's decision 4): config lists are small and this is the
+/** Deliberately uncached: config lists are small and this is the
  * most frequently-mutated screen, so always fetching fresh avoids a whole class of
  * "did my edit invalidate the cache" bugs for negligible cost. */
 export class HttpConfigRepository implements ConfigRepository {

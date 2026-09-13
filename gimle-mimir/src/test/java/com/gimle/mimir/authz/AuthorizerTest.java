@@ -170,7 +170,7 @@ class AuthorizerTest {
 
   @Test
   void a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding() {
-    // FUNC-24 regression: RoleBinding.roleName is a plain string resolved by name at
+    // Regression test: RoleBinding.roleName is a plain string resolved by name at
     // authorize-time, not an immutable ID -- confirms StateMutation.RemoveRole's own cascade is
     // what actually closes the resurrection gap, not merely that store.removeRole(name) ran.
     StateStore store = new StateStore();
@@ -385,7 +385,7 @@ class AuthorizerTest {
   }
 
   /**
-   * ADD-11: {@code isTenantAssignedToNode} originally only ever consulted {@code listAssignments()}
+   * {@code isTenantAssignedToNode} originally only ever consulted {@code listAssignments()}
    * (Deployment-only), so a node hosting any tenanted Job/DaemonSet/StatefulSet instance -- e.g.
    * {@code gimle-gateway}'s own DaemonSet -- could never read that tenant's config/secrets through
    * this check, no matter how long the assignment had existed. Each workload kind gets its own
@@ -471,7 +471,7 @@ class AuthorizerTest {
   }
 
   /**
-   * ADD-11: gimle-controlplane's own {@code /config/*}/{@code /configmaps/*} routed every {@code
+   * gimle-controlplane's own {@code /config/*}/{@code /configmaps/*} routed every {@code
    * gimle:nodes} read through the ordinary RoleBinding walk with nothing there to ever match --
    * unlike Fafnir's {@code /secrets/*}/{@code /secretmaps/*}, which already granted this. A fresh
    * mTLS cluster shipped no default RoleBinding for {@code gimle:nodes}, so no hosted module could
@@ -524,9 +524,9 @@ class AuthorizerTest {
   }
 
   /**
-   * ADD-10: the control plane's own leaf certificate carried no {@code O=} at all before this fix,
-   * so its scheduling-time artifact pull always fell through to the ordinary RoleBinding walk --
-   * with nothing there to ever match on a fresh cluster, a repeating 403 blocked coordinate-only
+   * The control plane's own leaf certificate carried no {@code O=} at all before this fix, so its
+   * scheduling-time artifact pull always fell through to the ordinary RoleBinding walk -- with
+   * nothing there to ever match on a fresh cluster, a repeating 403 blocked coordinate-only
    * DaemonSet placement indefinitely.
    */
   @Test

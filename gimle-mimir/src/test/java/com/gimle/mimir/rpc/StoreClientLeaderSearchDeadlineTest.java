@@ -16,13 +16,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Reproduces CHAOS-06: a node that stalls before answering {@link StoreRpc.NotLeader} (modeling
- * {@code RaftNode#awaitReadIndex} blocking a partitioned/just-deposed leader for up to its own
- * {@code proposeTimeout}) must not let one {@link StoreClient} call run for several multiples of
- * its own leader-search deadline. Each fake endpoint here is a real {@link StoreTransport} whose
- * handler sleeps before answering {@link StoreRpc.NotLeader} with a blank hint -- a genuine stall
- * on the wire, not a mocked method call -- so the only way this test passes is if the deadline is
- * actually enforced between individual endpoint attempts, not just between whole passes.
+ * Reproduces a node that stalls before answering {@link StoreRpc.NotLeader} (modeling {@code
+ * RaftNode#awaitReadIndex} blocking a partitioned/just-deposed leader for up to its own {@code
+ * proposeTimeout}) must not let one {@link StoreClient} call run for several multiples of its own
+ * leader-search deadline. Each fake endpoint here is a real {@link StoreTransport} whose handler
+ * sleeps before answering {@link StoreRpc.NotLeader} with a blank hint -- a genuine stall on the
+ * wire, not a mocked method call -- so the only way this test passes is if the deadline is actually
+ * enforced between individual endpoint attempts, not just between whole passes.
  */
 class StoreClientLeaderSearchDeadlineTest {
 

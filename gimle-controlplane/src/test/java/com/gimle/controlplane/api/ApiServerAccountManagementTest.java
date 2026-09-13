@@ -120,7 +120,7 @@ class ApiServerAccountManagementTest {
         .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 
-  // ---- GOV-5: dangling rolebinding on account delete ----
+  // ---- dangling rolebinding on account delete ----
 
   @Test
   @Tag("flaky")
@@ -156,7 +156,7 @@ class ApiServerAccountManagementTest {
             .statusCode());
   }
 
-  // ---- GOV-7: ACCOUNT/ROLE/ROLE_BINDING audit entries carry targetId ----
+  // ---- ACCOUNT/ROLE/ROLE_BINDING audit entries carry targetId ----
 
   @Test
   void account_write_and_delete_audit_entries_carry_the_username_as_target_id() throws Exception {
@@ -193,7 +193,7 @@ class ApiServerAccountManagementTest {
     assertEquals(Optional.of("binding-1"), bindingEvents.get(0).targetId());
   }
 
-  // ---- FUNC-67: group: RoleBinding subjects for session-authenticated accounts ----
+  // ---- group: RoleBinding subjects for session-authenticated accounts ----
 
   @Test
   void put_account_with_groups_records_them_and_get_exposes_them() throws Exception {

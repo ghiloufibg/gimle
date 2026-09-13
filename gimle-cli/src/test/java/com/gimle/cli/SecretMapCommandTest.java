@@ -33,12 +33,12 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * FUNC-02 regression coverage, end to end through {@link GimleCli#run}: {@code SecretMapCommand}'s
- * batch verbs (set/replace/seal/rollback) used to print each key's own outcome but only ever check
- * {@code client.expectSuccess}'s HTTP status, which Fafnir's own {@code SecretMapStore}-backed
- * handlers always returned as 200 -- so a CI script gating on exit status (the whole point of
- * {@code SealCommand}'s own offline-sealing workflow) never saw a batch that failed every single
- * key. Same in-process store/Fafnir/{@link ApiServer} wiring {@code DeploymentsCommandTest} already
+ * Regression coverage, end to end through {@link GimleCli#run}: {@code SecretMapCommand}'s batch
+ * verbs (set/replace/seal/rollback) used to print each key's own outcome but only ever check {@code
+ * client.expectSuccess}'s HTTP status, which Fafnir's own {@code SecretMapStore}-backed handlers
+ * always returned as 200 -- so a CI script gating on exit status (the whole point of {@code
+ * SealCommand}'s own offline-sealing workflow) never saw a batch that failed every single key. Same
+ * in-process store/Fafnir/{@link ApiServer} wiring {@code DeploymentsCommandTest} already
  * establishes.
  *
  * <p>Every server started here reads {@code gimle.transport.protocol} (and the TLS paths that go
@@ -138,7 +138,7 @@ class SecretMapCommandTest {
   @Test
   void secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result() {
     // ':' is reserved by SecretMapCodec's own raw-key convention, so this key fails to write while
-    // "username" in the same batch succeeds -- exactly the mixed-outcome batch FUNC-02 describes.
+    // "username" in the same batch succeeds -- exactly the mixed-outcome batch this covers.
     createTenant("acme");
 
     int exitCode =

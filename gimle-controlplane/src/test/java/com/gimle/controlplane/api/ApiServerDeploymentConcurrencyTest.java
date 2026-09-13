@@ -61,10 +61,10 @@ import org.junit.jupiter.api.io.TempDir;
  * don't overlap -- delete's own read-then-propose cycle has nothing upstream of it and routinely
  * finishes first, well before apply's admission-chain work even lets it reach its own read -- then
  * apply's precondition read genuinely observes an absent name and recreates a brand new deployment,
- * exactly the already-established idempotent-no-op convention (see {@code CHAOS-2}) for racing a
- * delete against a name with no prior state to lose. Either way the final state is always a
- * coherent result of some real, total order of the two requests -- never a torn mix of both, and
- * never the untouched pre-race content silently outliving a delete that reported success.
+ * exactly the already-established idempotent-no-op convention for racing a delete against a name
+ * with no prior state to lose. Either way the final state is always a coherent result of some real,
+ * total order of the two requests -- never a torn mix of both, and never the untouched pre-race
+ * content silently outliving a delete that reported success.
  */
 class ApiServerDeploymentConcurrencyTest {
 
@@ -264,27 +264,27 @@ class ApiServerDeploymentConcurrencyTest {
   /**
    * The narrower case the class javadoc calls out explicitly: racing a delete against a name that
    * has never existed can never destroy anything a concurrent create just made, since deleting a
-   * genuinely absent name is a true no-op (the established idempotent convention, {@code CHAOS-2})
-   * that leaves the generation guard's own precondition untouched -- so the create's identical
-   * "expected absent" precondition still holds no matter which of the two actually commits first,
-   * as long as delete's own tenant resolution (see {@code dispatchResourceRequest}'s own javadoc --
-   * a bare DELETE resolves the tenant to authorize against from whatever spec is actually named
-   * this, the same as GET) itself still observed the name as absent. The create therefore
-   * <em>usually</em> succeeds unconditionally here -- but not unconditionally: if delete's own
-   * bare-name resolution happens to run after the create has already landed, it correctly resolves
-   * the *same* tenant the create just used (this is by design -- a real caller asking to delete a
-   * name it never scoped to one tenant must reach whatever real object now has that name, the same
-   * way {@code kubectl delete} would), and its generation-guarded removal then legitimately deletes
-   * what the create just committed, rather than the no-op this method's own name assumes. That
-   * outcome is honest, not torn: the create still visibly took effect (its own 200 already proves
-   * it ran), and the deployment is genuinely gone afterward -- a real, total order (create, then
-   * delete) rather than delete silently losing to content it never saw. Both final states below are
-   * therefore accepted, matching every other race in this class: "some real total order," never "a
-   * specific side always wins." The delete's own response does still depend on ordering: if its
-   * no-op commits before the create, it reports the plain 200 a no-op earns; if the create commits
-   * first and delete's resolution still observed the pre-create absence, delete is refused with an
-   * honest 409 against content it never observed; if delete's resolution observed the post-create
-   * state, its own removal succeeds with 200 -- deleting the real thing it correctly found.
+   * genuinely absent name is a true no-op (the established idempotent convention) that leaves the
+   * generation guard's own precondition untouched -- so the create's identical "expected absent"
+   * precondition still holds no matter which of the two actually commits first, as long as delete's
+   * own tenant resolution (see {@code dispatchResourceRequest}'s own javadoc -- a bare DELETE
+   * resolves the tenant to authorize against from whatever spec is actually named this, the same as
+   * GET) itself still observed the name as absent. The create therefore <em>usually</em> succeeds
+   * unconditionally here -- but not unconditionally: if delete's own bare-name resolution happens
+   * to run after the create has already landed, it correctly resolves the *same* tenant the create
+   * just used (this is by design -- a real caller asking to delete a name it never scoped to one
+   * tenant must reach whatever real object now has that name, the same way {@code kubectl delete}
+   * would), and its generation-guarded removal then legitimately deletes what the create just
+   * committed, rather than the no-op this method's own name assumes. That outcome is honest, not
+   * torn: the create still visibly took effect (its own 200 already proves it ran), and the
+   * deployment is genuinely gone afterward -- a real, total order (create, then delete) rather than
+   * delete silently losing to content it never saw. Both final states below are therefore accepted,
+   * matching every other race in this class: "some real total order," never "a specific side always
+   * wins." The delete's own response does still depend on ordering: if its no-op commits before the
+   * create, it reports the plain 200 a no-op earns; if the create commits first and delete's
+   * resolution still observed the pre-create absence, delete is refused with an honest 409 against
+   * content it never observed; if delete's resolution observed the post-create state, its own
+   * removal succeeds with 200 -- deleting the real thing it correctly found.
    */
   @RepeatedTest(5)
   @Timeout(20)

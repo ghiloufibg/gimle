@@ -216,7 +216,7 @@ class CustomResourceCommandTest {
     assertEquals(3, ((Number) spec.get("repeat")).intValue());
     resetOutput();
 
-    // Once the operator-side status lands (reported here straight through the API, the P4
+    // Once the operator-side status lands (reported here straight through the API, the
     // operator loop's own wire), the SAID column fills in.
     putStatus("{\"timesSaid\":3,\"observedGeneration\":1}");
     assertEquals(0, run("get", "greetings"), stderr());

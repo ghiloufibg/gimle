@@ -8,10 +8,10 @@ import java.io.IOException;
 import org.junit.jupiter.api.Test;
 
 /**
- * NET-02 (Vault, gateway half): a message-less exception used to render as "...: null" with nothing
- * else to go on, so an operator staring at a genuinely unreachable control plane's logs had no idea
- * what actually failed. {@link GatewayHooks#logIngressFetchFailure} is exercised directly with a
- * bare {@link IOException} (its {@code getMessage()} is null by construction, the same shape a real
+ * A message-less exception used to render as "...: null" with nothing else to go on, so an operator
+ * staring at a genuinely unreachable control plane's logs had no idea what actually failed. {@link
+ * GatewayHooks#logIngressFetchFailure} is exercised directly with a bare {@link IOException} (its
+ * {@code getMessage()} is null by construction, the same shape a real
  * closed-channel/reset-connection failure takes) rather than through a live network failure, since
  * forcing a genuinely message-less exception out of a real socket is not something a test can
  * reliably control.

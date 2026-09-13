@@ -28,7 +28,7 @@ import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * The Galdr custom-kind surface end to end over a real loopback HTTP connection -- {@code
- * /kinddefinitions*} and {@code /resources/*} -- covering the design's admission contract: prefix
+ * /kinddefinitions*} and {@code /resources/*} -- covering the full admission contract: prefix
  * normalization with its warning, schema-validated-and-defaulted instance puts, the unknown-kind
  * catalog error, scope enforcement both ways, identical-re-apply as a no-op, status puts that never
  * bump generation, definition re-PUT revalidation (409 + violator list) and default backfill,

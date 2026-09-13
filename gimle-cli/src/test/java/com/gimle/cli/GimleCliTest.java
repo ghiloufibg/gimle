@@ -416,10 +416,9 @@ class GimleCliTest {
   }
 
   /**
-   * The FUNC-65 round-trip: {@code get deployment <name> -o manifest} must produce a manifest that
-   * {@code apply -f} accepts back unchanged, closing the gap where {@code status.spec.moduleId}
-   * (nested, server-computed) could never be fed back as the manifest's own top-level {@code
-   * module:} key.
+   * The round-trip: {@code get deployment <name> -o manifest} must produce a manifest that {@code
+   * apply -f} accepts back unchanged, closing the gap where {@code status.spec.moduleId} (nested,
+   * server-computed) could never be fed back as the manifest's own top-level {@code module:} key.
    */
   @Test
   void get_deployment_as_manifest_then_reapplying_it_round_trips() throws Exception {
@@ -1025,7 +1024,7 @@ class GimleCliTest {
 
   @Test
   void deleting_a_role_cascades_to_every_rolebinding_that_named_it() throws Exception {
-    // FUNC-24 regression: roleName is a plain string resolved by name at authorize-time, not an
+    // Regression test: roleName is a plain string resolved by name at authorize-time, not an
     // immutable ID -- a binding left behind after its Role is deleted would silently reactivate
     // the moment anyone later PUTs a new Role under the same name.
     assertEquals(
@@ -1944,7 +1943,7 @@ class GimleCliTest {
   }
 
   // ---- get <kind> --tenant on the list form, and unknown-flag rejection across the get verb
-  // family (M7, M38) ----
+  // family ----
 
   /**
    * Unlike {@link #writeManifest}'s dangling {@code artifactPath}, this points at a real fixture
@@ -2243,7 +2242,7 @@ class GimleCliTest {
     assertFalse(stdout().contains("evt-acme-private"));
   }
 
-  // ---- events table output keeps a column even when only an older row carries it (M20) ----
+  // ---- events table output keeps a column even when only an older row carries it ----
 
   @Test
   void events_table_output_keeps_the_causesummary_column_even_when_the_newest_row_lacks_it()
@@ -2291,7 +2290,7 @@ class GimleCliTest {
   @Test
   void apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first()
       throws Exception {
-    // FUNC-44 regression: the original forward-scan implementation returned the first -f it saw
+    // Regression test: the original forward-scan implementation returned the first -f it saw
     // and never looked further, so a second -f silently vanished with no warning.
     Path first = writeManifest("first-service", 1);
     Path second = writeManifest("second-service", 1);
@@ -2308,7 +2307,7 @@ class GimleCliTest {
   }
 
   // ---- a single-resource CLI verb rejects more than one name/id rather than silently keeping
-  // only the first (FUNC-44) ----
+  // only the first ----
 
   @Test
   void deleting_a_tenant_with_more_than_one_positional_argument_is_rejected() {

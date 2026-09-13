@@ -318,11 +318,11 @@ public final class SecretMapCommand {
    * A SecretMap batch verb (set/replace/seal/rollback) reports one outcome per key rather than
    * succeeding or failing as a whole -- {@code client.expectSuccess} above only ever throws for a
    * genuine request-level failure (a malformed body, an unknown tenant), never for an individual
-   * key's own write/unseal failure, which is why FUNC-02 existed: a batch that failed every single
-   * key still returned HTTP 200, and this class printed the per-key results but never acted on
-   * them, so a CI script gating on exit status (`gimle secretmap seal ... || fail`) never saw the
-   * failure. Called only after the results are already printed, so the operator sees exactly which
-   * key(s) failed and why before the process exits nonzero.
+   * key's own write/unseal failure, which is why this method exists: a batch that failed every
+   * single key still returned HTTP 200, and this class printed the per-key results but never acted
+   * on them, so a CI script gating on exit status (`gimle secretmap seal ... || fail`) never saw
+   * the failure. Called only after the results are already printed, so the operator sees exactly
+   * which key(s) failed and why before the process exits nonzero.
    *
    * <p>The message names each failing key and its own reason rather than deferring to what was
    * printed above it: the per-key {@code error} field only survives into {@code -o json} output, so

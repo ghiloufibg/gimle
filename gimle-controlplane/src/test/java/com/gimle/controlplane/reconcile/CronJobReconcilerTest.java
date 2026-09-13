@@ -437,7 +437,7 @@ class CronJobReconcilerTest {
 
   @Test
   void a_replaced_firing_leaves_a_terminal_record_while_the_new_firing_tracks_normally() {
-    // GIMLE-54: a Replace-superseded firing must appear in job history with its own terminal
+    // A Replace-superseded firing must appear in job history with its own terminal
     // record instead of silently vanishing, and the firing that replaced it must still be tracked
     // through to its own outcome exactly like any other Job.
     TestClock clock = new TestClock();

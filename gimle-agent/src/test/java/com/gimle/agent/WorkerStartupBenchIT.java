@@ -37,13 +37,14 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Phase A of the Sleipnir startup-cache design: measures whether a JDK 25 AOT cache (JEP
- * 483/514/515) meaningfully speeds up a real {@code WorkerMain} boot, gated at &ge;25% p50 {@code
- * spawn->Hello} reduction, before any agent-managed trainer/cache production code exists. Lives in
- * this package (not {@code gimle-smoke-tests}) specifically to call {@link
- * AgentMain#buildWorkerCommand} directly -- reusing the real, already-unit-tested flag-building
- * logic rather than reimplementing it, which would risk exactly the flag-drift the design's own
- * risk table warns about.
+ * A proof-of-concept gate for Sleipnir's startup cache, run before any agent-managed trainer/cache
+ * production code exists: measures whether a JDK 25 AOT cache (JEP 483/514/515) meaningfully speeds
+ * up a real {@code WorkerMain} boot, gated at &ge;25% p50 {@code spawn->Hello} reduction. If that
+ * bar isn't cleared, building the real caching machinery isn't worth it, and the right move is to
+ * record why here rather than proceed. Lives in this package (not {@code gimle-smoke-tests})
+ * specifically to call {@link AgentMain#buildWorkerCommand} directly -- reusing the real,
+ * already-unit-tested flag-building logic rather than reimplementing it, which risks exactly the
+ * kind of flag drift a duplicated implementation invites.
  *
  * <p>Every spawn here uses a real jars-only classpath ({@code gimle-worker}'s own jar plus its
  * {@code runtime-image} profile's {@code lib/*.jar}) -- JEP 483's own eligibility constraint
@@ -191,13 +192,14 @@ class WorkerStartupBenchIT {
     double requiredCachedP50 = uncached.p50() * (1.0 - REQUIRED_P50_REDUCTION);
     assertTrue(
         cached.p50() <= requiredCachedP50,
-        "Phase A gate not met: cached p50="
+        "startup-cache gate not met: cached p50="
             + cached.p50()
             + "ms, required <= "
             + requiredCachedP50
             + "ms (25% reduction from uncached p50="
             + uncached.p50()
-            + "ms). Per the design, stop at Phase A and record why rather than proceeding.");
+            + "ms) -- not worth building the real caching machinery on this evidence; record"
+            + " why here rather than proceeding.");
   }
 
   @Test

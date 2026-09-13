@@ -428,12 +428,12 @@ class ReplicaCountReconcilerTest {
   }
 
   /**
-   * The core regression this class guards against (GIMLE-669/FUNC-29): before disruption-budget
-   * throttling existed, a single dead node hosting several replicas of one anti-affinity-less
-   * deployment (cross-node anti-affinity is opt-in, see {@code PlacementConstraints}) had every one
-   * of them released in the very same tick, regardless of any {@code DisruptionBudget} the operator
-   * configured. This fails against the pre-fix reconciler: it releases all three assignments on the
-   * very first tick instead of throttling to {@code maxUnavailable: 1}.
+   * The core regression this class guards against: before disruption-budget throttling existed, a
+   * single dead node hosting several replicas of one anti-affinity-less deployment (cross-node
+   * anti-affinity is opt-in, see {@code PlacementConstraints}) had every one of them released in
+   * the very same tick, regardless of any {@code DisruptionBudget} the operator configured. This
+   * fails against the pre-fix reconciler: it releases all three assignments on the very first tick
+   * instead of throttling to {@code maxUnavailable: 1}.
    */
   @Test
   void disruption_budget_throttles_node_death_eviction_of_multiple_replicas_on_one_dead_node() {

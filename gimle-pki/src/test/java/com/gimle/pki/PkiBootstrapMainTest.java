@@ -75,9 +75,9 @@ class PkiBootstrapMainTest {
   }
 
   /**
-   * ADD-10: without an {@code O=} of its own, the control plane's own scheduling-time artifact pull
-   * had no group any {@code Authorizer} grant could ever match, so a fresh mTLS cluster's own
-   * control plane could never pull an artifact it didn't already have cached.
+   * Without an {@code O=} of its own, the control plane's own scheduling-time artifact pull had no
+   * group any {@code Authorizer} grant could ever match, so a fresh mTLS cluster's own control
+   * plane could never pull an artifact it didn't already have cached.
    */
   @Test
   void the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not()

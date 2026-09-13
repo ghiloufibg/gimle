@@ -30,7 +30,7 @@ describe("renderFiles", () => {
     expect(ordersPlatform).toEqual(before);
   });
 
-  it("emits exactly the file set the design spec names", () => {
+  it("emits exactly the expected file set", () => {
     const files = renderFiles(ordersPlatform!);
     const paths = files.map((f) => f.path);
     expect(paths).toContain("topology.yaml");
@@ -164,7 +164,7 @@ describe("renderFiles", () => {
     expect(parsed).toEqual(ordersPlatform);
   });
 
-  it("README documents the exact hilmir/gimle commands the design spec names", () => {
+  it("README documents the exact hilmir/gimle commands this blueprint needs", () => {
     const files = renderFiles(ordersPlatform!);
     const readme = fileNamed(files, "README.md").content;
     const machine = firstMachineName(ordersPlatform!);

@@ -91,7 +91,7 @@ class MachineLauncherUpSkipsAliveRolesTest {
     final RunRecord originalAgent = firstRecords.get(1);
 
     try {
-      // Simulate M43's own repro: exactly one role (STORE) dies; AGENT stays genuinely alive.
+      // Exactly one role (STORE) dies; AGENT stays genuinely alive.
       ProcessHandle.of(originalStore.pid()).ifPresent(ProcessHandle::destroyForcibly);
       awaitDead(originalStore.pid());
 

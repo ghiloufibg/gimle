@@ -16,8 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Regression for M39: a stable leader must not self-demote (see {@code RaftNode#checkQuorumTick}'s
- * own "check-quorum self-demotion" log line) under ordinary real-world RPC scheduling delay -- CPU
+ * Regression test: a stable leader must not self-demote (see {@code RaftNode#checkQuorumTick}'s own
+ * "check-quorum self-demotion" log line) under ordinary real-world RPC scheduling delay -- CPU
  * contention on the sender's or receiver's own host, not a genuine network partition -- while a
  * *genuine* total partition must still be detected reasonably quickly. {@link
  * NornCluster#setJitter} simulates that contention directly: every RPC to or from the jittered node

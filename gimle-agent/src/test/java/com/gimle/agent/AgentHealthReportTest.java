@@ -29,12 +29,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Regression coverage for M19: a hosted module's declared readiness probe genuinely running inside
- * its worker (see {@code WorkerRuntimeTest}) used to have no way to reach this agent at all -- the
- * wire message it would travel as, {@link ControlMessage.HealthReport}, was fully codec-supported
- * but never sent by any production code and never handled by {@link AgentMain#readLoop}. Before
- * this fix, {@link AgentMain#observationJson} reported {@code ready} purely from {@code
- * lifecycleState == ACTIVE}, so a readiness probe could fail forever without ever surfacing.
+ * Regression coverage: a hosted module's declared readiness probe genuinely running inside its
+ * worker (see {@code WorkerRuntimeTest}) used to have no way to reach this agent at all -- the wire
+ * message it would travel as, {@link ControlMessage.HealthReport}, was fully codec-supported but
+ * never sent by any production code and never handled by {@link AgentMain#readLoop}. Before this
+ * fix, {@link AgentMain#observationJson} reported {@code ready} purely from {@code lifecycleState
+ * == ACTIVE}, so a readiness probe could fail forever without ever surfacing.
  */
 class AgentHealthReportTest {
 

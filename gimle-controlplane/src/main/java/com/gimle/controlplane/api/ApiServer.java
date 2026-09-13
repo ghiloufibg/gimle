@@ -1452,14 +1452,14 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * GIMLE-249's double-authorization: {@code name} moving to {@code submittedTenant} -- whether
-   * it's a brand-new name, or already lives under {@code submittedTenant} itself -- needs nothing
-   * beyond the ordinary write grant {@link #requireAuthorizedForWrite} already checked. But when
-   * {@code existingTenant} says the name currently lives under one or more <em>different</em>
-   * tenants, this is a re-tenanting write: the two tenants' own stored copies never collide (each
-   * is keyed independently), so nothing here stops the write from *corrupting* anything -- what it
-   * stops is a caller who can write only {@code submittedTenant} conjuring a name that already
-   * means something under a tenant it has no access to at all, silently new to anyone who reads or
+   * The double-authorization check: {@code name} moving to {@code submittedTenant} -- whether it's
+   * a brand-new name, or already lives under {@code submittedTenant} itself -- needs nothing beyond
+   * the ordinary write grant {@link #requireAuthorizedForWrite} already checked. But when {@code
+   * existingTenant} says the name currently lives under one or more <em>different</em> tenants,
+   * this is a re-tenanting write: the two tenants' own stored copies never collide (each is keyed
+   * independently), so nothing here stops the write from *corrupting* anything -- what it stops is
+   * a caller who can write only {@code submittedTenant} conjuring a name that already means
+   * something under a tenant it has no access to at all, silently new to anyone who reads or
    * deletes that name unqualified expecting the tenant they know about. Requires a real WRITE grant
    * on every one of those other tenants too, not just the one being written into; a caller lacking
    * even one is refused with a {@code 403} naming which tenant it still needs, and that denial is
@@ -7025,7 +7025,8 @@ public final class ApiServer implements AutoCloseable {
 
   // ---- custom-resource authorization/audit plumbing ----
   // Mirrors requireAuthorized/requireAuthorizedForWrite/requireListAuthorized, with two
-  // deliberate differences the design calls for: the Authorizer walk carries the request's
+  // deliberate differences a custom kind's per-kind identity requires: the Authorizer walk carries
+  // the request's
   // qualifier ({kind}, or {kind}/status for a status write), and audit rows record the qualified
   // "CustomResource:{kind}" string instead of the bare enum name -- the enum-name path used
   // everywhere else stays untouched.
@@ -9708,7 +9709,7 @@ public final class ApiServer implements AutoCloseable {
       // tenant-scoped route does; when the caller gives none, this resolves the owning tenant by
       // searching across workload kinds for the named deployment -- the same {@link
       // #resolveTenantForWorkloadName} search {@code /endpoints/{name}} already uses (and, since
-      // GIMLE-746, ambiguity-safe: two tenants genuinely sharing this deploymentName raise a clear
+      // Ambiguity-safe: two tenants genuinely sharing this deploymentName raise a clear
       // 400 instead of silently picking one and 404ing the other). Previously this defaulted
       // straight to the untenanted namespace with no search at all, so a real, ACTIVE instance
       // whose owning tenant wasn't literally "default" 404'd on this live path forever -- workable

@@ -744,9 +744,9 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * FUNC-24 regression: deleting a Role used to leave every {@code RoleBinding} naming it dangling
-   * -- a silent-reactivation trap the moment a new Role was later created under the same name,
-   * since {@code RoleBinding.roleName} is a plain string, not an immutable ID. {@code
+   * Regression test: deleting a Role used to leave every {@code RoleBinding} naming it dangling --
+   * a silent-reactivation trap the moment a new Role was later created under the same name, since
+   * {@code RoleBinding.roleName} is a plain string, not an immutable ID. {@code
    * StateMutation.RemoveRole} now cascades the removal atomically (covered directly against the
    * store in {@code StateStoreTest}/{@code AuthorizerTest}); this pins the HTTP-layer half: the
    * response reports exactly which bindings were revoked, and each cascaded removal gets its own
@@ -1237,8 +1237,8 @@ class ApiServerAuthzTest {
    * named "shared" holds, and never touches it.
    */
   /**
-   * GIMLE-249, PUT-time re-tenanting double-authorization: writing a name that already lives under
-   * a <em>different</em> tenant needs a real write grant on that other tenant too, not just the one
+   * PUT-time re-tenanting double-authorization: writing a name that already lives under a
+   * <em>different</em> tenant needs a real write grant on that other tenant too, not just the one
    * being written into -- even though the two tenants' own stored copies are keyed independently
    * and the write itself could never corrupt beta's own content. Without this, an identity holding
    * write access to exactly one tenant could conjure a name that already means something under a
@@ -1298,7 +1298,7 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * The positive side of the same GIMLE-249 guard: a caller who genuinely holds write access to
+   * The positive side of the same re-tenanting guard: a caller who genuinely holds write access to
    * <em>both</em> tenants is not blocked by its own double-authorization check -- re-tenanting a
    * name is a legitimate operation once the caller can prove it for both sides, the same way moving
    * a file between two directories you can both write to is unremarkable.
@@ -2261,8 +2261,8 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * ADD-7: minting used to resolve {@code deploymentName} against {@code storeClient.getDeployment}
-   * alone, so a tenanted DaemonSet (or Job/StatefulSet) instance's own mint attempt always 404'd --
+   * Minting used to resolve {@code deploymentName} against {@code storeClient.getDeployment} alone,
+   * so a tenanted DaemonSet (or Job/StatefulSet) instance's own mint attempt always 404'd --
    * permanently blocking every {@code relayControlPlaneRead} call a non-Deployment workload ever
    * made (e.g. {@code gimle-gateway}'s own DaemonSet-hosted {@code SERVICE} route resolution).
    * Plaintext mode is enough to exercise the fix -- the workload-kind lookup itself, not the mTLS
@@ -2568,7 +2568,7 @@ class ApiServerAuthzTest {
   private void configureServerTls(CertificateAuthority ca) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
     // O=gimle:controlplane, matching how PkiBootstrapMain actually mints a real control plane's
-    // own leaf certificate -- Fafnir/Andvari's independent peer-cert check (GIMLE-690) on the
+    // own leaf certificate -- Fafnir/Andvari's independent peer-cert check on the
     // X-Gimle-Forwarded-Principal header requires this test's own server identity to carry the
     // same group tag a genuine control-plane replica would.
     PKCS10CertificationRequest csr =

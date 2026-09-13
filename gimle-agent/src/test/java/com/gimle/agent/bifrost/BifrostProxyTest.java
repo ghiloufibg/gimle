@@ -395,13 +395,13 @@ class BifrostProxyTest {
   }
 
   /**
-   * M63: a UDP Service whose own declared {@code port} numerically coincides with a socket a
-   * co-located workload already has bound wildcard -- an entirely ordinary way for a UDP server to
-   * listen, and one that opts into {@code SO_REUSEADDR} the way a well-behaved server sharing a box
-   * with other listeners should. Before the fix this failed to bind, repeatably, with "Address
-   * already in use" regardless of the workload's own socket options, since the old, always-reuse-
-   * off {@code new DatagramSocket(bindAddress)} could never share a wildcard/specific pair even
-   * when the other side cooperated.
+   * Regression test: a UDP Service whose own declared {@code port} numerically coincides with a
+   * socket a co-located workload already has bound wildcard -- an entirely ordinary way for a UDP
+   * server to listen, and one that opts into {@code SO_REUSEADDR} the way a well-behaved server
+   * sharing a box with other listeners should. Before the fix this failed to bind, repeatably, with
+   * "Address already in use" regardless of the workload's own socket options, since the old,
+   * always-reuse- off {@code new DatagramSocket(bindAddress)} could never share a wildcard/specific
+   * pair even when the other side cooperated.
    */
   @Test
   @Timeout(15)
@@ -448,7 +448,7 @@ class BifrostProxyTest {
   }
 
   /**
-   * M64 sub-bug 1: with {@code exposeOnAllInterfaces} on, a Service whose backing instance is
+   * Regression test: with {@code exposeOnAllInterfaces} on, a Service whose backing instance is
    * co-located on this proxy's own node at the identical port must not have its wildcard bind
    * contested by this proxy -- the workload's own listener already serves that port directly, and a
    * race between the two starves whichever one loses, forever.

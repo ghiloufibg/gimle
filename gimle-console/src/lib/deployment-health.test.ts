@@ -65,7 +65,7 @@ describe("isDeploymentHealthy", () => {
     expect(isDeploymentHealthy(deployment())).toBe(true);
   });
 
-  // The actual OBS-7 regression: replicas placed == replicas desired, but the one placed
+  // The actual regression: replicas placed == replicas desired, but the one placed
   // instance is FAILED -- placement count alone previously read this as healthy.
   it("is not healthy when the only instance is FAILED, even with full placement counts", () => {
     const d = deployment({ instances: [instance({ lifecycleState: "FAILED", alive: false })] });

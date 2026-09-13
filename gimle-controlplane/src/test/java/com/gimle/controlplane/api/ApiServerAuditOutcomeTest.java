@@ -25,9 +25,9 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * {@code GOV-6}: a deployment write's audit entry must reflect the real admission outcome, not just
- * whether RBAC/authorization allowed the attempt -- an authorized write that the tenant-quota
- * plugin goes on to reject must record {@link AuditOutcome#REJECTED}, never default to {@link
+ * A deployment write's audit entry must reflect the real admission outcome, not just whether
+ * RBAC/authorization allowed the attempt -- an authorized write that the tenant-quota plugin goes
+ * on to reject must record {@link AuditOutcome#REJECTED}, never default to {@link
  * AuditOutcome#APPLIED} just because the caller was allowed to try. Both scenarios (rejected,
  * accepted) run against the one {@link ApiServer}/{@link InProcessStore} pair this class's own
  * {@code @BeforeEach} builds, in a single {@code @Test} rather than one apiece.

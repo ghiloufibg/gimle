@@ -280,7 +280,7 @@ class TenantQuotaPluginTest {
         String.valueOf(decision));
   }
 
-  /** The instance dimension specifically, the one the quota screenshot in the field reported. */
+  /** The instance-count dimension specifically, as opposed to memory or CPU. */
   @Test
   void a_default_tenant_submission_that_would_exceed_the_instance_ceiling_is_rejected() {
     StateStore store = store();

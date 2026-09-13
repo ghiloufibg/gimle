@@ -108,7 +108,7 @@ class FafnirServerSecretMapTest {
   @Timeout(10)
   void put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure()
       throws Exception {
-    // FUNC-02: a mixed-outcome batch must be distinguishable from an all-succeeded one via status
+    // A mixed-outcome batch must be distinguishable from an all-succeeded one via status
     // alone, not just by an automation script parsing the printed per-key results.
     HttpResponse<String> response =
         send(

@@ -590,7 +590,7 @@ class GatewayDispatcherTest {
   @Test
   void a_vessel_prefix_route_matches_a_bare_trailing_slash_on_its_own_base_path()
       throws IOException {
-    // M32 regression: a bare trailing slash on a prefix route's own base path ("/api/orders/",
+    // Regression test: a bare trailing slash on a prefix route's own base path ("/api/orders/",
     // nothing after it) has to fall through to that same prefix -- distinct from
     // a_prefix_route_matches_its_own_root_path_exactly (no slash at all) and from the longer
     // sub-path case above, since matchesPrefix's own "path.startsWith(prefix + \"/\")" check is

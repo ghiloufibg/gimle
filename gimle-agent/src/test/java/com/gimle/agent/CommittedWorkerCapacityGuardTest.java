@@ -28,13 +28,13 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * M35: a freshly spawned Tier 1/Tier 2 worker's real committed ceiling ({@code handle.limit()})
- * used to never be checked against this node's own real machine memory at all -- {@link
- * AgentMain#startInstance} spawned unconditionally, so nothing ever refused a spawn or warned an
- * operator once accumulated shared-worker ceilings already exceeded what the machine can back.
- * {@code committedWorkerCapacity} is a second {@link CapacityTracker} instance dedicated to that
- * real-ceiling accounting, deliberately separate from the existing {@code capacityTracker} (which
- * tracks each instance's own tiny declared *request*, read elsewhere via its own {@code
+ * Regression test: a freshly spawned Tier 1/Tier 2 worker's real committed ceiling ({@code
+ * handle.limit()}) used to never be checked against this node's own real machine memory at all --
+ * {@link AgentMain#startInstance} spawned unconditionally, so nothing ever refused a spawn or
+ * warned an operator once accumulated shared-worker ceilings already exceeded what the machine can
+ * back. {@code committedWorkerCapacity} is a second {@link CapacityTracker} instance dedicated to
+ * that real-ceiling accounting, deliberately separate from the existing {@code capacityTracker}
+ * (which tracks each instance's own tiny declared *request*, read elsewhere via its own {@code
  * snapshot()}) -- see {@code AgentMain#main}'s own comment on why the two must never share one
  * running sum.
  *

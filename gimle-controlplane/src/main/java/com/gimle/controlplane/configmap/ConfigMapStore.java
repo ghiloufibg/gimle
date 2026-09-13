@@ -235,8 +235,9 @@ public final class ConfigMapStore {
         Optional<ConfigMap> before = findLinearizable(tenantId, name);
         int currentVersion = before.map(ConfigMap::version).orElse(0);
         if (expectedVersion.isPresent() && expectedVersion.getAsInt() != currentVersion) {
-          // Immediate, no retry: a stale expectedVersion is the caller's problem to resolve, not
-          // this store's -- see this class's own javadoc reference to the design's failure table.
+          // Immediate, no retry: a stale expectedVersion means the caller's own read is already
+          // out of date, and retrying here can't change that -- only the caller re-reading and
+          // deciding again can, so returning the conflict now is the caller's problem to resolve.
           return new ConfigMapWriteResult.VersionConflict(
               currentVersion, before.map(ConfigMap::data).orElse(Map.of()));
         }

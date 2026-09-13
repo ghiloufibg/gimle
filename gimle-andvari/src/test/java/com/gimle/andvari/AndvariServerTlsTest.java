@@ -50,8 +50,8 @@ import org.junit.jupiter.api.parallel.Resources;
  * independent RBAC check, a {@code gimle:nodes} identity may only ever pull, and a forwarded
  * principal from a genuine {@code gimle:controlplane} peer both wins over that peer's own
  * certificate and is re-checked rather than trusted, while the same headers from any other peer are
- * ignored entirely (GIMLE-690) -- plus a real cert-rotation reload, mirroring {@code
- * FafnirServerTlsTest}'s own shape.
+ * ignored entirely -- plus a real cert-rotation reload, mirroring {@code FafnirServerTlsTest}'s own
+ * shape.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-andvari-server-http")
@@ -139,11 +139,11 @@ class AndvariServerTlsTest {
   }
 
   /**
-   * ADD-10: the control plane's own leaf certificate carried no {@code O=} at all before this fix,
-   * so its scheduling-time artifact pull -- unlike a node's, unscoped by assignment, since
-   * scheduling needs to resolve whatever coordinate any tenant's manifest references -- fell
-   * through to the ordinary RBAC walk with nothing there to ever match, blocking coordinate-only
-   * placement indefinitely on a fresh mTLS cluster.
+   * The control plane's own leaf certificate carried no {@code O=} at all before this fix, so its
+   * scheduling-time artifact pull -- unlike a node's, unscoped by assignment, since scheduling
+   * needs to resolve whatever coordinate any tenant's manifest references -- fell through to the
+   * ordinary RBAC walk with nothing there to ever match, blocking coordinate-only placement
+   * indefinitely on a fresh mTLS cluster.
    */
   @Test
   @Timeout(10)
@@ -303,7 +303,7 @@ class AndvariServerTlsTest {
     // to have a forwarded header honored -- and on its own may only ever pull (see
     // a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete above), so
     // a push succeeding here proves the forwarded identity, not the peer cert's own limited
-    // permission, is what actually got authorized (GIMLE-690).
+    // permission, is what actually got authorized.
     HttpClient controlPlanePeer =
         tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_CONTROLPLANE, "controlplane-1");
     HttpRequest forwardedOperator =
@@ -326,8 +326,8 @@ class AndvariServerTlsTest {
   }
 
   /**
-   * GIMLE-690: {@code SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed, with
-   * no per-endpoint allow-list, so a plain, ungrouped certificate can present the same forwarded
+   * {@code SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed, with no
+   * per-endpoint allow-list, so a plain, ungrouped certificate can present the same forwarded
    * headers a genuine control-plane proxy hop would. Before the fix, a caller holding any valid
    * cluster leaf -- not only the control plane's own -- could forward {@code gimle:operators} and
    * reach the implicit cluster-admin-equivalent allow. The headers must now be ignored for a

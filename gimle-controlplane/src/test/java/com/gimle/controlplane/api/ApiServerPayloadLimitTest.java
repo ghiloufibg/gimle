@@ -130,7 +130,7 @@ class ApiServerPayloadLimitTest {
   void
       a_request_declaring_a_content_length_far_over_the_cap_is_refused_before_the_body_is_ever_sent()
           throws Exception {
-    // Regression (SEC-05): a request far over the cap used to never get a response at all -- the
+    // Regression test: a request far over the cap used to never get a response at all -- the
     // streaming check (SizeLimitedInputStream) fires once enough bytes are read to exceed it, but
     // throwing from inside its own read() made readBody's try-with-resources close the request-
     // body stream before EOF, and com.sun.net.httpserver's own stream then drains the entire

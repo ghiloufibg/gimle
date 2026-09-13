@@ -338,8 +338,8 @@ class WorkerRuntimeTest {
   }
 
   /**
-   * Regression test for M19: a declared readiness probe genuinely running (the two tests above
-   * already prove that against {@code serviceRegistry}) is not the same as its result ever reaching
+   * Regression test: a declared readiness probe genuinely running (the two tests above already
+   * prove that against {@code serviceRegistry}) is not the same as its result ever reaching
    * anything outside this worker -- {@link WorkerRuntime#onReadinessResult} must also report
    * through its own {@link WorkerRuntime.HealthReportSink}, the seam {@code WorkerMain} uses in
    * production to relay a {@code HealthReport} up to the agent. Before that call existed, an
@@ -370,12 +370,12 @@ class WorkerRuntimeTest {
   }
 
   /**
-   * Regression test for FUNC-28/GIMLE-666: {@code health.liveness} naming a class that doesn't
-   * exist (a manifest typo, in production) used to leave the instance stuck ACTIVE forever --
-   * {@link WorkerRuntime#onActive}'s probe {@code instantiate} call threw straight out of the
-   * {@code Active} event's own dispatch, and {@code ModuleController#emit}'s generic event-sink
-   * catch swallowed it after only a log line, so {@code markActive} (already run before that catch
-   * ever fired) was never undone and no {@code TransitionFailed} event was ever produced.
+   * Regression test: {@code health.liveness} naming a class that doesn't exist (a manifest typo, in
+   * production) used to leave the instance stuck ACTIVE forever -- {@link WorkerRuntime#onActive}'s
+   * probe {@code instantiate} call threw straight out of the {@code Active} event's own dispatch,
+   * and {@code ModuleController#emit}'s generic event-sink catch swallowed it after only a log
+   * line, so {@code markActive} (already run before that catch ever fired) was never undone and no
+   * {@code TransitionFailed} event was ever produced.
    */
   @Test
   void a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event() {

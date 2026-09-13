@@ -366,7 +366,7 @@ class RaftClusterTest {
     assertTrue(isolated.store().getTenant("t4").isEmpty());
   }
 
-  // ---- MIM-1: check-quorum self-demotion ----
+  // ---- check-quorum self-demotion ----
 
   @Test
   @Timeout(15)
@@ -634,7 +634,7 @@ class RaftClusterTest {
         Duration.ofSeconds(10));
 
     // Remove an ORIGINAL voter -- one of the three bootstrap nodes, never the just-added fourth --
-    // the exact case M45 found broken end to end: a live cluster could grow past three voters but
+    // a case once broken end to end: a live cluster could grow past three voters but
     // never shrink back down by removing one of its original members, only by reverting the
     // addition (removing the peer it had itself just added).
     ClusterNode originalToRemove =
@@ -711,8 +711,8 @@ class RaftClusterTest {
   @Timeout(30)
   void adding_a_voter_doing_real_work_removing_an_original_then_killing_the_leader_stays_healthy()
       throws Exception {
-    // The M39-relevant regression: M45's inability to shrink a grown cluster back down was a
-    // direct contributing cause of a real 4-voter incident that also involved leader loss -- this
+    // An inability to shrink a grown cluster back down was a direct contributing cause of a real
+    // 4-voter incident that also involved leader loss -- this
     // exercises the whole sequence (grow, real work, shrink back down by removing an *original*
     // voter, then a leader kill) end to end, confirming 3-voter quorum both converges and survives
     // losing its own leader, not just that the removal call itself succeeds in isolation.

@@ -21,10 +21,9 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Investigated as part of M34: a Job placed into an already-running shared (Tier 1) worker
- * alongside a Job that already ran to completion on that same worker -- the exact shape a real
- * cluster produces once {@code AgentMain#stopInstance} tears down a finished job's {@code
- * SupervisedInstance}.
+ * A Job placed into an already-running shared (Tier 1) worker alongside a Job that already ran to
+ * completion on that same worker -- the exact shape a real cluster produces once {@code
+ * AgentMain#stopInstance} tears down a finished job's {@code SupervisedInstance}.
  *
  * <p>{@code stopInstance} always sends {@code StopModule} to tear an instance down, on the
  * assumption (true for every other workload kind) that the module is still {@code ACTIVE}. A Job
@@ -34,10 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
  * -- so the completed job's {@code ModuleId}, its {@code ModuleLayer}, and every {@code
  * WorkerRuntime} bookkeeping entry for it are never cleaned up and stay resident in the shared
  * worker process forever. This is a real, reproducible leak (confirmed by the first assertion
- * below, a separate finding from M34 worth its own follow-up), but not the mechanism behind M34
- * itself: the second half of this test packs a genuinely new, unrelated Job onto that same worker
- * afterward, and it installs, starts, and completes normally -- the leaked completed job does not
- * block it.
+ * below, worth its own follow-up), but not a job-packing regression: the second half of this test
+ * packs a genuinely new, unrelated Job onto that same worker afterward, and it installs, starts,
+ * and completes normally -- the leaked completed job does not block it.
  */
 class Tier1DensityJobCompletionIntegrationTest {
 
@@ -101,8 +99,8 @@ class Tier1DensityJobCompletionIntegrationTest {
 
           // A second, unrelated Job now joins the very same connection/worker -- exactly what
           // AgentMain#installIntoExistingWorker does once findReusableTier1Worker offers this
-          // worker up again. If the leaked first job were the mechanism behind M34, this
-          // install/resolve/start sequence would never complete.
+          // worker up again. If the leaked first job actually blocked new work from installing
+          // onto this worker, this install/resolve/start sequence would never complete.
           ModuleInstanceId secondJobId =
               installAndStartJob(connection, laterJar, "second-job", "corr-second", 1);
           awaitCompleted(connection, secondJobId);

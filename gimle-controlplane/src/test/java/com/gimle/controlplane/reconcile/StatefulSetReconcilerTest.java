@@ -621,7 +621,7 @@ class StatefulSetReconcilerTest {
 
   @Test
   void a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
-    // ADD-5: isReady alone never checked the assigned node's own heartbeat freshness, only whether
+    // isReady alone never checked the assigned node's own heartbeat freshness, only whether
     // the *last* heartbeat that node ever sent happened to report this index ready -- which stays
     // true forever once a node goes dark. Mirrors DaemonSetReconcilerTest's identically-named
     // test: within the grace window a merely-dark node's assignment survives untouched (sticky
@@ -664,7 +664,8 @@ class StatefulSetReconcilerTest {
   @Test
   void a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node(
       TestClock clock) {
-    // ADD-5's actual failure mode: session-store's own StatefulSet instance stayed reported
+    // That regression's actual failure mode: session-store's own StatefulSet instance stayed
+    // reported
     // ACTIVE/alive/ready for a full 4.5-minute observation window after its node was killed
     // outright, with zero eviction attempt. Once genuinely gone (past the combined grace window),
     // the assignment is released -- but the sticky binding survives, so once the node's heartbeat
@@ -1092,10 +1093,10 @@ class StatefulSetReconcilerTest {
   }
 
   /**
-   * GIMLE-683 (FUNC-74): {@code isReady} used to be a pure point-in-time read of the latest
-   * heartbeat's {@code ready} flag -- an index that happened to report ready on exactly one
-   * heartbeat, then flapped straight back to not-ready, looked indistinguishable from a genuinely
-   * stable one, letting {@code OrderedReady} move on to the next index prematurely.
+   * Regression test: {@code isReady} used to be a pure point-in-time read of the latest heartbeat's
+   * {@code ready} flag -- an index that happened to report ready on exactly one heartbeat, then
+   * flapped straight back to not-ready, looked indistinguishable from a genuinely stable one,
+   * letting {@code OrderedReady} move on to the next index prematurely.
    */
   @Test
   void an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized(
@@ -1131,7 +1132,7 @@ class StatefulSetReconcilerTest {
   }
 
   /**
-   * GIMLE-682 (FUNC-66): the rolling-update marker must never clear because of a flapping-but-
+   * Regression test: the rolling-update marker must never clear because of a flapping-but-
    * never-stabilized replacement -- otherwise the next index would start rolling forward while the
    * current one hasn't genuinely proven itself, defeating the whole point of {@code OrderedReady}'s
    * one-index-at-a-time throttle (StatefulSet's structural equivalent of {@code maxUnavailable:

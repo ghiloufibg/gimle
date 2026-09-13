@@ -163,7 +163,7 @@ class FafnirServerSealTest {
             "/secretmaps/acme/db-creds/seal",
             Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
 
-    // FUNC-02: every key in this batch failed, so the response must say so via its own status --
+    // Every key in this batch failed, so the response must say so via its own status --
     // 200 here (the pre-fix behavior) made a 100%-failed batch indistinguishable from a clean one
     // to anything checking status alone.
     assertEquals(207, commit.statusCode());

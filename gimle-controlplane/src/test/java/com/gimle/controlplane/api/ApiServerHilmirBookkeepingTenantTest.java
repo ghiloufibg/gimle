@@ -78,7 +78,8 @@ class ApiServerHilmirBookkeepingTenantTest {
   void creating_the_hilmir_bookkeeping_tenant_succeeds_even_with_a_real_tenant_already_present()
       throws Exception {
     // A cluster already carrying one real, operator-created tenant -- reproducing every hilmir
-    // release verb's own M37 repro: an already-multi-tenant plaintext cluster, before hilmir's own
+    // release verb's own bootstrap path: an already-multi-tenant plaintext cluster, before hilmir's
+    // own
     // bookkeeping tenant has ever been bootstrapped on it.
     assertEquals(200, putTenant("acme").statusCode());
 

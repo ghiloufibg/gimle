@@ -1734,7 +1734,7 @@ class AgentMainTest {
 
   // ---- reconcileVesselAssignment: a vessel that has genuinely exhausted VesselProcessSupervisor's
   // restart budget must actually stay given up on the very next poll tick, not be handed a fresh
-  // supervisor and a fresh budget the moment reconcileAssignments next runs -- the M64 finding's
+  // supervisor and a fresh budget the moment reconcileAssignments next runs -- this regression's
   // "exhausted its restart budget; giving up" ERROR log was directly contradicted by the agent
   // respawning the same instance roughly 15s later, over and over, because the old code removed
   // the exhausted SupervisedVessel outright, so the next tick simply read "never started" and
@@ -1858,11 +1858,11 @@ class AgentMainTest {
   // onto the same supervised/instanceShippers/capacityTracker slot ----
 
   /**
-   * QA finding: two StatefulSets sharing a name across two tenants at the same index were placed by
-   * the control plane onto the same node, but this agent's own {@code supervised} map used to key
-   * purely on {@code deploymentName#index} -- whichever tenant's assignment this agent processed
-   * first "owned" that bare key, so the second tenant's identically-shaped assignment always read
-   * as already-supervised and this agent never started a real worker for it, even after the first
+   * Two StatefulSets sharing a name across two tenants at the same index were placed by the control
+   * plane onto the same node, but this agent's own {@code supervised} map used to key purely on
+   * {@code deploymentName#index} -- whichever tenant's assignment this agent processed first
+   * "owned" that bare key, so the second tenant's identically-shaped assignment always read as
+   * already-supervised and this agent never started a real worker for it, even after the first
    * tenant's workload was deleted and the key genuinely freed.
    */
   @Test

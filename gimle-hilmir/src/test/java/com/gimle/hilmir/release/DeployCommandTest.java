@@ -134,7 +134,8 @@ class DeployCommandTest {
 
   @Test
   void a_second_deploy_does_not_repeat_the_hilmir_bookkeeping_tenant_bootstrap() throws Exception {
-    // M37: the release ledger's own gimle-hilmir tenant bootstrap runs on every release verb (see
+    // Regression test: the release ledger's own gimle-hilmir tenant bootstrap runs on every release
+    // verb (see
     // ReleaseReconciler.deployFresh) -- a real control plane's plaintext single-real-tenant rule
     // refuses re-creating a tenant that isn't there yet once a second real tenant exists, so this
     // bootstrap must check for that tenant rather than unconditionally re-PUT-ing it every time.

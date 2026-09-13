@@ -85,7 +85,7 @@ class GossipMemberTest {
   @Timeout(15)
   void several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined()
       throws IOException {
-    // FUNC-43: join() used to throw GimleClusterException here, and nothing anywhere caught it --
+    // join() used to throw GimleClusterException here, and nothing anywhere caught it --
     // a routine startup networking blip with >=1 configured seeds would crash the caller outright.
     // It must never throw at all now: every seed unreachable, whether there's one or several, is
     // the same unresolvable-at-join-time ambiguity, handled the same way (see join()'s own

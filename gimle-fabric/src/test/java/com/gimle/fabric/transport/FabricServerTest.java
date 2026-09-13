@@ -1150,8 +1150,8 @@ class FabricServerTest {
     registry.register(OWNER, Greeter.class, name -> "hello:" + name);
 
     // maxConnections=1 makes this the real proof of composition: if the malformed connection's
-    // permit were ever leaked (FUNC-47's fix not actually running through the same release path
-    // as FUNC-75's), nothing could ever get through this listener again.
+    // permit were ever leaked (one fix not actually running through the same release path as the
+    // other), nothing could ever get through this listener again.
     server = serverWithMaxConnections(registry, 1);
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));

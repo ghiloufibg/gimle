@@ -367,7 +367,7 @@ class DeploymentReconcilerTest {
   }
 
   /**
-   * QA end-user-QA finding: an unplaceable deployment blocked by a bad artifact used to leave
+   * An end-user-reported bug: an unplaceable deployment blocked by a bad artifact used to leave
    * nothing behind but a platform-log WARN, re-logged every tick -- {@code gimle events} showed
    * nothing at all, forever, with no way for an operator to discover why the deployment was stuck.
    * The durable event must exist, and must not be re-appended every tick for the exact same
@@ -431,10 +431,10 @@ class DeploymentReconcilerTest {
   }
 
   /**
-   * GIMLE-683 (FUNC-74): {@code isReady} used to be a pure point-in-time read of the latest
-   * heartbeat's {@code ready} flag -- a freshly-placed replacement that happened to report ready on
-   * exactly one heartbeat, then flapped straight back to not-ready, looked indistinguishable from a
-   * genuinely stable one. A single lucky reading must never be mistaken for a completed migration.
+   * Regression test: {@code isReady} used to be a pure point-in-time read of the latest heartbeat's
+   * {@code ready} flag -- a freshly-placed replacement that happened to report ready on exactly one
+   * heartbeat, then flapped straight back to not-ready, looked indistinguishable from a genuinely
+   * stable one. A single lucky reading must never be mistaken for a completed migration.
    */
   @Test
   void
@@ -477,7 +477,7 @@ class DeploymentReconcilerTest {
   }
 
   /**
-   * GIMLE-682 (FUNC-66): {@code handleRollingUpdate} throttles concurrent migrations to {@code
+   * Regression test: {@code handleRollingUpdate} throttles concurrent migrations to {@code
    * maxUnavailable}, but only because it trusts {@code isReady} to mean "genuinely stable" -- a
    * flapping replacement that clears its slot on a lucky reading would let the next migration start
    * even though {@code maxUnavailable} was configured as conservatively as possible (the default,

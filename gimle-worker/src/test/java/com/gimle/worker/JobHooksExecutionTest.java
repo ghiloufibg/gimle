@@ -153,13 +153,13 @@ class JobHooksExecutionTest {
   }
 
   /**
-   * Regression test for M34: {@code lifecycle.jobHooks} naming a class that fails to load or
-   * construct (a manifest typo, in production) used to leave the instance stuck ACTIVE forever --
-   * {@link WorkerRuntime#onActive}'s job-hooks {@code instantiate} call threw straight out of the
-   * {@code Active} event's own dispatch, and {@code ModuleController#emit}'s generic event-sink
-   * catch swallowed it after only a log line, so the module never ran its hooks, never reached
-   * {@code COMPLETED}/{@code FAILED}, and no {@code TransitionFailed} event was ever produced --
-   * the exact gap {@code instantiateOrFail} already closed for a bad {@code health.liveness}/{@code
+   * Regression test: {@code lifecycle.jobHooks} naming a class that fails to load or construct (a
+   * manifest typo, in production) used to leave the instance stuck ACTIVE forever -- {@link
+   * WorkerRuntime#onActive}'s job-hooks {@code instantiate} call threw straight out of the {@code
+   * Active} event's own dispatch, and {@code ModuleController#emit}'s generic event-sink catch
+   * swallowed it after only a log line, so the module never ran its hooks, never reached {@code
+   * COMPLETED}/{@code FAILED}, and no {@code TransitionFailed} event was ever produced -- the exact
+   * gap {@code instantiateOrFail} already closed for a bad {@code health.liveness}/{@code
    * .readiness} class, just never extended to job hooks.
    */
   @Test

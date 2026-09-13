@@ -144,7 +144,7 @@ class FafnirSecretsAuthzTest {
         // "proxy" here presents a genuine gimle:controlplane leaf (an identity with no SECRET
         // permission of its own) but forwards a claim naming "alice", the real, authorized
         // principal -- exactly the shape gimle-controlplane's own proxy hop uses, and the one peer
-        // identity resolvePrincipal is allowed to trust a forwarded header from (GIMLE-690).
+        // identity resolvePrincipal is allowed to trust a forwarded header from.
         HttpClient client = tls.controlPlaneClientWithLeaf(ca, "controlplane-proxy");
 
         HttpResponse<String> response =
@@ -296,14 +296,13 @@ class FafnirSecretsAuthzTest {
   }
 
   /**
-   * GIMLE-690: any cluster leaf certificate -- not only the control plane's own -- can present the
-   * {@code X-Gimle-Forwarded-Principal}/{@code -Groups} headers, since {@code
-   * SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed with no per-endpoint
-   * allow-list. Before the fix, a caller holding a plain {@code gimle:nodes} certificate could dial
-   * Fafnir directly and forward {@code root}/{@code gimle:operators} to reach {@code
-   * Authorizer.authorize}'s unconditional cluster-admin short-circuit. Presenting the exact same
-   * headers here must instead fall through to the node's own self-service check, which denies a
-   * node with no assignment for this tenant.
+   * Any cluster leaf certificate -- not only the control plane's own -- can present the {@code
+   * X-Gimle-Forwarded-Principal}/{@code -Groups} headers, since {@code SslContexts.forMutualTls}
+   * trusts any leaf the shared cluster CA signed with no per-endpoint allow-list. Before the fix, a
+   * caller holding a plain {@code gimle:nodes} certificate could dial Fafnir directly and forward
+   * {@code root}/{@code gimle:operators} to reach {@code Authorizer.authorize}'s unconditional
+   * cluster-admin short-circuit. Presenting the exact same headers here must instead fall through
+   * to the node's own self-service check, which denies a node with no assignment for this tenant.
    */
   @Test
   @Timeout(10)
@@ -664,7 +663,7 @@ class FafnirSecretsAuthzTest {
     }
   }
 
-  // ---- soft-delete vs. hard destroy (?destroy=true) audit distinctness (GIMLE-693) ----
+  // ---- soft-delete vs. hard destroy (?destroy=true) audit distinctness ----
   //
   // A soft delete and a hard destroy both authorize under the identical Verb.DELETE, but only a
   // hard destroy is irreversible -- the trail must be able to tell them apart, and a subsequent
@@ -781,7 +780,7 @@ class FafnirSecretsAuthzTest {
     }
   }
 
-  // ---- /secrets/rotate-key, /secrets/retire-key (GIMLE-692) ----
+  // ---- /secrets/rotate-key, /secrets/retire-key ----
   //
   // Both routes are cluster-wide, non-tenant-scoped admin operations -- FafnirServer's own
   // authorizeGlobalSecretsAdmin gate, not the tenant-scoped authorizeSecrets every /secrets/
