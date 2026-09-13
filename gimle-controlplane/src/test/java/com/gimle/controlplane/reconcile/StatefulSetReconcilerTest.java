@@ -984,9 +984,9 @@ class StatefulSetReconcilerTest {
 
   /**
    * Convergence from an arbitrary starting state, the core reconciler-correctness property: a
-   * permanently-failed index that later becomes genuinely, stably healthy again --
-   * e.g. because the manifest that caused the crash loop was redeployed with a fix -- must not stay
-   * wedged forever, and neither must any index OrderedReady was blocking behind it.
+   * permanently-failed index that later becomes genuinely, stably healthy again -- e.g. because the
+   * manifest that caused the crash loop was redeployed with a fix -- must not stay wedged forever,
+   * and neither must any index OrderedReady was blocking behind it.
    */
   @Test
   void a_permanently_failed_index_recovers_and_unblocks_indices_behind_it_once_genuinely_healthy(

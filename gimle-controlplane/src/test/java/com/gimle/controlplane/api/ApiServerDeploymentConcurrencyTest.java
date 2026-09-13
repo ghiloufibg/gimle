@@ -38,13 +38,12 @@ import org.junit.jupiter.api.io.TempDir;
  * actual point of application. A first attempt at this fix reused an existing distributed-lease
  * primitive for mutual exclusion and was reverted after it measurably degraded a different,
  * unrelated subsystem's reliability during testing; the generation guard replaces it rather than
- * layering on top. A second
- * attempt added an in-process per-name lock around each handler's whole read-then-propose section,
- * hoping to force both requests to observe the same starting generation; it was removed again after
- * proving counterproductive -- serializing the two handlers just guarantees whichever runs second
- * always re-reads an already-consistent world and therefore always succeeds too, which turned every
- * race into a guaranteed double-success instead of the occasional, legitimate one this class's own
- * javadoc explains below.
+ * layering on top. A second attempt added an in-process per-name lock around each handler's whole
+ * read-then-propose section, hoping to force both requests to observe the same starting generation;
+ * it was removed again after proving counterproductive -- serializing the two handlers just
+ * guarantees whichever runs second always re-reads an already-consistent world and therefore always
+ * succeeds too, which turned every race into a guaranteed double-success instead of the occasional,
+ * legitimate one this class's own javadoc explains below.
  *
  * <p>What the generation guard actually guarantees, and what it deliberately does not: a {@code
  * PUT} here carries no client-supplied version (it is a desired-state manifest, not a versioned
@@ -130,21 +129,21 @@ class ApiServerDeploymentConcurrencyTest {
 
   /**
    * Creates a deployment (3 replicas) synchronously first, so the race below targets an
-   * <em>already-existing</em> deployment rather than a brand-new name -- then
-   * fires a scale-to-5 apply and a delete for it with no ordering between them, repeated 15 times
-   * over a fresh name each round so one round's outcome can't leak into the next. As the class
-   * javadoc explains, the generation guard does not force exactly one winner every round -- it
-   * forces every round to resolve to <em>some</em> coherent, total-ordered outcome: either exactly
-   * one side wins and the other gets an honest 409 against the state the winner committed, or both
-   * sides win because each one's own precondition read happened to be valid at the time -- which
-   * itself splits into two legitimate sub-orders: delete's read-then-propose cycle (nothing
-   * upstream of it) finishing before apply's admission-chain work lets apply observe anything, so
-   * apply recreates the deployment fresh afterward; or apply committing first and delete's own
-   * fresh read of apply's new generation still matching, so delete's removal is the one that
-   * actually lands last. What must never happen, under any interleaving: a request failing outright
-   * instead of one of its valid outcomes, both requests refused, or a final state that matches
-   * neither request's own content -- in particular never the untouched pre-race 3-replica content
-   * silently surviving a delete that reported success.
+   * <em>already-existing</em> deployment rather than a brand-new name -- then fires a scale-to-5
+   * apply and a delete for it with no ordering between them, repeated 15 times over a fresh name
+   * each round so one round's outcome can't leak into the next. As the class javadoc explains, the
+   * generation guard does not force exactly one winner every round -- it forces every round to
+   * resolve to <em>some</em> coherent, total-ordered outcome: either exactly one side wins and the
+   * other gets an honest 409 against the state the winner committed, or both sides win because each
+   * one's own precondition read happened to be valid at the time -- which itself splits into two
+   * legitimate sub-orders: delete's read-then-propose cycle (nothing upstream of it) finishing
+   * before apply's admission-chain work lets apply observe anything, so apply recreates the
+   * deployment fresh afterward; or apply committing first and delete's own fresh read of apply's
+   * new generation still matching, so delete's removal is the one that actually lands last. What
+   * must never happen, under any interleaving: a request failing outright instead of one of its
+   * valid outcomes, both requests refused, or a final state that matches neither request's own
+   * content -- in particular never the untouched pre-race 3-replica content silently surviving a
+   * delete that reported success.
    */
   @RepeatedTest(15)
   @Tag("flaky")
