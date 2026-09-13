@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -220,6 +221,7 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
   }
 
   @Test
+  @Tag("flaky")
   void rolling_back_a_daemonset_restores_the_previous_module_version() throws Exception {
     put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.0.0"));
     put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.1.0"));

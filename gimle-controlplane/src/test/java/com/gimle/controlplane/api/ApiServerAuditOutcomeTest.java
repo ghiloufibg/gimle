@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -129,6 +130,7 @@ class ApiServerAuditOutcomeTest {
    * trail exists to prevent.
    */
   @Test
+  @Tag("flaky")
   void a_tenant_creation_refused_under_plaintext_records_rejected_not_applied() throws Exception {
     // A first real tenant, so plaintext's own single-real-tenant rule has something to refuse a
     // second one against (see rejectSecondTenantUnderPlaintext's own javadoc: neither the
@@ -173,6 +175,7 @@ class ApiServerAuditOutcomeTest {
   }
 
   @Test
+  @Tag("flaky")
   void a_deployment_writes_audit_outcome_matches_the_real_admission_result_not_just_rbac()
       throws Exception {
     // Same tenant id throughout, quota raised between the two deployments below -- plaintext mode

@@ -46,8 +46,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * {@code GET /alertrules/{name}/firing} -- the durable verdict read, RBAC-gated the same way {@code
@@ -56,7 +56,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * ApiServerNetworkPoliciesTest}/{@code ApiServerNetworkPoliciesAuthzTest} already established for
  * the sibling network-model resource, rather than a second file.
  */
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// System.setProperty mutates a JVM-global that every other concurrently-running test class
+// reads too (via TransportProtocol.fromConfig()), not just ones that also declare a
+// ResourceLock on it -- a plain ResourceLock only serializes against other lock holders, so an
+// unrelated test racing this one mid-mutation could see a corrupted transport config. @Isolated
+// is the stronger guarantee: no other test class runs at all while this one does.
+@Isolated
 @ResourceLock("gimle-controlplane-api-server-http")
 class ApiServerAlertRulesFiringTest {
 

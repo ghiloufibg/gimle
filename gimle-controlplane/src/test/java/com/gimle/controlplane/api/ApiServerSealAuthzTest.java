@@ -31,8 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * The real mTLS/RBAC layer over the four new global admin routes, mirroring {@code
@@ -42,7 +42,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * that skips the check entirely, so a caller with *no* grant at all must still succeed there.
  * Plaintext round-trip coverage (no authorization applies) lives in {@code ApiServerSealTest}.
  */
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// System.setProperty mutates a JVM-global that every other concurrently-running test class
+// reads too (via TransportProtocol.fromConfig()), not just ones that also declare a
+// ResourceLock on it -- a plain ResourceLock only serializes against other lock holders, so an
+// unrelated test racing this one mid-mutation could see a corrupted transport config. @Isolated
+// is the stronger guarantee: no other test class runs at all while this one does.
+@Isolated
 @ResourceLock("gimle-controlplane-api-server-http")
 class ApiServerSealAuthzTest {
 

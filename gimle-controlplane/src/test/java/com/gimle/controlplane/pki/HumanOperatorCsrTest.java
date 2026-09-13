@@ -38,8 +38,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * The human-operator flow: an {@code OPERATOR_CLIENT} CSR sits {@code PENDING} until an existing
@@ -47,9 +47,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * the property that actually matters here. Plus the negative case: an approval attempt from a
  * caller without a currently-valid operator certificate of its own must be rejected.
  */
-// System.setProperty mutates a JVM-global; excludes this class from running concurrently with
-// any other class holding the same lock, under class-level parallel execution (root pom.xml).
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// System.setProperty mutates a JVM-global that every other concurrently-running test class
+// reads too (via TransportProtocol.fromConfig()), not just ones that also declare a
+// ResourceLock on it -- a plain ResourceLock only serializes against other lock holders, so an
+// unrelated test racing this one mid-mutation could see a corrupted transport config. @Isolated
+// is the stronger guarantee: no other test class runs at all while this one does.
+@Isolated
 // Real ApiServer + real HttpClient on a loopback ephemeral port (see ApiServerTest for why):
 // excluded from running concurrently with any other class doing the same.
 @ResourceLock("gimle-controlplane-api-server-http")

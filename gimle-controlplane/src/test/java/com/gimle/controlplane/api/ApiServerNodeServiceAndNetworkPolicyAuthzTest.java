@@ -29,8 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * A {@code gimle:nodes} identity's read access to {@code GET /networkpolicies} and {@code GET
@@ -44,7 +44,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * poll returned 403 because no RBAC path granted a node identity any access to either resource kind
  * at all.
  */
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// System.setProperty mutates a JVM-global that every other concurrently-running test class
+// reads too (via TransportProtocol.fromConfig()), not just ones that also declare a
+// ResourceLock on it -- a plain ResourceLock only serializes against other lock holders, so an
+// unrelated test racing this one mid-mutation could see a corrupted transport config. @Isolated
+// is the stronger guarantee: no other test class runs at all while this one does.
+@Isolated
 @ResourceLock("gimle-controlplane-api-server-http")
 class ApiServerNodeServiceAndNetworkPolicyAuthzTest {
 

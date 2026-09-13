@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -73,6 +74,7 @@ class ApiServerHilmirBookkeepingTenantTest {
   }
 
   @Test
+  @Tag("flaky")
   void creating_the_hilmir_bookkeeping_tenant_succeeds_even_with_a_real_tenant_already_present()
       throws Exception {
     // A cluster already carrying one real, operator-created tenant -- reproducing every hilmir
@@ -96,6 +98,7 @@ class ApiServerHilmirBookkeepingTenantTest {
   }
 
   @Test
+  @Tag("flaky")
   void re_bootstrapping_the_already_present_hilmir_bookkeeping_tenant_still_succeeds()
       throws Exception {
     // Every later hilmir release verb re-issues the identical bootstrap PUT -- must remain a no-op

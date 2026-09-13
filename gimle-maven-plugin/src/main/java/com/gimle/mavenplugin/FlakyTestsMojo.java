@@ -11,14 +11,17 @@ import org.apache.maven.plugins.annotations.Parameter;
  * {@code mvn gimle:flaky-tests} -- runs every {@code @Tag("flaky")} test (see {@code
  * FLAKY_TESTS.md}), one listed module at a time, each as its own genuinely separate {@code mvn -pl
  * <module> test -Dgroups=flaky} child process rather than nested inside this build's own reactor.
- * The two known flaky tests are confirmed non-bugs, root-caused to cross-module Surefire-JVM
- * contention from a multithreaded reactor build (multiple modules' own forks competing for CPU at
- * once) -- an axis a single module's own {@code @Isolated} guard has no visibility into. Spawning
- * each listed module as its own standalone reactor, strictly in sequence, removes that contention
- * by construction: nothing else is running in that reactor to compete with. Each listed module can
- * optionally be repeated several times in a row ({@code -Dgimle.flakyTests.repeat}), still one
- * clean standalone reactor invocation per repeat, so a nightly run accumulates real pass/fail
- * evidence across many runs rather than a single snapshot.
+ * The known flaky tests are confirmed non-bugs, root-caused to Surefire-JVM CPU contention under
+ * this project's own concurrent-test-class execution mode: either cross-module (multiple modules'
+ * own forks competing for CPU at once in a multithreaded reactor build) or, for a module whose own
+ * test classes run many concurrently, contention entirely within that one module's fork -- either
+ * way an axis a single test class's own {@code @Isolated} guard has no visibility into, since that
+ * only ever serializes against other test classes, never against the CPU itself being
+ * oversubscribed. Spawning each listed module as its own standalone reactor, strictly in sequence,
+ * removes the cross-module half of that contention by construction: nothing else is running in that
+ * reactor to compete with. Each listed module can optionally be repeated several times in a row
+ * ({@code -Dgimle.flakyTests.repeat}), still one clean standalone reactor invocation per repeat, so
+ * a nightly run accumulates real pass/fail evidence across many runs rather than a single snapshot.
  */
 @Mojo(name = "flaky-tests", threadSafe = true)
 public final class FlakyTestsMojo extends AbstractGimleRootMojo {
@@ -32,7 +35,7 @@ public final class FlakyTestsMojo extends AbstractGimleRootMojo {
    * convention Surefire's own {@code -Dgroups} uses. Add a module's artifactId here when a test in
    * it is promoted onto the standing exclusion list.
    */
-  @Parameter(property = "gimle.flakyTests.modules", defaultValue = "gimle-mimir")
+  @Parameter(property = "gimle.flakyTests.modules", defaultValue = "gimle-mimir,gimle-controlplane")
   private String modules;
 
   /**

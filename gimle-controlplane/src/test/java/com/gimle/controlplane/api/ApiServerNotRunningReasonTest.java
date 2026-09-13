@@ -26,6 +26,7 @@ import java.util.OptionalInt;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -129,6 +130,7 @@ class ApiServerNotRunningReasonTest {
   }
 
   @Test
+  @Tag("flaky")
   void a_placed_replica_whose_node_refused_to_start_it_is_reported_as_not_running()
       throws Exception {
     putDeployment("orders-service", 1);

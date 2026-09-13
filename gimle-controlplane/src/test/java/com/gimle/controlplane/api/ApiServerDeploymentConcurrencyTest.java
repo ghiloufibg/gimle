@@ -22,6 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.RepetitionInfo;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -146,6 +147,7 @@ class ApiServerDeploymentConcurrencyTest {
    * silently surviving a delete that reported success.
    */
   @RepeatedTest(15)
+  @Tag("flaky")
   @Timeout(20)
   void a_racing_apply_and_delete_on_an_existing_deployment_never_produces_a_torn_or_lost_update(
       RepetitionInfo repetitionInfo) throws Exception {

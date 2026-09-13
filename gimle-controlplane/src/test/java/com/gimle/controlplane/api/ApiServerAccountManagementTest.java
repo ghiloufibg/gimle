@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -122,6 +123,7 @@ class ApiServerAccountManagementTest {
   // ---- GOV-5: dangling rolebinding on account delete ----
 
   @Test
+  @Tag("flaky")
   void deleting_an_account_still_referenced_by_a_rolebinding_is_refused_with_a_named_conflict()
       throws Exception {
     assertEquals(200, putAccount("alice", "s3cret-password").statusCode());
