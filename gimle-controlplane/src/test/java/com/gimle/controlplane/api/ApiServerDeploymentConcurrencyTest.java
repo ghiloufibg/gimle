@@ -37,8 +37,8 @@ import org.junit.jupiter.api.io.TempDir;
  * precondition before racing and checked deterministically -- identically on every node -- at the
  * actual point of application. A first attempt at this fix reused an existing distributed-lease
  * primitive for mutual exclusion and was reverted after it measurably degraded a different,
- * unrelated subsystem's reliability during testing (see the commit history and final report for
- * that investigation); the generation guard replaces it rather than layering on top. A second
+ * unrelated subsystem's reliability during testing; the generation guard replaces it rather than
+ * layering on top. A second
  * attempt added an in-process per-name lock around each handler's whole read-then-propose section,
  * hoping to force both requests to observe the same starting generation; it was removed again after
  * proving counterproductive -- serializing the two handlers just guarantees whichever runs second
@@ -129,8 +129,8 @@ class ApiServerDeploymentConcurrencyTest {
   }
 
   /**
-   * Creates a deployment (3 replicas) synchronously first -- matching the QA report's own
-   * reproduction exactly, an <em>already-existing</em> deployment, not a brand-new name -- then
+   * Creates a deployment (3 replicas) synchronously first, so the race below targets an
+   * <em>already-existing</em> deployment rather than a brand-new name -- then
    * fires a scale-to-5 apply and a delete for it with no ordering between them, repeated 15 times
    * over a fresh name each round so one round's outcome can't leak into the next. As the class
    * javadoc explains, the generation guard does not force exactly one winner every round -- it

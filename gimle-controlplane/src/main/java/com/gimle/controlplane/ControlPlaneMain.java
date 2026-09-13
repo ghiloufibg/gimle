@@ -165,8 +165,8 @@ public final class ControlPlaneMain {
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
     GimleLogging.attachPlatformFileAppender(logRoot.resolve("controlplane-platform.log"));
 
-    // PLAINTEXT is a deliberate default (see CLAUDE.md's "Not gaps" -- trivial local onboarding
-    // matters more here than secure-by-default), not an oversight, but a silent one: nothing else
+    // PLAINTEXT is a deliberate default -- trivial local onboarding matters more here than
+    // secure-by-default -- not an oversight, but a silent one: nothing else
     // announces that every API call on this port is unauthenticated. One loud line at boot makes
     // the tradeoff visible instead of only discoverable by reading source.
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {

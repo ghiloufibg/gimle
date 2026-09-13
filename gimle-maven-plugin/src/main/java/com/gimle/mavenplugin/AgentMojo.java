@@ -16,11 +16,11 @@ import org.eclipse.aether.repository.RemoteRepository;
  * {@code mvn gimle:agent} -- launches a real {@code AgentMain} process using {@code gimle-agent}'s
  * own resolved runtime classpath, plus a worker command-tail whose classpath is resolved
  * separately: the worker is a genuinely different reactor module and OS process ({@code
- * AgentMain}'s own production code never imports {@code com.gimle.worker.*}, by design -- see
- * CLAUDE.md's "Node Agent ... never runs hosted-module code itself"), so its classpath can't come
- * from this module's own {@code ${project.runtimeClasspathElements}}. It's resolved directly
- * against the already-{@code mvn install}ed {@code com.gimle:gimle-worker} artifact via Maven's own
- * dependency resolver, independent of reactor build order.
+ * AgentMain}'s own production code never imports {@code com.gimle.worker.*}, since the node agent
+ * never runs hosted-module code itself), so its classpath can't come from this module's own {@code
+ * ${project.runtimeClasspathElements}}. It's resolved directly against the already-{@code mvn
+ * install}ed {@code com.gimle:gimle-worker} artifact via Maven's own dependency resolver,
+ * independent of reactor build order.
  */
 @Mojo(name = "agent", requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public final class AgentMojo extends AbstractGimleMojo {

@@ -601,7 +601,7 @@ class AutoscaleReconcilerTest {
     // Same "no history, only what's persisted now" scenario as
     // converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count above, but for
     // WEIGHTED mode blending two signals (not WORST_SIGNAL, and not a single trivial signal) --
-    // CLAUDE.md's reconciler-convergence requirement applies to the new combination mode too.
+    // convergence from an arbitrary starting state must hold for the new combination mode too.
     StateStore store = new StateStore();
     Path jar = buildFixtureJar();
     // CPU ratio 0.2 (10% vs 50% target, weight 1.0 default), queue-depth ratio 3.0 (15 vs target 5,

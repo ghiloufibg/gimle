@@ -945,11 +945,11 @@ public final class AndvariServer implements AutoCloseable {
       Optional<String> tenantId)
       throws IOException {
     if (!(exchange instanceof HttpsExchange)) {
-      // Plaintext mode has no identity to check -- fully open, matching the documented design --
-      // but a jar still just arrived or disappeared, and the trail must say which one rather than
-      // showing nothing at all for every push and delete this process ever received in this mode.
-      // Attributed to the same synthetic "anonymous" principal the console's own session endpoint
-      // reports here.
+      // Plaintext mode has no identity to check -- fully open, since there is no authenticated
+      // principal to gate on -- but a jar still just arrived or disappeared, and the trail must
+      // say which one rather than showing nothing at all for every push and delete this process
+      // ever received in this mode. Attributed to the same synthetic "anonymous" principal the
+      // console's own session endpoint reports here.
       if (verb != Verb.READ) {
         recordAudit(ANONYMOUS, verb, target, tenantId, true);
       }

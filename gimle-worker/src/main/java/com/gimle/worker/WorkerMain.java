@@ -69,11 +69,10 @@ public final class WorkerMain {
 
   private static final Logger log = LoggerFactory.getLogger(WorkerMain.class);
 
-  // How long a disposed module's classloader gets to actually be collected before
-  // LeakTracker reports it as leaked (CLAUDE.md's "Classloader leak detection is first-class").
-  // Long enough that ordinary GC latency under real load never produces a false positive; short
-  // enough that a genuine leak is caught well within a single redeploy-in-a-loop QA pass rather
-  // than only showing up as eventual metaspace exhaustion.
+  // How long a disposed module's classloader gets to actually be collected before LeakTracker
+  // reports it as leaked. Long enough that ordinary GC latency under real load never produces a
+  // false positive; short enough that a genuine leak is caught well within a single
+  // redeploy-in-a-loop QA pass rather than only showing up as eventual metaspace exhaustion.
   private static final Duration LEAK_DETECTION_WINDOW = Duration.ofSeconds(30);
 
   // The same cadence AgentMain's own MuninnShipper instances tick on -- no correctness reason the

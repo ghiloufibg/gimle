@@ -13,9 +13,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Classloader leak detection (CLAUDE.md's own framing -- "first-class", a {@code PhantomReference}
- * to a disposed module's own loader, reported if it survives a configurable window). Building this
- * scenario surfaced a real gap: {@code WorkerRuntime}'s {@code LeakTracker} existed only in {@code
+ * Classloader leak detection: a {@code PhantomReference} to a disposed module's own loader,
+ * reported if it survives a configurable window. Building this scenario surfaced a real gap:
+ * {@code WorkerRuntime}'s {@code LeakTracker} existed only in {@code
  * gimle-module}'s own unit tests -- {@code WorkerMain} never actually wired it into the real {@code
  * ModuleController} it constructs, so a real leak in a real deployed module went completely
  * undetected and unreported. Fixed alongside this test: {@code WorkerMain} now constructs a {@code

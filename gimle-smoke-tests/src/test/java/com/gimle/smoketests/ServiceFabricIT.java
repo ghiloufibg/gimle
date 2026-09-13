@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * The service fabric's circuit breaker (CLAUDE.md's own framing: "circuit breaking/outlier ejection
- * at the registry level"), proven against real cross-process failures rather than {@code
+ * The service fabric's circuit breaker (circuit breaking/outlier ejection at the registry level),
+ * proven against real cross-process failures rather than {@code
  * FabricServiceRegistryTest}'s own same-JVM dead-socket/mocked-failure shape. {@code
  * FabricServiceRegistry} keeps one {@code CircuitBreaker} per remote {@code ServiceEndpoint} with
  * no external state export (no metric, no log line marks its own open/close transition) -- this

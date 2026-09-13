@@ -19,9 +19,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Exercises {@link FileSetValidator} against the exact rendered shapes {@code
- * gimle-ivaldi-console}'s own {@code lib/render.ts} is specified to produce (see the Ivaldi design
- * doc's section 6), so this test doubles as the executable contract that render implementation is
- * written against: every fixture below is hand-written YAML in that shape, not generated.
+ * gimle-ivaldi-console}'s own {@code lib/render.ts} is specified to produce, so this test doubles
+ * as the executable contract that render implementation is written against: every fixture below is
+ * hand-written YAML in that shape, not generated.
  */
 class FileSetValidatorTest {
 
