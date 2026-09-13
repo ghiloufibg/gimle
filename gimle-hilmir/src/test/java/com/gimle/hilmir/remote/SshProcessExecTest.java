@@ -155,16 +155,31 @@ class SshProcessExecTest {
         "ubuntu@gimle-1.example.com:/opt/gimle/topology.yaml", command.get(command.size() - 1));
   }
 
+  private static String javaExecutable() {
+    return Path.of(System.getProperty("java.home"), "bin", "java").toString();
+  }
+
+  private static List<String> echoFixtureCommand(final String stream, final String message) {
+    return List.of(
+        javaExecutable(),
+        "-cp",
+        System.getProperty("java.class.path"),
+        EchoFixtureMain.class.getName(),
+        stream,
+        message);
+  }
+
   /**
    * Stands in for a real {@code ssh-keyscan} failing key-exchange negotiation: nothing on stdout, a
    * real diagnostic on stderr, nonzero exit. Before the fix, stderr was never captured at all
    * ({@code redirectErrorStream(false)} with only stdout read), so this diagnostic was silently
-   * discarded in favor of a generic "is it reachable?" guess.
+   * discarded in favor of a generic "is it reachable?" guess. Uses {@link EchoFixtureMain} rather
+   * than {@code sh -c} -- a POSIX shell isn't guaranteed to be on {@code PATH} on plain Windows.
    */
   @Test
   void run_capturing_output_captures_stderr_separately_from_an_empty_stdout() {
     final List<String> command =
-        List.of("sh", "-c", "echo 'no matching key exchange method found' >&2; exit 1");
+        echoFixtureCommand("stderr", "no matching key exchange method found");
 
     final SshProcessExec.CapturedOutput captured =
         SshProcessExec.runCapturingOutput(command, "scanning SSH host key for m1");
@@ -175,7 +190,7 @@ class SshProcessExecTest {
 
   @Test
   void run_capturing_output_captures_stdout_when_present() {
-    final List<String> command = List.of("sh", "-c", "echo scanned-key-line");
+    final List<String> command = echoFixtureCommand("stdout", "scanned-key-line");
 
     final SshProcessExec.CapturedOutput captured =
         SshProcessExec.runCapturingOutput(command, "scanning SSH host key for m1");
