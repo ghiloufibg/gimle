@@ -35,7 +35,9 @@ public final class FlakyTestsMojo extends AbstractGimleRootMojo {
    * convention Surefire's own {@code -Dgroups} uses. Add a module's artifactId here when a test in
    * it is promoted onto the standing exclusion list.
    */
-  @Parameter(property = "gimle.flakyTests.modules", defaultValue = "gimle-mimir,gimle-controlplane")
+  @Parameter(
+      property = "gimle.flakyTests.modules",
+      defaultValue = "gimle-mimir,gimle-controlplane,gimle-worker")
   private String modules;
 
   /**

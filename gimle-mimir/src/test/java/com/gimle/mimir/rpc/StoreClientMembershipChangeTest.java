@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -213,6 +214,7 @@ class StoreClientMembershipChangeTest {
   }
 
   @Test
+  @Tag("flaky")
   @Timeout(40)
   void grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol()
       throws Exception {

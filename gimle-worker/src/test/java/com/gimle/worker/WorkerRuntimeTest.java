@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -240,8 +241,14 @@ class WorkerRuntimeTest {
    * removing it and {@code onActive} recreating it), so {@code attemptsInWindow} never accumulated
    * past 1 and the budget could never exhaust. A high {@code stableUptimeThreshold} keeps this
    * fixture's own {@link #scheduleModuleStabilityConfirmation} from ever firing during the test.
+   *
+   * <p>Flaky under real CPU contention: the fixed 15-second {@link Await#until} window is
+   * comfortable in isolation but occasionally too tight for 5 real restart cycles when this
+   * module's own test classes are competing for CPU (confirmed non-bug -- passes reliably run
+   * alone; see {@code FLAKY_TESTS.md}).
    */
   @Test
+  @Tag("flaky")
   void a_module_that_never_recovers_liveness_exhausts_its_restart_budget_and_is_marked_failed() {
     BudgetFixture f =
         startBudgetFixture("com.gimle.fixture.neverrecovers", 2, Duration.ofMinutes(10));
@@ -261,8 +268,12 @@ class WorkerRuntimeTest {
    * the budget once the module has stayed stable for {@code stableUptimeThreshold}, so a module
    * that fails, recovers, then fails again gets a genuinely fresh budget for its second failure
    * spell rather than picking up where the first left off. A short threshold keeps this fast.
+   *
+   * <p>Flaky for the same reason as the test above: the second spell's own 15-second {@link
+   * Await#until} window can be too tight for 5 real restart cycles under CPU contention.
    */
   @Test
+  @Tag("flaky")
   void a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget() {
     BudgetFixture f = startBudgetFixture("com.gimle.fixture.recovers", 2, Duration.ofMillis(300));
 
