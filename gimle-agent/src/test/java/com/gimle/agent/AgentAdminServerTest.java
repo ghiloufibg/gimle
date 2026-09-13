@@ -19,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -35,13 +36,14 @@ import org.junit.jupiter.api.io.TempDir;
  * Exercises {@link AgentAdminServer} in plaintext mode (no client certificate needed -- see {@code
  * authorizeFault}'s own carve-out, the same one {@code AndvariServerAuthTest}/{@code
  * FafnirServerAuthTest} already rely on for their own plaintext-mode coverage) against a real
- * {@link InProcessStore} and a real {@link WorkerProcessSupervisor} supervising a genuine {@code
- * sleep 300} subprocess -- so a kill actually kills an OS process and the supervisor's own
- * crash-detection genuinely respawns it, not a mock standing in for either. The RBAC decision logic
- * itself (mTLS-cert-resolved principal, {@code Authorizer.authorize}) is structurally identical to
- * Fafnir's/ Andvari's own already-covered {@code authorizeSecrets}/{@code authorizeArtifacts} --
- * re-proving the same generic mechanics here would be low-marginal-value redundant coverage, not a
- * new risk surface, so this suite focuses on what actually is new: the kill/status dispatch itself.
+ * {@link InProcessStore} and a real {@link WorkerProcessSupervisor} supervising a genuine {@link
+ * SleepingWorkerDriver} subprocess -- so a kill actually kills an OS process and the supervisor's
+ * own crash-detection genuinely respawns it, not a mock standing in for either. The RBAC decision
+ * logic itself (mTLS-cert-resolved principal, {@code Authorizer.authorize}) is structurally
+ * identical to Fafnir's/ Andvari's own already-covered {@code authorizeSecrets}/{@code
+ * authorizeArtifacts} -- re-proving the same generic mechanics here would be low-marginal-value
+ * redundant coverage, not a new risk surface, so this suite focuses on what actually is new: the
+ * kill/status dispatch itself.
  */
 final class AgentAdminServerTest {
 
@@ -104,10 +106,15 @@ final class AgentAdminServerTest {
     WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
             key,
-            // The trailing arg WorkerProcessSupervisor.spawn() appends (the control-socket path)
-            // lands as sh's own $0, not consumed as sleep's own duration -- a real long-lived
-            // process with no real worker JVM needed for this suite's own purposes.
-            () -> List.of("sh", "-c", "sleep 300"),
+            // A real long-lived process with no real worker JVM needed for this suite's own
+            // purposes -- SleepingWorkerDriver just parks, ignoring the control-socket path
+            // WorkerProcessSupervisor.spawn() appends as a trailing argument.
+            () ->
+                List.of(
+                    javaExecutable(),
+                    "-cp",
+                    System.getProperty("java.class.path"),
+                    SleepingWorkerDriver.class.getName()),
             tempDir.resolve(
                 tenantId.orElse("notenant") + "-" + deploymentName + "-" + instanceIndex + ".sock"),
             new RestartTracker(
@@ -117,6 +124,21 @@ final class AgentAdminServerTest {
     SupervisedInstance instance = new SupervisedInstance(assigned, supervisor, null, descriptor);
     supervised.put(key, instance);
     return instance;
+  }
+
+  private static String javaExecutable() {
+    Optional<String> command = ProcessHandle.current().info().command();
+    if (command.isPresent()) {
+      return command.get();
+    }
+    Path javaBin = Path.of(System.getProperty("java.home"), "bin");
+    for (String candidate : List.of("java", "java.exe")) {
+      Path candidatePath = javaBin.resolve(candidate);
+      if (Files.isRegularFile(candidatePath)) {
+        return candidatePath.toString();
+      }
+    }
+    throw new IllegalStateException("could not locate the java launcher under " + javaBin);
   }
 
   private HttpResponse<String> get(String path) throws Exception {
