@@ -15737,17 +15737,18 @@
       "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
       "category": "Developer tooling / Internal-Infra",
       "status": "Modified",
-      "statusNote": "Backend and console are both wired to each other now (console-side /v1/* mock protocol and localStorage clusters are gone). Dry-run proxy and per-cluster TLS identity remain unbuilt; a real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is not yet exercised by an automated test. Reboot now tears the previous tree down before the port preflight; the control plane URL is validated before anything is spawned; a node agent reports its declared gossip address.",
+      "statusNote": "Backend and console are both wired to each other now (console-side /v1/* mock protocol and localStorage clusters are gone). The tier-3 dry-run proxy (POST /api/runs/current/dry-run) is wired, previewing each workload against the control plane's real ?dryRun=true route when the cluster's applied topology already matches. Per-cluster TLS identity for this controller's own outbound calls is resolved per run from the topology being run, overridable by a cluster connection's own clientCertPath/clientKeyPath/caPath -- this class's own javadoc previously claimed otherwise, now corrected. A real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is now exercised by gimle-smoke-tests' IvaldiRunEngineIT. Reboot now tears the previous tree down before the port preflight; the control plane URL is validated before anything is spawned; a node agent reports its declared gossip address.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest) and gimle-ivaldi-console's Vitest suite (httpClusters.test.ts, runPhases.test.ts); a real end-to-end boot-through-deploy scenario belongs in gimle-smoke-tests, following the same real-subprocess-cluster pattern GreeterClusterTopologyIT already establishes, and does not exist yet.",
-      "otherTestCoverage": "`ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite",
+      "gapNote": "No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest), gimle-hilmir's own ReleaseReconcilerPreviewTest, gimle-ivaldi-console's Vitest suite (httpClusters.test.ts, runPhases.test.ts), and gimle-smoke-tests' IvaldiRunEngineIT (a real IvaldiMain subprocess booting a real cluster over HTTP, -Psmoke) -- the real-cluster round trip this requirement's own gap note used to flag as missing. A Holmgang Cucumber scenario driving the same path through Ivaldi specifically still does not exist.",
+      "otherTestCoverage": "`ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java` (incl. `dryRun` coverage), `IvaldiServerTest.java` (cluster + run + dry-run endpoint additions) in gimle-ivaldi's own test suite; `ReleaseReconcilerPreviewTest.java` in gimle-hilmir's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite; `IvaldiRunEngineIT.java` (gimle-smoke-tests, -Psmoke)",
       "sourceLocations": [
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`",
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`",
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`",
         "`gimle-ivaldi-console/src/repositories/{httpClusters,httpRunner,index}.ts`",
-        "`gimle-ivaldi-console/src/lib/runPhases.ts`"
+        "`gimle-ivaldi-console/src/lib/runPhases.ts`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseReconciler.java` (`previewWorkloads`)"
       ]
     },
     {

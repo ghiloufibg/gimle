@@ -1,11 +1,13 @@
 package com.gimle.hilmir.release;
 
+import com.gimle.core.protocol.Json;
 import com.gimle.hilmir.HilmirException;
 import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -301,6 +303,30 @@ public final class ReleaseReconciler {
       ReleaseLedger.deleteRevision(api, releaseName, revision);
     }
     ReleaseLedger.deleteMeta(api, releaseName);
+  }
+
+  /**
+   * Previews every workload {@code rendered} declares against the control plane's own {@code
+   * ?dryRun=true} proxy (see {@code ApiServer#previewWorkload}) -- the identical authorization,
+   * manifest, artifact-resolution, admission and placement checks a real deploy/upgrade would run
+   * for that workload, reported instead of applied. Nothing here writes anything, so it needs
+   * neither {@link ReleaseLedger} (a preview is never a revision) nor {@code rendered}'s own
+   * tenants/config/secrets, which the control plane's dry-run proxy has no route for at all -- it
+   * exists only for the five workload PUT routes {@link WorkloadKinds} maps.
+   *
+   * <p>Each entry is the raw verdict JSON {@code ApiServer} returns for that workload ({@code
+   * kind}, {@code name}, {@code admitted}, {@code wouldRespondStatus}, {@code checks}, and an
+   * optional {@code placement}), in {@code rendered.workloads()}'s own order.
+   */
+  public static List<Map<String, Object>> previewWorkloads(
+      ControlPlaneApi api, RenderedBundle rendered) {
+    List<Map<String, Object>> verdicts = new ArrayList<>();
+    for (RenderedWorkload workload : rendered.workloads()) {
+      String path = WorkloadKinds.pathPrefix(workload.kind()) + workload.name();
+      String response = api.expectSuccess(api.put(path + "?dryRun=true", workload.yaml()));
+      verdicts.add(Json.asObject(Json.parse(response)));
+    }
+    return verdicts;
   }
 
   /** One workload's wait outcome, when it didn't succeed. */

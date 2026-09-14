@@ -97,21 +97,29 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * release; the infra itself is torn down only when the deployment being stopped is the last live
  * one on that cluster (see {@link #teardown}).
  *
- * <h2>Known limits</h2>
+ * <h2>Outbound identity</h2>
  *
  * <p>A cluster's transport (plaintext or mTLS) and TLS material are read from the topology this
  * controller renders, so {@code MachineLauncher.up} boots each cluster with its own posture
  * correctly. The control-plane calls this class itself makes ({@link ControlPlaneApi}, for artifact
- * pushes and the bundle deploy) instead follow {@code IvaldiMain}'s own process-wide {@code
- * gimle.transport.protocol}/{@code gimle.tls.*} configuration, the same way every other Gimlé
- * tool's outbound calls do -- a cluster connection's own {@code clientCertPath}/{@code
- * clientKeyPath} are stored and returned by the {@code /api/clusters} surface for the console's own
- * use, but do not yet override this controller's outbound TLS identity per run. Running Ivaldi
- * itself with the matching {@code -Dgimle.transport.protocol}/{@code -Dgimle.tls.*} flags for the
- * one cluster transport in play covers today's local, single-cluster-at-a-time use.
+ * pushes and the bundle deploy) are resolved the same way, per run, from that same topology --
+ * never from {@code IvaldiMain}'s own process-wide {@code gimle.transport.protocol}/{@code
+ * gimle.tls.*} configuration, which one long-lived Ivaldi process targeting several clusters of
+ * differing transport has no single correct value for anyway (see {@link #clientIdentityFor}). A
+ * cluster connection's own {@code clientCertPath}/{@code clientKeyPath}/{@code caPath} override
+ * that resolution for a cluster this Ivaldi did not itself boot, or an operator identity kept
+ * elsewhere (see {@link #clientMaterialFor}).
  *
- * <p>{@code POST /api/runs/current/dry-run} (the tier-3 {@code ?dryRun=true} proxy) is not
- * implemented yet -- a separate addition once this run engine itself is exercised end to end.
+ * <h2>Dry run</h2>
+ *
+ * <p>{@link #dryRun} is the tier-3 {@code ?dryRun=true} proxy: file-level validation and every
+ * pre-flight check {@link #execute} runs before it ever touches real infrastructure run
+ * unconditionally, and -- only when the cluster is already up with this exact topology, so a live
+ * control plane actually exists to ask -- each workload the rendered bundle declares is previewed
+ * against the control plane's own real {@code ?dryRun=true} admission-and-placement check (see
+ * {@link ReleaseReconciler#previewWorkloads}). A topology this run would still need to boot (fresh,
+ * or changed) has no live control plane to preview against yet, so that case is reported honestly
+ * rather than guessed at -- see {@link #dryRun}'s own javadoc.
  */
 public final class RunController {
 
@@ -377,6 +385,117 @@ public final class RunController {
     blueprintId.ifPresent(id -> clusters.recordDeployment(clusterId, id));
     run.worker = Thread.ofVirtual().start(() -> execute(run, files, values, existing));
     return snapshotOf(run).toJsonMap();
+  }
+
+  /**
+   * Previews what {@link #start} would do against {@code clusterId}, without booting, pushing
+   * artifacts, or deploying anything -- run synchronously, on the caller's own thread, since it
+   * never touches real infrastructure and so never needs a background worker or a tracked {@link
+   * ActiveRun} of its own.
+   *
+   * <p>File-level validation ({@link FileSetValidator}) always runs first; a validation error stops
+   * here, exactly as it would stop {@link #execute} before it ever reaches its own {@code BOOTING}
+   * phase. Past that, every pre-flight check {@link #execute} runs before touching real
+   * infrastructure runs unconditionally: topology parsing, jar-artifact readability, and the
+   * cluster address checks ({@link #requireAddressUsableForTransport}, {@link
+   * #requireClusterAddressMatchesTopology}).
+   *
+   * <p>The one thing this cannot honestly preview is admission against a control plane that does
+   * not exist yet: when this cluster's topology is not already applied and unchanged (see {@link
+   * #execute}'s own "Deploy-only vs. reboot" section), a real run would boot or reboot the process
+   * tree first, and there is nothing running yet to ask "would this be admitted." That case is
+   * reported as {@code wouldReboot: true} with an empty {@code workloads} list rather than a guess.
+   * Otherwise, each workload the rendered bundle declares is previewed against the control plane's
+   * own real {@code ?dryRun=true} proxy (see {@link ReleaseReconciler#previewWorkloads}) -- the
+   * identical authorization, admission and placement forecast a real deploy/upgrade would run,
+   * reported instead of applied. Standalone resources ({@code Service}/{@code NetworkPolicy}/{@code
+   * LimitRange}) are listed by kind and name only, never checked: the control plane's dry-run proxy
+   * exists only for the workload PUT routes.
+   *
+   * <p>A rendering workspace is written under {@link #workspaceRoot} the same way a real run's is,
+   * since {@link com.gimle.hilmir.release.BundleRenderer#render} reads file-referenced workloads
+   * from it -- but deleted again once this preview is done, never left behind the way a real run's
+   * own workspace is.
+   */
+  public Map<String, Object> dryRun(
+      String clusterId, List<RenderedFile> files, Map<String, String> values) {
+    if (clusters.get(clusterId).isEmpty()) {
+      throw new NotFoundException("no such cluster: " + clusterId);
+    }
+    List<Finding> findings = FileSetValidator.validate(files);
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("findings", findings.stream().map(Finding::toJsonMap).toList());
+    result.put("wouldReboot", false);
+    result.put("standalone", List.of());
+    result.put("workloads", List.of());
+    boolean hasErrors = findings.stream().anyMatch(f -> f.severity() == Finding.Severity.ERROR);
+    if (hasErrors) {
+      return result;
+    }
+    String dryRunId = "dryrun-" + mintRunId();
+    try {
+      requireJarArtifactsReadable(files);
+      RenderedFile topologyFile = requireFile(files, "topology.yaml");
+      RenderedFile bundleFile = requireFile(files, "bundle.yaml");
+      Topology topology = TopologyParser.parse(streamOf(topologyFile));
+
+      Map<String, Object> cluster =
+          Json.asObject(Json.parse(clusters.get(clusterId).orElseThrow()));
+      String serverAddress = serverAddressOf(cluster, clusterId);
+      String clusterDisplayName =
+          cluster.get("name") instanceof String s && !s.isBlank() ? s : clusterId;
+      requireAddressUsableForTransport(serverAddress, topology, clusterDisplayName);
+      requireClusterAddressMatchesTopology(serverAddress, topology, clusterDisplayName);
+
+      List<RenderedFile> standalone = standaloneManifests(files);
+      List<Map<String, Object>> standaloneSummaries = new ArrayList<>();
+      for (RenderedFile manifest : standalone) {
+        Map<?, ?> mapping = readMapping(manifest.content());
+        standaloneSummaries.add(
+            Map.of(
+                "kind", String.valueOf(mapping.get("kind")),
+                "name", String.valueOf(mapping.get("name"))));
+      }
+      result.put("standalone", standaloneSummaries);
+
+      Optional<String> appliedTopology = clusters.appliedTopology(clusterId);
+      boolean wouldReboot =
+          appliedTopology.isEmpty()
+              || !normalizeTopology(appliedTopology.get())
+                  .equals(normalizeTopology(topologyFile.content()));
+      result.put("wouldReboot", wouldReboot);
+      if (wouldReboot) {
+        result.put(
+            "note",
+            "this cluster would be booted or rebooted to run this blueprint -- there is no live"
+                + " control plane yet to preview admission against, so only file-level and"
+                + " pre-flight checks ran");
+        return result;
+      }
+
+      Path workspace = workspaceRoot.resolve(dryRunId);
+      writeWorkspace(workspace, files);
+      Bundle bundle = BundleParser.parse(streamOf(bundleFile));
+      List<String> setFlags =
+          values.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).toList();
+      Map<String, String> merged =
+          ValueOverrides.merge(bundle.values(), Optional.empty(), setFlags);
+      RenderedBundle rendered = BundleRenderer.render(bundle, merged, workspace);
+
+      ControlPlaneApi api =
+          new ControlPlaneApi(
+              serverAddress, clientMaterialFor(topology, cluster).map(SslContexts::forMutualTls));
+      result.put("workloads", ReleaseReconciler.previewWorkloads(api, rendered));
+    } catch (RuntimeException e) {
+      // Not just RunFailedException: an unreachable control plane surfaces from
+      // ReleaseReconciler.previewWorkloads as a plain HilmirException, the same broad catch
+      // #execute itself falls back to for exactly that reason -- a dry run's whole purpose is
+      // reporting what's wrong, not throwing it back at a caller as an unhandled 500.
+      result.put("error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+    } finally {
+      deleteWorkspaceQuietly(dryRunId);
+    }
+    return result;
   }
 
   /** Every run this process holds, newest first -- what the blueprint list and Clusters read. */

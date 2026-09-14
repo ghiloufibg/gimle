@@ -491,6 +491,51 @@ class IvaldiServerTest {
 
   @Test
   @Timeout(10)
+  void dry_run_against_an_unknown_cluster_is_404() throws Exception {
+    String body =
+        Json.write(
+            Map.of(
+                "clusterId",
+                "no-such-cluster",
+                "files",
+                List.of(Map.of("path", "topology.yaml", "content", "name: t"))));
+
+    HttpResponse<String> response = post("/api/runs/current/dry-run", body);
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void dry_run_rejects_a_body_shaped_wrong() throws Exception {
+    assertEquals(400, post("/api/runs/current/dry-run", "{\"files\":[]}").statusCode());
+    assertEquals(400, post("/api/runs/current/dry-run", "{\"clusterId\":\"x\"}").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void dry_run_never_starts_a_tracked_run() throws Exception {
+    HttpResponse<String> created =
+        post("/api/clusters", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+    String body =
+        Json.write(
+            Map.of(
+                "clusterId",
+                id,
+                "files",
+                List.of(Map.of("path", "topology.yaml", "content", "name: t"))));
+
+    HttpResponse<String> response = post("/api/runs/current/dry-run", body);
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> result = Json.asObject(Json.parse(response.body()));
+    assertNotNull(result.get("findings"));
+    assertEquals("idle", runs.clusterSnapshotJson(id).get("status"));
+  }
+
+  @Test
+  @Timeout(10)
   void shutdown_acknowledges_the_request_and_then_stops_the_server() throws Exception {
     HttpResponse<String> response = post("/api/shutdown", "");
     assertEquals(200, response.statusCode());

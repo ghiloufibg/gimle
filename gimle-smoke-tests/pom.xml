@@ -50,6 +50,19 @@
       <artifactId>gimle-testkit</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      IvaldiRunEngineIT spawns a real IvaldiMain subprocess and drives it over HTTP to boot a
+      whole platform process tree itself (MachineLauncher.up) rather than this fixture spawning
+      the cluster directly: gimle-ivaldi's own pom already depends on gimle-mimir/controlplane/
+      fafnir/muninn/andvari/agent/worker, so having it on this module's test classpath is what
+      lets IvaldiMain's own System.getProperty("java.class.path") (what MachineLauncher hands its
+      spawned children) already carry every process kind it needs to launch.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-ivaldi</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>

@@ -78,6 +78,109 @@ class RunControllerTest {
     assertEquals(Optional.empty(), controller.log("no-such-run", 0));
   }
 
+  // ---- dryRun ----
+
+  @Test
+  void dry_run_against_an_unknown_cluster_is_refused() {
+    List<RenderedFile> files = List.of(new RenderedFile("topology.yaml", "name: t"));
+
+    assertThrows(
+        RunController.NotFoundException.class,
+        () -> controller.dryRun("no-such-cluster", files, Map.of()));
+  }
+
+  /**
+   * The same pre-boot check {@link
+   * #a_workload_naming_a_jar_that_is_not_there_fails_before_anything_is_touched} proves against a
+   * real run: run synchronously here rather than settled for, and reported as {@code error} instead
+   * of thrown, since a dry run's whole purpose is telling the caller what's wrong, not failing the
+   * HTTP request that asked for a preview.
+   */
+  @Test
+  void dry_run_reports_a_jar_readability_failure_without_throwing() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+
+    Map<String, Object> result = controller.dryRun("c1", filesMissingTheirJar(), Map.of());
+
+    assertEquals(Boolean.FALSE, result.get("wouldReboot"), result + "");
+    assertEquals(List.of(), result.get("workloads"));
+    assertNull(result.get("error"), result + "");
+    assertTrue(
+        Json.asObjectList(result.get("findings")).stream()
+            .anyMatch(
+                f ->
+                    "JAR_ARTIFACT_UNREADABLE".equals(f.get("code"))
+                        && String.valueOf(f.get("message")).contains("does-not-exist.jar")),
+        result + "");
+  }
+
+  @Test
+  void dry_run_reports_file_level_validation_findings_without_touching_the_cluster() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    List<RenderedFile> badManifest =
+        List.of(
+            new RenderedFile("topology.yaml", TOPOLOGY),
+            new RenderedFile("bundle.yaml", BUNDLE),
+            new RenderedFile("manifests/01-app.yaml", "name: app\n"));
+
+    Map<String, Object> result = controller.dryRun("c1", badManifest, Map.of());
+
+    assertEquals(Boolean.FALSE, result.get("wouldReboot"));
+    assertEquals(List.of(), result.get("workloads"));
+    assertTrue(
+        Json.asObjectList(result.get("findings")).stream()
+            .anyMatch(f -> "error".equals(f.get("severity"))),
+        result + "");
+    assertEquals(Optional.empty(), clusters.appliedTopology("c1"));
+  }
+
+  /**
+   * No topology has ever been applied to this cluster, so a real run would boot one from scratch --
+   * there is no live control plane yet for a workload preview to ask, so this reports the reboot
+   * honestly instead of guessing at an admission verdict.
+   */
+  @Test
+  void dry_run_against_a_cluster_needing_a_fresh_boot_reports_would_reboot_with_no_verdicts() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+
+    Map<String, Object> result = controller.dryRun("c1", plaintextFiles(), Map.of());
+
+    assertTrue(
+        Json.asObjectList(result.get("findings")).stream()
+            .noneMatch(f -> "error".equals(f.get("severity"))),
+        result + "");
+    assertEquals(Boolean.TRUE, result.get("wouldReboot"), result + "");
+    assertEquals(List.of(), result.get("workloads"));
+    assertTrue(String.valueOf(result.get("note")).contains("no live"), result + "");
+  }
+
+  /** The same address checks {@link #execute} runs, reported rather than thrown. */
+  @Test
+  void dry_run_against_a_cluster_addressed_at_the_wrong_port_reports_the_mismatch() {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:9999\"}");
+
+    Map<String, Object> result = controller.dryRun("c1", plaintextFiles(), Map.of());
+
+    String error = String.valueOf(result.get("error"));
+    assertTrue(error.contains("127.0.0.1:9999"), error);
+    assertTrue(error.contains("127.0.0.1:8080"), error);
+  }
+
+  /** Never leaves a workspace behind, unlike a real run's own persistent one. */
+  @Test
+  void dry_run_never_leaves_a_workspace_directory_behind() throws IOException {
+    clusters.save("c1", "{\"name\":\"local\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+
+    controller.dryRun("c1", filesMissingTheirJar(), Map.of());
+
+    Path runsDir = tempDir.resolve("runs");
+    if (Files.exists(runsDir)) {
+      try (var entries = Files.list(runsDir)) {
+        assertTrue(entries.findAny().isEmpty(), "expected no workspace left under " + runsDir);
+      }
+    }
+  }
+
   @Test
   void starting_a_run_against_a_known_cluster_moves_off_idle() {
     Map<String, Object> cluster =
@@ -1065,6 +1168,107 @@ class RunControllerTest {
       assertTrue(
           Files.isDirectory(currentWorkspace),
           "expected the live run's own workspace to still exist: " + currentWorkspace);
+    }
+  }
+
+  /**
+   * The one dry-run case with a live control plane to actually ask: this cluster's applied topology
+   * already matches, so {@link RunController#dryRun} previews the bundle's own workload against the
+   * control plane's real {@code ?dryRun=true} route rather than reporting {@code wouldReboot}.
+   */
+  @Test
+  void dry_run_against_an_up_to_date_cluster_previews_each_workload_against_the_control_plane()
+      throws Exception {
+    try (FakeDryRunControlPlane fake = new FakeDryRunControlPlane()) {
+      Path dataRoot = tempDir.resolve("cluster-data-dry-run");
+      String topologyYaml = topologyWithControlPlanePort(fake.port(), dataRoot);
+      clusters.save(
+          "c1", "{\"name\":\"one\",\"controlPlaneUrl\":\"http://" + fake.address() + "\"}");
+      clusters.recordAppliedTopology("c1", topologyYaml);
+      List<RenderedFile> files =
+          List.of(
+              new RenderedFile("topology.yaml", topologyYaml),
+              new RenderedFile("bundle.yaml", BUNDLE),
+              new RenderedFile(
+                  "manifests/01-app.yaml",
+                  """
+                  kind: Deployment
+                  name: app
+                  replicas: 1
+                  module:
+                    name: com.example.app
+                    version: 1.0.0
+                  """));
+
+      Map<String, Object> result = controller.dryRun("c1", files, Map.of());
+
+      assertEquals(Boolean.FALSE, result.get("wouldReboot"), result + "");
+      assertNull(result.get("error"), result + "");
+      List<Map<String, Object>> workloads = Json.asObjectList(result.get("workloads"));
+      assertEquals(1, workloads.size(), result + "");
+      assertEquals("Deployment", workloads.get(0).get("kind"));
+      assertEquals("app", workloads.get(0).get("name"));
+      assertEquals(Boolean.TRUE, workloads.get(0).get("admitted"));
+      assertEquals(List.of("PUT /deployments/app?dryRun=true"), fake.requestsSeen);
+    }
+  }
+
+  /** A canned {@code ?dryRun=true} verdict for {@code PUT /deployments/*}, nothing else. */
+  private static final class FakeDryRunControlPlane implements AutoCloseable {
+    private final com.sun.net.httpserver.HttpServer server;
+    final List<String> requestsSeen = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    FakeDryRunControlPlane() throws IOException {
+      server =
+          com.sun.net.httpserver.HttpServer.create(
+              new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+      server.createContext("/", this::dispatch);
+      server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+      server.start();
+    }
+
+    int port() {
+      return server.getAddress().getPort();
+    }
+
+    String address() {
+      return "127.0.0.1:" + port();
+    }
+
+    @Override
+    public void close() {
+      server.stop(0);
+    }
+
+    private void dispatch(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+      try {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String query = exchange.getRequestURI().getRawQuery();
+        requestsSeen.add(method + " " + path + (query == null ? "" : "?" + query));
+        if ("PUT".equals(method)
+            && path.startsWith("/deployments/")
+            && "dryRun=true".equals(query)) {
+          String name = path.substring("/deployments/".length());
+          Map<String, Object> verdict = new java.util.LinkedHashMap<>();
+          verdict.put("dryRun", true);
+          verdict.put("kind", "Deployment");
+          verdict.put("name", name);
+          verdict.put("admitted", true);
+          verdict.put("wouldRespondStatus", 200);
+          verdict.put("checks", List.of());
+          byte[] bytes = Json.write(verdict).getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, bytes.length);
+          exchange.getResponseBody().write(bytes);
+        } else {
+          byte[] bytes = ("not found: " + path).getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(404, bytes.length);
+          exchange.getResponseBody().write(bytes);
+        }
+      } finally {
+        exchange.close();
+      }
     }
   }
 

@@ -325,6 +325,10 @@ public final class IvaldiServer implements AutoCloseable {
       String[] segments = tail.substring(1).split("/", 3);
       if ("current".equals(segments[0]) && segments.length == 1) {
         handleRunsCurrent(exchange, method);
+      } else if ("current".equals(segments[0])
+          && segments.length == 2
+          && "dry-run".equals(segments[1])) {
+        handleRunsDryRun(exchange, method);
       } else if ("for-blueprint".equals(segments[0]) && segments.length == 2) {
         handleRunForBlueprint(
             exchange, method, URLDecoder.decode(segments[1], StandardCharsets.UTF_8));
@@ -358,6 +362,18 @@ public final class IvaldiServer implements AutoCloseable {
       case "DELETE" -> respondJson(exchange, 200, runs.stop());
       default -> respond(exchange, 405, "method not allowed");
     }
+  }
+
+  /**
+   * The tier-3 {@code ?dryRun=true} proxy: same request shape {@code POST /api/runs} accepts,
+   * previewed instead of run -- see {@link RunController#dryRun}.
+   */
+  private void handleRunsDryRun(HttpExchange exchange, String method) throws IOException {
+    if (!"POST".equals(method)) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    respondJson(exchange, 200, parseAndDryRun(readBody(exchange)));
   }
 
   /**
@@ -419,8 +435,22 @@ public final class IvaldiServer implements AutoCloseable {
     return 0;
   }
 
-  /** Parses {@code {clusterId, blueprintId?, files:[{path,content}], values?}} and starts a run. */
-  private Map<String, Object> parseAndStartRun(String body) {
+  /**
+   * {@code {clusterId, blueprintId?, files:[{path,content}], values?}}, parsed -- see {@link
+   * #parseRunRequest}.
+   */
+  private record ParsedRunRequest(
+      String clusterId,
+      Optional<String> blueprintId,
+      List<RenderedFile> files,
+      Map<String, String> values) {}
+
+  /**
+   * Parses the body {@code POST /api/runs} and {@code POST /api/runs/current/dry-run} both accept
+   * -- pulled out so a dry run previews the exact same request shape a real run starts from, rather
+   * than a second, independently-drifting parser.
+   */
+  private static ParsedRunRequest parseRunRequest(String body) {
     Object parsed;
     try {
       parsed = Json.parse(body);
@@ -447,7 +477,17 @@ public final class IvaldiServer implements AutoCloseable {
         values.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
       }
     }
-    return runs.start(clusterId, blueprintId, files, values);
+    return new ParsedRunRequest(clusterId, blueprintId, files, values);
+  }
+
+  private Map<String, Object> parseAndStartRun(String body) {
+    ParsedRunRequest parsed = parseRunRequest(body);
+    return runs.start(parsed.clusterId(), parsed.blueprintId(), parsed.files(), parsed.values());
+  }
+
+  private Map<String, Object> parseAndDryRun(String body) {
+    ParsedRunRequest parsed = parseRunRequest(body);
+    return runs.dryRun(parsed.clusterId(), parsed.files(), parsed.values());
   }
 
   // ---- POST /api/validate ----
