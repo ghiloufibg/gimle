@@ -87,6 +87,13 @@ public final class SkaldServer implements AutoCloseable {
   private final AtomicLong lastStaleWarnLoggedAtNanos =
       new AtomicLong(System.nanoTime() - Duration.ofDays(1).toNanos());
 
+  /**
+   * Bounded so a genuinely saturated ephemeral range still fails loudly rather than looping forever
+   * -- five tries against a busy machine's port range is already generous for what's only ever a
+   * transient collision, not a real resource exhaustion.
+   */
+  private static final int EPHEMERAL_BIND_ATTEMPTS = 5;
+
   public SkaldServer(ServiceDirectory directory, int port) throws IOException {
     this(directory, port, DEFAULT_STALE_THRESHOLD);
   }
@@ -95,14 +102,53 @@ public final class SkaldServer implements AutoCloseable {
       throws IOException {
     this.directory = directory;
     this.staleThreshold = staleThreshold;
-    this.socket = new DatagramSocket(port);
-    // Same port number on both transports, as a resolver expects of a DNS server -- with port 0
-    // the UDP bind picks first and TCP follows it, so port() is one answer for both.
-    this.tcpSocket = new ServerSocket(socket.getLocalPort());
+    BoundSockets bound = bindBothTransports(port);
+    this.socket = bound.udp();
+    this.tcpSocket = bound.tcp();
     this.listenerThread =
         Thread.ofPlatform().name("gimle-skald-udp-listener").start(this::listenLoop);
     this.tcpListenerThread =
         Thread.ofPlatform().name("gimle-skald-tcp-listener").start(this::tcpAcceptLoop);
+  }
+
+  private record BoundSockets(DatagramSocket udp, ServerSocket tcp) {}
+
+  /**
+   * Same port number on both transports, as a resolver expects of a DNS server. UDP and TCP occupy
+   * separate OS-level port namespaces, so a UDP bind succeeding on a given number is no guarantee
+   * TCP is free on that same number -- with {@code port == 0} (ephemeral, "any free port",
+   * overwhelmingly a test caller), that collision just means the number the OS happened to hand out
+   * for UDP already belongs to someone else's TCP listener, not a real failure, so this retries
+   * with a fresh UDP pick rather than giving up on the first one. A caller-specified nonzero port
+   * names one specific number on purpose (the real DNS port a deployment was configured with) -- if
+   * TCP can't bind there, that is a genuine failure to report, not something to silently work
+   * around by handing back a different port than the one asked for.
+   */
+  private static BoundSockets bindBothTransports(int port) throws IOException {
+    if (port != 0) {
+      DatagramSocket udp = new DatagramSocket(port);
+      try {
+        return new BoundSockets(udp, new ServerSocket(udp.getLocalPort()));
+      } catch (IOException e) {
+        udp.close();
+        throw e;
+      }
+    }
+    IOException lastFailure = null;
+    for (int attempt = 0; attempt < EPHEMERAL_BIND_ATTEMPTS; attempt++) {
+      DatagramSocket udp = new DatagramSocket(0);
+      try {
+        return new BoundSockets(udp, new ServerSocket(udp.getLocalPort()));
+      } catch (IOException e) {
+        udp.close();
+        lastFailure = e;
+      }
+    }
+    throw new IOException(
+        "could not find a port free on both UDP and TCP after "
+            + EPHEMERAL_BIND_ATTEMPTS
+            + " attempts",
+        lastFailure);
   }
 
   /** The port actually bound (UDP and TCP alike) -- useful when constructed with 0 in tests. */
