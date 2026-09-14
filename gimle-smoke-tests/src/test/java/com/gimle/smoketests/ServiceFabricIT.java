@@ -17,12 +17,11 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * The service fabric's circuit breaker (circuit breaking/outlier ejection at the registry level),
- * proven against real cross-process failures rather than {@code
- * FabricServiceRegistryTest}'s own same-JVM dead-socket/mocked-failure shape. {@code
- * FabricServiceRegistry} keeps one {@code CircuitBreaker} per remote {@code ServiceEndpoint} with
- * no external state export (no metric, no log line marks its own open/close transition) -- this
- * scenario has to infer the breaker having opened indirectly, from the consumer's own real call
- * pattern.
+ * proven against real cross-process failures rather than {@code FabricServiceRegistryTest}'s own
+ * same-JVM dead-socket/mocked-failure shape. {@code FabricServiceRegistry} keeps one {@code
+ * CircuitBreaker} per remote {@code ServiceEndpoint} with no external state export (no metric, no
+ * log line marks its own open/close transition) -- this scenario has to infer the breaker having
+ * opened indirectly, from the consumer's own real call pattern.
  *
  * <p>Locality-tier spillover (same-worker -&gt; same-machine -&gt; remote) is deliberately out of
  * scope here: this fixture's single-{@code AgentMain} topology can construct same-worker and

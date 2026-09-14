@@ -14,12 +14,11 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * Tiered self-healing (module dispose+reinstantiate vs. worker {@code destroyForcibly}+respawn vs.
- * machine-level reschedule are three distinct recovery paths): the
- * worker tier, where {@code WorkerProcessSupervisor} (gimle-agent) actually respawns a killed
- * worker process and the deployment genuinely recovers to {@code ACTIVE}; and the module tier one
- * level down, where a module that never passes its own liveness check exhausts its own
- * dispose+reinstantiate restart budget and is escalated to {@code FAILED} for good instead of
- * retrying forever.
+ * machine-level reschedule are three distinct recovery paths): the worker tier, where {@code
+ * WorkerProcessSupervisor} (gimle-agent) actually respawns a killed worker process and the
+ * deployment genuinely recovers to {@code ACTIVE}; and the module tier one level down, where a
+ * module that never passes its own liveness check exhausts its own dispose+reinstantiate restart
+ * budget and is escalated to {@code FAILED} for good instead of retrying forever.
  */
 @Tag("smoke")
 class SelfHealingIT extends GreeterSmokeClusterSupport {
@@ -27,11 +26,10 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
   /**
    * The agent-death test above (and every other existing scenario in this class) never kills the
    * *worker* JVM itself -- a genuinely different failure domain (module dispose+reinstantiate vs.
-   * worker destroyForcibly+respawn vs. machine-level reschedule are three distinct recovery
-   * paths). This proves the middle tier:
-   * WorkerProcessSupervisor (gimle-agent) actually respawns a killed worker process and the
-   * deployment genuinely recovers to ACTIVE again, not just that the agent's own bookkeeping
-   * believes it should.
+   * worker destroyForcibly+respawn vs. machine-level reschedule are three distinct recovery paths).
+   * This proves the middle tier: WorkerProcessSupervisor (gimle-agent) actually respawns a killed
+   * worker process and the deployment genuinely recovers to ACTIVE again, not just that the agent's
+   * own bookkeeping believes it should.
    */
   @Test
   @Timeout(value = 6, unit = TimeUnit.MINUTES)

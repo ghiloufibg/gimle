@@ -17,8 +17,8 @@ import org.junit.jupiter.api.Timeout;
 /**
  * Repeated redeploy stability -- a lighter substitute for the redeploy-in-a-loop, flat-metaspace
  * acceptance test that already exists at the {@code gimle-module} unit tier ({@code
- * RedeployLoopFlatMetaspaceTest} + {@code RedeployLoopDriver}, 500 cycles with a real
- * {@code MemoryPoolMXBean} read) but has never run against a real multi-process cluster. No remote
+ * RedeployLoopFlatMetaspaceTest} + {@code RedeployLoopDriver}, 500 cycles with a real {@code
+ * MemoryPoolMXBean} read) but has never run against a real multi-process cluster. No remote
  * metaspace reading exists anywhere in this codebase for a separately-launched worker process (the
  * metaspace gauge {@code WorkerMetrics #recordMetaspaceBytes} is never actually called from
  * production code), so this does not attempt to reproduce that measurement -- it proves a narrower,
