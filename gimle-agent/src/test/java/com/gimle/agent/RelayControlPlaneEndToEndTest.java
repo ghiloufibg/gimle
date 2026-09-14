@@ -185,11 +185,18 @@ class RelayControlPlaneEndToEndTest {
     }
   }
 
-  private static void awaitFile(Path path, Duration timeout) throws InterruptedException {
+  /**
+   * Waits for both the file to exist and to actually carry content -- {@code Files#writeString}'s
+   * create and write are not one atomic step from a concurrent reader's own vantage point, so a
+   * bare existence check here could catch the file the instant it's created but still empty, before
+   * its single {@code writeString} call has finished landing bytes.
+   */
+  private static void awaitFile(Path path, Duration timeout)
+      throws IOException, InterruptedException {
     Instant deadline = Instant.now().plus(timeout);
-    while (!Files.exists(path)) {
+    while (!Files.exists(path) || Files.size(path) == 0) {
       if (Instant.now().isAfter(deadline)) {
-        throw new AssertionError("relay result file never appeared: " + path);
+        throw new AssertionError("relay result file never appeared with content: " + path);
       }
       Thread.sleep(50);
     }
