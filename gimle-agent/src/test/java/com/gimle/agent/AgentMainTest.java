@@ -51,6 +51,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Regression: {@link AgentMain#prepareResourceLimit} must size a worker from the manifest's
@@ -61,6 +62,11 @@ import org.junit.jupiter.api.io.TempDir;
  * AgentWorkerIntegrationTest} and {@code ResourceLimitEnforcementTest} already cover with a
  * hand-built command that never goes through either of these call sites.
  */
+// Two tests below mutate gimle.transport.protocol/gimle.tls.*, JVM-globals every other
+// concurrently-running class that starts a real TLS-capable server (e.g. AgentAdminServerTest)
+// reads too -- a plain try/finally restore only protects this class's own later assertions, not a
+// class racing it mid-mutation. @Isolated: no other test class runs at all while this one does.
+@Isolated
 class AgentMainTest {
 
   // ---- tick loop: a fatal Error halts the agent rather than only killing the main thread ----

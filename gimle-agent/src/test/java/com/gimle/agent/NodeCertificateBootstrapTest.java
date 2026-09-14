@@ -26,12 +26,20 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * Drives a node's own certificate bootstrap against a real {@link CertificateAuthority} standing in
  * for the control plane's signing path -- which names the leaf ends up carrying, where the material
  * lands, and what an unwritable identity directory reports -- with no HTTP hop in the way.
  */
+// Two tests below mutate gimle.agent.identityDir/gimle.tls.certFile/gimle.tls.keyFile, JVM-globals
+// AgentMainTest mutates too -- a plain try/finally restore only protects this class's own later
+// assertions, not a class racing it mid-mutation (bootstrapping_repoints_the_tls_material_
+// properties_at_what_it_actually_wrote reads the property back after its own write, so a race
+// there reads someone else's value, not just a stale default). @Isolated: no other test class runs
+// at all while this one does.
+@Isolated
 class NodeCertificateBootstrapTest {
 
   /**
