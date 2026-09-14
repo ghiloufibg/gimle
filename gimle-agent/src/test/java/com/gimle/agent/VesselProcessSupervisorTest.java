@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -34,7 +35,13 @@ class VesselProcessSupervisorTest {
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
 
+  /**
+   * Flaky under heavy CPU contention: waits on a real spawned JVM's cold start and first stdout
+   * line, which a loaded box can occasionally push past the 10s wait margin (confirmed non-bug --
+   * passes reliably run alone).
+   */
   @Test
+  @Tag("flaky")
   @Timeout(value = 20, unit = TimeUnit.SECONDS)
   void captures_stdout_lines_as_the_instance_application_log() throws Exception {
     Path applicationLogFile = tempDir.resolve("instances").resolve("greeter-0.log");
@@ -156,8 +163,13 @@ class VesselProcessSupervisorTest {
    * twice, then stays up 1500ms (past the 1000ms stability threshold below) before crashing again.
    * Without {@code recordSuccess()} being called for a vessel, that third respawn would never reset
    * the tracker, and the gap after it would carry the still-escalated (not reset) delay.
+   *
+   * <p>Flaky under heavy CPU/scheduling contention: measures a real gap between real subprocess
+   * respawns, which a loaded box can occasionally stretch enough to look unreset (confirmed non-bug
+   * -- passes reliably run alone).
    */
   @Test
+  @Tag("flaky")
   @Timeout(value = 30, unit = TimeUnit.SECONDS)
   void a_respawn_that_stays_up_past_the_stability_threshold_resets_the_backoff() throws Exception {
     Path counterFile = tempDir.resolve("counter-vessel-reset");

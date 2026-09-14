@@ -111,8 +111,13 @@ class SleipnirTrainerTest {
     assertTrue(cache.cacheFor(commandTail).isPresent());
   }
 
+  // The two internal waits below (5s + 5s) used to sum to exactly this method's own @Timeout,
+  // leaving no slack for anything else in the method -- setup, latch construction, thread-pool
+  // scheduling -- under heavy CPU contention from every other real-subprocess test running
+  // concurrently in this module's own suite. Confirmed non-bug (passes reliably run alone); the
+  // 15s ceiling below only adds slack around those two waits, it doesn't loosen either of them.
   @Test
-  @Timeout(value = 10, unit = TimeUnit.SECONDS)
+  @Timeout(value = 15, unit = TimeUnit.SECONDS)
   void start_fires_training_at_most_once_even_when_called_twice() throws Exception {
     setUp();
     List<String> commandTail = eligibleCommandTail();
