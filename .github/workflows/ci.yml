@@ -60,9 +60,14 @@ jobs:
             ${{ runner.os }}-bun-
 
       # Same command a contributor runs locally (README/CLAUDE.md) -- no -pl/-am subset, so this
-      # covers every module including gimle-console's Bun build/test and gimle-docs.
+      # covers every module including gimle-console's Bun build/test and gimle-docs. -T 1 overrides
+      # .mvn/maven.config's repo-wide -T 1C to force a strictly sequential reactor here specifically:
+      # gimle-controlplane's own real-process/real-timing tests are resource-heavy enough that
+      # another module's test phase running concurrently in CI's own (comparatively constrained)
+      # runner can push them past their margins and fail, even though the same tests pass reliably
+      # local-parallel or run alone. Local dev keeps -T 1C's speed; only CI pays the sequential cost.
       - name: mvn verify
-        run: mvn -B verify
+        run: mvn -B -T 1 verify
 
       # Always upload, even when verify failed, so a red run still leaves the raw Surefire XML
       # (including any rerun/flaky info surefire itself recorded) available for inspection.

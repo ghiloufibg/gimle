@@ -60,18 +60,22 @@ jobs:
 
       # Real subprocess-cluster smoke suite (spawns ControlPlaneMain/AgentMain/WorkerMain and
       # friends, deploys the greeter modules, runs the console's Playwright suite against the
-      # live cluster). Slow and opt-in -- not part of the default `mvn verify` in ci.yml.
+      # live cluster). Slow and opt-in -- not part of the default `mvn verify` in ci.yml. -T 1
+      # overrides .mvn/maven.config's repo-wide -T 1C here and in every other lane below, the same
+      # override ci.yml's own mvn verify carries: a strictly sequential reactor so no module's real-
+      # process/real-timing tests contend with another concurrently-running module's on this
+      # runner's own constrained resources.
       - name: mvn verify -Psmoke
         id: smoke
         continue-on-error: true
-        run: mvn -B verify -Psmoke
+        run: mvn -B -T 1 verify -Psmoke
 
       # Functional cluster validation (Gherkin scenarios over real subprocess topologies, plus
       # the Fenrir chaos soak and Surtr scale/churn burns). Also slow and opt-in.
       - name: mvn verify -Pvalidation
         id: validation
         continue-on-error: true
-        run: mvn -B verify -Pvalidation
+        run: mvn -B -T 1 verify -Pvalidation
 
       # Full plugin coordinate rather than the short com.gimle:flaky-tests prefix, so this needs
       # no ~/.m2/settings.xml <pluginGroups> entry in this runner's environment. Repeated several
@@ -80,7 +84,7 @@ jobs:
       - name: mvn gimle:flaky-tests
         id: flaky-tests
         continue-on-error: true
-        run: mvn -B com.gimle:gimle-maven-plugin:flaky-tests -Dgimle.flakyTests.repeat=10
+        run: mvn -B -T 1 com.gimle:gimle-maven-plugin:flaky-tests -Dgimle.flakyTests.repeat=10
 
       # Seeded ClassOrderer.Random pass over the default `mvn verify` scope (deliberately not
       # -Psmoke/-Pvalidation -- out of scope for this lane) to flush test-class order-dependence
@@ -100,7 +104,7 @@ jobs:
         run: |
           seed="$(date +%s%N)"
           echo "ClassOrderer.Random seed: $seed"
-          mvn -B verify \
+          mvn -B -T 1 verify \
             -Djunit.jupiter.testclass.order.default='org.junit.jupiter.api.ClassOrderer$Random' \
             -Djunit.jupiter.execution.order.random.seed="$seed"
 
