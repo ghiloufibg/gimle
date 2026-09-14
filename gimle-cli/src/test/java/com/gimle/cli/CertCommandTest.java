@@ -22,8 +22,7 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
  * {@link CertCommand#warnIfRenewalDue} against real, short-lived certificates minted directly
@@ -31,10 +30,12 @@ import org.junit.jupiter.api.parallel.Resources;
  * certificate already inside (or nowhere near) its own renewal window is built without needing any
  * CLI/API-exposed way to request a short-lived certificate from a live cluster.
  */
-// System.setProperty mutates a JVM-global; excludes this class from running concurrently with any
-// other class holding the same lock, under class-level parallel execution (root pom.xml) -- see
-// TransportProtocolTest for the same pattern against the same underlying property.
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
+// System.setProperty mutates a JVM-global that every other concurrently-running test class reads
+// too (e.g. ArtifactSetCommandTest starting a real TLS-capable server), not just ones that also
+// declare a ResourceLock on it -- a plain ResourceLock only serializes against other lock holders,
+// so an unrelated class racing this one mid-mutation could see a transport=tls with no keyFile yet
+// set. @Isolated is the stronger guarantee: no other test class runs at all while this one does.
+@Isolated
 class CertCommandTest {
 
   private static final String TRANSPORT_PROPERTY = "gimle.transport.protocol";
