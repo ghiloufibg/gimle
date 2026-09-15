@@ -11,6 +11,11 @@ claudedocs/
 # not under target/, and contains non-.log files the blanket *.log rule above doesn't catch.
 gimle-bootstrap/
 
+# Per-process/per-instance log tree written at the repo root by a manually-launched cluster (mvn
+# gimle:store/controlplane/agent/etc., per gimle-console/LOCAL_DEV.md) -- sibling of
+# gimle-bootstrap/ above, same reason: contains non-.log cursor files the blanket rule misses.
+gimle-logs/
+
 # A locally-run node agent's own data root (AOT cache, worker state), written under the launching
 # shell's cwd during a LOCAL_DEV.md-style walkthrough -- runtime state, same reasoning as above.
 gimle-data/
