@@ -31,6 +31,7 @@ import { HttpEventsRepository } from "./http/events";
 import { HttpMetricsRepository } from "./http/metrics";
 import { HttpAuthzVocabularyRepository } from "./http/authzVocabulary";
 import { HttpIngressesRepository } from "./http/ingresses";
+import { HttpControlPlaneHealthRepository } from "./http/controlPlaneHealth";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -64,3 +65,4 @@ export const sealRepo = new HttpSealRepository();
 export const eventsRepo = new HttpEventsRepository();
 export const metricsRepo = new HttpMetricsRepository();
 export const authzVocabularyRepo = new HttpAuthzVocabularyRepository();
+export const controlPlaneHealthRepo = new HttpControlPlaneHealthRepository();

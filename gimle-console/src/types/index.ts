@@ -1011,3 +1011,28 @@ export interface DeploymentMetricsRollup {
   avgRequestRatePerSecond: number;
   avgErrorRatePerSecond: number;
 }
+
+/**
+ * `UP`/`DOWN` are this subsystem's own last-run outcome. `STANDBY` means the control-plane replica
+ * answering `/health` doesn't currently hold the reconciler-leader lease, so this subsystem never
+ * runs there at all -- expected on a non-leader replica of a multi-replica control plane, not a
+ * fault. `UNKNOWN` means this replica is the leader but the subsystem hasn't completed a run yet.
+ */
+export type SubsystemStatus = "UP" | "DOWN" | "STANDBY" | "UNKNOWN";
+
+export interface SubsystemHealth {
+  status: SubsystemStatus;
+  /** When this subsystem's status was last observed; absent for STANDBY/UNKNOWN. */
+  lastRunAt: string | null;
+  /** The failure reason on DOWN, or an informational note on UP (e.g. no registry configured). */
+  detail: string | null;
+}
+
+/** `GET /health`'s per-subsystem badges -- see `ApiServer#subsystemsJson`. */
+export interface ControlPlaneStatus {
+  reconcilerLeader: boolean;
+  scheduler: SubsystemHealth;
+  quotaEnforcer: SubsystemHealth;
+  heartbeatWorker: SubsystemHealth;
+  artifactResolver: SubsystemHealth;
+}

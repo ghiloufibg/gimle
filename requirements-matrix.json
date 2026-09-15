@@ -8977,17 +8977,24 @@
       "feature": "Control-plane status panel",
       "category": "Web Console / Frontend",
       "userStory": "As an operator, I want a quick status view of scheduler/quota-enforcer running state.",
-      "statusDetail": "Partial (static status display, hardcoded \"running\" badges, not wired to a live per-subsystem health API)",
-      "confidence": "Medium",
+      "statusDetail": "Fixed. The scheduler/quota enforcer/heartbeat worker/artifact resolver badges were a static display -- four hardcoded StatusBadge(variant: \"ok\")>running</StatusBadge> tiles with no backing data at all. `GET /health` now reports each subsystem's own real last-run outcome: a new `ReconcilerHealth` tracker (`gimle-controlplane.health`) records success/failure for every named reconcile-tick step as `ControlPlaneMain#runOne` runs it, `ApiServer#subsystemsJson` combines the scheduling-driving steps (deployment/job/daemonSet/statefulSet) into one `scheduler` badge and reads `quota`/`health` directly for `quotaEnforcer`/`heartbeatWorker`, and a separate cached HEAD-based reachability probe (mirroring the existing store probe's cache-not-block pattern) backs `artifactResolver` since `ArtifactResolver` has no background loop of its own. A step this replica has never run reports STANDBY (not DOWN) while it is not the reconciler-leader -- a real, expected state on a non-leader replica of a multi-replica control plane -- and UNKNOWN only once it is the leader but a tick has not completed yet. The console's Control plane screen (`useControlPlaneHealthStore`/`HttpControlPlaneHealthRepository`) reads this and renders each badge's real status, plus a banner when the answering replica is not the reconciler leader.",
+      "confidence": "High",
       "sourceLocations": [
-        "`src/routes/controlplane.tsx`"
+        "`gimle-console/src/routes/controlplane.tsx`",
+        "`gimle-console/src/stores/useControlPlaneHealthStore.ts`",
+        "`gimle-console/src/repositories/http/controlPlaneHealth.ts`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/health/ReconcilerHealth.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/health/SubsystemHealth.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`subsystemsJson`, `refreshAndvariProbe`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`runOne`)"
       ],
-      "testCoverageDetail": "NONE",
+      "testCoverageDetail": "`ReconcilerHealthTest` (leader/standby/unknown/up/down transitions, `combined()` never letting a later step's success mask an earlier step's failure); `ApiServerSubsystemHealthTest` (`/health` reports STANDBY before any tick, UP once a leader records success, the combined scheduler badge DOWN on one failed scheduling reconciler, and the artifact-resolver badge UP with an explanatory note when no registry is configured); console: `HttpControlPlaneHealthRepository` and `useControlPlaneHealthStore` Vitest suites.",
       "gherkinSteps": [
-        "Given the control plane is running, When I open `/controlplane`, Then scheduler/quota-enforcer badges show \"running\"."
+        "Given the control plane is running and this replica holds the reconciler-leader lease, When I open `/controlplane`, Then the scheduler/quota enforcer/heartbeat worker badges each show their own real last-run outcome rather than a hardcoded \"running\".",
+        "Given a control-plane replica that does not currently hold the reconciler-leader lease, When I open `/controlplane` against that replica, Then the tick-driven badges show \"standby\" and a banner explains this replica is not the reconciler leader."
       ],
-      "statusSummary": "Partial",
-      "testCoverageLevel": "None"
+      "statusSummary": "Fixed",
+      "testCoverageLevel": "Yes"
     },
     {
       "id": "GIMLE-459",

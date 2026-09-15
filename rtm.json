@@ -7895,14 +7895,20 @@
       "module": "gimle-console",
       "feature": "Control-plane status panel",
       "category": "Web Console / Frontend",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Badges now backed by a real GET /health per-subsystem view (ReconcilerHealth) instead of a static display; see requirements-matrix.json for the fix detail.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Control-plane status panel\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "NONE recorded in the baseline",
+      "otherTestCoverage": "`ReconcilerHealthTest`; `ApiServerSubsystemHealthTest`; console: `HttpControlPlaneHealthRepository` and `useControlPlaneHealthStore` Vitest suites.",
       "sourceLocations": [
-        "`src/routes/controlplane.tsx`"
+        "`gimle-console/src/routes/controlplane.tsx`",
+        "`gimle-console/src/stores/useControlPlaneHealthStore.ts`",
+        "`gimle-console/src/repositories/http/controlPlaneHealth.ts`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/health/ReconcilerHealth.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/health/SubsystemHealth.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`subsystemsJson`, `refreshAndvariProbe`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`runOne`)"
       ]
     },
     {

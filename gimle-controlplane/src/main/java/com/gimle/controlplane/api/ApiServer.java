@@ -30,6 +30,9 @@ import com.gimle.controlplane.galdr.CustomResourceManifestParser;
 import com.gimle.controlplane.galdr.GaldrJson;
 import com.gimle.controlplane.galdr.GaldrKinds;
 import com.gimle.controlplane.galdr.KindDefinitionParser;
+import com.gimle.controlplane.health.ReconcilerHealth;
+import com.gimle.controlplane.health.SubsystemHealth;
+import com.gimle.controlplane.health.SubsystemStatus;
 import com.gimle.controlplane.ingress.IngressRegistry;
 import com.gimle.controlplane.ingress.IngressWriteResult;
 import com.gimle.controlplane.muninn.MuninnClient;
@@ -484,6 +487,59 @@ public final class ApiServer implements AutoCloseable {
 
     static StoreProbeResult down(String reason) {
       return new StoreProbeResult(false, 0, reason, Instant.now());
+    }
+  }
+
+  /**
+   * The outcome of each reconcile-tick step {@code ControlPlaneMain} has actually run on this
+   * replica, plus whether this replica currently holds the reconciler-leader lease -- what {@code
+   * /health} reads to answer "is the scheduler / quota enforcer / heartbeat worker running" instead
+   * of a hardcoded badge. {@code ControlPlaneMain} records into this after every step of its own
+   * reconcile tick; nothing here runs a tick itself.
+   */
+  private final ReconcilerHealth reconcilerHealth = new ReconcilerHealth(Clock.systemUTC());
+
+  public ReconcilerHealth reconcilerHealth() {
+    return reconcilerHealth;
+  }
+
+  private final ScheduledExecutorService andvariProbe =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> Thread.ofPlatform().name("controlplane-andvari-probe").daemon(true).unstarted(r));
+
+  /**
+   * Cached the same way {@link #lastStoreProbe} is, and for the identical reason: a live HEAD round
+   * trip against a wedged registry must never be what a caller of {@code /health} waits on. {@link
+   * SubsystemStatus#UP} with no registry configured -- {@link ArtifactResolver#registryClient()}
+   * empty -- since a control plane started without {@code --andvari-endpoint} is a fully working
+   * configuration on its own; there is simply nothing here to probe.
+   */
+  private volatile SubsystemHealth lastAndvariProbe = SubsystemHealth.unknown();
+
+  private void refreshAndvariProbe() {
+    Optional<AndvariClient> registry = artifactResolver.registryClient();
+    if (registry.isEmpty()) {
+      lastAndvariProbe =
+          SubsystemHealth.up(Instant.now(), "no artifact registry configured (local paths only)");
+      return;
+    }
+    try {
+      // A nonexistent moduleId still tells us the registry is reachable: NotFound means it
+      // answered, Unreachable means the HEAD request itself never got a response. Neither outcome
+      // touches or depends on any artifact actually existing.
+      AndvariClient.HeadOutcome outcome =
+          registry
+              .get()
+              .head(new ModuleId("gimle-controlplane-health-probe", Version.parse("0.0.0")));
+      lastAndvariProbe =
+          switch (outcome) {
+            case AndvariClient.HeadOutcome.Unreachable unreachable ->
+                SubsystemHealth.down(Instant.now(), unreachable.reason());
+            case AndvariClient.HeadOutcome.Found ignored -> SubsystemHealth.up(Instant.now());
+            case AndvariClient.HeadOutcome.NotFound ignored -> SubsystemHealth.up(Instant.now());
+          };
+    } catch (RuntimeException e) {
+      lastAndvariProbe = SubsystemHealth.down(Instant.now(), String.valueOf(e.getMessage()));
     }
   }
 
@@ -1024,6 +1080,11 @@ public final class ApiServer implements AutoCloseable {
         storeProbeInterval.toMillis(),
         storeProbeInterval.toMillis(),
         TimeUnit.MILLISECONDS);
+    // Same cadence as the store probe above, on its own executor so a wedged registry connection
+    // can never delay a store probe (or vice versa). No startup grace period: unlike the store,
+    // which every other route depends on, no route blocks on the registry being reachable yet.
+    andvariProbe.scheduleWithFixedDelay(
+        this::refreshAndvariProbe, 0, storeProbeInterval.toMillis(), TimeUnit.MILLISECONDS);
   }
 
   /**
@@ -1046,6 +1107,7 @@ public final class ApiServer implements AutoCloseable {
   @Override
   public void close() {
     storeProbe.shutdownNow();
+    andvariProbe.shutdownNow();
     server.stop(0);
   }
 
@@ -8632,6 +8694,8 @@ public final class ApiServer implements AutoCloseable {
       }
       status.put("storeTenantCount", probe.tenantCount());
       status.put("status", "UP");
+      status.put("reconcilerLeader", reconcilerHealth.isLeader());
+      status.put("subsystems", subsystemsJson());
       respondJson(exchange, 200, status);
     } catch (IOException | RuntimeException e) {
       log.warn("health request failed: {}", e.getMessage());
@@ -8639,6 +8703,35 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The four operator-facing badges the console's Control plane screen shows, each backed by a real
+   * signal rather than a hardcoded "running": {@code scheduler} combines every reconcile step that
+   * actually places work through {@link com.gimle.controlplane.schedule.Scheduler}
+   * (deployment/job/daemonSet/statefulSet all share one instance), {@code quotaEnforcer} and {@code
+   * heartbeatWorker} are each one reconcile step's own last outcome (the health reconciler is what
+   * enforces node/instance heartbeat freshness, hence the operator-facing name), and {@code
+   * artifactResolver} is the cached Andvari reachability probe rather than a reconcile step at all
+   * -- {@link com.gimle.controlplane.andvari.ArtifactResolver} has no background loop of its own.
+   */
+  private Map<String, Object> subsystemsJson() {
+    Map<String, Object> subsystems = new LinkedHashMap<>();
+    subsystems.put(
+        "scheduler",
+        subsystemJson(reconcilerHealth.combined("deployment", "job", "daemonSet", "statefulSet")));
+    subsystems.put("quotaEnforcer", subsystemJson(reconcilerHealth.step("quota")));
+    subsystems.put("heartbeatWorker", subsystemJson(reconcilerHealth.step("health")));
+    subsystems.put("artifactResolver", subsystemJson(lastAndvariProbe));
+    return subsystems;
+  }
+
+  private static Map<String, Object> subsystemJson(SubsystemHealth health) {
+    Map<String, Object> json = new LinkedHashMap<>();
+    json.put("status", health.status().name());
+    health.lastRunAt().ifPresent(at -> json.put("lastRunAt", at.toString()));
+    health.detail().ifPresent(detail -> json.put("detail", detail));
+    return json;
   }
 
   // ---- /artifacts/** -- a streaming proxy to the Andvari artifact registry ----

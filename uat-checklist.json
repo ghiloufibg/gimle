@@ -5028,7 +5028,7 @@
       "module": "gimle-console",
       "category": "Web Console / Frontend",
       "feature": "Control-plane status panel",
-      "step": "Given the control plane is running, When I open `/controlplane`, Then scheduler/quota-enforcer badges show \"running\".",
+      "step": "Given the control plane is running and this replica holds the reconciler-leader lease, When I open `/controlplane`, Then the scheduler/quota enforcer/heartbeat worker badges each show their own real last-run outcome rather than a hardcoded \"running\". Given a control-plane replica that does not currently hold the reconciler-leader lease, When I open `/controlplane` against that replica, Then the tick-driven badges show \"standby\" and a banner explains this replica is not the reconciler leader.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

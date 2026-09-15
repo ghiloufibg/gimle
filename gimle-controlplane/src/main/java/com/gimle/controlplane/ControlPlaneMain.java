@@ -7,6 +7,7 @@ import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.autoscale.AutoscaleReconciler;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.controlplane.health.ReconcilerHealth;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.node.NodeFreshness;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
@@ -329,8 +330,10 @@ public final class ControlPlaneMain {
                 storeClient.tryAcquireOrRenewLease(
                     RECONCILER_LEASE_NAME, selfApiAddress, RECONCILER_LEASE_TTL);
             isReconcilerLeader.set(grant.granted());
+            apiServer.reconcilerHealth().setLeader(grant.granted());
           } catch (RuntimeException e) {
             isReconcilerLeader.set(false);
+            apiServer.reconcilerHealth().setLeader(false);
             log.warn("reconciler-leader lease attempt failed: {}", e.getMessage());
           }
           // seedBootstrapAccountIfNeeded needs storeClient.propose, which throws if no store
@@ -352,6 +355,7 @@ public final class ControlPlaneMain {
         () -> {
           if (isReconcilerLeader.get()) {
             reconcileTick(
+                apiServer.reconcilerHealth(),
                 replicaCountReconciler,
                 healthReconciler,
                 autoscaleReconciler,
@@ -499,6 +503,7 @@ public final class ControlPlaneMain {
   }
 
   private static void reconcileTick(
+      ReconcilerHealth health,
       ReplicaCountReconciler replicaCountReconciler,
       HealthReconciler healthReconciler,
       AutoscaleReconciler autoscaleReconciler,
@@ -512,38 +517,41 @@ public final class ControlPlaneMain {
       ServiceReconciler serviceReconciler,
       AlertReconciler alertReconciler,
       RequestOutcomeSweeper requestOutcomeSweeper) {
-    runOne("replicaCount", replicaCountReconciler::reconcileOnce);
-    runOne("health", healthReconciler::reconcileOnce);
-    runOne("autoscale", autoscaleReconciler::reconcileOnce);
-    runOne("quota", quotaReconciler::reconcileOnce);
-    runOne("limitRange", limitRangeReconciler::reconcileOnce);
-    runOne("deployment", deploymentReconciler::reconcileOnce);
+    runOne(health, "replicaCount", replicaCountReconciler::reconcileOnce);
+    runOne(health, "health", healthReconciler::reconcileOnce);
+    runOne(health, "autoscale", autoscaleReconciler::reconcileOnce);
+    runOne(health, "quota", quotaReconciler::reconcileOnce);
+    runOne(health, "limitRange", limitRangeReconciler::reconcileOnce);
+    runOne(health, "deployment", deploymentReconciler::reconcileOnce);
     // Runs before jobReconciler, matching autoscaleReconciler's own "policy generator before its
     // consumer" ordering above -- a firing materialized here is then immediately placeable by
     // jobReconciler in this same tick, not left waiting for the next one.
-    runOne("cronJob", cronJobReconciler::reconcileOnce);
-    runOne("job", jobReconciler::reconcileOnce);
-    runOne("daemonSet", daemonSetReconciler::reconcileOnce);
-    runOne("statefulSet", statefulSetReconciler::reconcileOnce);
+    runOne(health, "cronJob", cronJobReconciler::reconcileOnce);
+    runOne(health, "job", jobReconciler::reconcileOnce);
+    runOne(health, "daemonSet", daemonSetReconciler::reconcileOnce);
+    runOne(health, "statefulSet", statefulSetReconciler::reconcileOnce);
     // Touches only ServiceRegistry's own endpoint cache -- invisible to, and with no ordering
     // dependency on, any reconciler above.
-    runOne("service", serviceReconciler::reconcileOnce);
+    runOne(health, "service", serviceReconciler::reconcileOnce);
     // Reads the same live InstanceObservation data every reconciler above already reads off the
     // store snapshot -- ordered last so a rule always evaluates against this tick's fully
     // converged state, not a partially-reconciled one.
-    runOne("alert", alertReconciler::reconcileOnce);
+    runOne(health, "alert", alertReconciler::reconcileOnce);
     // Reads and writes only the request-idempotency receipt table, which no reconciler above
     // touches -- ordered last purely because it is the cheapest and least urgent of the set.
-    runOne("requestOutcomes", requestOutcomeSweeper::reconcileOnce);
+    runOne(health, "requestOutcomes", requestOutcomeSweeper::reconcileOnce);
   }
 
   // Each reconciler gets its own isolated failure boundary so one reconciler's exception (e.g. a
   // GimleRaftException surfacing from mutations.propose during a store leader-election gap) never
-  // blocks the reconcilers scheduled after it within the same tick.
-  private static void runOne(String name, Runnable reconciler) {
+  // blocks the reconcilers scheduled after it within the same tick. Recorded into `health` either
+  // way -- see ApiServer's own /health handler for what reads it back.
+  private static void runOne(ReconcilerHealth health, String name, Runnable reconciler) {
     try {
       reconciler.run();
+      health.recordSuccess(name);
     } catch (RuntimeException e) {
+      health.recordFailure(name, e.getMessage());
       log.warn("reconcile step '{}' failed: {}", name, e.getMessage(), e);
     }
   }

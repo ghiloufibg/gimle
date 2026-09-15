@@ -472,7 +472,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-455 | Module artifact registry browser (Andvari-backed) | Active | Not Covered | — |
 | GIMLE-456 | RBAC access control (roles, role bindings, accounts) | Modified | Not Covered | — |
 | GIMLE-457 | Audit trail viewer with filtering | Modified | Not Covered | — |
-| GIMLE-458 | Control-plane status panel | Active | Not Covered | — |
+| GIMLE-458 | Control-plane status panel | Modified | Not Covered | — |
 | GIMLE-459 | Theme toggle (light/dark) | Active | Not Covered | — |
 | GIMLE-460 | Playwright end-to-end smoke suite against a real cluster | Active | Not Covered | — |
 | GIMLE-461 | Vault operator login/logout (session-cookie auth) | Active | Not Covered | — |
@@ -7883,11 +7883,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-458 — Control-plane status panel
 
 - **Category**: Web Console / Frontend
-- **Status**: Active
+- **Status**: Modified  _(Badges now backed by a real GET /health per-subsystem view (ReconcilerHealth) instead of a static display; see requirements-matrix.json for the fix detail.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Control-plane status panel" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
-- **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
-- **Source location(s)**: `src/routes/controlplane.tsx`
+- **Other test coverage (non-Holmgang, informational only)**: `ReconcilerHealthTest`; `ApiServerSubsystemHealthTest`; console: `HttpControlPlaneHealthRepository` and `useControlPlaneHealthStore` Vitest suites.
+- **Source location(s)**: `gimle-console/src/routes/controlplane.tsx`, `gimle-console/src/stores/useControlPlaneHealthStore.ts`, `gimle-console/src/repositories/http/controlPlaneHealth.ts`, `gimle-controlplane/src/main/java/com/gimle/controlplane/health/ReconcilerHealth.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/health/SubsystemHealth.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`subsystemsJson`, `refreshAndvariProbe`), `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (`runOne`)
 
 #### GIMLE-459 — Theme toggle (light/dark)
 
@@ -10859,7 +10859,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-455 | gimle-console | Module artifact registry browser (Andvari-backed) | Web Console / Frontend | `src/stores/useArtifactsStore.test.ts` |
 | GIMLE-456 | gimle-console | RBAC access control (roles, role bindings, accounts) | Web Console / Frontend | `src/repositories/http/roles.test.ts`, `roleBindings.test.ts`, `accounts.test.ts` |
 | GIMLE-457 | gimle-console | Audit trail viewer with filtering | Web Console / Frontend | `src/stores/useAuditStore.test.ts` |
-| GIMLE-458 | gimle-console | Control-plane status panel | Web Console / Frontend | NONE recorded in the baseline |
+| GIMLE-458 | gimle-console | Control-plane status panel | Web Console / Frontend | `ReconcilerHealthTest`; `ApiServerSubsystemHealthTest`; console: `HttpControlPlaneHealthRepository` and `useControlPlaneHealthStore` Vitest suites. |
 | GIMLE-459 | gimle-console | Theme toggle (light/dark) | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-462 | gimle-fafnir-console | Vault status overview (uptime, active key, transport mode, tenants) | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-463 | gimle-fafnir-console | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Web Console / Frontend | `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`, `src/stores/useSecretsStore.test.ts` (new) |
