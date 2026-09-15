@@ -3,6 +3,6 @@ name: greeting-operator
 module:
   name: com.gimle.examples.greeting.operator
   version: 1.0.0
-artifactPath: gimle-examples/greeting-operator/target/greeting-operator-0.1.0-alpha.2.jar
+artifactPath: gimle-examples/greeting-operator/target/greeting-operator-0.1.0-beta.1.jar
 replicas: 1
 tenantId: team-a

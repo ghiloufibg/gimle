@@ -43,7 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 @Tag("smoke")
 class IvaldiRunEngineIT {
 
-  private static final String GIMLE_VERSION = "0.1.0-alpha.2";
+  private static final String GIMLE_VERSION = "0.1.0-beta.1";
   private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(2);
   private static final HttpClient HTTP = HttpClient.newHttpClient();
 
