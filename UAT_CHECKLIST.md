@@ -7,9 +7,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 ## Summary
 
 - **Total requirements**: 967
-- **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 837
-- **Release-readiness (automated coverage)**: 13.4%
+- **Covered by automated (Holmgang Cucumber) test**: 133
+- **Not covered by automated test**: 834
+- **Release-readiness (automated coverage)**: 13.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -43,7 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 20 | 0 | 20 | 0.0% |
+| gimle-ivaldi | 20 | 3 | 17 | 15.0% |
 | gimle-ivaldi-console | 30 | 0 | 30 | 0.0% |
 
 ## Checklist
@@ -2571,14 +2571,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-906 | Blueprint document storage API | Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent. | No |
-| [ ] | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report. | No |
+| [ ] | GIMLE-906 | Blueprint document storage API | Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent. | Yes |
+| [ ] | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report. | Yes |
 
 #### Developer tooling / Internal-Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved. Given a cluster whose applied topology already matches this run's own, When a dry run is requested instead of a real run, Then each workload the bundle declares is previewed against the control plane's real admission-and-placement check and nothing is booted, pushed, or deployed. Given no cluster yet booted, When a real IvaldiMain process runs a Blueprint against it over HTTP, Then a real single-machine platform process tree comes up, the declared module reaches ACTIVE on the real control plane, and stopping the run tears every process and the run ledger back down. | No |
+| [ ] | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved. Given a cluster whose applied topology already matches this run's own, When a dry run is requested instead of a real run, Then each workload the bundle declares is previewed against the control plane's real admission-and-placement check and nothing is booted, pushed, or deployed. Given no cluster yet booted, When a real IvaldiMain process runs a Blueprint against it over HTTP, Then a real single-machine platform process tree comes up, the declared module reaches ACTIVE on the real control plane, and stopping the run tears every process and the run ledger back down. | Yes |
 | [ ] | GIMLE-912 | Ivaldi tracks every run it started, and stops them all on shutdown | Given a run in flight against one cluster, When I start a run against a different cluster, Then both runs are tracked and each is reachable by its own cluster id. Given a blueprint that has never been run, When I ask what is running for it, Then Ivaldi reports nothing rather than another blueprint's run. Given Ivaldi has booted a cluster, When Ivaldi is shut down, Then every process it launched is stopped. | No |
 | [ ] | GIMLE-918 | A run's applied NetworkPolicy keeps a present-but-empty allow list | Given a blueprint whose NetworkPolicy declares an empty allowedCallerTenantIds, When I run it, Then the policy applies successfully and the control plane stores the empty allow list. | No |
 | [ ] | GIMLE-919 | Deleting a cluster connection with a run still tracked is refused | Given a cluster with a run this Ivaldi is tracking, When I delete that cluster connection, Then the delete is refused with 409 and the cluster connection still exists. | No |

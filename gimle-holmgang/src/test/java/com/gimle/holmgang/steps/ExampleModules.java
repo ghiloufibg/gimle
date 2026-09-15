@@ -15,7 +15,8 @@ final class ExampleModules {
           "greeter-provider", "com.gimle.examples.greeter.provider",
           "greeter-consumer", "com.gimle.examples.greeter.consumer",
           "greeter-load-generator", "com.gimle.examples.greeter.loadgen",
-          "greeting-operator", "com.gimle.examples.greeting.operator");
+          "greeting-operator", "com.gimle.examples.greeting.operator",
+          "hello-module", "com.gimle.examples.hello");
 
   private ExampleModules() {}
 

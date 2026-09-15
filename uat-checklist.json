@@ -2,9 +2,9 @@
   "generatedFrom": "rtm.json",
   "summary": {
     "totalRequirements": 967,
-    "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 837,
-    "releaseReadinessPercent": 13.4
+    "coveredByAutomatedTest": 133,
+    "notCoveredByAutomatedTest": 834,
+    "releaseReadinessPercent": 13.8
   },
   "items": [
     {
@@ -9957,7 +9957,7 @@
       "category": "Cluster designer backend / Internal-Infra",
       "feature": "Blueprint document storage API",
       "step": "Given a blueprint document named \"orders-platform-local\", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -9968,7 +9968,7 @@
       "category": "Cluster designer backend / Internal-Infra",
       "feature": "Blueprint tier-2 validation against the real platform parsers",
       "step": "Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
@@ -10012,7 +10012,7 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
       "step": "Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved. Given a cluster whose applied topology already matches this run's own, When a dry run is requested instead of a real run, Then each workload the bundle declares is previewed against the control plane's real admission-and-placement check and nothing is booted, pushed, or deployed. Given no cluster yet booted, When a real IvaldiMain process runs a Blueprint against it over HTTP, Then a real single-machine platform process tree comes up, the declared module reaches ACTIVE on the real control plane, and stopping the run tears every process and the run ledger back down.",
-      "automatedCoverage": false,
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

@@ -920,12 +920,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-903 | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | New | Not Covered | — |
 | GIMLE-904 | A worker's handshake is applied to every instance packed onto that worker | New | Not Covered | — |
 | GIMLE-905 | A store replica presents its own leaf certificate rather than the control plane's | New | Not Covered | — |
-| GIMLE-906 | Blueprint document storage API | Modified | Not Covered | — |
-| GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Modified | Not Covered | — |
+| GIMLE-906 | Blueprint document storage API | Modified | Covered | `ivaldi-designer.feature` — "A saved blueprint document is read back reliably" |
+| GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Modified | Covered | `ivaldi-designer.feature` — "Tier-2 validation flags a topology with no agents, the same way hilmir validate would" |
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | New | Not Covered | — |
 | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | New | Not Covered | — |
 | GIMLE-910 | Ivaldi web console: blueprint designer canvas | New | Not Covered | — |
-| GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Modified | Not Covered | — |
+| GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Modified | Covered | `ivaldi-designer.feature` — "A blueprint run through Ivaldi boots a real cluster, deploys a module, and tears down" |
 | GIMLE-912 | Ivaldi tracks every run it started, and stops them all on shutdown | New | Not Covered | — |
 | GIMLE-913 | Rendered workloads resolve through the artifact registry, not a local path | New | Not Covered | — |
 | GIMLE-914 | Release upgrade prunes config and secret keys the new bundle drops | New | Not Covered | — |
@@ -9642,8 +9642,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Cluster designer backend / Internal-Infra
 - **Status**: Modified  _(Blueprint ids are self-consistent: the store honours a client-supplied id and stamps the winning id into the body, closing a duplicate-record/stale-data defect found by black-box QA.)_
-- **Coverage**: Not Covered
-- **Gap note**: gimle-ivaldi is a brand-new local development tool backend (this change) with no Holmgang scenario yet -- its only coverage today is its own real-HTTP unit tests (IvaldiServerTest/BlueprintStoreTest). Not independently observable as a black-box cluster assertion in the sense Holmgang's own harness targets: it is a design-time tool sitting outside any deployed cluster, not a workload or control-plane behavior.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/ivaldi-designer.feature` — Scenario: *A saved blueprint document is read back reliably*
+  - _Why this counts_: Saves a Blueprint document through the real POST /api/blueprints, reads it back through GET /api/blueprints/{id} and confirms the name field survived the round trip, then reads it back a second time and confirms the stored content is byte-identical -- proving the flat-file store's own durability and idempotent reads, not just its unit-tested internals.
 - **Other test coverage (non-Holmgang, informational only)**: `IvaldiServerTest.java` -- "creates_lists_reads_and_deletes_a_blueprint", "put_upserts_a_blueprint_at_an_explicit_id", "get_of_an_unknown_blueprint_is_404", "create_rejects_a_body_that_is_not_a_json_object"; `BlueprintStoreTest.java` -- id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`, `BlueprintStore`
 
@@ -9651,8 +9653,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Cluster designer backend / Internal-Infra
 - **Status**: Modified  _(Tier 2 gained two cross-file pre-flight rules (NO_ANDVARI_FOR_JAR, PLAINTEXT_MULTI_TENANT) for failures that previously only surfaced after a full platform boot.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises the Ivaldi validate endpoint; today's coverage is FileSetValidatorTest's own fixture suite plus one real-HTTP integration test in IvaldiServerTest. Could in principle be added to Holmgang as a design-time check, but Ivaldi is a local dev tool outside the deployed-cluster boundary Holmgang's own scenarios target.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/ivaldi-designer.feature` — Scenario: *Tier-2 validation flags a topology with no agents, the same way hilmir validate would*
+  - _Why this counts_: Submits a rendered topology.yaml declaring no agents to the real POST /api/validate and asserts the response carries a NO_AGENTS finding naming topology.yaml -- proving tier-2 validation genuinely re-runs gimle-hilmir's own real TopologyValidator rather than a stand-in.
 - **Other test coverage (non-Holmgang, informational only)**: `FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`, `IvaldiServer#handleValidate`
 
@@ -9660,8 +9664,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Developer tooling / Internal-Infra
 - **Status**: Modified  _(Backend and console are both wired to each other now (console-side /v1/* mock protocol and localStorage clusters are gone). The tier-3 dry-run proxy (POST /api/runs/current/dry-run) is wired, previewing each workload against the control plane's real ?dryRun=true route when the cluster's applied topology already matches. Per-cluster TLS identity for this controller's own outbound calls is resolved per run from the topology being run, overridable by a cluster connection's own clientCertPath/clientKeyPath/caPath -- this class's own javadoc previously claimed otherwise, now corrected. A real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is now exercised by gimle-smoke-tests' IvaldiRunEngineIT. Reboot now tears the previous tree down before the port preflight; the control plane URL is validated before anything is spawned; a node agent reports its declared gossip address.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest), gimle-hilmir's own ReleaseReconcilerPreviewTest, gimle-ivaldi-console's Vitest suite (httpClusters.test.ts, runPhases.test.ts), and gimle-smoke-tests' IvaldiRunEngineIT (a real IvaldiMain subprocess booting a real cluster over HTTP, -Psmoke) -- the real-cluster round trip this requirement's own gap note used to flag as missing. A Holmgang Cucumber scenario driving the same path through Ivaldi specifically still does not exist.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/ivaldi-designer.feature` — Scenario: *A blueprint run through Ivaldi boots a real cluster, deploys a module, and tears down*
+  - _Why this counts_: A genuine IvaldiMain subprocess, driven purely over HTTP, boots a real single-machine platform process tree (store/control-plane/fafnir/muninn/andvari/agent) via a Blueprint run, pushes and deploys hello-module, observes it reach ACTIVE through the real control plane, then stops the run and confirms the whole process tree and its run ledger are gone -- the same real-cluster round trip gimle-smoke-tests' own IvaldiRunEngineIT proves as a plain JUnit test, now exercised through Holmgang's own Gherkin/RTM coverage.
 - **Other test coverage (non-Holmgang, informational only)**: `ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java` (incl. `dryRun` coverage), `IvaldiServerTest.java` (cluster + run + dry-run endpoint additions) in gimle-ivaldi's own test suite; `ReleaseReconcilerPreviewTest.java` in gimle-hilmir's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite; `IvaldiRunEngineIT.java` (gimle-smoke-tests, -Psmoke)
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`, `gimle-ivaldi-console/src/repositories/{httpClusters,httpRunner,index}.ts`, `gimle-ivaldi-console/src/lib/runPhases.ts`, `gimle-hilmir/src/main/java/com/gimle/hilmir/release/ReleaseReconciler.java` (`previewWorkloads`)
 
@@ -10094,7 +10100,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**838 of 968 requirements are Not Covered.**
+**835 of 968 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -10273,8 +10279,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-555 | gimle-holmgang | Utgard real machine loss (hard container kill) and rejoin | Cluster Validation | `UtgardMachineLossIT.a_killed_machine_is_rescheduled_around_and_can_rejoin_after_restart` |
 | GIMLE-556 | gimle-holmgang | Utgard network partition (vs hard kill) with reconvergence | Cluster Validation | `UtgardPartitionIT.a_partitioned_machine_is_rescheduled_around_then_the_cluster_converges_on_reconnect` |
 | GIMLE-557 | gimle-holmgang | Utgard real-hostname mTLS bootstrap across containers | Cluster Validation | `UtgardMtlsIT.an_mtls_cluster_bootstraps_across_containers_addressed_by_real_hostnames` |
-| GIMLE-906 | gimle-ivaldi | Blueprint document storage API | Cluster designer backend / Internal-Infra | `IvaldiServerTest.java` -- "creates_lists_reads_and_deletes_a_blueprint", "put_upserts_a_blueprint_at_an_explicit_id", "get_of_an_unknown_blueprint_is_404", "create_rejects_a_body_that_is_not_a_json_object"; `BlueprintStoreTest.java` -- id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection |
-| GIMLE-907 | gimle-ivaldi | Blueprint tier-2 validation against the real platform parsers | Cluster designer backend / Internal-Infra | `FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml` |
 | GIMLE-117 | gimle-agent | Persistent volume allocation for StatefulSet-shaped instances | Config | NONE recorded in the baseline |
 | GIMLE-119 | gimle-agent | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Config | NONE recorded in the baseline |
 | GIMLE-120 | gimle-agent | Vessel config-file rendering to disk | Config | NONE recorded in the baseline |
@@ -10308,7 +10312,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-916 | gimle-hilmir | Topology faults name the section they were read from | Deployment / Validation | `TopologyParserTest.java` -- a rejected field names the replica and the agent entry it was read from; `TopologyValidatorTest.java` and `FileSetValidatorTest.java` continue to pass against the unchanged codes, which remain the stable part of both contracts. |
 | GIMLE-908 | gimle-maven-plugin | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server |
 | GIMLE-910 | gimle-ivaldi-console | Ivaldi web console: blueprint designer canvas | Developer tooling / Internal-Infra | `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts`, `rules.golden.test.ts` in gimle-ivaldi-console's own Vitest suite; `TopologyTierAgreementTest.java` in gimle-ivaldi's own JUnit suite |
-| GIMLE-911 | gimle-ivaldi | Ivaldi run engine: cluster connections and running a Blueprint in-process | Developer tooling / Internal-Infra | `ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java` (incl. `dryRun` coverage), `IvaldiServerTest.java` (cluster + run + dry-run endpoint additions) in gimle-ivaldi's own test suite; `ReleaseReconcilerPreviewTest.java` in gimle-hilmir's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite; `IvaldiRunEngineIT.java` (gimle-smoke-tests, -Psmoke) |
 | GIMLE-912 | gimle-ivaldi | Ivaldi tracks every run it started, and stops them all on shutdown | Developer tooling / Internal-Infra | `RunControllerTest.java` (two clusters each hold their own run; a blueprint sees only its own run; an in-flight run blocks only its own cluster; starting a run records the owning blueprint); `ClusterStoreTest.java` (owner round-trip, cleared with the applied topology); `IvaldiServerTest.java` (the collection and per-cluster/per-blueprint routes over real HTTP); `MachineLauncherIsRunningTest.java` (an exited pid is not running; a live process with no readiness port is running on its pid alone; a live process whose declared port is closed is not). |
 | GIMLE-913 | gimle-ivaldi-console | Rendered workloads resolve through the artifact registry, not a local path | Developer tooling / Internal-Infra | `render.test.ts` (every workload manifest is v1 with no artifactPath; a jar-sourced workload's jar appears in ivaldi.artifacts.yaml instead; the sidecar is omitted entirely for an all-registry file set); `FileSetValidatorTest.java` (NO_ANDVARI_FOR_JAR fires off the sidecar and clears once andvari is declared); `RunControllerTest.java` (a workload whose sidecar names a jar that is not there fails in the validate phase, before anything is booted). |
 | GIMLE-917 | gimle-ivaldi-console | Ivaldi console shows which blueprints and clusters are actually running | Developer tooling / Internal-Infra | `httpRunner.test.ts` (the runner asks for one blueprint's run, falls back to the latest only when none is named, reads an idle answer as nothing to re-attach to, and re-attaches to a run the backend still holds); `problemView.test.ts` (cascade suppression, one fault against two nodes collapsing to one row naming both, two different faults sharing a code staying apart, and two validators wording the same fault differently being shown rather than one silently dropped); the existing rules/render/golden suites cover `effective.ts`, which is now the single resolver behind every 'which machine / which tenant' answer in the console. |

@@ -112,6 +112,14 @@ public final class ScenarioWorld {
   /** The node id a StatefulSet sticky-binding scenario captured before a reschedule. */
   String rememberedNodeId;
 
+  /**
+   * A real {@code IvaldiMain} process a scenario spawned, and whatever real cluster it itself
+   * booted -- entirely independent of {@link #cluster}/{@link ClusterPool}, since the whole point
+   * of an Ivaldi scenario is that Ivaldi's own run engine, not this harness, owns the boot/teardown.
+   * Torn down by {@link Hooks} regardless of how the scenario ends.
+   */
+  IvaldiHarness ivaldiHarness;
+
   private GimleCluster cluster;
   private boolean destructive;
   private boolean ownsCluster;

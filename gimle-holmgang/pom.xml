@@ -138,6 +138,18 @@
       <artifactId>gimle-hilmir</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- IvaldiSteps spawns a real IvaldiMain subprocess and drives it over HTTP to boot a whole
+         platform process tree itself (MachineLauncher.up) rather than this fixture spawning the
+         cluster directly: gimle-ivaldi's own pom already depends on gimle-mimir/controlplane/
+         fafnir/muninn/andvari/agent/worker, so having it on this module's test classpath is what
+         lets IvaldiMain's own System.getProperty("java.class.path") (what MachineLauncher hands
+         its own child processes) resolve every process kind, the same reasoning gimle-smoke-tests'
+         own IvaldiRunEngineIT already documents. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-ivaldi</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!--
       TestModuleBuilder (compiles a real, tiny JPMS module in-process via javax.tools): builds
       genuine chaos/upgrade variants of greeter-provider at scenario run time (a real v1.1.0 for

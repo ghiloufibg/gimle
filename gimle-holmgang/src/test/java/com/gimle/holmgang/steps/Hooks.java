@@ -68,6 +68,12 @@ public final class Hooks {
         restorePooledCluster();
       }
     }
+    if (world.ivaldiHarness != null) {
+      bestEffort(world.ivaldiHarness::close);
+      if (WorkDirs.shouldDelete(scenario.isFailed())) {
+        WorkDirs.deleteRecursively(world.ivaldiHarness.workDir());
+      }
+    }
     if (leftoverViolation != null) {
       throw leftoverViolation;
     }
