@@ -159,7 +159,11 @@ public final class IvaldiSteps {
           Duration.ofSeconds(seconds));
     } catch (AssertionError e) {
       throw new HolmgangException(
-          "run did not settle to " + status + " or failed within " + seconds + "s: "
+          "run did not settle to "
+              + status
+              + " or failed within "
+              + seconds
+              + "s: "
               + lastSnapshot.get(),
           e);
     }

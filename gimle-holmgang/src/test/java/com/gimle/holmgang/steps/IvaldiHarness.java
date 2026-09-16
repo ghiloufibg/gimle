@@ -24,9 +24,9 @@ import java.util.Optional;
  * Gherkin-layer counterpart to {@code gimle-smoke-tests}' own {@code IvaldiRunEngineIT}, which
  * proved this same path (designer document -> tier-2 validation -> a genuine {@code
  * MachineLauncher.up}-booted cluster -> a real deployed instance reaching {@code ACTIVE} -> torn
- * down again) as a plain JUnit {@code *IT} rather than a Holmgang Cucumber scenario. Neither
- * {@code ClusterPool} nor {@code GimleCluster} applies here: this harness's whole point is that
- * *Ivaldi itself*, not this test process, boots and tears down the platform tree via its own {@code
+ * down again) as a plain JUnit {@code *IT} rather than a Holmgang Cucumber scenario. Neither {@code
+ * ClusterPool} nor {@code GimleCluster} applies here: this harness's whole point is that *Ivaldi
+ * itself*, not this test process, boots and tears down the platform tree via its own {@code
  * RunController}.
  */
 final class IvaldiHarness implements AutoCloseable {
@@ -192,7 +192,8 @@ final class IvaldiHarness implements AutoCloseable {
                   gossipPort);
       String controlPlaneUrl = "127.0.0.1:" + controlPlanePort;
       String body =
-          Json.write(Map.of("name", "holmgang-ivaldi-designer", "controlPlaneUrl", controlPlaneUrl));
+          Json.write(
+              Map.of("name", "holmgang-ivaldi-designer", "controlPlaneUrl", controlPlaneUrl));
       HttpResponse<String> response = post("/api/clusters", body);
       requireStatus(response, 201);
       String clusterId = String.valueOf(Json.asObject(Json.parse(response.body())).get("id"));
@@ -301,7 +302,11 @@ final class IvaldiHarness implements AutoCloseable {
   private static void requireStatus(HttpResponse<String> response, int expected) {
     if (response.statusCode() != expected) {
       throw new HolmgangException(
-          "expected HTTP " + expected + " but got " + response.statusCode() + ": "
+          "expected HTTP "
+              + expected
+              + " but got "
+              + response.statusCode()
+              + ": "
               + response.body());
     }
   }
