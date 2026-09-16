@@ -42,7 +42,7 @@ public final class IvaldiSteps {
 
   @When("a blueprint document named {string} is saved")
   public void aBlueprintDocumentNamedIsSaved(final String name) {
-    blueprintId = world.ivaldiHarness.saveBlueprint(Json.write(Map.of("name", name)));
+    blueprintId = world.ivaldiHarness.saveBlueprint(emptyBlueprintDocument(name));
   }
 
   @Then("reading that blueprint back returns a document named {string}")
@@ -129,7 +129,12 @@ public final class IvaldiSteps {
     deployFiles.add(Map.of("path", "ivaldi.artifacts.yaml", "content", artifactsYaml));
     blueprintId =
         world.ivaldiHarness.saveBlueprint(
-            Json.write(Map.of("name", "holmgang-ivaldi-designer-" + artifact)));
+            emptyBlueprintDocument("holmgang-ivaldi-designer-" + artifact));
+  }
+
+  /** A minimal, structurally-valid Blueprint document: an empty designer canvas, named. */
+  private static String emptyBlueprintDocument(final String name) {
+    return Json.write(Map.of("name", name, "nodes", List.of(), "edges", List.of()));
   }
 
   @Given("a saved cluster connection pointing at a fresh single-machine topology")
