@@ -16,11 +16,16 @@ export function useCanI(resource: ResourceKind, verb: Verb, tenant?: string): bo
   const key = `${resource}:${verb}:${tenant ?? ""}`;
   const result = useCanIStore((s) => s.results[key]);
   const check = useCanIStore((s) => s.check);
+  const epoch = useCanIStore((s) => s.epoch);
 
+  // `epoch` is a dependency, not just `key`: a cache clear (a real principal change, or a
+  // transient 401 from an unrelated in-flight request) wipes `results` without this control's own
+  // key ever changing, so re-asking has to be driven by the clear itself, not by anything this
+  // hook's own caller controls.
   useEffect(() => {
     check(resource, verb, tenant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, epoch]);
 
   return result;
 }

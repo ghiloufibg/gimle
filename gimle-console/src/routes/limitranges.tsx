@@ -29,6 +29,7 @@ import {
 import { useLimitRangesStore } from "@/stores/useLimitRangesStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
 import type { LimitRange, ResourceBound } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 const DESCRIPTION = "Per-tenant min/max bounds on what any single workload may request or limit.";
 
@@ -154,15 +155,22 @@ function Confirm({
   title,
   description,
   onConfirm,
+  disabled,
 }: {
   title: string;
   description: string;
   onConfirm: () => void;
+  disabled?: boolean;
 }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <button className="text-muted-foreground hover:text-status-bad" aria-label={title}>
+        <button
+          disabled={disabled}
+          className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
+          aria-label={title}
+          title={disabled ? "You don't have permission to do that." : undefined}
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </AlertDialogTrigger>
@@ -269,6 +277,38 @@ function BoundFields({
   );
 }
 
+/** A distinct component instance per row -- rather than a hook call inside the table's own
+ * `.map()`, which would violate the Rules of Hooks (a varying number of `useCanI` calls across
+ * renders as rows are added/removed). One instance per row means one stable `useCanI` call each. */
+function RowActions({
+  tenantId,
+  onEdit,
+  onDelete,
+}: {
+  tenantId: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const canDelete = useCanI("LIMIT_RANGE", "DELETE", tenantId);
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={onEdit}
+        className="text-muted-foreground hover:text-foreground"
+        aria-label={`Edit limit range for ${tenantId}`}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <Confirm
+        title={`Delete limit range for ${tenantId}?`}
+        description="Every workload in this tenant stops being bounded per-workload; only the tenant's aggregate quota still applies."
+        onConfirm={onDelete}
+        disabled={!canDelete}
+      />
+    </div>
+  );
+}
+
 function LimitRangesPage() {
   const { items, loading, loaded, error, load, refresh, fetchOne, save, remove } =
     useLimitRangesStore();
@@ -277,6 +317,11 @@ function LimitRangesPage() {
 
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<LimitRangeFormState>(DEFAULT_LIMIT_RANGE_FORM);
+  const canWrite = useCanI(
+    "LIMIT_RANGE",
+    "WRITE",
+    form.tenantId.trim() === "" ? undefined : form.tenantId,
+  );
 
   useEffect(() => {
     if (!loaded) load();
@@ -361,7 +406,12 @@ function LimitRangesPage() {
                 Cancel
               </Button>
             )}
-            <Button type="submit" size="sm" disabled={loading}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={loading || !canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               <Plus className="h-3.5 w-3.5" />
               {editing ? "Save limit range" : "Create limit range"}
             </Button>
@@ -399,28 +449,19 @@ function LimitRangesPage() {
                   </td>
                 ))}
                 <td className="px-2 py-1.5">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => edit(r.tenantId)}
-                      className="text-muted-foreground hover:text-foreground"
-                      aria-label={`Edit limit range for ${r.tenantId}`}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <Confirm
-                      title={`Delete limit range for ${r.tenantId}?`}
-                      description="Every workload in this tenant stops being bounded per-workload; only the tenant's aggregate quota still applies."
-                      onConfirm={async () => {
-                        try {
-                          await remove(r.tenantId);
-                          toast.success("Limit range deleted");
-                          if (editing === r.tenantId) reset();
-                        } catch (err) {
-                          notifyApiError(err);
-                        }
-                      }}
-                    />
-                  </div>
+                  <RowActions
+                    tenantId={r.tenantId}
+                    onEdit={() => edit(r.tenantId)}
+                    onDelete={async () => {
+                      try {
+                        await remove(r.tenantId);
+                        toast.success("Limit range deleted");
+                        if (editing === r.tenantId) reset();
+                      } catch (err) {
+                        notifyApiError(err);
+                      }
+                    }}
+                  />
                 </td>
               </tr>
             ))}

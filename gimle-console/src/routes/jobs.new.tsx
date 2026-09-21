@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
 import type { JobSpecInput } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/jobs/new")({
   head: () => ({
@@ -76,6 +77,7 @@ function NewJob() {
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<JobFormState>(DEFAULT_JOB_FORM);
+  const canCreate = useCanI("JOB", "WRITE", form.tenantId === "NONE" ? undefined : form.tenantId);
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -213,7 +215,12 @@ function NewJob() {
           </Select>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || !canCreate}
+            title={canCreate === false ? "You don't have permission to do that." : undefined}
+          >
             {saving ? "Creating…" : "Create job"}
           </Button>
         </div>

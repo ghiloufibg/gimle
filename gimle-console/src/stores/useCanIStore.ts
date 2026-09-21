@@ -11,6 +11,13 @@ interface State {
   /** `undefined` means "not yet asked" or "still in flight" -- consumers treat that the same as
    * an explicit `false`, the safe default for a question this session hasn't actually confirmed. */
   results: Record<string, boolean>;
+  /** Bumped on every `clear()` so an already-mounted `useCanI` consumer re-asks even though its
+   * own cache key never changed -- a transient 401 (a background poller racing a login/logout
+   * transition, not a real loss of the session a mounted screen is actually showing) clears the
+   * cache the same way a genuine principal change does, and without this, a control that had
+   * already resolved `true` would be stuck reading the since-cleared `undefined` forever, since
+   * nothing else would ever prompt its effect to fire again. */
+  epoch: number;
   check(resource: ResourceKind, verb: Verb, tenant?: string): void;
   clear(): void;
 }
@@ -26,6 +33,7 @@ const pending = new Set<string>();
  */
 export const useCanIStore = create<State>((set, get) => ({
   results: {},
+  epoch: 0,
   check(resource, verb, tenant) {
     const key = cacheKey(resource, verb, tenant);
     if (key in get().results || pending.has(key)) return;
@@ -44,7 +52,7 @@ export const useCanIStore = create<State>((set, get) => ({
       });
   },
   clear() {
-    set({ results: {} });
+    set((s) => ({ results: {}, epoch: s.epoch + 1 }));
     pending.clear();
   },
 }));

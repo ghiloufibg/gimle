@@ -25,6 +25,7 @@ import {
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/deployments/$name")({
   head: ({ params }) => ({
@@ -60,6 +61,10 @@ function DeploymentDetail() {
   }, [name, loadRevisions]);
 
   const d = items.find((x) => x.spec.name === name);
+  const canDelete = useCanI("DEPLOYMENT", "DELETE", d?.spec.tenantId ?? undefined);
+  // Rollback resubmits a manifest under the deployment's own name, so it's authorized the same
+  // way any other write to it is -- see ApiServer#resolveDeploymentNameOrHandleSubRoute.
+  const canRollback = useCanI("DEPLOYMENT", "WRITE", d?.spec.tenantId ?? undefined);
 
   if (notFound) {
     return (
@@ -113,7 +118,12 @@ function DeploymentDetail() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete deployment
                 </Button>
@@ -166,7 +176,11 @@ function DeploymentDetail() {
 
       {d.spec.autoscale && <AutoscalePanel policy={d.spec.autoscale} />}
       {d.spec.disruption && <DisruptionPanel budget={d.spec.disruption} />}
-      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
+      <RevisionHistoryPanel
+        revisions={revisions}
+        onRollback={handleRollback}
+        canRollback={canRollback}
+      />
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

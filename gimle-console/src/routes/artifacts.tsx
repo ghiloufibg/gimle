@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Copy, Package, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 const DESCRIPTION = "Module jars pushed to the Andvari artifact registry.";
 
@@ -49,6 +50,7 @@ function ArtifactsPage() {
   const select = useArtifactsStore((s) => s.select);
   const remove = useArtifactsStore((s) => s.remove);
   const [filter, setFilter] = useState("");
+  const canDelete = useCanI("ARTIFACT", "DELETE");
 
   useEffect(() => {
     loadCatalog();
@@ -196,9 +198,14 @@ function ArtifactsPage() {
                     <td className="px-2 py-1.5">
                       <button
                         onClick={() => deleteVersion(v.moduleId, v.version)}
-                        className="text-muted-foreground hover:text-status-bad"
+                        disabled={!canDelete}
+                        className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                         aria-label={`Delete ${v.moduleId}:${v.version}`}
-                        title="Delete this version"
+                        title={
+                          canDelete === false
+                            ? "You don't have permission to do that."
+                            : "Delete this version"
+                        }
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>

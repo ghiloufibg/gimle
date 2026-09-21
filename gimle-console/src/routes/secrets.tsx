@@ -29,6 +29,7 @@ import { checkRetireTarget, retirementConfirmed } from "./-secrets";
 import { Eye, EyeOff, RefreshCw, ShieldAlert, Skull, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { SECRET_TYPES, type SecretType, type SecretVersion } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 /** The version picker's own tooltip: everything the row can't fit, on hover. */
 function describeVersion(version: SecretVersion): string {
@@ -92,6 +93,13 @@ function SecretsPage() {
   const [retireInput, setRetireInput] = useState("");
   const [confirmInput, setConfirmInput] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const canWrite = useCanI("SECRET", "WRITE", tenantId ?? undefined);
+  const canDelete = useCanI("SECRET", "DELETE", tenantId ?? undefined);
+  const canRotateKey = useCanI("SECRET", "WRITE");
+  // Rotation's own control-plane gate only asks for WRITE, but retirement's real decision is
+  // Fafnir's own independent re-check, which requires DELETE (see FafnirServer#handleRetireSecretsKey)
+  // -- checking WRITE here would enable the button for a caller Fafnir would still refuse.
+  const canRetireKey = useCanI("SECRET", "DELETE");
 
   const retireTarget = checkRetireTarget(retireInput, activeKeyId);
   const retireConfirmed =
@@ -223,7 +231,13 @@ function SecretsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" variant="outline" onClick={handleRotateKey}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRotateKey}
+              disabled={!canRotateKey}
+              title={canRotateKey === false ? "You don't have permission to do that." : undefined}
+            >
               <RefreshCw className="mr-1.5 h-3 w-3" />
               Rotate master key
             </Button>
@@ -279,7 +293,12 @@ function SecretsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" size="sm">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               Add / New version
             </Button>
           </form>
@@ -368,17 +387,27 @@ function SecretsPage() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => deleteEntry(s.key, false)}
-                            className="text-muted-foreground hover:text-status-bad"
+                            disabled={!canDelete}
+                            className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                             aria-label="Delete (soft)"
-                            title="Soft delete"
+                            title={
+                              canDelete === false
+                                ? "You don't have permission to do that."
+                                : "Soft delete"
+                            }
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
                           <button
                             onClick={() => deleteEntry(s.key, true)}
-                            className="text-muted-foreground hover:text-status-bad"
+                            disabled={!canDelete}
+                            className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                             aria-label="Destroy every version"
-                            title="Destroy (hard delete)"
+                            title={
+                              canDelete === false
+                                ? "You don't have permission to do that."
+                                : "Destroy (hard delete)"
+                            }
                           >
                             <Skull className="h-3 w-3" />
                           </button>
@@ -433,7 +462,8 @@ function SecretsPage() {
               size="sm"
               variant="destructive"
               onClick={openRetireConfirm}
-              disabled={retireTarget.keyId === null}
+              disabled={retireTarget.keyId === null || !canRetireKey}
+              title={canRetireKey === false ? "You don't have permission to do that." : undefined}
             >
               Retire key…
             </Button>

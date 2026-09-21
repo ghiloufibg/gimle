@@ -17,6 +17,7 @@ import {
 import { Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/cronjobs/$name")({
   head: ({ params }) => ({
@@ -46,6 +47,10 @@ function CronJobDetail() {
   }, [name, getOrFetch]);
 
   const c = items.find((x) => x.spec.name === name);
+  // Trigger fires immediately via the same path a scheduled tick would, so it's authorized as a
+  // JOB write, same as create/delete -- see ApiServer#resolveCronJobNameOrHandleSubRoute.
+  const canTrigger = useCanI("JOB", "WRITE", c?.spec.tenantId ?? undefined);
+  const canDelete = useCanI("JOB", "DELETE", c?.spec.tenantId ?? undefined);
 
   if (notFound) {
     return (
@@ -100,13 +105,24 @@ function CronJobDetail() {
             <Button variant="outline" size="sm" asChild>
               <Link to="/cronjobs">Back</Link>
             </Button>
-            <Button variant="outline" size="sm" onClick={handleTrigger} disabled={triggering}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTrigger}
+              disabled={triggering || !canTrigger}
+              title={canTrigger === false ? "You don't have permission to do that." : undefined}
+            >
               <Zap className="h-4 w-4" />
               {triggering ? "Triggering…" : "Trigger now"}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete cronjob
                 </Button>

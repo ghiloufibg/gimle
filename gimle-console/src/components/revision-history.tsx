@@ -21,9 +21,13 @@ import type { ControllerRevision } from "@/types";
 export function RevisionHistoryPanel({
   revisions,
   onRollback,
+  canRollback,
 }: {
   revisions: ControllerRevision[];
   onRollback: (revision: number) => Promise<void>;
+  /** `undefined` while the caller's own permission check is still in flight -- treated the same as
+   * `false`, disabled until proven allowed. */
+  canRollback: boolean | undefined;
 }) {
   const [pending, setPending] = useState<number | null>(null);
 
@@ -74,7 +78,12 @@ export function RevisionHistoryPanel({
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-[10px]"
-                          disabled={pending !== null}
+                          disabled={pending !== null || !canRollback}
+                          title={
+                            canRollback === false
+                              ? "You don't have permission to do that."
+                              : undefined
+                          }
                         >
                           {pending === r.revision ? "Rolling back…" : "Roll back"}
                         </Button>

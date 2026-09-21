@@ -17,6 +17,7 @@ import {
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/configmaps")({
   validateSearch: tenantScopeSearch,
@@ -58,6 +59,8 @@ function ConfigMapsPage() {
   } = useConfigMapsStore();
   const [nameInput, setNameInput] = useState("");
   const [rows, setRows] = useState<{ key: string; value: string }[]>([]);
+  const canWrite = useCanI("CONFIGMAP", "WRITE", tenantId ?? undefined);
+  const canDelete = useCanI("CONFIGMAP", "DELETE", tenantId ?? undefined);
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -187,8 +190,12 @@ function ConfigMapsPage() {
                           e.stopPropagation();
                           onDelete(name);
                         }}
-                        className="text-muted-foreground hover:text-status-bad"
+                        disabled={!canDelete}
+                        className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                         aria-label="Delete configmap"
+                        title={
+                          canDelete === false ? "You don't have permission to do that." : undefined
+                        }
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -223,7 +230,7 @@ function ConfigMapsPage() {
               <Input
                 className="h-8 w-64 font-mono text-xs"
                 value={nameInput}
-                disabled={selected !== null}
+                disabled={selected !== null || !canWrite}
                 onChange={(e) => setNameInput(e.target.value)}
                 placeholder="app-config"
               />
@@ -241,27 +248,35 @@ function ConfigMapsPage() {
                     value={row.key}
                     onChange={(e) => updateRow(i, "key", e.target.value)}
                     placeholder="key"
+                    disabled={!canWrite}
                   />
                   <Input
                     className="h-8 flex-1 font-mono text-xs"
                     value={row.value}
                     onChange={(e) => updateRow(i, "value", e.target.value)}
                     placeholder="value"
+                    disabled={!canWrite}
                   />
                   <button
                     onClick={() => removeRow(i)}
-                    className="text-muted-foreground hover:text-status-bad"
+                    disabled={!canWrite}
+                    className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                     aria-label="Remove key"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
                 </div>
               ))}
-              <Button size="sm" variant="outline" onClick={addRow}>
+              <Button size="sm" variant="outline" onClick={addRow} disabled={!canWrite}>
                 Add key
               </Button>
             </div>
-            <Button size="sm" onClick={onSave}>
+            <Button
+              size="sm"
+              onClick={onSave}
+              disabled={!canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               Save
             </Button>
           </div>

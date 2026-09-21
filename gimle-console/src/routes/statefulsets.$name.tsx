@@ -24,6 +24,7 @@ import {
 } from "@/lib/workload-instances";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/statefulsets/$name")({
   head: ({ params }) => ({
@@ -59,6 +60,8 @@ function StatefulSetDetail() {
   }, [name, loadRevisions]);
 
   const s = items.find((x) => x.spec.name === name);
+  const canDelete = useCanI("STATEFULSET", "DELETE", s?.spec.tenantId ?? undefined);
+  const canRollback = useCanI("STATEFULSET", "WRITE", s?.spec.tenantId ?? undefined);
 
   if (notFound) {
     return (
@@ -112,7 +115,12 @@ function StatefulSetDetail() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete statefulset
                 </Button>
@@ -159,7 +167,11 @@ function StatefulSetDetail() {
         {s.spec.artifactPath}
       </div>
 
-      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
+      <RevisionHistoryPanel
+        revisions={revisions}
+        onRollback={handleRollback}
+        canRollback={canRollback}
+      />
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

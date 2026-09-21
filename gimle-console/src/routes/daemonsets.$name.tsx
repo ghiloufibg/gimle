@@ -23,6 +23,7 @@ import {
 } from "@/lib/workload-instances";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/daemonsets/$name")({
   head: ({ params }) => ({
@@ -58,6 +59,8 @@ function DaemonSetDetail() {
   }, [name, loadRevisions]);
 
   const d = items.find((x) => x.spec.name === name);
+  const canDelete = useCanI("DAEMONSET", "DELETE", d?.spec.tenantId ?? undefined);
+  const canRollback = useCanI("DAEMONSET", "WRITE", d?.spec.tenantId ?? undefined);
 
   if (notFound) {
     return (
@@ -111,7 +114,12 @@ function DaemonSetDetail() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete daemonset
                 </Button>
@@ -161,7 +169,11 @@ function DaemonSetDetail() {
         {d.spec.artifactPath}
       </div>
 
-      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
+      <RevisionHistoryPanel
+        revisions={revisions}
+        onRollback={handleRollback}
+        canRollback={canRollback}
+      />
 
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Instances ({d.instances.length})

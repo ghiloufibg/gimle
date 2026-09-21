@@ -10,7 +10,7 @@ import { useCanIStore } from "./useCanIStore";
 
 describe("useCanIStore", () => {
   beforeEach(() => {
-    useCanIStore.setState({ results: {} });
+    useCanIStore.setState({ results: {}, epoch: 0 });
     useAuthStore.setState({ principal: null });
   });
 
@@ -75,5 +75,39 @@ describe("useCanIStore", () => {
     useAuthStore.setState({ principal: { username: "another-op", groups: [] } });
 
     expect(useCanIStore.getState().results).toEqual({});
+  });
+
+  it("bumps epoch on every clear, so a mounted useCanI whose own key never changes still re-asks", async () => {
+    // Regression: a control that had already resolved `true` must not read as permanently
+    // disabled just because a *transient* clear (a stray 401 racing a login/logout, not a real
+    // change of who is signed in as far as an already-rendered screen is concerned) wiped the
+    // cache after its own effect had already fired once. useCanI's effect depends on `epoch`
+    // precisely so a clear -- for any reason -- re-triggers every already-mounted question.
+    const before = useCanIStore.getState().epoch;
+
+    useCanIStore.getState().clear();
+    expect(useCanIStore.getState().epoch).toBe(before + 1);
+
+    useCanIStore.getState().clear();
+    expect(useCanIStore.getState().epoch).toBe(before + 2);
+  });
+
+  it("re-resolves a question after a clear, exactly as a re-mounted useCanI consumer would", async () => {
+    vi.mocked(canIRepo.check).mockResolvedValue(true);
+
+    useCanIStore.getState().check("TENANT", "DELETE", "acme");
+    await vi.waitFor(() => {
+      expect(useCanIStore.getState().results["TENANT:DELETE:acme"]).toBe(true);
+    });
+
+    useCanIStore.getState().clear();
+    expect(useCanIStore.getState().results["TENANT:DELETE:acme"]).toBeUndefined();
+
+    // The same call a useCanI consumer's effect would re-issue once `epoch` changed.
+    useCanIStore.getState().check("TENANT", "DELETE", "acme");
+    await vi.waitFor(() => {
+      expect(useCanIStore.getState().results["TENANT:DELETE:acme"]).toBe(true);
+    });
+    expect(canIRepo.check).toHaveBeenCalledTimes(2);
   });
 });

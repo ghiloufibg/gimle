@@ -18,6 +18,7 @@ import { StatusBadge } from "@/components/status";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/secretmaps")({
   validateSearch: tenantScopeSearch,
@@ -60,6 +61,8 @@ function SecretMapsPage() {
   } = useSecretMapsStore();
   const [nameInput, setNameInput] = useState("");
   const [rows, setRows] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
+  const canWrite = useCanI("SECRETMAP", "WRITE", tenantId ?? undefined);
+  const canDelete = useCanI("SECRETMAP", "DELETE", tenantId ?? undefined);
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -208,8 +211,12 @@ function SecretMapsPage() {
                           e.stopPropagation();
                           onDelete(name);
                         }}
-                        className="text-muted-foreground hover:text-status-bad"
+                        disabled={!canDelete}
+                        className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                         aria-label="Delete secretmap"
+                        title={
+                          canDelete === false ? "You don't have permission to do that." : undefined
+                        }
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -236,7 +243,7 @@ function SecretMapsPage() {
               <Input
                 className="h-8 w-64 font-mono text-xs"
                 value={nameInput}
-                disabled={selected !== null}
+                disabled={selected !== null || !canWrite}
                 onChange={(e) => setNameInput(e.target.value)}
                 placeholder="db-creds"
               />
@@ -282,6 +289,7 @@ function SecretMapsPage() {
                     value={row.key}
                     onChange={(e) => updateRow(i, "key", e.target.value)}
                     placeholder="key"
+                    disabled={!canWrite}
                   />
                   <Input
                     type="password"
@@ -289,21 +297,28 @@ function SecretMapsPage() {
                     value={row.value}
                     onChange={(e) => updateRow(i, "value", e.target.value)}
                     placeholder="value"
+                    disabled={!canWrite}
                   />
                   <button
                     onClick={() => removeRow(i)}
-                    className="text-muted-foreground hover:text-status-bad"
+                    disabled={!canWrite}
+                    className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                     aria-label="Remove key"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
                 </div>
               ))}
-              <Button size="sm" variant="outline" onClick={addRow}>
+              <Button size="sm" variant="outline" onClick={addRow} disabled={!canWrite}>
                 Add key
               </Button>
             </div>
-            <Button size="sm" onClick={onSave}>
+            <Button
+              size="sm"
+              onClick={onSave}
+              disabled={!canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               Save
             </Button>
             {lastSetResults && lastSetResults.some((r) => r.error) && (
@@ -346,6 +361,12 @@ function SecretMapsPage() {
                               variant="outline"
                               className="h-6 px-2 text-[10px]"
                               onClick={() => onRollback(v.groupVersion)}
+                              disabled={!canWrite}
+                              title={
+                                canWrite === false
+                                  ? "You don't have permission to do that."
+                                  : undefined
+                              }
                             >
                               Roll back
                             </Button>

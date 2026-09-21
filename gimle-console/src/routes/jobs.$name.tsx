@@ -19,6 +19,7 @@ import { fmtBytes, fmtMillicores } from "@/lib/format";
 import { FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/jobs/$name")({
   head: ({ params }) => ({
@@ -46,6 +47,7 @@ function JobDetail() {
   }, [name, getOrFetch]);
 
   const j = items.find((x) => x.spec.name === name);
+  const canDelete = useCanI("JOB", "DELETE", j?.spec.tenantId ?? undefined);
 
   if (notFound) {
     return (
@@ -90,7 +92,12 @@ function JobDetail() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete job
                 </Button>

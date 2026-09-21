@@ -14,6 +14,8 @@ import { ResourceTree } from "@/addons/applications/components/resource-tree";
 import { kindSlug, type Application } from "@/addons/applications/model";
 import { isRevisioned, useApplicationsStore } from "@/addons/applications/store";
 import { GENERATED_JOBS_SHOWN, treeIsUseful } from "@/addons/applications/tree";
+import { useCanI } from "@/hooks/use-can-i";
+import type { ResourceKind } from "@/types";
 
 function Stat({
   label,
@@ -167,6 +169,14 @@ function ResourceList({ app }: { app: Application }) {
   );
 }
 
+/** The three revisioned slugs {@link isRevisioned} recognizes, mapped to the resource kind
+ * ApiServer's own rollback route authorizes each one as. */
+const REVISIONED_RESOURCE_KIND: Record<string, ResourceKind> = {
+  deployment: "DEPLOYMENT",
+  statefulset: "STATEFULSET",
+  daemonset: "DAEMONSET",
+};
+
 export function ApplicationDetailPage({
   kind,
   name,
@@ -186,6 +196,16 @@ export function ApplicationDetailPage({
   }, []);
 
   useAutoRefresh(poll);
+
+  // Called unconditionally (Rules of Hooks) even for a non-revisioned kind, whose result is then
+  // simply never read -- isRevisioned(kind) below decides whether the panel using it renders at
+  // all, and REVISION_RESOURCE_KIND has no risk-bearing default to fall back on for a kind that
+  // isn't in it.
+  const canRollback = useCanI(
+    REVISIONED_RESOURCE_KIND[kind] ?? "DEPLOYMENT",
+    "WRITE",
+    tenant ?? undefined,
+  );
 
   const app = useMemo(
     () =>
@@ -306,7 +326,11 @@ export function ApplicationDetailPage({
       </Panel>
 
       {isRevisioned(kind) && (
-        <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
+        <RevisionHistoryPanel
+          revisions={revisions}
+          onRollback={handleRollback}
+          canRollback={canRollback}
+        />
       )}
 
       {app.detail.type === "custom" && app.detail.columns.length > 0 && (

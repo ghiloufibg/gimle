@@ -33,6 +33,7 @@ import { useServicesStore } from "@/stores/useServicesStore";
 import { useNetworkPoliciesStore } from "@/stores/useNetworkPoliciesStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
 import type { NetworkPolicy, Service, ServiceEndpoints } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/networking")({
   head: () => ({
@@ -64,15 +65,22 @@ function Confirm({
   title,
   description,
   onConfirm,
+  disabled,
 }: {
   title: string;
   description: string;
   onConfirm: () => void;
+  disabled?: boolean;
 }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <button className="text-muted-foreground hover:text-status-bad" aria-label={title}>
+        <button
+          disabled={disabled}
+          className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
+          aria-label={title}
+          title={disabled ? "You don't have permission to do that." : undefined}
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </AlertDialogTrigger>
@@ -184,6 +192,40 @@ const emptyServiceForm = {
   targetPort: "",
 };
 
+/** A distinct component instance per row -- rather than a `useCanI` call inside the table's own
+ * `.map()`, which would violate the Rules of Hooks as rows are added/removed. Each Service can
+ * belong to a different tenant, so the delete grant genuinely varies row to row. */
+function ServiceRowActions({
+  name,
+  tenantId,
+  onEdit,
+  onDelete,
+}: {
+  name: string;
+  tenantId: string | undefined;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const canDelete = useCanI("SERVICE", "DELETE", tenantId || undefined);
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={onEdit}
+        className="text-muted-foreground hover:text-foreground"
+        aria-label={`Edit service ${name}`}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <Confirm
+        title={`Delete service ${name}?`}
+        description="Callers dialing this name lose their stable address immediately."
+        onConfirm={onDelete}
+        disabled={!canDelete}
+      />
+    </div>
+  );
+}
+
 function ServicesTab() {
   const { items, loading, loaded, error, load, refresh, save, remove, fetchEndpoints, poll } =
     useServicesStore();
@@ -195,6 +237,7 @@ function ServicesTab() {
   const [form, setForm] = useState(emptyServiceForm);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [endpoints, setEndpoints] = useState<Record<string, ServiceEndpoints | "loading">>({});
+  const canWrite = useCanI("SERVICE", "WRITE", form.tenantId || undefined);
 
   useEffect(() => {
     if (!loaded) load();
@@ -351,7 +394,12 @@ function ServicesTab() {
                 Cancel
               </Button>
             )}
-            <Button type="submit" size="sm" disabled={loading}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={loading || !canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               <Plus className="h-3.5 w-3.5" />
               {editing ? "Save service" : "Create service"}
             </Button>
@@ -406,36 +454,28 @@ function ServicesTab() {
                       {s.port} → {s.targetPort ?? "auto"}
                     </td>
                     <td className="px-2 py-1.5">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => {
-                            setEditing(s.name);
-                            setName(s.name);
-                            setForm({
-                              tenantId: s.tenantId ?? "",
-                              deploymentNames: s.deploymentNames.join(", "),
-                              port: String(s.port),
-                              targetPort: s.targetPort === undefined ? "" : String(s.targetPort),
-                            });
-                          }}
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label={`Edit service ${s.name}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <Confirm
-                          title={`Delete service ${s.name}?`}
-                          description="Callers dialing this name lose their stable address immediately."
-                          onConfirm={async () => {
-                            try {
-                              await remove(s.name);
-                              toast.success("Service deleted");
-                            } catch (err) {
-                              notifyApiError(err);
-                            }
-                          }}
-                        />
-                      </div>
+                      <ServiceRowActions
+                        name={s.name}
+                        tenantId={s.tenantId}
+                        onEdit={() => {
+                          setEditing(s.name);
+                          setName(s.name);
+                          setForm({
+                            tenantId: s.tenantId ?? "",
+                            deploymentNames: s.deploymentNames.join(", "),
+                            port: String(s.port),
+                            targetPort: s.targetPort === undefined ? "" : String(s.targetPort),
+                          });
+                        }}
+                        onDelete={async () => {
+                          try {
+                            await remove(s.name);
+                            toast.success("Service deleted");
+                          } catch (err) {
+                            notifyApiError(err);
+                          }
+                        }}
+                      />
                     </td>
                   </tr>
                   {isOpen && (
@@ -488,6 +528,40 @@ const emptyPolicyForm = {
   allowedCallerTenantIds: "",
 };
 
+/** A distinct component instance per row -- rather than a `useCanI` call inside the table's own
+ * `.map()`, which would violate the Rules of Hooks as rows are added/removed. Each NetworkPolicy
+ * belongs to its own tenant, so the delete grant genuinely varies row to row. */
+function NetworkPolicyRowActions({
+  name,
+  tenantId,
+  onEdit,
+  onDelete,
+}: {
+  name: string;
+  tenantId: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const canDelete = useCanI("NETWORK_POLICY", "DELETE", tenantId);
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={onEdit}
+        className="text-muted-foreground hover:text-foreground"
+        aria-label={`Edit network policy ${name}`}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <Confirm
+        title={`Delete network policy ${name}?`}
+        description="Every other tenant currently allowed by this policy loses cross-tenant access immediately."
+        onConfirm={onDelete}
+        disabled={!canDelete}
+      />
+    </div>
+  );
+}
+
 function NetworkPoliciesTab() {
   const { items, loading, loaded, error, load, refresh, save, remove, poll } =
     useNetworkPoliciesStore();
@@ -497,6 +571,7 @@ function NetworkPoliciesTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [form, setForm] = useState(emptyPolicyForm);
+  const canWrite = useCanI("NETWORK_POLICY", "WRITE", form.tenantId || undefined);
 
   useEffect(() => {
     if (!loaded) load();
@@ -595,7 +670,12 @@ function NetworkPoliciesTab() {
                 Cancel
               </Button>
             )}
-            <Button type="submit" size="sm" disabled={loading}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={loading || !canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               <Plus className="h-3.5 w-3.5" />
               {editing ? "Save policy" : "Create policy"}
             </Button>
@@ -636,35 +716,27 @@ function NetworkPoliciesTab() {
                     : p.allowedCallerTenantIds.join(", ")}
                 </td>
                 <td className="px-2 py-1.5">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setEditing(p.name);
-                        setName(p.name);
-                        setForm({
-                          tenantId: p.tenantId,
-                          deploymentNames: p.deploymentNames.join(", "),
-                          allowedCallerTenantIds: p.allowedCallerTenantIds.join(", "),
-                        });
-                      }}
-                      className="text-muted-foreground hover:text-foreground"
-                      aria-label={`Edit network policy ${p.name}`}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <Confirm
-                      title={`Delete network policy ${p.name}?`}
-                      description="Every other tenant currently allowed by this policy loses cross-tenant access immediately."
-                      onConfirm={async () => {
-                        try {
-                          await remove(p.name);
-                          toast.success("Network policy deleted");
-                        } catch (err) {
-                          notifyApiError(err);
-                        }
-                      }}
-                    />
-                  </div>
+                  <NetworkPolicyRowActions
+                    name={p.name}
+                    tenantId={p.tenantId}
+                    onEdit={() => {
+                      setEditing(p.name);
+                      setName(p.name);
+                      setForm({
+                        tenantId: p.tenantId,
+                        deploymentNames: p.deploymentNames.join(", "),
+                        allowedCallerTenantIds: p.allowedCallerTenantIds.join(", "),
+                      });
+                    }}
+                    onDelete={async () => {
+                      try {
+                        await remove(p.name);
+                        toast.success("Network policy deleted");
+                      } catch (err) {
+                        notifyApiError(err);
+                      }
+                    }}
+                  />
                 </td>
               </tr>
             ))}

@@ -19,6 +19,7 @@ import { StatusBadge } from "@/components/status";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/config")({
   validateSearch: tenantScopeSearch,
@@ -41,6 +42,15 @@ function ConfigPage() {
   const { tenantId, items, loading, setTenant, loadFirstPage, upsert, remove } = useConfigStore();
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [newEntry, setNewEntry] = useState({ key: "", value: "", encrypted: false });
+  // An entry's own `encrypted` flag picks which resource kind the write/delete is authorized as
+  // server-side (ApiServer's /config/{tenant}/{key} handler) -- CONFIG for a plain entry, SECRET
+  // for an encrypted one -- so both grants are checked and the form/each row picks the one that
+  // applies to it.
+  const canWriteConfig = useCanI("CONFIG", "WRITE", tenantId ?? undefined);
+  const canWriteSecret = useCanI("SECRET", "WRITE", tenantId ?? undefined);
+  const canDeleteConfig = useCanI("CONFIG", "DELETE", tenantId ?? undefined);
+  const canDeleteSecret = useCanI("SECRET", "DELETE", tenantId ?? undefined);
+  const canSaveNewEntry = newEntry.encrypted ? canWriteSecret : canWriteConfig;
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -146,7 +156,14 @@ function ConfigPage() {
                 Encrypted
               </Label>
             </div>
-            <Button type="submit" size="sm">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!canSaveNewEntry}
+              title={
+                canSaveNewEntry === false ? "You don't have permission to do that." : undefined
+              }
+            >
               Add / Update
             </Button>
           </form>
@@ -164,6 +181,7 @@ function ConfigPage() {
               <tbody>
                 {items.map((e) => {
                   const shown = !e.encrypted || revealed.has(e.key);
+                  const canDeleteThis = e.encrypted ? canDeleteSecret : canDeleteConfig;
                   return (
                     <tr key={e.key} className="border-t border-border hover:bg-muted/30">
                       <td className="px-2 py-1.5 font-mono">{e.key}</td>
@@ -193,8 +211,14 @@ function ConfigPage() {
                       <td className="px-2 py-1.5">
                         <button
                           onClick={() => remove(e.key)}
-                          className="text-muted-foreground hover:text-status-bad"
+                          disabled={!canDeleteThis}
+                          className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
                           aria-label="Delete entry"
+                          title={
+                            canDeleteThis === false
+                              ? "You don't have permission to do that."
+                              : undefined
+                          }
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>

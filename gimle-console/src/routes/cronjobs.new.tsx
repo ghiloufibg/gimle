@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
 import type { ConcurrencyPolicy, CronJobSpecInput } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/cronjobs/new")({
   head: () => ({
@@ -99,6 +100,9 @@ function NewCronJob() {
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<CronJobFormState>(DEFAULT_CRONJOB_FORM);
+  // CronJobs are authorized as JOB server-side (a CronJob generates Jobs; there is no separate
+  // CRONJOB resource kind) -- see ApiServer#handleCronJob.
+  const canCreate = useCanI("JOB", "WRITE", form.tenantId === "NONE" ? undefined : form.tenantId);
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -285,7 +289,12 @@ function NewCronJob() {
           </Select>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || !canCreate}
+            title={canCreate === false ? "You don't have permission to do that." : undefined}
+          >
             {saving ? "Creating…" : "Create cronjob"}
           </Button>
         </div>

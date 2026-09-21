@@ -30,6 +30,7 @@ import { useRolesStore } from "@/stores/useRolesStore";
 import { useRoleBindingsStore } from "@/stores/useRoleBindingsStore";
 import { useAccountsStore } from "@/stores/useAccountsStore";
 import type { Account, Permission } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/access-control")({
   head: () => ({
@@ -61,15 +62,22 @@ function Confirm({
   title,
   description,
   onConfirm,
+  disabled,
 }: {
   title: string;
   description: string;
   onConfirm: () => void;
+  disabled?: boolean;
 }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <button className="text-muted-foreground hover:text-status-bad" aria-label={title}>
+        <button
+          disabled={disabled}
+          className="text-muted-foreground hover:text-status-bad disabled:opacity-30 disabled:hover:text-muted-foreground"
+          aria-label={title}
+          title={disabled ? "You don't have permission to do that." : undefined}
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </AlertDialogTrigger>
@@ -126,6 +134,8 @@ function RolesTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const canWrite = useCanI("ROLE", "WRITE");
+  const canDelete = useCanI("ROLE", "DELETE");
 
   useEffect(() => {
     if (!loaded) load();
@@ -174,7 +184,12 @@ function RolesTab() {
                 Cancel
               </Button>
             )}
-            <Button type="submit" size="sm" disabled={loading}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={loading || !canWrite}
+              title={canWrite === false ? "You don't have permission to do that." : undefined}
+            >
               <Plus className="h-3.5 w-3.5" />
               {editing ? "Save role" : "Create role"}
             </Button>
@@ -229,6 +244,7 @@ function RolesTab() {
                           notifyApiError(err);
                         }
                       }}
+                      disabled={!canDelete}
                     />
                   </div>
                 </td>
@@ -275,6 +291,8 @@ function RoleBindingsTab() {
   const [subjectType, setSubjectType] = useState<SubjectType>("user");
   const [subjectName, setSubjectName] = useState("");
   const [roleName, setRoleName] = useState("");
+  const canWrite = useCanI("ROLE_BINDING", "WRITE");
+  const canDelete = useCanI("ROLE_BINDING", "DELETE");
 
   useEffect(() => {
     if (!loaded) load();
@@ -345,7 +363,12 @@ function RoleBindingsTab() {
               Cancel
             </Button>
           )}
-          <Button type="submit" size="sm" disabled={loading}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={loading || !canWrite}
+            title={canWrite === false ? "You don't have permission to do that." : undefined}
+          >
             <Plus className="h-3.5 w-3.5" />
             {editing ? "Save binding" : "Create binding"}
           </Button>
@@ -402,6 +425,7 @@ function RoleBindingsTab() {
                           notifyApiError(err);
                         }
                       }}
+                      disabled={!canDelete}
                     />
                   </div>
                 </td>
@@ -436,6 +460,8 @@ function AccountsTab() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [groups, setGroups] = useState("");
+  const canWrite = useCanI("ACCOUNT", "WRITE");
+  const canDelete = useCanI("ACCOUNT", "DELETE");
 
   useEffect(() => {
     if (!loaded) load();
@@ -524,7 +550,12 @@ function AccountsTab() {
               Cancel
             </Button>
           )}
-          <Button type="submit" size="sm" disabled={loading}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={loading || !canWrite}
+            title={canWrite === false ? "You don't have permission to do that." : undefined}
+          >
             Set / Reset Password
           </Button>
         </div>
@@ -571,7 +602,11 @@ function AccountsTab() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => startEdit(a)}
-                      className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                      disabled={!canWrite}
+                      className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                      title={
+                        canWrite === false ? "You don't have permission to do that." : undefined
+                      }
                     >
                       Set / reset password
                     </button>
@@ -586,6 +621,7 @@ function AccountsTab() {
                           notifyApiError(err);
                         }
                       }}
+                      disabled={!canDelete}
                     />
                   </div>
                 </td>
