@@ -190,7 +190,7 @@ class SagaTestListenerTest {
   void ignores_container_events() throws Exception {
     SagaTestListener listener = listenerAgainstStubServer(100);
     TestIdentifier container = containerIdentifier();
-    TestIdentifier test = testIdentifier("greets_politely");
+    TestIdentifier test = testIdentifier("greets_inside_a_container");
 
     listener.executionStarted(container);
     listener.executionStarted(test);
@@ -209,7 +209,7 @@ class SagaTestListenerTest {
     }
     SagaTestListener listener =
         new SagaTestListener("http://localhost:" + closedPort, RUN_ID, MODULE, 100);
-    TestIdentifier test = testIdentifier("greets_politely");
+    TestIdentifier test = testIdentifier("greets_unreachably");
 
     listener.executionStarted(test);
     listener.executionFinished(test, TestExecutionResult.failed(new AssertionError("boom")));
