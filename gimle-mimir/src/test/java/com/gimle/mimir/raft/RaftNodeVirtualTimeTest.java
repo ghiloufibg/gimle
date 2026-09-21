@@ -22,8 +22,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Exercises the {@link RaftNode} constructor overload that accepts an injected {@code Clock}/
  * {@code ScheduledExecutorService} pair: a {@link TestScheduler} built from a {@link TestClock}
  * fires the election-timeout and check-quorum tasks deterministically via {@code
- * advance(Duration)}, instead of a test waiting out the real 150-300ms election window or the real
- * 300ms check-quorum window.
+ * advance(Duration)}, instead of a test waiting out the real 300-1200ms election window or the real
+ * 2400ms check-quorum window.
  *
  * <p>The peer here is a synchronous in-memory stub, not a real socket -- unlike {@code
  * RaftClusterTest}'s real multi-node network fixture, so nothing about becoming leader or
@@ -169,9 +169,9 @@ class RaftNodeVirtualTimeTest {
       // Nothing has fired yet -- no real or virtual time has passed since start().
       assertFalse(node.isLeader());
 
-      // Advances straight past even the longest possible election timeout (150-300ms in
+      // Advances straight past even the longest possible election timeout (300-1200ms in
       // production) without spending a single real millisecond waiting for it.
-      scheduler.advance(Duration.ofMillis(300));
+      scheduler.advance(Duration.ofMillis(1200));
       // The vote itself resolves on a real background thread (see class javadoc) -- this bound
       // is generous, but in practice resolves in well under a millisecond for an in-memory stub.
       awaitTrue(node::isLeader, Duration.ofSeconds(2));
@@ -182,15 +182,15 @@ class RaftNodeVirtualTimeTest {
 
       // The peer's first attempt is still blocked on the gate -- genuinely in flight, not yet a
       // definite answer either way. A leader this new must not read the mere absence of an
-      // answer within the ordinary 300ms check-quorum window as evidence the peer is gone.
+      // answer within the ordinary 2400ms check-quorum window as evidence the peer is gone.
       scheduler.advance(Duration.ofMillis(300));
       Thread.sleep(20);
       assertTrue(
           node.isLeader(), "a brand-new leader must not self-demote while an attempt is in flight");
 
       // Still true an order of magnitude later, while that one attempt could still legitimately
-      // be in flight. This is the whole defect faa5282 fixed: judged against the 300ms window
-      // instead, every leader demotes on its first tick and its successor repeats it, so a
+      // be in flight. This is the whole defect faa5282 fixed: judged against the check-quorum
+      // window instead, every leader demotes on its first tick and its successor repeats it, so a
       // cluster whose peers are merely slow to accept connections -- a loaded machine, or one
       // restarting underneath a rolling platform upgrade -- elects leaders indefinitely without
       // any of them surviving long enough to serve a write.
@@ -240,7 +240,7 @@ class RaftNodeVirtualTimeTest {
             "self", Map.of("peer", peer), raftLog, store, Duration.ofSeconds(5), clock, scheduler);
     try {
       node.start();
-      scheduler.advance(Duration.ofMillis(300));
+      scheduler.advance(Duration.ofMillis(1200));
       awaitTrue(node::isLeader, Duration.ofSeconds(2));
       // Let several heartbeats complete, so this leader has genuinely reached quorum and is past
       // the new-leader grace entirely -- the state the QA cluster was in when it self-demoted.
@@ -257,8 +257,8 @@ class RaftNodeVirtualTimeTest {
       // compareAndSet clears the flag as a call enters the slow path, so this waits for one to be
       // genuinely blocked rather than merely armed.
       awaitTrue(() -> !peer.slow.get(), Duration.ofSeconds(5));
-      // Well past the 600ms check-quorum window, while that one attempt is still outstanding.
-      scheduler.advance(Duration.ofSeconds(3));
+      // Well past the 2400ms check-quorum window, while that one attempt is still outstanding.
+      scheduler.advance(Duration.ofSeconds(5));
       Thread.sleep(50);
 
       assertEquals(
@@ -298,7 +298,7 @@ class RaftNodeVirtualTimeTest {
       node.start();
       assertFalse(node.isLeader());
 
-      scheduler.advance(Duration.ofMillis(300));
+      scheduler.advance(Duration.ofMillis(1200));
       awaitTrue(node::isLeader, Duration.ofSeconds(2));
       // Lets the peer sender's first (immediately-failing) attempt actually run and mark this
       // peer's first attempt resolved before check-quorum's own next tick observes it.
@@ -311,8 +311,9 @@ class RaftNodeVirtualTimeTest {
       // not stall out for the full multi-second worst-case grace regardless. This is the
       // regression a static, unconditional grace period introduced: a fast-failing partition
       // must still be caught fast.
+      // 30 * 100ms = 3s of virtual time, comfortably past CHECK_QUORUM_WINDOW (2400ms).
       boolean selfDemoted = false;
-      for (int step = 0; step < 10 && !selfDemoted; step++) {
+      for (int step = 0; step < 30 && !selfDemoted; step++) {
         scheduler.advance(Duration.ofMillis(100));
         Thread.sleep(5);
         selfDemoted = !node.isLeader();

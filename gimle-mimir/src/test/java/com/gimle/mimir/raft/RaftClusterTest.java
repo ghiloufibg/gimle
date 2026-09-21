@@ -384,7 +384,8 @@ class RaftClusterTest {
     // peer is unreachable, so nothing could ever carry one back), not as a side effect of a
     // proposal timing out the way a_partitioned_minority_cannot_elect_a_leader_or_commit_writes
     // above already covers.
-    Await.until(() -> !isolated.raftNode().isLeader(), Duration.ofSeconds(2));
+    // Comfortably past CHECK_QUORUM_WINDOW (2400ms, twice ELECTION_TIMEOUT_MAX_MS).
+    Await.until(() -> !isolated.raftNode().isLeader(), Duration.ofSeconds(4));
 
     // The majority side elects its own new leader independently, unaffected by the isolated
     // node's own self-demotion.
@@ -402,9 +403,10 @@ class RaftClusterTest {
     List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
     ClusterNode leader = awaitLeader(cluster);
 
-    // Comfortably longer than CHECK_QUORUM_WINDOW (300ms) so at least one real self-assessment
-    // tick has definitely run and found a healthy majority.
-    Thread.sleep(800);
+    // Comfortably longer than CHECK_QUORUM_WINDOW (2400ms, twice ELECTION_TIMEOUT_MAX_MS) so at
+    // least one real self-assessment tick has definitely run a full window and found a healthy
+    // majority.
+    Thread.sleep(2600);
 
     assertTrue(leader.raftNode().isLeader());
   }

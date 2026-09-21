@@ -100,7 +100,10 @@ class NornCheckQuorumJitterRegressionTest {
       cluster.isolate(leader);
       Instant isolatedAt = Instant.now();
       Instant demotedAt = null;
-      for (int i = 0; i < 100 && demotedAt == null; i++) {
+      // 300 * 20ms = 6s of real time, comfortably past CHECK_QUORUM_WINDOW (2400ms, twice the
+      // widened ELECTION_TIMEOUT_MAX_MS -- see that field's own javadoc for why the follower-side
+      // election timeout was widened alongside it).
+      for (int i = 0; i < 300 && demotedAt == null; i++) {
         Thread.sleep(20);
         cluster.advanceVirtualTime(Duration.ofMillis(20));
         if (countDemotions(appender) > 0) {
@@ -111,7 +114,7 @@ class NornCheckQuorumJitterRegressionTest {
       // Generous relative to the doubled check-quorum window (see RaftNode#CHECK_QUORUM_WINDOW):
       // proves detection is still prompt, not that it hits any particular bound exactly.
       assertTrue(
-          Duration.between(isolatedAt, demotedAt).compareTo(Duration.ofSeconds(3)) < 0,
+          Duration.between(isolatedAt, demotedAt).compareTo(Duration.ofSeconds(5)) < 0,
           "genuine partition took too long to be detected: "
               + Duration.between(isolatedAt, demotedAt));
     } finally {

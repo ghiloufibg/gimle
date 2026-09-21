@@ -21,7 +21,7 @@ import org.junit.jupiter.api.parallel.Isolated;
  *
  * <p>Far more election/partition/recovery activity per real second than a live-timer test could
  * ever afford: {@link NornCluster#advanceVirtualTime} fires every due election-timeout/check-quorum
- * tick for free, so a round that would cost a real test 150-300ms of wall-clock waiting costs this
+ * tick for free, so a round that would cost a real test 300-1200ms of wall-clock waiting costs this
  * one only the real time its background threads need to actually process the resulting RPCs (tens
  * of milliseconds, not hundreds).
  */

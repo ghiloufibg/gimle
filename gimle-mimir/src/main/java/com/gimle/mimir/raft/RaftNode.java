@@ -52,8 +52,20 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final Logger log = LoggerFactory.getLogger(RaftNode.class);
 
   private static final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
-  private static final int ELECTION_TIMEOUT_MIN_MS = 150;
-  private static final int ELECTION_TIMEOUT_MAX_MS = 300;
+
+  /**
+   * A follower/candidate's own election timeout -- randomized per node within this range on every
+   * reset to avoid split votes. Widened from an original 150-300ms after {@code
+   * NornElectionTimeoutJitterRegressionTest} measured the narrower window causing a follower to
+   * routinely call a spurious election (the term climbing 17-22 times in 4 simulated seconds) under
+   * ordinary real-world RPC scheduling jitter -- the same class of false-positive {@link
+   * #CHECK_QUORUM_WINDOW}'s own javadoc documents on the leader side, just unaddressed on the
+   * follower side until now. {@link #CHECK_QUORUM_WINDOW} is derived from {@link
+   * #ELECTION_TIMEOUT_MAX_MS} and widens along with it.
+   */
+  private static final int ELECTION_TIMEOUT_MIN_MS = 600;
+
+  private static final int ELECTION_TIMEOUT_MAX_MS = 1200;
 
   /**
    * Overridable via {@code -Dgimle.raft.proposeTimeoutSeconds} -- production default stays 5s
@@ -574,11 +586,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       if (peers.isEmpty()) {
         // A single-node cluster's majority is 1 -- self alone -- so there is nothing to elect;
         // waiting out a real election timeout here would make every single-process caller (every
-        // existing pre-Raft ApiServer/ControlPlaneMain usage) block for 150-300ms before its
-        // first write. startElectionLocked() already becomes leader immediately once the
-        // self-vote alone reaches majority (its own majority check runs before contacting any
-        // peer), so this is the same real logic, just skipping the timer wait that peers.isEmpty()
-        // makes pointless.
+        // existing pre-Raft ApiServer/ControlPlaneMain usage) block for up to
+        // ELECTION_TIMEOUT_MAX_MS before its first write. startElectionLocked() already becomes
+        // leader immediately once the self-vote alone reaches majority (its own majority check
+        // runs before contacting any peer), so this is the same real logic, just skipping the
+        // timer wait that peers.isEmpty() makes pointless.
         startElectionLocked();
       } else {
         resetElectionTimerLocked();

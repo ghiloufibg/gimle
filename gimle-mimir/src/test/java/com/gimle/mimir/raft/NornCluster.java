@@ -22,7 +22,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * An in-process, virtual-time Raft cluster: {@link #nodeIds} real {@link RaftNode}s wired directly
  * to each other's {@link RaftRpcHandler} methods (no sockets, no {@link RaftTransport}), sharing
  * one {@link TestClock} so {@link #advanceVirtualTime} can fire every node's
- * election-timeout/check- quorum tick without spending real time waiting out the 150-300ms/300ms
+ * election-timeout/check- quorum tick without spending real time waiting out the 300-1200ms/2400ms
  * production windows -- the same seam {@link RaftNodeVirtualTimeTest} exercises for one node,
  * generalized here to a full cluster plus a seeded fault-injection surface ({@link #isolate}/{@link
  * #heal}/{@link #restart}) so {@code NornRaftSimulationTest} can run far more
@@ -276,6 +276,14 @@ final class NornCluster implements AutoCloseable {
 
   Optional<String> currentLeader() {
     return nodeIds.stream().filter(id -> nodesById.get(id).isLeader()).findFirst();
+  }
+
+  /**
+   * {@code id}'s own current Raft term -- a rise with no genuine fault injected is exactly what a
+   * spurious election (self-demotion or a follower's own election timer firing early) looks like.
+   */
+  long termOf(String id) {
+    return logsById.get(id).currentTerm();
   }
 
   /** Best-effort: proposes through {@code id} if it's currently leader, swallowing rejection. */
