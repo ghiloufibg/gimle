@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
 import { Trash2 } from "lucide-react";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/tenants/$id")({
   head: ({ params }) => ({
@@ -60,6 +61,12 @@ function TenantDetail() {
       });
     }
   }, [t]);
+
+  // Asked with the route param, not `t.id`, so both requests start immediately rather than
+  // waiting on the tenant fetch to resolve first -- and so these two Hook calls stay unconditional
+  // ahead of the early returns below.
+  const canDelete = useCanI("TENANT", "DELETE", id);
+  const canWrite = useCanI("TENANT", "WRITE", id);
 
   if (notFound) {
     return (
@@ -115,7 +122,12 @@ function TenantDetail() {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canDelete}
+                  title={canDelete === false ? "You don't have permission to do that." : undefined}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete
                 </Button>
@@ -181,6 +193,7 @@ function TenantDetail() {
             className="h-9 font-mono text-sm"
             value={form.mem}
             onChange={(e) => setForm({ ...form, mem: e.target.value })}
+            disabled={!canWrite}
           />
         </div>
         <div className="grid gap-1.5">
@@ -189,6 +202,7 @@ function TenantDetail() {
             className="h-9 font-mono text-sm"
             value={form.cpu}
             onChange={(e) => setForm({ ...form, cpu: e.target.value })}
+            disabled={!canWrite}
           />
         </div>
         <div className="grid gap-1.5">
@@ -197,10 +211,16 @@ function TenantDetail() {
             className="h-9 font-mono text-sm"
             value={form.inst}
             onChange={(e) => setForm({ ...form, inst: e.target.value })}
+            disabled={!canWrite}
           />
         </div>
         <div className="flex justify-end">
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || !canWrite}
+            title={canWrite === false ? "You don't have permission to do that." : undefined}
+          >
             {saving ? "Saving…" : "Save quota"}
           </Button>
         </div>

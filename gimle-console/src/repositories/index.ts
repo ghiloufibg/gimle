@@ -30,6 +30,7 @@ import { HttpSealRepository } from "./http/seal";
 import { HttpEventsRepository } from "./http/events";
 import { HttpMetricsRepository } from "./http/metrics";
 import { HttpAuthzVocabularyRepository } from "./http/authzVocabulary";
+import { HttpCanIRepository } from "./http/authz";
 import { HttpIngressesRepository } from "./http/ingresses";
 import { HttpControlPlaneHealthRepository } from "./http/controlPlaneHealth";
 
@@ -65,4 +66,5 @@ export const sealRepo = new HttpSealRepository();
 export const eventsRepo = new HttpEventsRepository();
 export const metricsRepo = new HttpMetricsRepository();
 export const authzVocabularyRepo = new HttpAuthzVocabularyRepository();
+export const canIRepo = new HttpCanIRepository();
 export const controlPlaneHealthRepo = new HttpControlPlaneHealthRepository();

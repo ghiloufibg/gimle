@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { describeApiError, isSessionExpired, notifyApiError } from "@/lib/api-error";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
+import { useCanI } from "@/hooks/use-can-i";
 
 export const Route = createFileRoute("/deployments/new")({
   head: () => ({
@@ -67,6 +68,15 @@ function NewDeployment() {
     maxUnavailable: "1",
     maxSurge: "0",
   });
+
+  // Re-asked whenever the tenant picker changes -- a deployment write grant is commonly
+  // tenant-scoped, so the question this control actually needs answered isn't "can I write
+  // deployments" in general, but "can I write one for the tenant currently selected."
+  const canCreate = useCanI(
+    "DEPLOYMENT",
+    "WRITE",
+    form.tenantId === "NONE" ? undefined : form.tenantId,
+  );
 
   function buildAutoscale(): AutoscalePolicy | undefined {
     if (!autoOpen) return undefined;
@@ -397,7 +407,12 @@ function NewDeployment() {
           )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || !canCreate}
+            title={canCreate === false ? "You don't have permission to do that." : undefined}
+          >
             {saving ? "Creating…" : "Create deployment"}
           </Button>
         </div>
